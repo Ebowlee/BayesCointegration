@@ -259,7 +259,5 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         return not (has1 and has2)
 
 
-
-
     
 

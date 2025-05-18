@@ -59,11 +59,11 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
 
         # 多空方向决定最终权重正负
         if direction == InsightDirection.Up:
-            self.algorithm.Debug(f"[PC] 建仓方向: Up, 协整对: {symbol1.Value}/{symbol2.Value}, beta={beta:.4f}, scale={scale:.4f}")
+            self.algorithm.Debug(f"[PC] 建仓方向: Up, 协整对: symbol1:{symbol1.Value}{scale:.4f}, symbold2={symbol2.Value}{beta*scale:.4f}")
             return [PortfolioTarget(symbol1, scale), PortfolioTarget(symbol2, -scale * beta)]
         
         elif direction == InsightDirection.Down:
-            self.algorithm.Debug(f"[PC] 建仓方向: Down, 协整对: {symbol1.Value}/{symbol2.Value}, beta={beta:.4f}, scale={scale:.4f}")
+            self.algorithm.Debug(f"[PC] 建仓方向: Down, 协整对: symbol1:{symbol1.Value}{scale:.4f}, symbold2:{symbol2.Value}{beta*scale:.4f}")
             return [PortfolioTarget(symbol1, -scale), PortfolioTarget(symbol2, scale * beta)]
         
         elif direction == InsightDirection.Flat:
