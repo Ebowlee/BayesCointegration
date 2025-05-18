@@ -1,0 +1,54 @@
+
+【QuantConnect Insight 传递与结构规范总结】
+
+✅ 问题核心：
+QuantConnect 框架要求 AlphaModel.Update() 返回的是一个 **扁平化的 List[Insight]**，
+即 [Insight1, Insight2, Insight3]，不能出现嵌套结构，如 [[Insight]] 或 [Insight, [Insight]]，
+也不能包含 None。
+
+---
+
+✅ 常见错误：
+1. 在 GenerateSignals() 中写：insight = Insight.Price(...)，然后 return insight ➜ ❌ 错误返回类型（Insight 而非 list）
+2. 在 Update() 中使用 Insights.extend(pair_insight) 时，pair_insight 是 Insight 或 [Insight] 混合 ➜ ❌ 混入单个对象或嵌套 list 报错
+
+---
+
+✅ 正确写法：
+
+【GenerateSignals 模板】
+```python
+def GenerateSignals(...):
+    insights = []
+    if condition:
+        insights.append(Insight.Price(...))
+    ...
+    return insights  # ✅ 始终返回 list[Insight]
+```
+
+【Update 模板】
+```python
+Insights = []
+for ...:
+    pair_insights = self.GenerateSignals(...)
+    Insights.extend(pair_insights)  # ✅ 安全展开
+return Insights
+```
+
+---
+
+✅ 推荐命名习惯：
+- insight：单个 Insight 对象
+- insights：Insight 列表 ➜ 推荐使用
+
+---
+
+✅ 其他补充说明：
+- Insight.Price(symbol, timedelta, direction) 是 Python API 推荐方式，Lean 接受 timedelta 类型
+- return [insight] if insight is not None else [] 是确保 list 返回格式的好写法
+- extend([]) 对空列表是安全的，不会抛错
+
+---
+
+🎉 你已经完成了 AlphaModel → Insight → PortfolioConstruction 的整合开发流程中的一大技术难点，
+下一步可继续扩展多资产对称信号、权重控制、置信度评估等内容。

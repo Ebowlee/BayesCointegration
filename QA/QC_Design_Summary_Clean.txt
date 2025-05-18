@@ -1,0 +1,38 @@
+【核心主题】：QuantConnect 中模块解耦设计与实例/变量作用域
+
+1. universeSelectionModel 是什么？
+- universeSelectionModel = MyUniverseSelectionModel(self)：创建一个实例，但仅是局部变量，只在 Initialize 内有效。
+- self.universeSelectionModel = MyUniverseSelectionModel(self)：同样是实例，但挂在算法对象上，生命周期长，可被其他模块访问。
+
+2. 为什么改用 self.universeSelectionModel？
+- 方便 AlphaModel 使用 self.algorithm.universeSelectionModel.cointegrated_pairs 访问协整对。
+- 达到“低耦合 + 实时共享”的目标。
+- 否则在 AlphaModel 中访问不到该对象。
+
+3. self.SetStartDate(...) 中的 self 是什么？
+- 是 BayesianCointegrationStrategy 的实例。
+- SetStartDate 是继承自 QCAlgorithm 的方法。
+- 调用方式是标准 Python 的面向对象写法。
+
+4. cointegrated_pairs 是什么变量？
+- self.cointegrated_pairs：实例变量，每个对象独立拥有，推荐。
+- cointegrated_pairs（类外定义）：模块级全局变量，不推荐。
+- class X: cointegrated_pairs = {...}：类变量，多个实例共享，状态污染风险高。
+
+5. 模块间数据传递推荐方式
+- 协整对保存为 UniverseSelectionModel 的实例变量。
+- AlphaModel 通过 self.algorithm.universeSelectionModel 访问。
+- 可用 Insight.Tag 传递额外信息到 PortfolioConstruction。
+
+6. 实例变量 vs 类变量 vs 全局变量
+- 实例变量（self.x）：局部隔离，推荐。
+- 类变量（Class.x）：全体共享，不适合存状态。
+- 模块级变量（global x）：跨模块共享，风险最大。
+
+总结：
+使用 self.universeSelectionModel 是推荐的结构，既解耦又能跨模块访问；通过 self.algorithm.xxx 是 QC 框架下标准的模块通信机制。
+
+7. 关于 algorithm 参数的传递与用途
+- 在 UniverseSelectionModel 和 AlphaModel 的 __init__(self, algorithm) 中，algorithm 实际上传入的是主策略类 BayesianCointegrationStrategy 的实例（即 self）。
+- 因此，在子模块中写 self.algorithm.Debug(...) 或 self.algorithm.History(...)，实际上调用的是 QCAlgorithm 提供的功能。
+- 这是一种模块内反向访问主程序上下文的标准方式。
