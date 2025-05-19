@@ -42,6 +42,10 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
             symbol1, symbol2 = insight1.Symbol, insight2.Symbol
             direction = insight1.Direction  # 默认以 insight1 为主方向
 
+            # 打印该组的 GroupId 和其包含的 Insight 简要信息
+            insight_info = ", ".join([f"{ins.Symbol.Value}|{ins.Direction}" for ins in group])
+            self.algorithm.Debug(f"[PC] 处理 GroupId: {group_id}，包含的 Insights: {insight_info}")
+
             # 尝试解析 beta
             try:
                 tag_parts = insight1.Tag.split('|')
@@ -72,11 +76,11 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
 
         # 多空方向决定最终权重正负
         if direction == InsightDirection.Up:
-            self.algorithm.Debug(f"[PC] 协整对建仓:{symbol1.Value}{scale:.4f} up, {symbol2.Value}{beta*scale:.4f} down")
+            self.algorithm.Debug(f"[PC] 协整对建仓:UP {symbol1.Value}-{scale:.4f}, DOWN {symbol2.Value}-{beta*scale:.4f}, beta={beta:.4f}")
             return [PortfolioTarget(symbol1, scale), PortfolioTarget(symbol2, -scale * beta)]
         
         elif direction == InsightDirection.Down:
-            self.algorithm.Debug(f"[PC] 协整对建仓:{symbol1.Value}{scale:.4f} down, {symbol2.Value}{beta*scale:.4f} up")
+            self.algorithm.Debug(f"[PC] 协整对建仓:DOWN {symbol1.Value}-{scale:.4f}, UP {symbol2.Value}-{beta*scale:.4f}, beta={beta:.4f}")
             return [PortfolioTarget(symbol1, -scale), PortfolioTarget(symbol2, scale * beta)]
         
         elif direction == InsightDirection.Flat:

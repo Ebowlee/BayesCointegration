@@ -252,11 +252,13 @@ class BayesianCointegrationAlphaModel(AlphaModel):
 
 
     def ShouldEmitInsightPair(self, symbol1, direction1, symbol2, direction2):
-        has1 = self.algorithm.insights.has_active_insights(symbol1, self.algorithm.utc_time)
-        has2 = self.algorithm.insights.has_active_insights(symbol2, self.algorithm.utc_time)
+        active_insights = self.algorithm.insights.get_active_insights(self.algorithm.utc_time)
+        for insight in active_insights:
+            if (insight.Symbol == symbol1 and insight.Direction == direction1) or \
+            (insight.Symbol == symbol2 and insight.Direction == direction2):
+                return False
+        return True
 
-        self.algorithm.Debug(f"[去重检查] {symbol1.Value}|{direction1} active={has1}, {symbol2.Value}|{direction2} active={has2}")
-        return not (has1 and has2)
 
 
     
