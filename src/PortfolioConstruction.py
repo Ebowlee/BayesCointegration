@@ -24,21 +24,34 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
 
     def CreateTargets(self, algorithm, insights):
         targets = []
-        for i in range(0, len(insights), 2):
-            insight1 = insights[i]
-            insight2 = insights[i + 1]
-            symbol1 = insight1.Symbol
-            symbol2 = insight2.Symbol
-            direction1 = insight1.Direction
+        # 按 GroupId 分组
+        grouped_insights = defaultdict(list)
+        for insight in insights:
+            if insight.GroupId is not None:
+                grouped_insights[insight.GroupId].append(insight)
+            else:
+                self.algorithm.Debug(f"[PC] 未分组的 Insight: {insight.Symbol.Value}, 忽略")
+        
+        # 遍历每组 Insight
+        for group_id, group in grouped_insights.items():
+            if len(group) != 2:
+                self.algorithm.Debug(f"[PC] GroupId {group_id} 包含 {len(group)} 个 Insight，预期应为2，跳过")
+                continue
 
+            insight1, insight2 = group
+            symbol1, symbol2 = insight1.Symbol, insight2.Symbol
+            direction = insight1.Direction  # 默认以 insight1 为主方向
+
+            # 尝试解析 beta
             try:
                 tag_parts = insight1.Tag.split('|')
                 beta_mean = float(tag_parts[1])
-            except:
-                self.algorithm.Debug(f"[PC] 无法解析Insight Tag: {insight1.Tag}")
+            except Exception as e:
+                self.algorithm.Debug(f"[PC] 无法从 Insight Tag 中解析 beta: {insight1.Tag}, 错误: {e}")
                 continue
 
-            targets += self._BuildPairTargets(symbol1, symbol2, direction1, insights, beta_mean)
+            pair_targets = self._BuildPairTargets(symbol1, symbol2, direction, group, beta_mean)
+            targets += pair_targets
 
         return targets
 
@@ -59,11 +72,11 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
 
         # 多空方向决定最终权重正负
         if direction == InsightDirection.Up:
-            self.algorithm.Debug(f"[PC] 建仓方向: Up, 协整对: symbol1:{symbol1.Value}{scale:.4f}, symbold2={symbol2.Value}{beta*scale:.4f}")
+            self.algorithm.Debug(f"[PC] 协整对建仓:{symbol1.Value}{scale:.4f} up, {symbol2.Value}{beta*scale:.4f} down")
             return [PortfolioTarget(symbol1, scale), PortfolioTarget(symbol2, -scale * beta)]
         
         elif direction == InsightDirection.Down:
-            self.algorithm.Debug(f"[PC] 建仓方向: Down, 协整对: symbol1:{symbol1.Value}{scale:.4f}, symbold2:{symbol2.Value}{beta*scale:.4f}")
+            self.algorithm.Debug(f"[PC] 协整对建仓:{symbol1.Value}{scale:.4f} down, {symbol2.Value}{beta*scale:.4f} up")
             return [PortfolioTarget(symbol1, -scale), PortfolioTarget(symbol2, scale * beta)]
         
         elif direction == InsightDirection.Flat:
