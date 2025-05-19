@@ -35,7 +35,7 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         # 遍历每组 Insight
         for group_id, group in grouped_insights.items():
             if len(group) != 2:
-                self.algorithm.Debug(f"[PC] GroupId {group_id} 包含 {len(group)} 个 Insight，预期应为2，跳过")
+                self.algorithm.Debug(f"[PC] GroupId {group_id} 包含 {len(group)} 个 Insight, 预期应为2, 跳过")
                 continue
 
             insight1, insight2 = group
@@ -44,7 +44,7 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
 
             # 打印该组的 GroupId 和其包含的 Insight 简要信息
             insight_info = ", ".join([f"{ins.Symbol.Value}|{ins.Direction}" for ins in group])
-            self.algorithm.Debug(f"[PC] 处理 GroupId: {group_id}，包含的 Insights: {insight_info}")
+            self.algorithm.Debug(f"[PC] 处理 GroupId: {group_id}, 包含的 Insights: {insight_info}")
 
             # 尝试解析 beta
             try:
@@ -76,15 +76,15 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
 
         # 多空方向决定最终权重正负
         if direction == InsightDirection.Up:
-            self.algorithm.Debug(f"[PC] 协整对建仓:UP {symbol1.Value}-{scale:.4f}, DOWN {symbol2.Value}-{beta*scale:.4f}, beta={beta:.4f}")
+            self.algorithm.Debug(f"[PC] 协整对建仓:UP {symbol1.Value}|{scale:.4f}, DOWN {symbol2.Value}|{beta*scale:.4f}, beta={beta:.4f}")
             return [PortfolioTarget(symbol1, scale), PortfolioTarget(symbol2, -scale * beta)]
         
         elif direction == InsightDirection.Down:
-            self.algorithm.Debug(f"[PC] 协整对建仓:DOWN {symbol1.Value}-{scale:.4f}, UP {symbol2.Value}-{beta*scale:.4f}, beta={beta:.4f}")
+            self.algorithm.Debug(f"[PC] 协整对建仓:DOWN {symbol1.Value}|{scale:.4f}, UP {symbol2.Value}|{beta*scale:.4f}, beta={beta:.4f}")
             return [PortfolioTarget(symbol1, -scale), PortfolioTarget(symbol2, scale * beta)]
         
         elif direction == InsightDirection.Flat:
-            self.algorithm.Debug(f"[PC] 平仓: {symbol1.Value}/{symbol2.Value}")
+            self.algorithm.Debug(f"[PC] 平仓: {symbol1.Value}|0, {symbol2.Value}|0")
             return [PortfolioTarget(symbol1, 0), PortfolioTarget(symbol2, 0)]
         
         else:

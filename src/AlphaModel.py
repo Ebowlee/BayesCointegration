@@ -12,8 +12,8 @@ class BayesianCointegrationAlphaModel(AlphaModel):
     贝叶斯协整Alpha模型
     
     该模型通过基于贝叶斯方法并通过MCMC方法来生成 beta 和 alpha 的联合后验分布
-    通过beta alpha 的联合后验分布，计算残差分布，并计算残差z-score（理论依据是协整对残差平稳均值为零）
-    通过持续监控价格偏离程度和均值回归特性，在合适时机产生做多/做空信号。
+    通过beta alpha 的联合后验分布, 计算残差分布, 并计算残差z-score(理论依据是协整对残差平稳均值为零)
+    通过持续监控价格偏离程度和均值回归特性, 在合适时机产生做多/做空信号。
     """
     
     def __init__(self, algorithm):
@@ -21,18 +21,18 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         初始化Alpha模型
         
         参数:
-            algorithm:  QCAlgorithm实例，用于访问数据和记录日志
+            algorithm:  QCAlgorithm实例, 用于访问数据和记录日志
         """
         self.algorithm = algorithm
         self.lookback_period = 252  # 用于计算z分数的历史数据长度
 
         # 交易信号阈值
-        self.entry_threshold = 1.65  # 入场阈值（标准差倍数）
-        self.exit_threshold = 0.5   # 出场阈值（标准差倍数）
-        self.upper_bound = 3.0      # 上限阈值（避免在极端情况下入场）
-        self.lower_bound = -3.0     # 下限阈值（避免在极端情况下入场）
+        self.entry_threshold = 1.65  # 入场阈值(标准差倍数)
+        self.exit_threshold = 0.5   # 出场阈值(标准差倍数)
+        self.upper_bound = 3.0      # 上限阈值(避免在极端情况下入场)
+        self.lower_bound = -3.0     # 下限阈值(避免在极端情况下入场)
         
-        # 信号持续时间（以天为单位）
+        # 信号持续时间(以天为单位)
         self.signal_duration = timedelta(days=15)
 
         self.algorithm.Debug("贝叶斯协整Alpha模型初始化完成")
@@ -86,10 +86,6 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         else:
             self.algorithm.Debug("[Update] 本轮未生成任何 Insight")
 
-        active_insights = self.algorithm.insights.get_active_insights(self.algorithm.utc_time)
-        active_insights_symbols_direction = [f"{insight.Symbol.Value}|{insight.Direction}" for insight in active_insights]
-        self.algorithm.Debug(f"[Update] 当前活跃 Insight 总数: {len(active_insights)}，Symbols: {active_insights_symbols_direction}")
-
         return Insights
 
 
@@ -98,18 +94,17 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         """
         使用贝叶斯方法更新协整模型参数
         
-        该函数利用PyMC3框架构建线性回归模型，通过MCMC方法生成beta和alpha
-        的联合后验分布，用于后续的残差计算和交易信号生成。
+        该函数利用PyMC3框架构建线性回归模型, 通过MCMC方法生成beta和alpha的联合后验分布,
+        用于后续的残差计算和交易信号生成。
         
         参数:
-            pair_id:  股票对标识符 (symbol1, symbol2)
             price1:  第一只股票的价格序列
             price2:  第二只股票的价格序列
             
         返回:
-            dict: 包含所有参数集的后验分布列表，每组包含alpha、beta和sigma
+            dict: 包含所有参数集的后验分布列表, 每组包含alpha、beta和sigma
         """
-        # 用两个资产在过去252天内的价格数据，作为PyMC3模型的输入
+        # 用两个资产在过去252天内的价格数据, 作为PyMC3模型的输入
         # y = price1.values
         # x = price2.values
 
@@ -139,7 +134,7 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                 # 从后验分布中提取模型参数
                 posteriorParamSet = {}
                 posteriorParamSet= {
-                    'alpha': posterior['alpha'].values.flatten()    ,
+                    'alpha': posterior['alpha'].values.flatten(),
                     'beta': posterior['beta'].values.flatten(),
                     'beta_mean': posterior['beta'].values.flatten().mean(),
                     'sigmaOfEpsilon': posterior['sigmaOfEpsilon'].values.flatten()   
@@ -158,7 +153,7 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         计算残差并标准化为z分数
         
         该函数利用贝叶斯参数后验分布，计算当前价格的残差分布，
-        并将其标准化为z分数，用于判断价格偏离程度和生成交易信号。
+        并将其标准化为z分数, 用于判断价格偏离程度和生成交易信号。
         
         参数:
             price1:  第一只股票的价格序列
@@ -206,7 +201,7 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         """
         根据z分数生成交易信号
         
-        该函数根据计算出的z分数值，基于预设阈值生成做多、做空或平仓信号。
+        该函数根据计算出的z分数值, 基于预设阈值生成做多、做空或平仓信号。
         当价格偏离度超过阈值时生成反转交易信号，回归均值时生成平仓信号。
         
         参数:

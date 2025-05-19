@@ -17,7 +17,7 @@ class MyUniverseSelectionModel(FundamentalUniverseSelectionModel):
         初始化选股模型
         
         参数:
-            algorithm:  QCAlgorithm实例，算法主体
+            algorithm:  QCAlgorithm实例, 算法主体
         """
         super().__init__(True)              # 启用精细筛选
         self.algorithm = algorithm
@@ -60,8 +60,8 @@ class MyUniverseSelectionModel(FundamentalUniverseSelectionModel):
         要求的股票，为后续的精细筛选提供候选池。
         
         参数:
-            algorithm:  QCAlgorithm实例，提供市场访问和数据请求功能
-            coarse:     粗筛数据集合，包含所有可交易股票的基础数据
+            algorithm:  QCAlgorithm实例, 提供市场访问和数据请求功能
+            coarse:     粗筛数据集合, 包含所有可交易股票的基础数据
             
         返回:
             list[Symbol]: 通过粗筛条件的股票代码列表
@@ -158,7 +158,7 @@ class MyUniverseSelectionModel(FundamentalUniverseSelectionModel):
 
     def NumOfCandidates(self, sectorCandidates):
         """         
-        根据行业筛选股票，并按市值排序，选取前num只股票
+        根据行业筛选股票, 并按市值排序, 选取前num只股票
         """
         # 按行业分组
         filtered = [x.symbol for x in sorted(sectorCandidates, key=lambda x: x.DollarVolume, reverse=True)]
@@ -174,8 +174,8 @@ class MyUniverseSelectionModel(FundamentalUniverseSelectionModel):
         执行Dickey-Fuller协整检验
         
         参数:
-            symbol1:    第一只股票代码
-            symbol2:    第二只股票代码
+            symbol1: 第一只股票代码
+            symbol2: 第二只股票代码
             
         返回:
             协整检验结果元组 (是否协整, p值, 临界值)
@@ -247,11 +247,11 @@ class MyUniverseSelectionModel(FundamentalUniverseSelectionModel):
     def FilterCointegratedPairs(self, cointegrated_pairs: dict, max_pairs: int, max_symbol_repeats: int) -> dict:
         """
         对协整对进行筛选：
-        1. 按 p-value 从小到大排序（优先考虑显著性）
-        2. 控制协整对总数量（最多 max_pairs）
-        3. 限制每只股票最多出现 max_symbol_repeats 次，避免过度集中
+        1. 按 p-value 从小到大排序(优先考虑显著性)
+        2. 控制协整对总数量(最多 max_pairs)
+        3. 限制每只股票最多出现 max_symbol_repeats 次, 避免过度集中
 
-        返回：
+        返回:
             dict: 经过筛选的协整对字典
         """
         # Step 1: 按 p-value 从小到大排序
