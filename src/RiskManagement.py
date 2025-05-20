@@ -33,6 +33,7 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
         self.trailing_stop_threshold = 0.15 
         self.portfolio_peak_value: float = 0.0 
         self.current_drawdown: float = 0.0
+        self.trailing_highs = {} 
         self.algorithm.Debug("[RiskManagement] 初始化完成")
 
 
@@ -195,7 +196,6 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
                         # 清除状态
                         self.trailing_highs.pop(t1.Symbol, None)
                         self.trailing_highs.pop(t2.Symbol, None)
-
                         force_liquidate_targets.extend([t1, t2])
                         break
 

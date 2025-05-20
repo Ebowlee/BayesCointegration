@@ -1,48 +1,60 @@
 # region imports
 from AlgorithmImports import *
 from typing import List # 虽然在当前骨架中未直接使用List的类型提示，但执行模型通常会处理列表，预先导入有益
+from AlgorithmImports import PortfolioTargetCollection
 # endregion
 
 class MyExecutionModel(ExecutionModel):
     """
-    【模块：ExecutionModel - 基础执行模型】
-
-    职责：
-    - 接收由风险管理模块（或投资组合构建模块，如果没有风险管理模块）传递过来的投资组合目标 (PortfolioTarget)。
-    - 将这些投资组合目标转化为实际的订单请求。
-    - 执行订单，例如市价单、限价单等。
-
-    调用流程：
-    - QuantConnect 框架在 RiskManagementModel (或 PortfolioConstructionModel) 处理完目标后，
-      会调用本模块的 `Execute` 方法。
+    工作流程：
+        1. 添加新的目标进集合；
+        2. 遍历所有未完成的目标；
+        3. 计算是否还有未执行的数量；
+        4. 若有未执行，则下单；
+        5. 清理已完成目标。
     """
 
     def __init__(self, algorithm: QCAlgorithm):
-        """
-        - 初始化执行模型。
-        - 可以存储 QCAlgorithm 的引用，以便访问例如 `SetHoldings`, `MarketOrder`, `LimitOrder` 等方法。
-        """
         self.algorithm = algorithm
+        self.targets_collection = PortfolioTargetCollection()
+        self.algorithm.Debug("[Execution] 初始化完成")
         
 
 
     def Execute(self, algorithm: QCAlgorithm, targets: List[PortfolioTarget]):
-        """
-        - 此方法由 QuantConnect 框架自动调用，用于执行投资组合目标。
-        - 遍历传入的 PortfolioTarget 列表，并为每个目标生成和执行相应的订单。
-        """
+        # 1. 将新目标加入目标集合中（覆盖同 symbol 的旧目标）
+        self.targets_collection.add_range(targets)
 
-        for target in targets:
-            # 检查资产是否可交易，这是一个好习惯
-            security = algorithm.Securities[target.Symbol]
-            if not security.IsTradable:
-                # algorithm.Log(f"[ExecutionModel] Symbol {target.Symbol.Value} is not tradable. Skipping target: {target.Quantity}")
-                continue
+        # 2. 如果集合不为空，逐个处理目标（两两成对）
+        if not self.targets_collection.is_empty:
+            pair_buffer = []
 
-            # 使用 SetHoldings 来达到目标持仓。
-            # target.Quantity 在这里通常是由 PortfolioConstructionModel 设置的目标百分比或股数。
-            # 如果是百分比，SetHoldings 会将其转换为具体的股数。
-            # 如果已经是股数，SetHoldings 会直接使用它。
-            # SetHoldings 会处理重复下单的问题（即如果当前持仓已满足目标，则不会下单）。
-            algorithm.SetHoldings(target.Symbol, target.Quantity)
-            # algorithm.Debug(f"[ExecutionModel] Executed SetHoldings for {target.Symbol.Value} to quantity/percentage {target.Quantity}")
+            for target in self.targets_collection.order_by_margin_impact(algorithm):
+                symbol = target.Symbol
+                security = algorithm.Securities[symbol]
+
+                if not security.IsTradable or target.Quantity is None:
+                    continue
+
+                pair_buffer.append(target)
+
+                # 3. 每两个目标作为一组执行（假设目标输出顺序由 PortfolioConstruction 保证是成对的）
+                if len(pair_buffer) == 2:
+                    t1, t2 = pair_buffer
+                    pair_buffer = []
+
+                    for t in (t1, t2):
+                        symbol = t.Symbol
+                        security = algorithm.Securities[symbol]
+
+                        unordered_quantity = OrderSizing.get_unordered_quantity(algorithm, t)
+
+                        if unordered_quantity != 0:
+                            algorithm.MarketOrder(symbol, unordered_quantity)
+                            action = "平仓" if target.Quantity == 0 else "建/调仓"
+                            self.algorithm.Debug(f"[Execution] {action}: {symbol.Value}, 未下单量: {unordered_quantity}, 目标量: {target.Quantity}")
+
+            # 4. 移除已完成的目标（无论是建仓还是平仓）
+            self.targets_collection.clear_fulfilled(algorithm)
+
+
