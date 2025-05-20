@@ -43,22 +43,22 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
         - 协调最大回撤风险检查和最大持仓时间风险检查逻辑。
         """
 
-        # 1. 若触发最大回撤，立即清仓全部持仓
-        self._force_flat_if_portfolio_drawdown_exceeds_max_drawdown(algorithm)
+        # 1. 若触发最大回撤，立即清仓全部持仓   
+        self._force_liquidate_if_portfolio_max_drawdown_reached(algorithm)
 
         # 2. 若存在没有 active insight 的持仓，也清仓
-        self._force_flat_if_asset_has_no_active_insight(algorithm)
+        self._force_liquidate_if_no_active_insight(algorithm)
 
         # 3. 检查协整对中是否有超跌资产
-        residual_targets = self._force_liquidate_pair_if_crash(algorithm, targets)
+        residual_targets = self._force_liquidate_if_pair_crash(algorithm, targets)
 
         # 4. 检查协整对中是否有超跌资产
-        residual_targets = self._force_liquidate_pair_if_trailing_stop_loss(algorithm, residual_targets)
+        risk_revised_targets = self._force_liquidate_if_trailing_stop_triggered(algorithm, residual_targets)
 
-        return residual_targets  
+        return risk_revised_targets  
 
 
-    def _force_flat_if_portfolio_drawdown_exceeds_max_drawdown(self, algorithm: QCAlgorithm) -> List[PortfolioTarget]:
+    def _force_liquidate_if_portfolio_max_drawdown_reached(self, algorithm: QCAlgorithm) -> List[PortfolioTarget]:
         """
         若组合当前回撤超过最大允许阈值，触发全仓强制平仓，并清除相关 insights。
         返回：用于清仓的 PortfolioTarget 列表（用于框架内统一处理）
@@ -87,7 +87,7 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
 
 
 
-    def _force_flat_if_asset_has_no_active_insight(self, algorithm: QCAlgorithm) -> List[PortfolioTarget]:
+    def _force_liquidate_if_no_active_insight(self, algorithm: QCAlgorithm) -> List[PortfolioTarget]:
         """
         风控兜底机制：
         若某个持仓资产已经没有 active insight, 则视为“信号残留未清理”, 发送平仓指令并清除其 insight。
@@ -105,7 +105,7 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
 
 
 
-    def _force_liquidate_pair_if_crash(self, algorithm: QCAlgorithm, targets: List[PortfolioTarget]) -> None:
+    def _force_liquidate_if_pair_crash(self, algorithm: QCAlgorithm, targets: List[PortfolioTarget]) -> None:
         """
         若协整对中任一资产价格较其平均建仓成本下跌超过 50%，则强制平仓整个协整对。
         该函数假设每轮 targets 仍以协整对为单位（两个 symbol 成对出现）。
@@ -151,7 +151,7 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
 
 
 
-    def _force_liquidate_pair_if_trailing_stop_loss(self, algorithm: QCAlgorithm, targets: List[PortfolioTarget]) -> List[PortfolioTarget]:
+    def _force_liquidate_if_trailing_stop_triggered(self, algorithm: QCAlgorithm, targets: List[PortfolioTarget]) -> List[PortfolioTarget]:
         """
         若协整对中任一资产价格自持仓期间最高点回撤超过 threshold(如 15%)，则强制平仓整个协整对。
         """
