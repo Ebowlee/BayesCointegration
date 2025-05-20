@@ -31,6 +31,7 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
         self.max_drawdown_pct = 0.3
         self.portfolio_peak_value: float = 0.0 
         self.current_drawdown: float = 0.0
+        self.algorithm.Debug("[RiskManagement] 初始化完成")
 
 
 
@@ -137,8 +138,6 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
                         algorithm.Liquidate(t1.Symbol, tag="PairCrashDrawdown>50%")
                         force_liquidate_targets.extend([t1, t2])
                         break  # 一旦触发就退出该 pair 的检查
-
-        algorithm.Debug(f"[RiskManagement] -- [pair_crash] 本轮强平协整对数量：{len(force_liquidate_targets)}")   
 
         # 从 targets 中移除 force_liquidate_targets  
         targets = [t for t in targets if t not in force_liquidate_targets]

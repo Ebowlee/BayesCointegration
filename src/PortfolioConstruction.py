@@ -19,6 +19,7 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
     def __init__(self, algorithm):
         super().__init__()
         self.algorithm = algorithm
+        self.algorithm.Debug("[PortfolioConstruction] 初始化完成")
 
 
 

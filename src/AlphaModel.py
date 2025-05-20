@@ -35,7 +35,7 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         # 信号持续时间(以天为单位)
         self.signal_duration = timedelta(days=15)
 
-        self.algorithm.Debug("[AlphaModel] -- [Initialize] 初始化完成")
+        self.algorithm.Debug("[AlphaModel] 初始化完成")
 
 
 
