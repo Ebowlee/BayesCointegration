@@ -24,6 +24,11 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
 
     def CreateTargets(self, algorithm, insights):
         targets = []
+        
+        # 获取并清理过期 insight，并生成平仓目标
+        expired_insights = self.algorithm.insights.remove_expired_insights(self.algorithm.utc_time)
+        targets = [PortfolioTarget(insight.Symbol, 0) for insight in expired_insights]
+        
         # 按 GroupId 分组
         grouped_insights = defaultdict(list)
         for insight in insights:
@@ -37,7 +42,6 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
             if len(group) != 2:
                 self.algorithm.Debug(f"[PC] GroupId {group_id} 包含 {len(group)} 个 Insight, 预期应为2, 跳过")
                 continue
-
             insight1, insight2 = group
             symbol1, symbol2 = insight1.Symbol, insight2.Symbol
             direction = insight1.Direction  # 默认以 insight1 为主方向
@@ -54,8 +58,11 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
                 self.algorithm.Debug(f"[PC] 无法从 Insight Tag 中解析 beta: {insight1.Tag}, 错误: {e}")
                 continue
 
+            # 构建配对目标持仓
             pair_targets = self._BuildPairTargets(symbol1, symbol2, direction, group, beta_mean)
             targets += pair_targets
+        
+        self.algorithm.Debug(f"[PC] 本轮共生成 PortfolioTarget 数量: {len(targets)}")
 
         return targets
 
