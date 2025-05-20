@@ -83,15 +83,15 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
 
         # 多空方向决定最终权重正负
         if direction == InsightDirection.Up:
-            self.algorithm.Debug(f"[PC] -- [BuildPairTargets]: UP {symbol1.Value}|{scale:.4f}, DOWN {symbol2.Value}|{beta*scale:.4f}, beta={beta:.4f}")
+            self.algorithm.Debug(f"[PC] -- [BuildPairTargets]: {symbol1.Value}|UP|{scale:.4f}, {symbol2.Value}|DOWN|{beta*scale:.4f}, beta={beta:.4f}")
             return [PortfolioTarget(symbol1, scale), PortfolioTarget(symbol2, -scale * beta)]
         
         elif direction == InsightDirection.Down:
-            self.algorithm.Debug(f"[PC] -- [BuildPairTargets]: DOWN {symbol1.Value}|{scale:.4f}, UP {symbol2.Value}|{beta*scale:.4f}, beta={beta:.4f}")
+            self.algorithm.Debug(f"[PC] -- [BuildPairTargets]: {symbol1.Value}|DOWN|{scale:.4f}, {symbol2.Value}|UP|{beta*scale:.4f}, beta={beta:.4f}")
             return [PortfolioTarget(symbol1, -scale), PortfolioTarget(symbol2, scale * beta)]
         
         elif direction == InsightDirection.Flat:
-            self.algorithm.Debug(f"[PC] -- [BuildPairTargets]: FLAT {symbol1.Value}|0, {symbol2.Value}|0")
+            self.algorithm.Debug(f"[PC] -- [BuildPairTargets]: {symbol1.Value}|FLAT|0, {symbol2.Value}|FLAT|0")
             return [PortfolioTarget(symbol1, 0), PortfolioTarget(symbol2, 0)]
         
         else:

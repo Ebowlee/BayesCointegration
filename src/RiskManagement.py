@@ -67,10 +67,10 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
         else:
             self.current_drawdown = 0.0
 
-        algorithm.Debug(f"[RiskManagement] -- [max_drawdown] Peak: {self.portfolio_peak_value:.2f}, Value: {current_value:.2f}, Drawdown: {self.current_drawdown:.2%}")
+        algorithm.Debug(f"[RiskManagement] -- [max_drawdown] Peak: {self.portfolio_peak_value:.0f}, Value: {current_value:.0f}, Drawdown: {self.current_drawdown:.1%}")
 
         if self.current_drawdown > self.max_drawdown_pct:
-            algorithm.Error(f"[RiskManagement] -- [max_drawdown] 触发最大回撤: {self.current_drawdown:.2%} > {self.max_drawdown_pct:.2%}. 全仓清仓！！！")
+            algorithm.Error(f"[RiskManagement] -- [max_drawdown] 触发最大回撤: {self.current_drawdown:.1%} > {self.max_drawdown_pct:.1%}. 全仓清仓！！！")
             for holding in algorithm.Portfolio.Values:
                 if holding.Invested:
                     algorithm.insights.cancel([holding.Symbol])
@@ -132,7 +132,7 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
                     drawdown_pct = (avg_price - current_price) / avg_price
 
                     if drawdown_pct >= 0.5:
-                        algorithm.Debug(f"[RiskManagement] -- [pair_crash] 协整对中 {symbol.Value} 下跌 {drawdown_pct:.2%} 超过 50%，强平整个协整对！！！")
+                        algorithm.Debug(f"[RiskManagement] -- [pair_crash] 协整对中 {symbol.Value} 下跌 {drawdown_pct:.1%} 超过 50%，强平整个协整对！！！")
                         algorithm.insights.cancel([t1.Symbol, t2.Symbol])
                         algorithm.Liquidate(t1.Symbol, tag="PairCrashDrawdown>50%")
                         force_liquidate_targets.extend([t1, t2])
