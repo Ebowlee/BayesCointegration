@@ -35,12 +35,12 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
             if insight.GroupId is not None:
                 grouped_insights[insight.GroupId].append(insight)
             else:
-                self.algorithm.Debug(f"[PC] 接收到未分组的信号: {insight.Symbol.Value}, 忽略")
+                self.algorithm.Debug(f"[PC] -- [CreateTargets] 接收到未分组的信号: {insight.Symbol.Value}, 忽略")
         
         # 遍历每组 Insight
         for group_id, group in grouped_insights.items():
             if len(group) != 2:
-                self.algorithm.Debug(f"[PC] 接收到的信号组 {group_id} 包含 {len(group)} 个信号, 预期应为2, 跳过")
+                self.algorithm.Debug(f"[PC] -- [CreateTargets] 接收到信号组 {group_id} 包含 {len(group)} 个信号, 预期应为2, 跳过")
                 continue
             insight1, insight2 = group
             symbol1, symbol2 = insight1.Symbol, insight2.Symbol
@@ -48,21 +48,21 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
 
             # 打印该组的 GroupId 和其包含的 Insight 简要信息
             insight_info = ", ".join([f"{ins.Symbol.Value}|{ins.Direction}" for ins in group])
-            self.algorithm.Debug(f"[PC] 处理信号组: {group_id}, 包含的信号: {insight_info}")
+            self.algorithm.Debug(f"[PC] -- [CreateTargets] 接收到信号组: {group_id}, 包含信号: {insight_info}")
 
             # 尝试解析 beta
             try:
                 tag_parts = insight1.Tag.split('|')
                 beta_mean = float(tag_parts[1])
             except Exception as e:
-                self.algorithm.Debug(f"[PC] 无法从 Insight.tag 中解析 beta: {insight1.Tag}, 错误: {e}")
+                self.algorithm.Debug(f"[PC] -- [CreateTargets] 无法从 Insight.tag 中解析 beta: {insight1.Tag}, 错误: {e}")
                 continue
 
             # 构建配对目标持仓
             pair_targets = self._BuildPairTargets(symbol1, symbol2, direction, group, beta_mean)
             targets += pair_targets
         
-        self.algorithm.Debug(f"[PC] 本轮共计生成 PortfolioTarget 数量: {len(targets)}")
+        self.algorithm.Debug(f"[PC] -- [CreateTargets] 本轮生成 PortfolioTarget 数量: {len(targets)}")
 
         return targets
 
@@ -83,15 +83,15 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
 
         # 多空方向决定最终权重正负
         if direction == InsightDirection.Up:
-            self.algorithm.Debug(f"[PC] 建仓:UP {symbol1.Value}|{scale:.4f}, DOWN {symbol2.Value}|{beta*scale:.4f}, beta={beta:.4f}")
+            self.algorithm.Debug(f"[PC] -- [BuildPairTargets]: UP {symbol1.Value}|{scale:.4f}, DOWN {symbol2.Value}|{beta*scale:.4f}, beta={beta:.4f}")
             return [PortfolioTarget(symbol1, scale), PortfolioTarget(symbol2, -scale * beta)]
         
         elif direction == InsightDirection.Down:
-            self.algorithm.Debug(f"[PC] 建仓:DOWN {symbol1.Value}|{scale:.4f}, UP {symbol2.Value}|{beta*scale:.4f}, beta={beta:.4f}")
+            self.algorithm.Debug(f"[PC] -- [BuildPairTargets]: DOWN {symbol1.Value}|{scale:.4f}, UP {symbol2.Value}|{beta*scale:.4f}, beta={beta:.4f}")
             return [PortfolioTarget(symbol1, -scale), PortfolioTarget(symbol2, scale * beta)]
         
         elif direction == InsightDirection.Flat:
-            self.algorithm.Debug(f"[PC] 平仓: {symbol1.Value}|0, {symbol2.Value}|0")
+            self.algorithm.Debug(f"[PC] -- [BuildPairTargets]: FLAT {symbol1.Value}|0, {symbol2.Value}|0")
             return [PortfolioTarget(symbol1, 0), PortfolioTarget(symbol2, 0)]
         
         else:

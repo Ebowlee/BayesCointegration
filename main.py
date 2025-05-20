@@ -39,7 +39,6 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # 设置UniverseSelection模块
         self.universeSelectionModel = MyUniverseSelectionModel(self)
         self.SetUniverseSelection(self.universeSelectionModel)
-        self.Debug("[初始化] 设置 UniverseSelectionModel 完成")
 
         # 在主函数中添加 Schedule.On 控制选股频率
         self.Schedule.On(self.DateRules.MonthStart(), self.TimeRules.AfterMarketOpen('SPY', 30), self.universeSelectionModel.RebalanceUniverse)
@@ -58,6 +57,6 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # self.SetExecution(MyExecutionModel(self))
         
         # 记录初始化完成
-        self.Debug(f"[初始化] 贝叶斯动态协整策略初始化完成，开始日期: {self.StartDate}")
+        self.Debug(f"[Initialize] 完成, 起始日期: {self.StartDate}")
 
        

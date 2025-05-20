@@ -35,20 +35,19 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         # 信号持续时间(以天为单位)
         self.signal_duration = timedelta(days=15)
 
-        self.algorithm.Debug("[AlphaModel] AlphaModel初始化完成")
+        self.algorithm.Debug("[AlphaModel] -- [Initialize] 初始化完成")
 
 
 
     def Update(self, algorithm: QCAlgorithm, data: Slice) -> List[Insight]:
         Insights = []
-        active_insights = []
 
         # 如果universeSelectionModel中没有协整对，则不生成任何信号
         if not hasattr(self.algorithm.universeSelectionModel, 'cointegrated_pairs') or not self.algorithm.universeSelectionModel.cointegrated_pairs:
-            self.algorithm.Debug("[AlphaModel] 没有接收到协整资产对")
+            self.algorithm.Debug("[AlphaModel] -- [Update] 接收不到协整对")
             return Insights
 
-        self.algorithm.Debug(f"[AlphaModel] 协整对数量: {len(self.algorithm.universeSelectionModel.cointegrated_pairs)}")
+        self.algorithm.Debug(f"[AlphaModel] -- [Update] 协整对数量: {len(self.algorithm.universeSelectionModel.cointegrated_pairs)}")
 
         # 遍历协整对
         for pair_key, _ in self.algorithm.universeSelectionModel.cointegrated_pairs.items():
@@ -59,20 +58,20 @@ class BayesianCointegrationAlphaModel(AlphaModel):
             history2 = algorithm.History([symbol2], self.lookback_period, Resolution.Daily)
 
             if history1.empty or history2.empty:
-                self.algorithm.Debug(f"[AlphaModel] 历史数据缺失: {symbol1.Value} or {symbol2.Value}")
+                self.algorithm.Debug(f"[AlphaModel] -- [Update] 协整对 {symbol1.Value} or {symbol2.Value} 历史数据缺失")
                 continue
 
             try:
                 price1 = history1.loc[symbol1]['close']
                 price2 = history2.loc[symbol2]['close']
             except Exception as e:
-                self.algorithm.Debug(f"[AlphaModel] 提取价格失败 {symbol1.Value}, {symbol2.Value}: {str(e)}")
+                self.algorithm.Debug(f"[AlphaModel] -- [Update] 协整对 {symbol1.Value} or {symbol2.Value} 提取价格失败: {str(e)}")
                 continue
 
             # 获取联合后验参数
             posterior_params = self.PyMCModel(price1, price2)
             if posterior_params is None:
-                self.algorithm.Debug(f"[AlphaModel] 后验建模失败: {symbol1.Value}, {symbol2.Value}")
+                self.algorithm.Debug(f"[AlphaModel] -- [Update] 协整对 {symbol1.Value} or {symbol2.Value} PYMC 建模失败")
                 continue
 
             # 计算z-score并生成信号
@@ -81,10 +80,9 @@ class BayesianCointegrationAlphaModel(AlphaModel):
             Insights.extend(signal)
         
         if Insights:
-            all_Insights_per_round = [insight.Symbol.Value for insight in Insights]
-            self.algorithm.Debug(f"[AlphaModel] 本轮共计生成信号: {len(Insights)}, Symbols: {all_Insights_per_round}")
+            self.algorithm.Debug(f"[AlphaModel] -- [Update] 本轮生成信号: {len(Insights)}")
         else:
-            self.algorithm.Debug("[AlphaModel] 本轮未生成任何信号")
+            self.algorithm.Debug("[AlphaModel] -- [Update] 本轮未生成信号")
 
         return Insights
 
@@ -143,7 +141,7 @@ class BayesianCointegrationAlphaModel(AlphaModel):
             return posteriorParamSet
             
         except Exception as e:
-            self.algorithm.Debug(f"[AlphaModel] PYMC 模型计算错误: {str(e)}")
+            self.algorithm.Debug(f"[AlphaModel] -- [PyMCModel] PYMC 模型计算错误: {str(e)}")
             return None
         
 
@@ -220,28 +218,28 @@ class BayesianCointegrationAlphaModel(AlphaModel):
             if self.ShouldEmitInsightPair(symbol1, InsightDirection.Down, symbol2, InsightDirection.Up):
                 insight1 = Insight.Price(symbol1, self.signal_duration, InsightDirection.Down, tag=tag)
                 insight2 = Insight.Price(symbol2, self.signal_duration, InsightDirection.Up, tag=tag)
-                self.algorithm.Debug(f"[AlphaModel] 生成信号: zscore {z}, 做空 {symbol1.Value}, 做多 {symbol2.Value}")
+                self.algorithm.Debug(f"[AlphaModel] -- [GenerateSignals]: zscore {z}, 做空 {symbol1.Value}, 做多 {symbol2.Value}")
                 signals = [insight1, insight2]
 
         elif self.lower_bound < z < -self.entry_threshold:
             if self.ShouldEmitInsightPair(symbol1, InsightDirection.Up, symbol2, InsightDirection.Down):
                 insight1 = Insight.Price(symbol1, self.signal_duration, InsightDirection.Up, tag=tag)
                 insight2 = Insight.Price(symbol2, self.signal_duration, InsightDirection.Down, tag=tag)
-                self.algorithm.Debug(f"[AlphaModel] 生成信号: zscore {z}, 做多 {symbol1.Value}, 做空 {symbol2.Value}")
+                self.algorithm.Debug(f"[AlphaModel] -- [GenerateSignals]: zscore {z}, 做多 {symbol1.Value}, 做空 {symbol2.Value}")
                 signals = [insight1, insight2]
 
         elif -self.exit_threshold <= z <= self.exit_threshold:
             if self.HasActiveInsight(symbol1) or self.HasActiveInsight(symbol2):
                 insight1 = Insight.Price(symbol1, self.signal_duration, InsightDirection.Flat, tag=tag)
                 insight2 = Insight.Price(symbol2, self.signal_duration, InsightDirection.Flat, tag=tag)
-                self.algorithm.Debug(f"[AlphaModel] 生成信号: zscore {z}, 平仓 {symbol1.Value}, 平仓 {symbol2.Value}")
+                self.algorithm.Debug(f"[AlphaModel] -- [GenerateSignals]: zscore {z}, 回归平仓 {symbol1.Value}, 回归平仓 {symbol2.Value}")
                 signals = [insight1, insight2]
 
         elif z >= self.upper_bound or z <= self.lower_bound:
             if self.HasActiveInsight(symbol1) or self.HasActiveInsight(symbol2):
                 insight1 = Insight.Price(symbol1, self.signal_duration, InsightDirection.Flat, tag=tag)
                 insight2 = Insight.Price(symbol2, self.signal_duration, InsightDirection.Flat, tag=tag)
-                self.algorithm.Debug(f"[AlphaModel] 生成信号: zscore {z}, 平仓 {symbol1.Value}, 平仓 {symbol2.Value}")
+                self.algorithm.Debug(f"[AlphaModel] -- [GenerateSignals]: zscore {z}, 越界平仓 {symbol1.Value}, 越界平仓 {symbol2.Value}")
                 signals = [insight1, insight2]
 
         return Insight.group(signals)

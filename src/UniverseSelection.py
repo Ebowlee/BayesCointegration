@@ -36,7 +36,7 @@ class MyUniverseSelectionModel(FundamentalUniverseSelectionModel):
         self.max_symbol_repeats = 1
 
         # 记录初始化
-        algorithm.Debug("贝叶斯协整选股模型初始化完成")
+        algorithm.Debug("[UniverseSelection] 初始化完成")
 
 
 
@@ -48,7 +48,7 @@ class MyUniverseSelectionModel(FundamentalUniverseSelectionModel):
         self.rebalanceFlag = True
 
         # 记录重平衡时间
-        self.algorithm.Debug(f"[UniverseSelection] 重平衡于 {self.algorithm.Time} 触发Universe重平衡")
+        self.algorithm.Debug(f"[UniverseSelection] -- [RebalanceUniverse] {self.algorithm.Time} 触发重平衡")
 
 
 
@@ -71,7 +71,7 @@ class MyUniverseSelectionModel(FundamentalUniverseSelectionModel):
         if not self.rebalanceFlag:
             return []     
 
-        algorithm.Debug("[UniverseSelection] SelectCoarse 被调用")  
+        algorithm.Debug("[UniverseSelection] -- [SelectCoarse] 被调用")  
 
         # 以下条件共同作用，确保选出高质量、高流动性的股票：
         #   - 必须有基本面数据 (HasFundamentalData)
@@ -110,7 +110,7 @@ class MyUniverseSelectionModel(FundamentalUniverseSelectionModel):
         if not [x.Symbol.Value for x in fine]:
             return []
         
-        algorithm.Debug("[UniverseSelection] SelectFine 被调用")
+        algorithm.Debug("[UniverseSelection] -- [SelectFine] 被调用")
         
         # 按照行业筛选：科技、医疗、能源、必须消费、通信、工业、公用事业
         techCandidates = [x for x in fine if x.AssetClassification.MorningstarSectorCode == MorningstarSectorCode.Technology]
@@ -147,7 +147,7 @@ class MyUniverseSelectionModel(FundamentalUniverseSelectionModel):
         for pair in cointegrated_pairs:
             selected_symbols.add(pair[0])
             selected_symbols.add(pair[1])
-        algorithm.Debug(f"[UniverseSelection] 选出 {len(selected_symbols)} 只股票，形成 {len(cointegrated_pairs)} 个协整对")
+        algorithm.Debug(f"[UniverseSelection] -- [SelectFine] 最终筛选出 {len(selected_symbols)} 只股票，形成 {len(cointegrated_pairs)} 个协整对")
 
         # 重置重平衡标志，触发新一轮选股
         self.rebalanceFlag = False
@@ -209,7 +209,7 @@ class MyUniverseSelectionModel(FundamentalUniverseSelectionModel):
             return is_cointegrated, pvalue, critical_values
             
         except Exception as e:
-            self.algorithm.Debug(f"[UniverseSelection] 协整检验出错: {str(e)}")
+            self.algorithm.Debug(f"[UniverseSelection] -- [CointegrationTestForSinglePair] 协整检验出错: {str(e)}")
             return False, 1.0, None
 
 
@@ -238,7 +238,7 @@ class MyUniverseSelectionModel(FundamentalUniverseSelectionModel):
                     'timestamp': self.algorithm.Time
                 }
                 
-                self.algorithm.Debug(f"[UniverseSelection] 发现协整对: [{symbol1.Value} - {symbol2.Value}], p值: {pvalue:.4f}")
+                self.algorithm.Debug(f"[UniverseSelection] -- [CointegrationTestForPairs] 发现协整对: [{symbol1.Value} - {symbol2.Value}], p值: {pvalue:.4f}")
         
         return cointegrated_pairs
     

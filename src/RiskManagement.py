@@ -67,10 +67,10 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
         else:
             self.current_drawdown = 0.0
 
-        algorithm.Debug(f"[RiskManagement] Peak: {self.portfolio_peak_value:.2f}, Value: {current_value:.2f}, Drawdown: {self.current_drawdown:.2%}")
+        algorithm.Debug(f"[RiskManagement] -- [max_drawdown] Peak: {self.portfolio_peak_value:.2f}, Value: {current_value:.2f}, Drawdown: {self.current_drawdown:.2%}")
 
         if self.current_drawdown > self.max_drawdown_pct:
-            algorithm.Error(f"[RiskManagement] 组合触发最大回撤: {self.current_drawdown:.2%} > {self.max_drawdown_pct:.2%}. 全仓清仓！！！")
+            algorithm.Error(f"[RiskManagement] -- [max_drawdown] 触发最大回撤: {self.current_drawdown:.2%} > {self.max_drawdown_pct:.2%}. 全仓清仓！！！")
             for holding in algorithm.Portfolio.Values:
                 if holding.Invested:
                     algorithm.insights.cancel([holding.Symbol])
@@ -91,7 +91,7 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
                 continue
 
             if not algorithm.insights.has_active_insights(symbol, algorithm.utc_time):
-                algorithm.Debug(f"[RiskManagement] {symbol.Value} 持仓但无活跃信号, 残留信号触发清仓！！！")
+                algorithm.Debug(f"[RiskManagement] -- [AssetHasNoActiveInsight] {symbol.Value} 触发清仓！！！")
                 algorithm.insights.cancel([symbol])
                 algorithm.Liquidate(symbol, tag="AssetHasNoActiveInsight")
 
@@ -132,13 +132,13 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
                     drawdown_pct = (avg_price - current_price) / avg_price
 
                     if drawdown_pct >= 0.5:
-                        algorithm.Debug(f"[RiskManagement] 协整对中 {symbol.Value} 下跌 {drawdown_pct:.2%} 超过 50%，强平整个协整对！！！")
+                        algorithm.Debug(f"[RiskManagement] -- [pair_crash] 协整对中 {symbol.Value} 下跌 {drawdown_pct:.2%} 超过 50%，强平整个协整对！！！")
                         algorithm.insights.cancel([t1.Symbol, t2.Symbol])
                         algorithm.Liquidate(t1.Symbol, tag="PairCrashDrawdown>50%")
                         force_liquidate_targets.extend([t1, t2])
                         break  # 一旦触发就退出该 pair 的检查
 
-        algorithm.Debug(f"[RiskManagement] 本轮共强平协整对数量：{len(force_liquidate_targets)}")   
+        algorithm.Debug(f"[RiskManagement] -- [pair_crash] 本轮强平协整对数量：{len(force_liquidate_targets)}")   
 
         # 从 targets 中移除 force_liquidate_targets  
         targets = [t for t in targets if t not in force_liquidate_targets]
