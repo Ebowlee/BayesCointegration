@@ -48,7 +48,7 @@ class MyUniverseSelectionModel(FundamentalUniverseSelectionModel):
         self.rebalanceFlag = True
 
         # 记录重平衡时间
-        self.algorithm.Debug(f"[重平衡] 于 {self.algorithm.Time} 触发Universe重平衡")
+        self.algorithm.Debug(f"[UniverseSelection] 重平衡于 {self.algorithm.Time} 触发Universe重平衡")
 
 
 
@@ -147,7 +147,7 @@ class MyUniverseSelectionModel(FundamentalUniverseSelectionModel):
         for pair in cointegrated_pairs:
             selected_symbols.add(pair[0])
             selected_symbols.add(pair[1])
-        algorithm.Debug(f"选出 {len(selected_symbols)} 只股票，形成 {len(cointegrated_pairs)} 个协整对")
+        algorithm.Debug(f"[UniverseSelection] 选出 {len(selected_symbols)} 只股票，形成 {len(cointegrated_pairs)} 个协整对")
 
         # 重置重平衡标志，触发新一轮选股
         self.rebalanceFlag = False
@@ -209,7 +209,7 @@ class MyUniverseSelectionModel(FundamentalUniverseSelectionModel):
             return is_cointegrated, pvalue, critical_values
             
         except Exception as e:
-            self.algorithm.Debug(f"协整检验出错: {str(e)}")
+            self.algorithm.Debug(f"[UniverseSelection] 协整检验出错: {str(e)}")
             return False, 1.0, None
 
 
@@ -238,7 +238,7 @@ class MyUniverseSelectionModel(FundamentalUniverseSelectionModel):
                     'timestamp': self.algorithm.Time
                 }
                 
-                self.algorithm.Debug(f"发现协整对: {symbol1.Value} - {symbol2.Value}, p值: {pvalue:.4f}")
+                self.algorithm.Debug(f"[UniverseSelection] 发现协整对: [{symbol1.Value} - {symbol2.Value}], p值: {pvalue:.4f}")
         
         return cointegrated_pairs
     
