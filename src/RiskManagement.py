@@ -28,7 +28,9 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
         """
         super().__init__()
         self.algorithm = algorithm
-        self.max_drawdown_pct = 0.3
+        self.max_drawdown_pct = 0.15
+        self.single_asset_drawdown_pct = 0.25
+        self.trailing_stop_threshold = 0.15 
         self.portfolio_peak_value: float = 0.0 
         self.current_drawdown: float = 0.0
         self.algorithm.Debug("[RiskManagement] 初始化完成")
@@ -47,10 +49,13 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
         # 2. 若存在没有 active insight 的持仓，也清仓
         self._force_flat_if_asset_has_no_active_insight(algorithm)
 
-        # 3. 检查协整对中是否有崩盘资产（此处直接调用 Liquidate，不需要返回 target）
-        targets = self._force_liquidate_pair_if_crash(algorithm, targets)
+        # 3. 检查协整对中是否有超跌资产
+        residual_targets = self._force_liquidate_pair_if_crash(algorithm, targets)
 
-        return targets  
+        # 4. 检查协整对中是否有超跌资产
+        residual_targets = self._force_liquidate_pair_if_trailing_stop_loss(algorithm, residual_targets)
+
+        return residual_targets  
 
 
     def _force_flat_if_portfolio_drawdown_exceeds_max_drawdown(self, algorithm: QCAlgorithm) -> List[PortfolioTarget]:
@@ -132,7 +137,7 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
                     current_price = algorithm.Securities[symbol].Price
                     drawdown_pct = (avg_price - current_price) / avg_price
 
-                    if drawdown_pct >= 0.5:
+                    if drawdown_pct >= self.single_asset_drawdown_pct:
                         algorithm.Debug(f"[RiskManagement] -- [pair_crash] 协整对中 {symbol.Value} 下跌 {drawdown_pct:.1%} 超过 50%，强平整个协整对！！！")
                         algorithm.insights.cancel([t1.Symbol, t2.Symbol])
                         algorithm.Liquidate(t1.Symbol, tag="PairCrashDrawdown>50%")
@@ -143,3 +148,57 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
         targets = [t for t in targets if t not in force_liquidate_targets]
 
         return targets
+
+
+
+    def _force_liquidate_pair_if_trailing_stop_loss(self, algorithm: QCAlgorithm, targets: List[PortfolioTarget]) -> List[PortfolioTarget]:
+        """
+        若协整对中任一资产价格自持仓期间最高点回撤超过 threshold(如 15%)，则强制平仓整个协整对。
+        """
+        force_liquidate_targets = []
+        temp_pair = []
+
+        for target in targets:
+            if target.Quantity == 0:
+                continue
+
+            symbol = target.Symbol
+            price = algorithm.Securities[symbol].Price
+
+            # 更新 trailing high
+            if symbol not in self.trailing_highs:
+                self.trailing_highs[symbol] = price
+            else:
+                self.trailing_highs[symbol] = max(self.trailing_highs[symbol], price)
+
+            temp_pair.append(target)
+
+            if len(temp_pair) == 2:
+                t1, t2 = temp_pair
+                temp_pair = []
+
+                for t in (t1, t2):
+                    symbol = t.Symbol
+                    if not algorithm.Portfolio[symbol].Invested:
+                        continue
+
+                    peak_price = self.trailing_highs.get(symbol, algorithm.Securities[symbol].Price)
+                    current_price = algorithm.Securities[symbol].Price
+                    drawdown = (peak_price - current_price) / peak_price
+
+                    if drawdown >= self.trailing_stop_threshold:
+                        algorithm.Debug(f"[RiskManagement] -- [TrailingStopLoss] {symbol.Value} 从高点 {peak_price:.0f} 回撤 {drawdown:.1%} 超过 {self.trailing_stop_threshold:.0%}，触发 Trailing Stop")
+                        algorithm.insights.cancel([t1.Symbol, t2.Symbol])
+                        algorithm.Liquidate(t1.Symbol, tag="TrailingStop")
+                        algorithm.Liquidate(t2.Symbol, tag="TrailingStop")
+
+                        # 清除状态
+                        self.trailing_highs.pop(t1.Symbol, None)
+                        self.trailing_highs.pop(t2.Symbol, None)
+
+                        force_liquidate_targets.extend([t1, t2])
+                        break
+
+        targets = [t for t in targets if t not in force_liquidate_targets]
+
+        return targets  
