@@ -4,7 +4,7 @@ from datetime import timedelta
 from src.UniverseSelection import MyUniverseSelectionModel
 from src.AlphaModel import BayesianCointegrationAlphaModel
 from src.PortfolioConstruction import BayesianCointegrationPortfolioConstructionModel
-# from src.RiskManagement import BayesianCointegrationRiskManagementModel
+from src.RiskManagement import BayesianCointegrationRiskManagementModel
 # from src.Execution import MyExecutionModel
 # endregion
 
@@ -51,8 +51,8 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # 设置投资组合构建模块
         self.SetPortfolioConstruction(BayesianCointegrationPortfolioConstructionModel(self))
 
-        # # 设置风险管理模块
-        # self.SetRiskManagement(BayesianCointegrationRiskManagementModel(self))
+        # 设置风险管理模块
+        self.SetRiskManagement(BayesianCointegrationRiskManagementModel(self))
 
         # # 设置Execution模块
         # self.SetExecution(MyExecutionModel(self))

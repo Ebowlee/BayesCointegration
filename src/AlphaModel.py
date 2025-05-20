@@ -231,19 +231,24 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                 signals = [insight1, insight2]
 
         elif -self.exit_threshold <= z <= self.exit_threshold:
-            if self.algorithm.Portfolio[symbol1].Invested and self.algorithm.Portfolio[symbol2].Invested:
+            if self.HasActiveInsight(symbol1) or self.HasActiveInsight(symbol2):
                 insight1 = Insight.Price(symbol1, self.signal_duration, InsightDirection.Flat, tag=tag)
                 insight2 = Insight.Price(symbol2, self.signal_duration, InsightDirection.Flat, tag=tag)
                 signals = [insight1, insight2]
 
         elif z >= self.upper_bound or z <= self.lower_bound:
-            if self.algorithm.Portfolio[symbol1].Invested and self.algorithm.Portfolio[symbol2].Invested:
+            if self.HasActiveInsight(symbol1) or self.HasActiveInsight(symbol2):
                 insight1 = Insight.Price(symbol1, self.signal_duration, InsightDirection.Flat, tag=tag)
                 insight2 = Insight.Price(symbol2, self.signal_duration, InsightDirection.Flat, tag=tag)
                 signals = [insight1, insight2]
 
         return Insight.group(signals)
     
+
+
+    def HasActiveInsight(self, symbol):
+        return self.algorithm.insights.has_active_insights(symbol, self.algorithm.utc_time)
+
 
 
     def ShouldEmitInsightPair(self, symbol1, direction1, symbol2, direction2):
