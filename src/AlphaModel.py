@@ -80,7 +80,7 @@ class BayesianCointegrationAlphaModel(AlphaModel):
             Insights.extend(signal)
         
         if Insights:
-            self.algorithm.Debug(f"[AlphaModel] -- [Update] 本轮生成信号: {len(Insights)}")
+            self.algorithm.Debug(f"[AlphaModel] -- [Update] 本轮生成信号对: {len(Insights)}")
         else:
             self.algorithm.Debug("[AlphaModel] -- [Update] 本轮未生成信号")
 
@@ -218,36 +218,32 @@ class BayesianCointegrationAlphaModel(AlphaModel):
             if self.ShouldEmitInsightPair(symbol1, InsightDirection.Down, symbol2, InsightDirection.Up):
                 insight1 = Insight.Price(symbol1, self.signal_duration, InsightDirection.Down, tag=tag)
                 insight2 = Insight.Price(symbol2, self.signal_duration, InsightDirection.Up, tag=tag)
-                self.algorithm.Debug(f"[AlphaModel] -- [GenerateSignals]: zscore {z:.4f}, 做空 {symbol1.Value}, 做多 {symbol2.Value}")
+                self.algorithm.Debug(f"[AlphaModel] -- [GenerateSignals]: zscore {z:.4f}, 看跌 {symbol1.Value}, 看涨 {symbol2.Value}")
                 signals = [insight1, insight2]
 
         elif self.lower_bound < z < -self.entry_threshold:
             if self.ShouldEmitInsightPair(symbol1, InsightDirection.Up, symbol2, InsightDirection.Down):
                 insight1 = Insight.Price(symbol1, self.signal_duration, InsightDirection.Up, tag=tag)
                 insight2 = Insight.Price(symbol2, self.signal_duration, InsightDirection.Down, tag=tag)
-                self.algorithm.Debug(f"[AlphaModel] -- [GenerateSignals]: zscore {z:.4f}, 做多 {symbol1.Value}, 做空 {symbol2.Value}")
+                self.algorithm.Debug(f"[AlphaModel] -- [GenerateSignals]: zscore {z:.4f}, 看涨 {symbol1.Value}, 看跌 {symbol2.Value}")
                 signals = [insight1, insight2]
 
         elif -self.exit_threshold <= z <= self.exit_threshold:
-            if self.HasActiveInsight(symbol1) or self.HasActiveInsight(symbol2):
+            if self.ShouldEmitInsightPair(symbol1, InsightDirection.Flat, symbol2, InsightDirection.Flat):
                 insight1 = Insight.Price(symbol1, self.signal_duration, InsightDirection.Flat, tag=tag)
                 insight2 = Insight.Price(symbol2, self.signal_duration, InsightDirection.Flat, tag=tag)
-                self.algorithm.Debug(f"[AlphaModel] -- [GenerateSignals]: zscore {z:.4f}, 回归平仓 {symbol1.Value}, 回归平仓 {symbol2.Value}")
+                self.algorithm.Debug(f"[AlphaModel] -- [GenerateSignals]: zscore {z:.4f}, 回归观望 {symbol1.Value}, 回归观望 {symbol2.Value}")
                 signals = [insight1, insight2]
 
         elif z >= self.upper_bound or z <= self.lower_bound:
-            if self.HasActiveInsight(symbol1) or self.HasActiveInsight(symbol2):
+            if self.ShouldEmitInsightPair(symbol1, InsightDirection.Flat, symbol2, InsightDirection.Flat):
                 insight1 = Insight.Price(symbol1, self.signal_duration, InsightDirection.Flat, tag=tag)
                 insight2 = Insight.Price(symbol2, self.signal_duration, InsightDirection.Flat, tag=tag)
-                self.algorithm.Debug(f"[AlphaModel] -- [GenerateSignals]: zscore {z:.4f}, 越界平仓 {symbol1.Value}, 越界平仓 {symbol2.Value}")
+                self.algorithm.Debug(f"[AlphaModel] -- [GenerateSignals]: zscore {z:.4f}, 越界观望 {symbol1.Value}, 越界观望 {symbol2.Value}")
                 signals = [insight1, insight2]
 
         return Insight.group(signals)
-    
 
-
-    def HasActiveInsight(self, symbol):
-        return self.algorithm.insights.has_active_insights(symbol, self.algorithm.utc_time)
 
 
 
