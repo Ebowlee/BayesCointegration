@@ -40,9 +40,6 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         self.universeSelectionModel = MyUniverseSelectionModel(self)
         self.SetUniverseSelection(self.universeSelectionModel)
 
-        # 在主函数中添加 Schedule.On 控制选股频率
-        self.Schedule.On(self.DateRules.MonthStart(), self.TimeRules.AfterMarketOpen('SPY', 30), self.universeSelectionModel.RebalanceUniverse)
-
         # 设置Alpha模块
         self.SetAlpha(BayesianCointegrationAlphaModel(self))
 

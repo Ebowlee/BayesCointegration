@@ -28,8 +28,21 @@ class MyUniverseSelectionModel(FundamentalUniverseSelectionModel):
         self.max_pairs = 10
         self.max_symbol_repeats = 1
 
-        self.last_selected_symbols = []
+        self.last_coarse_symbols = []
+        self.last_fine_symbols = []
         algorithm.Debug("[UniverseSelection] 初始化完成")
+
+
+    def _rebalance_flag(self):
+        """
+        判断是否需要重新平衡
+        """
+        now = self.algorithm.Time
+        if not self.cointegrated_pairs:
+            return True
+
+        all_expired = all((now - v['create_time']).days >= v['max_holding_days'].days for v in self.cointegrated_pairs.values())
+        return all_expired
 
 
 
@@ -38,13 +51,15 @@ class MyUniverseSelectionModel(FundamentalUniverseSelectionModel):
         粗选阶段，负责从所有股票中筛选出符合条件的股票
         """
         if not self._rebalance_flag():
-            return []
+            return self.last_coarse_symbols
         
         algorithm.Debug("[UniverseSelection] -- [SelectCoarse] 被调用")
 
         filtered = [x for x in coarse if x.HasFundamentalData and x.Price > self.min_price and x.MarketCap > self.min_market_cap and x.Volume > self.min_volume]
         IpoFiltered = [x for x in filtered if x.SecurityReference.IPODate is not None and (algorithm.Time - x.SecurityReference.IPODate).days > self.min_ipo_days]
         CoarseSelected = [x.Symbol for x in sorted(IpoFiltered, key=lambda x: x.Symbol.Value)]
+
+        self.last_coarse_symbols = CoarseSelected
 
         return CoarseSelected
 
@@ -54,9 +69,9 @@ class MyUniverseSelectionModel(FundamentalUniverseSelectionModel):
         """
         细选阶段，负责从粗选的股票中筛选出符合条件的股票
         """
-        if not [x.Symbol.Value for x in fine]:
-            algorithm.Debug("[UniverseSelection] -- [SelectFine] fine为空，返回上轮选中symbol以维持订阅")
-            return self.last_selected_symbols
+        if not self._rebalance_flag():
+            algorithm.Debug(f"[UniverseSelection] -- [SelectFine] fine为空, 返回上轮订阅的symbol: {[x.Value for x in self.last_fine_symbols]}")
+            return self.last_fine_symbols
 
         algorithm.Debug("[UniverseSelection] -- [SelectFine] 被调用")
 
@@ -82,15 +97,16 @@ class MyUniverseSelectionModel(FundamentalUniverseSelectionModel):
 
         potential_pairs = list(itertools.combinations(sectorSelected, 2))
         cointegrated_pairs_unfiltered = self.CointegrationTestForPairs(potential_pairs)
-        cointegrated_pairs = self.FilterCointegratedPairs(cointegrated_pairs_unfiltered, max_pairs=self.max_pairs, max_symbol_repeats=self.max_symbol_repeats)
+        cointegrated_pairs = self.FilterCointegratedPairs(cointegrated_pairs_unfiltered)
         self.cointegrated_pairs = cointegrated_pairs
 
         selected_symbols = set()
-        for pair in cointegrated_pairs:
-            selected_symbols.add(pair[0])
-            selected_symbols.add(pair[1])
+        for cointegrated_pair in cointegrated_pairs:
+            s1, s2 = cointegrated_pair  
+            selected_symbols.add(s1)
+            selected_symbols.add(s2)
 
-        self.last_selected_symbols = list(selected_symbols)
+        self.last_fine_symbols = list(selected_symbols)
         algorithm.Debug(f"[UniverseSelection] -- [SelectFine] 最终筛选出 {len(selected_symbols)} 只股票，形成 {len(cointegrated_pairs)} 个协整对")
 
         return list(selected_symbols)
@@ -170,19 +186,6 @@ class MyUniverseSelectionModel(FundamentalUniverseSelectionModel):
                 break
         return filtered_pairs
 
-
-
-    def _rebalance_flag(self):
-        """
-        判断是否需要重新平衡
-        """
-        now = self.algorithm.Time
-        if not self.cointegrated_pairs:
-            return True
-        
-        # 所有 pair 是否全部过期
-        all_expired = all(now - v['create_time'] > v['max_holding_days'] for v in self.cointegrated_pairs.values())
-        return all_expired
 
 
 
