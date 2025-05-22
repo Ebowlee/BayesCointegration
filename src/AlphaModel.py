@@ -214,6 +214,8 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         tag = f"{symbol1.Value}&{symbol2.Value}|{posteriorParamSet['beta_mean']:.4f}|{posteriorParamSet['zscore']:.2f}|{posteriorParamSet['confidence_interval']}"
         z = posteriorParamSet['zscore']
 
+        self.algorithm.Debug(f"[AlphaModel] -- [GenerateSignals]: zscore={z:.4f} for pair: {symbol1.Value}-{symbol2.Value}")
+
         if self.entry_threshold < z < self.upper_bound:
             if self.ShouldEmitInsightPair(symbol1, InsightDirection.Down, symbol2, InsightDirection.Up):
                 insight1 = Insight.Price(symbol1, self.signal_duration, InsightDirection.Down, tag=tag)

@@ -73,8 +73,7 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         """
         按照资金均分 + beta 对冲构建目标持仓, 使得资金控制在100%，整体没有杠杆
         """
-        # num_pairs = len(insights)
-        num_pairs = 5
+        num_pairs = len(insights)
         if not np.isfinite(beta) or beta == 0 or num_pairs == 0:
             return []
 

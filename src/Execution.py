@@ -1,28 +1,5 @@
 # region imports
 from AlgorithmImports import *
-from typing import List # 虽然在当前骨架中未直接使用List的类型提示，但执行模型通常会处理列表，预先导入有益
-from AlgorithmImports import PortfolioTargetCollection
-# endregion
-
-class MyExecutionModel(ExecutionModel):
-    """
-    工作流程：
-        1. 添加新的目标进集合；
-        2. 遍历所有未完成的目标；
-        3. 计算是否还有未执行的数量；
-        4. 若有未执行，则下单；
-        5. 清理已完成目标。
-    """
-
-    def __init__(self, algorithm: QCAlgorithm):
-        self.algorithm = algorithm
-        self.targets_collection = PortfolioTargetCollection()
-        self.algorithm.Debug("[Execution] 初始化完成")
-        
-
-
-    # region imports
-from AlgorithmImports import *
 from typing import List  # 通常用于类型提示，当前结构中是良好习惯
 from AlgorithmImports import PortfolioTargetCollection
 # endregion
@@ -66,7 +43,7 @@ class MyExecutionModel(ExecutionModel):
 
                     for t in (t1, t2):
                         symbol = t.Symbol
-                        self.set_holdings(symbol, t.Quantity)
+                        self.algorithm.set_holdings(symbol, t.Quantity)
                     self.algorithm.Debug(f"[Execution] 成对下单: [{t1.Symbol}, {t2.Symbol}]")
                
         # 3. 清理已完成目标
