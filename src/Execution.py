@@ -24,9 +24,6 @@ class MyExecutionModel(ExecutionModel):
     def Execute(self, algorithm: QCAlgorithm, targets: List[PortfolioTarget]):
         self.algorithm.Debug(f"[Execution] 本轮传入 PortfolioTargets: {len(targets)}")
 
-        # 1. 将新目标加入目标集合中（覆盖同 symbol 的旧目标）
-        self.targets_collection.add_range(targets)
-
         # 2. 成对处理（默认 PortfolioConstruction 输出顺序是成对的）
         if len(targets) != 0:
             pair_targets = []
@@ -45,9 +42,5 @@ class MyExecutionModel(ExecutionModel):
                         symbol = t.Symbol
                         self.algorithm.set_holdings(symbol, t.Quantity)
                     self.algorithm.Debug(f"[Execution] 成对下单: [{t1.Symbol}, {t2.Symbol}]")
-               
-        # 3. 清理已完成目标
-        self.targets_collection.clear_fulfilled(algorithm)
-
 
 
