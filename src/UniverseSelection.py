@@ -15,9 +15,6 @@ class MyUniverseSelectionModel(FundamentalUniverseSelectionModel):
     def __init__(self, algorithm):
         """
         初始化选股模型
-        
-        参数:
-            algorithm:  QCAlgorithm实例, 算法主体
         """
         super().__init__(True)              # 启用精细筛选
         self.algorithm = algorithm
@@ -44,10 +41,7 @@ class MyUniverseSelectionModel(FundamentalUniverseSelectionModel):
         """
         重平衡处理程序 - 触发新一轮选股和模型更新
         """
-        # 重置重平衡标志，触发新一轮选股
         self.rebalanceFlag = True
-
-        # 记录重平衡时间
         self.algorithm.Debug(f"[UniverseSelection] -- [RebalanceUniverse] {self.algorithm.Time} 触发重平衡")
 
 
@@ -55,16 +49,8 @@ class MyUniverseSelectionModel(FundamentalUniverseSelectionModel):
     def SelectCoarse(self, algorithm, coarse):
         """
         执行粗筛选过程，根据基本市场指标筛选股票资产
-        
         该函数实现对股票基础特征的初步筛选，剔除不符合流动性、价格和基本面
         要求的股票，为后续的精细筛选提供候选池。
-        
-        参数:
-            algorithm:  QCAlgorithm实例, 提供市场访问和数据请求功能
-            coarse:     粗筛数据集合, 包含所有可交易股票的基础数据
-            
-        返回:
-            list[Symbol]: 通过粗筛条件的股票代码列表
         """
 
         # 如未触发重平衡条件，则保持当前投资组合不变
@@ -98,13 +84,6 @@ class MyUniverseSelectionModel(FundamentalUniverseSelectionModel):
     def SelectFine(self, algorithm, fine):
         """
         执行精筛，根据财务指标进一步筛选资产
-        
-        参数:
-            algorithm:  QCAlgorithm实例
-            fine:       精筛数据集合
-            
-        返回:
-            精筛后的股票代码列表
         """
         # fine 参数不是 Python 的 list，而是一个 OfTypeIterator（可迭代对象）在你调用 if not fine: 时，这种类型在 Python 中不会被认为是空的，即使里面没有元素
         if not [x.Symbol.Value for x in fine]:
@@ -172,13 +151,6 @@ class MyUniverseSelectionModel(FundamentalUniverseSelectionModel):
     def CointegrationTestForSinglePair(self, symbol1, symbol2):
         """
         执行Dickey-Fuller协整检验
-        
-        参数:
-            symbol1: 第一只股票代码
-            symbol2: 第二只股票代码
-            
-        返回:
-            协整检验结果元组 (是否协整, p值, 临界值)
         """
         # 获取两只股票的价格数据
         historySymbol1 = self.algorithm.History([symbol1], self.lookback_period, Resolution.Daily)
@@ -217,12 +189,6 @@ class MyUniverseSelectionModel(FundamentalUniverseSelectionModel):
     def CointegrationTestForPairs(self, pairs):
         """
         为多个潜在资产对执行协整检验
-        
-        参数:
-            pairs: 潜在资产对列表 [(symbol1, symbol2), ...]
-            
-        返回:
-            通过检验的协整对字典 {(symbol1, symbol2): 检验结果信息}
         """
         # 存储协整检验结果
         cointegrated_pairs = {}
@@ -250,9 +216,6 @@ class MyUniverseSelectionModel(FundamentalUniverseSelectionModel):
         1. 按 p-value 从小到大排序(优先考虑显著性)
         2. 控制协整对总数量(最多 max_pairs)
         3. 限制每只股票最多出现 max_symbol_repeats 次, 避免过度集中
-
-        返回:
-            dict: 经过筛选的协整对字典
         """
         # Step 1: 按 p-value 从小到大排序
         sorted_pairs = sorted(cointegrated_pairs.items(), key=lambda kv: kv[1]['pvalue'])

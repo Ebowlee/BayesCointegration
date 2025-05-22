@@ -15,6 +15,7 @@ class MyExecutionModel(ExecutionModel):
     """
 
     def __init__(self, algorithm: QCAlgorithm):
+        super().__init__() 
         self.algorithm = algorithm
         self.targets_collection = PortfolioTargetCollection()
         self.algorithm.Debug("[Execution] 初始化完成")
@@ -22,7 +23,8 @@ class MyExecutionModel(ExecutionModel):
 
 
     def Execute(self, algorithm: QCAlgorithm, targets: List[PortfolioTarget]):
-        self.algorithm.Debug(f"[Execution] 本轮传入 PortfolioTargets: {len(targets)}")
+        for t in targets:
+            self.algorithm.Debug(f"[Execution] 下单目标: {t.Symbol.Value}, {t.Quantity}")
 
         # 2. 成对处理（默认 PortfolioConstruction 输出顺序是成对的）
         if len(targets) != 0:

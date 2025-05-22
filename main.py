@@ -44,8 +44,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         self.Schedule.On(self.DateRules.MonthStart(), self.TimeRules.AfterMarketOpen('SPY', 30), self.universeSelectionModel.RebalanceUniverse)
 
         # 设置Alpha模块
-        self.alphaModel = BayesianCointegrationAlphaModel(self)
-        self.SetAlpha(self.alphaModel)
+        self.SetAlpha(BayesianCointegrationAlphaModel(self))
 
         # 设置投资组合构建模块
         self.SetPortfolioConstruction(BayesianCointegrationPortfolioConstructionModel(self))

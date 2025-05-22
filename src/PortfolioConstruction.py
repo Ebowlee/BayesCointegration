@@ -17,7 +17,7 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
     - 返回所有生成的 PortfolioTarget 对象的扁平列表。
     """
     def __init__(self, algorithm):
-        super().__init__()
+        super().__init__() 
         self.algorithm = algorithm
         self.algorithm.Debug("[PortfolioConstruction] 初始化完成")
 

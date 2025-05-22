@@ -28,13 +28,14 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
             self.portfolio_peak_value (float): 用于计算回撤的投资组合历史峰值。
             self.current_drawdown (float): 当前计算的组合回撤百分比。
         """
-        super().__init__()
+        super().__init__() 
         self.algorithm = algorithm
         self.portfolio_max_drawdown_pct = 0.15
         self.single_asset_drawdown_pct = 0.25
         self.trailing_stop_threshold = 0.15 
         self.portfolio_peak_value: float = 0.0 
         self.current_drawdown: float = 0.0
+        self.trailing_highs: Dict[Symbol, float] = {}
         self.algorithm.Debug("[RiskManagement] 初始化完成")
 
 
@@ -44,7 +45,8 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
         - 此方法由 QuantConnect 框架自动调用，用于评估和调整投资组合目标。
         - 协调最大回撤风险检查和最大持仓时间风险检查逻辑。
         """
-        algorithm.Debug(f"[RiskManagement] -- [ManageRisk] ENTRY - ID: {[t.Symbol for t in targets]}, Count: {len(targets)}") # 入口日志
+        for t in targets:
+            self.algorithm.Debug(f"[RiskManagement] 下单目标: {t.Symbol.Value}, {t.Quantity}")
 
         if not targets:
             algorithm.Debug("[RiskManagement] -- [ManageRisk] 无目标传入，直接返回空列表")
@@ -54,20 +56,20 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
         pair_targets = self._group_targets_into_pairs(targets)
         self.algorithm.Debug(f"[RiskManagement] -- [ManageRisk] 配对后得到 {len(pair_targets)} 个协整对")
         
-        # 1. 检查最大回撤
-        pair_targets = self._manage_portfolio_drawdown_risk(algorithm, pair_targets)
+        # # 1. 检查最大回撤
+        # pair_targets = self._manage_portfolio_drawdown_risk(algorithm, pair_targets)
         
         # 2. 过滤无效观望目标
         pair_targets = self._filter_invalid_watch_targets(algorithm, pair_targets)
         self.algorithm.Debug(f"[RiskManagement] -- [ManageRisk] 过滤无效观望目标后得到 {len(pair_targets)} 个协整对")
 
-        # 3. 检查协整对中是否有超跌资产
-        pair_targets = self._manage_asset_drawdown_risk(algorithm, pair_targets)
-        self.algorithm.Debug(f"[RiskManagement] -- [ManageRisk] 检查协整对中是否有超跌资产后得到 {len(pair_targets)} 个协整对")
+        # # 3. 检查协整对中是否有超跌资产
+        # pair_targets = self._manage_asset_drawdown_risk(algorithm, pair_targets)
+        # self.algorithm.Debug(f"[RiskManagement] -- [ManageRisk] 检查协整对中是否有超跌资产后得到 {len(pair_targets)} 个协整对")
 
-        # 4. 检查协整对中是否有超跌资产
-        pair_targets = self._set_trailing_stop(algorithm, pair_targets)
-        self.algorithm.Debug(f"[RiskManagement] -- [ManageRisk] 检查协整对中是否有超跌资产后得到 {len(pair_targets)} 个协整对")
+        # # 4. 检查协整对中是否有超跌资产
+        # pair_targets = self._set_trailing_stop(algorithm, pair_targets)
+        # self.algorithm.Debug(f"[RiskManagement] -- [ManageRisk] 检查协整对中是否有超跌资产后得到 {len(pair_targets)} 个协整对")
 
         # 5. 拆解配对返回 QCAlgorithm 的 targets
         unpaired_targets = [t for pair_target in pair_targets for t in pair_target]
@@ -179,22 +181,32 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
             triggered = False
 
             for symbol in symbols:
-                price = algorithm.Portfolio[symbol].AveragePrice
-                peak = max(algorithm.Securities[symbol].Price, price)
-                
+                current_price = algorithm.Securities[symbol].Price
 
-                if peak != 0:
-                    drawdown = (peak - price) / peak
+                # 初始化或更新 trailing high
+                if symbol not in self.trailing_highs:
+                    self.trailing_highs[symbol] = current_price
+                else:
+                    self.trailing_highs[symbol] = max(self.trailing_highs[symbol], current_price)
+
+                peak = self.trailing_highs[symbol]
+
+                # 回撤触发检查
+                if peak > 0:
+                    drawdown = (peak - current_price) / peak
                     if drawdown >= self.trailing_stop_threshold:
-                        algorithm.Debug(f"[RiskManagement] -- [TrailingStopLoss] {symbol.Value} 从 {peak:.0f} 回撤至 {drawdown:.1%} 超过 {self.trailing_stop_threshold:.0%}，触发 Trailing Stop, 协整对强制平仓！！！")
+                        algorithm.Debug(f"[RiskManagement] -- [TrailingStopLoss] {symbol.Value} 从 {peak:.2f} 回撤至 {current_price:.2f}，回撤率 {drawdown:.1%} 超过阈值 {self.trailing_stop_threshold:.0%}，触发 Trailing Stop, 协整对强制平仓！")
+
                         for s in symbols:
                             algorithm.Liquidate(s, tag="TrailingStop")
+
                         algorithm.Insights.Cancel(symbols)
                         triggered = True
-                        break
+                        break  # 一旦有一个触发，就清掉整对
 
             if not triggered:
                 filtered_pair_targets.append((t1, t2))
 
         return filtered_pair_targets
+
 

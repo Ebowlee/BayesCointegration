@@ -23,6 +23,7 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         参数:
             algorithm:  QCAlgorithm实例, 用于访问数据和记录日志
         """
+        super().__init__() 
         self.algorithm = algorithm
         self.lookback_period = 252  # 用于计算z分数的历史数据长度
 
@@ -214,8 +215,6 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         tag = f"{symbol1.Value}&{symbol2.Value}|{posteriorParamSet['beta_mean']:.4f}|{posteriorParamSet['zscore']:.2f}|{posteriorParamSet['confidence_interval']}"
         z = posteriorParamSet['zscore']
 
-        self.algorithm.Debug(f"[AlphaModel] -- [GenerateSignals]: zscore={z:.4f} for pair: {symbol1.Value}-{symbol2.Value}")
-
         if self.entry_threshold < z < self.upper_bound:
             if self.ShouldEmitInsightPair(symbol1, InsightDirection.Down, symbol2, InsightDirection.Up):
                 insight1 = Insight.Price(symbol1, self.signal_duration, InsightDirection.Down, tag=tag)
@@ -250,12 +249,22 @@ class BayesianCointegrationAlphaModel(AlphaModel):
 
 
     def ShouldEmitInsightPair(self, symbol1, direction1, symbol2, direction2):
-        active_insights = self.algorithm.insights.get_active_insights(self.algorithm.utc_time)
-        for insight in active_insights:
-            if (insight.Symbol == symbol1 and insight.Direction == direction1) or \
-            (insight.Symbol == symbol2 and insight.Direction == direction2):
-                return False
+        # 获取当前时间这两个 symbol 的所有活跃 Insight
+        insights1 = self.algorithm.Insights.GetActiveInsights(symbol1, self.algorithm.UtcTime)
+        insights2 = self.algorithm.Insights.GetActiveInsights(symbol2, self.algorithm.UtcTime)
+
+        if not insights1 or not insights2:
+            return True
+
+        # 遍历两组 insight，查找是否存在一组 GroupId 相同 + 方向相同
+        for ins1 in insights1:
+            for ins2 in insights2:
+                if ins1.GroupId == ins2.GroupId:
+                    if (ins1.Direction, ins2.Direction) == (direction1, direction2):
+                        return False  
+
         return True
+
 
 
 
