@@ -23,13 +23,12 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
 
 
 
-    def CreateTargets(self, algorithm, insights):
+    def create_targets(self, algorithm, insights):
         targets = []
         
-        # 获取并清理过期 insight，并生成平仓目标
         expired_insights = self.algorithm.insights.remove_expired_insights(self.algorithm.utc_time)
-        targets = [PortfolioTarget(insight.Symbol, 0) for insight in expired_insights]
-        
+        targets = [PortfolioTarget.Percent(self.algorithm, insight.Symbol, 0) for insight in expired_insights]
+
         # 按 GroupId 分组
         grouped_insights = defaultdict(list)
         for insight in insights:
@@ -41,7 +40,7 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         # 遍历每组 Insight
         for group_id, group in grouped_insights.items():
             if len(group) != 2:
-                self.algorithm.Debug(f"[PC] -- [CreateTargets] 接收到信号组 {group_id} 包含 {len(group)} 个信号, 预期应为2, 跳过")
+                self.algorithm.Debug(f"[PC] -- [CreateTargets] 接收到 {len(group)} 个信号, 预期应为2, 跳过")
                 continue
             insight1, insight2 = group
             symbol1, symbol2 = insight1.Symbol, insight2.Symbol
@@ -85,15 +84,15 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         # 多空方向决定最终权重正负
         if direction == InsightDirection.Up:
             self.algorithm.Debug(f"[PC] -- [BuildPairTargets]: {symbol1.Value}|UP|{scale:.4f}, {symbol2.Value}|DOWN|{beta*scale:.4f}, beta={beta:.4f}")
-            return [PortfolioTarget(symbol1, scale), PortfolioTarget(symbol2, -scale * beta)]
+            return [PortfolioTarget.Percent(self.algorithm, symbol1, scale), PortfolioTarget.Percent(self.algorithm, symbol2, -scale * beta)]
         
         elif direction == InsightDirection.Down:
             self.algorithm.Debug(f"[PC] -- [BuildPairTargets]: {symbol1.Value}|DOWN|{scale:.4f}, {symbol2.Value}|UP|{beta*scale:.4f}, beta={beta:.4f}")
-            return [PortfolioTarget(symbol1, -scale), PortfolioTarget(symbol2, scale * beta)]
+            return [PortfolioTarget.Percent(self.algorithm, symbol1, -scale), PortfolioTarget.Percent(self.algorithm, symbol2, scale * beta)]
         
         elif direction == InsightDirection.Flat:
             self.algorithm.Debug(f"[PC] -- [BuildPairTargets]: {symbol1.Value}|FLAT|0, {symbol2.Value}|FLAT|0")
-            return [PortfolioTarget(symbol1, 0), PortfolioTarget(symbol2, 0)]
+            return [PortfolioTarget.Percent(self.algorithm, symbol1, 0), PortfolioTarget.Percent(self.algorithm, symbol2, 0)]
         
         else:
             return []

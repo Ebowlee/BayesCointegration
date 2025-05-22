@@ -54,6 +54,11 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         for pair_key, _ in self.algorithm.universeSelectionModel.cointegrated_pairs.items():
             symbol1, symbol2 = pair_key
 
+            # 如果数据未准备好，则跳过
+            if not data.ContainsKey(symbol1) or not data.ContainsKey(symbol2):
+                self.algorithm.Debug(f"[AlphaModel] Data not ready for {symbol1.Value} or {symbol2.Value}")
+                continue
+
             # 获取历史数据
             history1 = algorithm.History([symbol1], self.lookback_period, Resolution.Daily)
             history2 = algorithm.History([symbol2], self.lookback_period, Resolution.Daily)
@@ -63,8 +68,9 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                 continue
 
             try:
-                price1 = history1.loc[symbol1]['close']
-                price2 = history2.loc[symbol2]['close']
+                price1 = history1.loc[symbol1]['close'].fillna(method='ffill')
+                price2 = history2.loc[symbol2]['close'].fillna(method='ffill')
+
             except Exception as e:
                 self.algorithm.Debug(f"[AlphaModel] -- [Update] 协整对 {symbol1.Value} or {symbol2.Value} 提取价格失败: {str(e)}")
                 continue
@@ -233,15 +239,17 @@ class BayesianCointegrationAlphaModel(AlphaModel):
             if self.ShouldEmitInsightPair(symbol1, InsightDirection.Flat, symbol2, InsightDirection.Flat):
                 insight1 = Insight.Price(symbol1, self.signal_duration, InsightDirection.Flat, tag=tag)
                 insight2 = Insight.Price(symbol2, self.signal_duration, InsightDirection.Flat, tag=tag)
-                self.algorithm.Debug(f"[AlphaModel] -- [GenerateSignals]: zscore {z:.4f}, 回归观望 {symbol1.Value}, 回归观望 {symbol2.Value}")
+                self.algorithm.Debug(f"[AlphaModel] -- [GenerateSignals]: zscore {z:.4f}, 回归 {symbol1.Value}, 回归 {symbol2.Value}")
                 signals = [insight1, insight2]
 
         elif z >= self.upper_bound or z <= self.lower_bound:
             if self.ShouldEmitInsightPair(symbol1, InsightDirection.Flat, symbol2, InsightDirection.Flat):
                 insight1 = Insight.Price(symbol1, self.signal_duration, InsightDirection.Flat, tag=tag)
                 insight2 = Insight.Price(symbol2, self.signal_duration, InsightDirection.Flat, tag=tag)
-                self.algorithm.Debug(f"[AlphaModel] -- [GenerateSignals]: zscore {z:.4f}, 越界观望 {symbol1.Value}, 越界观望 {symbol2.Value}")
+                self.algorithm.Debug(f"[AlphaModel] -- [GenerateSignals]: zscore {z:.4f}, 失效 {symbol1.Value}, 失效 {symbol2.Value}")
                 signals = [insight1, insight2]
+        else:
+            self.algorithm.Debug(f"[AlphaModel] -- [GenerateSignals]: zscore {z:.4f}, 观望 {symbol1.Value}, 观望 {symbol2.Value}")
 
         return Insight.group(signals)
 
@@ -250,15 +258,15 @@ class BayesianCointegrationAlphaModel(AlphaModel):
 
     def ShouldEmitInsightPair(self, symbol1, direction1, symbol2, direction2):
         # 获取当前时间这两个 symbol 的所有活跃 Insight
-        insights1 = self.algorithm.Insights.GetActiveInsights(symbol1, self.algorithm.UtcTime)
-        insights2 = self.algorithm.Insights.GetActiveInsights(symbol2, self.algorithm.UtcTime)
+        active_insights_1 = [ins for ins in self.algorithm.insights if ins.symbol == symbol1 and ins.is_active(self.algorithm.utc_time)]
+        active_insights_2 = [ins for ins in self.algorithm.insights if ins.symbol == symbol2 and ins.is_active(self.algorithm.utc_time)]
 
-        if not insights1 or not insights2:
+        if not active_insights_1 or not active_insights_2:
             return True
 
         # 遍历两组 insight，查找是否存在一组 GroupId 相同 + 方向相同
-        for ins1 in insights1:
-            for ins2 in insights2:
+        for ins1 in active_insights_1:
+            for ins2 in active_insights_2:
                 if ins1.GroupId == ins2.GroupId:
                     if (ins1.Direction, ins2.Direction) == (direction1, direction2):
                         return False  
