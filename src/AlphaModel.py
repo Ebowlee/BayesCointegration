@@ -54,6 +54,9 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         for pair_key, _ in self.algorithm.universeSelectionModel.cointegrated_pairs.items():
             symbol1, symbol2 = pair_key
 
+            if not algorithm.Securities[symbol1].HasData or not algorithm.Securities[symbol2].HasData:
+                self.algorithm.Debug(f"[AlphaModel] {symbol1.Value} 或 {symbol2.Value} 无数据或未被订阅")
+
             # 如果数据未准备好，则跳过
             if not data.ContainsKey(symbol1) or not data.ContainsKey(symbol2):
                 self.algorithm.Debug(f"[AlphaModel] Data not ready for {symbol1.Value} or {symbol2.Value}")
