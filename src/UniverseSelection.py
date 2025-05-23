@@ -31,6 +31,7 @@ class MyUniverseSelectionModel(FundamentalUniverseSelectionModel):
         self.rebalance_period = 10
         self.last_fine_symbols = []
         self.last_rebalance_time = None
+        self.count = 0
         algorithm.Debug("[UniverseSelection] 初始化完成")
 
 
@@ -52,7 +53,8 @@ class MyUniverseSelectionModel(FundamentalUniverseSelectionModel):
         细选阶段，负责从粗选的股票中筛选出符合条件的股票
         """
         if self.rebalance_flag_on:
-            algorithm.Debug("[UniverseSelection] -- [SelectFine] 被调用 ######################## 开始选股 ########################")
+            self.count += 1
+            algorithm.Debug(f"[UniverseSelection] -- [SelectFine] 被调用 ################################ 开始第【{self.count}】次选股 ################################")
             selected_symbols = self.FineSelectionProcess(algorithm, fine)
             self.last_fine_symbols = selected_symbols
             fine_symbols = selected_symbols

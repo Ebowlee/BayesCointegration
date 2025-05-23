@@ -42,13 +42,14 @@ class BayesianCointegrationAlphaModel(AlphaModel):
 
     def Update(self, algorithm: QCAlgorithm, data: Slice) -> List[Insight]:
         Insights = []
+        self.intercept_count = 0
 
         # 如果universeSelectionModel中没有协整对，则不生成任何信号
         if not hasattr(self.algorithm.universeSelectionModel, 'cointegrated_pairs') or not self.algorithm.universeSelectionModel.cointegrated_pairs:
             self.algorithm.Debug("[AlphaModel] -- [Update] 接收不到协整对")
             return Insights
 
-        self.algorithm.Debug(f"[AlphaModel] -- [Update] 接收到协整对数量: {len(self.algorithm.universeSelectionModel.cointegrated_pairs)}")
+        self.algorithm.Debug(f"[AlphaModel] -- [Update] 接收到协整对数量: 【{len(self.algorithm.universeSelectionModel.cointegrated_pairs)}】")
 
         # 遍历协整对
         for pair_key, _ in self.algorithm.universeSelectionModel.cointegrated_pairs.items():
@@ -89,10 +90,12 @@ class BayesianCointegrationAlphaModel(AlphaModel):
             signal = self.GenerateSignals(pair_key, posterior_params_and_zscore)
             Insights.extend(signal)
         
+        self.algorithm.Debug(f"[AlphaModel] -- [Update] 本轮拦截重复信号: {self.intercept_count}")
+
         if Insights:
-            self.algorithm.Debug(f"[AlphaModel] -- [Update] 本轮生成信号对: {len(Insights)}")
+            self.algorithm.Debug(f"[AlphaModel] -- [Update] 本轮生成信号: {len(Insights)/2}")
         else:
-            self.algorithm.Debug("[AlphaModel] -- [Update] 本轮未生成信号")
+            self.algorithm.Debug("[AlphaModel] -- [Update] 本生成信号：{0}")
 
         return Insights
 
@@ -211,56 +214,48 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         
         该函数根据计算出的z分数值, 基于预设阈值生成做多、做空或平仓信号。
         当价格偏离度超过阈值时生成反转交易信号，回归均值时生成平仓信号。
-        
-        参数:
-            pair_id:  股票对标识符 (symbol1, symbol2)
-            posteriorParamSet:  包含多组模型参数的列表
-            
-        返回:
-            list[Insight]: 包含做多/做空/平仓信号的Insight对象列表 (可能为空)
         """
         signals = []
         symbol1, symbol2 = pair_id
         tag = f"{symbol1.Value}&{symbol2.Value}|{posteriorParamSet['beta_mean']:.4f}|{posteriorParamSet['zscore']:.2f}|{posteriorParamSet['confidence_interval']}"
         z = posteriorParamSet['zscore']
+        tag = None
 
         if self.entry_threshold < z < self.upper_bound:
-            if self.ShouldEmitInsightPair(symbol1, InsightDirection.Down, symbol2, InsightDirection.Up):
-                insight1 = Insight.Price(symbol1, self.signal_duration, InsightDirection.Down, tag=tag)
-                insight2 = Insight.Price(symbol2, self.signal_duration, InsightDirection.Up, tag=tag)
-                self.algorithm.Debug(f"[AlphaModel] -- [GenerateSignals]: zscore {z:.4f}, 看跌 {symbol1.Value}, 看涨 {symbol2.Value}")
-                signals = [insight1, insight2]
-
+            insight1_direction = InsightDirection.Down
+            insight2_direction = InsightDirection.Up
+            tag = "跌 | 涨"
         elif self.lower_bound < z < -self.entry_threshold:
-            if self.ShouldEmitInsightPair(symbol1, InsightDirection.Up, symbol2, InsightDirection.Down):
-                insight1 = Insight.Price(symbol1, self.signal_duration, InsightDirection.Up, tag=tag)
-                insight2 = Insight.Price(symbol2, self.signal_duration, InsightDirection.Down, tag=tag)
-                self.algorithm.Debug(f"[AlphaModel] -- [GenerateSignals]: zscore {z:.4f}, 看涨 {symbol1.Value}, 看跌 {symbol2.Value}")
-                signals = [insight1, insight2]
-
+            insight1_direction = InsightDirection.Up
+            insight2_direction = InsightDirection.Down
+            tag = "涨 | 跌"
         elif -self.exit_threshold <= z <= self.exit_threshold:
-            if self.ShouldEmitInsightPair(symbol1, InsightDirection.Flat, symbol2, InsightDirection.Flat):
-                insight1 = Insight.Price(symbol1, self.signal_duration, InsightDirection.Flat, tag=tag)
-                insight2 = Insight.Price(symbol2, self.signal_duration, InsightDirection.Flat, tag=tag)
-                self.algorithm.Debug(f"[AlphaModel] -- [GenerateSignals]: zscore {z:.4f}, 回归 {symbol1.Value}, 回归 {symbol2.Value}")
-                signals = [insight1, insight2]
-
+            insight1_direction = InsightDirection.Flat
+            insight2_direction = InsightDirection.Flat  
+            tag = "回归"
         elif z >= self.upper_bound or z <= self.lower_bound:
-            if self.ShouldEmitInsightPair(symbol1, InsightDirection.Flat, symbol2, InsightDirection.Flat):
-                insight1 = Insight.Price(symbol1, self.signal_duration, InsightDirection.Flat, tag=tag)
-                insight2 = Insight.Price(symbol2, self.signal_duration, InsightDirection.Flat, tag=tag)
-                self.algorithm.Debug(f"[AlphaModel] -- [GenerateSignals]: zscore {z:.4f}, 失效 {symbol1.Value}, 失效 {symbol2.Value}")
-                signals = [insight1, insight2]
+            insight1_direction = InsightDirection.Flat
+            insight2_direction = InsightDirection.Flat
+            tag = "失效"
         else:
-            self.algorithm.Debug(f"[AlphaModel] -- [GenerateSignals]: zscore {z:.4f}, 观望 {symbol1.Value}, 观望 {symbol2.Value}")
+            insight1_direction = InsightDirection.Flat
+            insight2_direction = InsightDirection.Flat  
+            tag = "观望"
+        
+        if self.ShouldEmitInsightPair(symbol1, insight1_direction, symbol2, insight2_direction):
+            insight1 = Insight.Price(symbol1, self.signal_duration, insight1_direction)
+            insight2 = Insight.Price(symbol2, self.signal_duration, insight2_direction)
+            signals = [insight1, insight2]
+            self.algorithm.Debug(f"[AlphaModel] -- [GenerateSignals]: zscore {z:.4f}, 【{tag}】 [{symbol1.Value},{symbol2.Value}]")
+        else:
+            self.intercept_count += 1
 
         return Insight.group(signals)
-
-
+    
 
 
     def ShouldEmitInsightPair(self, symbol1, direction1, symbol2, direction2):
-        # 获取当前时间这两个 symbol 的所有活跃 Insight
+        # 从 Insight Manager 获取当前时间这两个 symbol 的所有活跃 Insight
         active_insights_1 = [ins for ins in self.algorithm.insights if ins.symbol == symbol1 and ins.is_active(self.algorithm.utc_time)]
         active_insights_2 = [ins for ins in self.algorithm.insights if ins.symbol == symbol2 and ins.is_active(self.algorithm.utc_time)]
 
@@ -272,9 +267,8 @@ class BayesianCointegrationAlphaModel(AlphaModel):
             for ins2 in active_insights_2:
                 if ins1.GroupId == ins2.GroupId:
                     if (ins1.Direction, ins2.Direction) == (direction1, direction2):
-                        return False  
-
-        return True
+                        return False
+        return True 
 
 
 
