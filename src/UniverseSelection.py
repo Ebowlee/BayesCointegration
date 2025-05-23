@@ -28,27 +28,10 @@ class MyUniverseSelectionModel(FundamentalUniverseSelectionModel):
         self.max_symbol_repeats = 1
 
         self.rebalance_flag_on = True
-        self.rebalance_period = 5
+        self.rebalance_period = 10
         self.last_fine_symbols = []
         self.last_rebalance_time = None
         algorithm.Debug("[UniverseSelection] 初始化完成")
-
-
-    
-    def rebalance_switch(self, selected_symbols):
-        if self.rebalance_flag_on:
-            self.rebalance_flag_on = False
-            self.last_rebalance_time = self.algorithm.Time
-            FineSelected = list(selected_symbols)
-            self.last_fine_symbols = list(selected_symbols)
-            self.algorithm.Debug(f"[UniverseSelection] -- [SelectFine] 最终筛选出 {len(selected_symbols)} 只股票，形成 {len(self.cointegrated_pairs)} 个协整对")
-        else:
-            if (self.algorithm.Time - self.last_rebalance_time).days >= self.rebalance_period:
-                self.rebalance_flag_on = True
-            FineSelected = self.last_fine_symbols
-            self.algorithm.Debug(f"[UniverseSelection] -- [SelectFine] 未达到调仓条件，继续使用上轮选股结果: {x.Value for x in self.last_fine_symbols}")
-
-        return FineSelected
 
 
 
@@ -56,11 +39,6 @@ class MyUniverseSelectionModel(FundamentalUniverseSelectionModel):
         """
         粗选阶段，负责从所有股票中筛选出符合条件的股票
         """
-        if not self.rebalance_flag_on:
-            return []
-    
-        algorithm.Debug("[UniverseSelection] -- [SelectCoarse] 被调用 #################### 开始选股 ####################")
-
         filtered = [x for x in coarse if x.HasFundamentalData and x.Price > self.min_price and x.MarketCap > self.min_market_cap and x.Volume > self.min_volume]
         IpoFiltered = [x for x in filtered if x.SecurityReference.IPODate is not None and (algorithm.Time - x.SecurityReference.IPODate).days > self.min_ipo_days]
         CoarseSelected = [x.Symbol for x in sorted(IpoFiltered, key=lambda x: x.Symbol.Value)]
@@ -72,6 +50,33 @@ class MyUniverseSelectionModel(FundamentalUniverseSelectionModel):
     def SelectFine(self, algorithm, fine):
         """
         细选阶段，负责从粗选的股票中筛选出符合条件的股票
+        """
+        if self.rebalance_flag_on:
+            algorithm.Debug("[UniverseSelection] -- [SelectFine] 被调用 ######################## 开始选股 ########################")
+            selected_symbols = self.FineSelectionProcess(algorithm, fine)
+            self.last_fine_symbols = selected_symbols
+            fine_symbols = selected_symbols
+            self.algorithm.Debug(f"[UniverseSelection] -- [SelectFine] 最终筛选出 {len(selected_symbols)} 只股票，形成 {len(self.cointegrated_pairs)} 个协整对")
+            self.rebalance_flag_on = False
+            self.last_rebalance_time = algorithm.Time
+        else:
+            fine_symbols = self.last_fine_symbols
+            countdown = max(0, self.rebalance_period - (algorithm.Time - self.last_rebalance_time).days)
+            self.algorithm.Debug(f"[UniverseSelection] -- [SelectFine] 冻结期, 推送上轮结果: {[x.Value for x in self.last_fine_symbols]}, 剩余冻结天数:【{countdown}】")
+            if countdown == 0:
+                self.rebalance_flag_on = True
+                self.algorithm.Debug(f"[UniverseSelection] -- [SelectFine] 冻结期满, 准备调仓")
+            
+            if not algorithm.Securities[fine_symbols[0]].HasData:
+                self.algorithm.Debug(f"[UniverseSelection] {fine_symbols[0].Value} 无数据或未被订阅")
+
+        return fine_symbols    
+        
+
+
+    def FineSelectionProcess(self, algorithm, fine):
+        """
+        细选过程
         """
         techCandidates = [x for x in fine if x.AssetClassification.MorningstarSectorCode == MorningstarSectorCode.Technology]
         healthcareCandidates = [x for x in fine if x.AssetClassification.MorningstarSectorCode == MorningstarSectorCode.Healthcare]
@@ -104,10 +109,7 @@ class MyUniverseSelectionModel(FundamentalUniverseSelectionModel):
             selected_symbols.append(s1)
             selected_symbols.append(s2)
         
-        final_selected = self.rebalance_switch(selected_symbols)
-
-        return final_selected
-
+        return selected_symbols
 
 
     def NumOfCandidates(self, sectorCandidates):
