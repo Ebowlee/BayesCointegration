@@ -68,9 +68,6 @@ class MyUniverseSelectionModel(FundamentalUniverseSelectionModel):
             if countdown == 0:
                 self.rebalance_flag_on = True
                 self.algorithm.Debug(f"[UniverseSelection] -- [SelectFine] 冻结期满, 准备调仓")
-            
-            if not algorithm.Securities[fine_symbols[0]].HasData:
-                self.algorithm.Debug(f"[UniverseSelection] {fine_symbols[0].Value} 无数据或未被订阅")
 
         return fine_symbols    
         

@@ -19,6 +19,7 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
     def __init__(self, algorithm):
         super().__init__() 
         self.algorithm = algorithm
+        self.num_pairs = len(self.algorithm.universeSelectionModel.cointegrated_pairs)
         self.algorithm.Debug("[PortfolioConstruction] 初始化完成")
 
 
@@ -72,26 +73,25 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         """
         按照资金均分 + beta 对冲构建目标持仓, 使得资金控制在100%，整体没有杠杆
         """
-        num_pairs = len(insights)
-        if not np.isfinite(beta) or beta == 0 or num_pairs == 0:
+        if not np.isfinite(beta) or beta == 0 or self.num_pairs == 0:
             return []
 
         beta = abs(beta)
         L, S = 1.0, beta
-        capital_per_pair = 1.0 / num_pairs
+        capital_per_pair = 1.0 / self.num_pairs
         scale = capital_per_pair / (L + S)
 
         # 多空方向决定最终权重正负
         if direction == InsightDirection.Up:
-            self.algorithm.Debug(f"[PC] -- [BuildPairTargets]: {symbol1.Value}|UP|{scale:.4f}, {symbol2.Value}|DOWN|{beta*scale:.4f}, beta={beta:.4f}")
+            self.algorithm.Debug(f"[PC] -- [BuildPairTargets]: [{symbol1.Value}, {symbol2.Value}] | [UP, DOWN] | [{scale:.4f}, {-scale*beta:.4f}]")
             return [PortfolioTarget.Percent(self.algorithm, symbol1, scale), PortfolioTarget.Percent(self.algorithm, symbol2, -scale * beta)]
         
         elif direction == InsightDirection.Down:
-            self.algorithm.Debug(f"[PC] -- [BuildPairTargets]: {symbol1.Value}|DOWN|{scale:.4f}, {symbol2.Value}|UP|{beta*scale:.4f}, beta={beta:.4f}")
+            self.algorithm.Debug(f"[PC] -- [BuildPairTargets]: [{symbol1.Value}, {symbol2.Value}] | [DOWN, UP] | [{scale:.4f}, {scale*beta:.4f}]")
             return [PortfolioTarget.Percent(self.algorithm, symbol1, -scale), PortfolioTarget.Percent(self.algorithm, symbol2, scale * beta)]
         
         elif direction == InsightDirection.Flat:
-            self.algorithm.Debug(f"[PC] -- [BuildPairTargets]: {symbol1.Value}|FLAT|0, {symbol2.Value}|FLAT|0")
+            self.algorithm.Debug(f"[PC] -- [BuildPairTargets]: [{symbol1.Value}, {symbol2.Value}] | [FLAT, FLAT] | [0, 0]")
             return [PortfolioTarget.Percent(self.algorithm, symbol1, 0), PortfolioTarget.Percent(self.algorithm, symbol2, 0)]
         
         else:
