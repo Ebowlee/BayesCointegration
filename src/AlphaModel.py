@@ -93,9 +93,9 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         self.algorithm.Debug(f"[AlphaModel] -- [Update] 本轮拦截重复信号: {self.intercept_count}")
 
         if Insights:
-            self.algorithm.Debug(f"[AlphaModel] -- [Update] 本轮生成信号: {len(Insights)/2}")
+            self.algorithm.Debug(f"[AlphaModel] -- [Update] 本轮生成信号: {len(Insights)/2:.0f}")
         else:
-            self.algorithm.Debug("[AlphaModel] -- [Update] 本生成信号：{0}")
+            self.algorithm.Debug("[AlphaModel] -- [Update] 本生成信号：{[0]}")
 
         return Insights
 

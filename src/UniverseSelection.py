@@ -38,9 +38,9 @@ class MyUniverseSelectionModel(FundamentalUniverseSelectionModel):
 
     def SelectCoarse(self, algorithm, coarse):
         """
-        粗选阶段，负责从所有股票中筛选出符合条件的股票
+        粗选阶段，负责从所有股票中筛选出符合条件的股票, 轻量级的筛选方法
         """
-        filtered = [x for x in coarse if x.HasFundamentalData and x.Price > self.min_price and x.MarketCap > self.min_market_cap and x.Volume > self.min_volume]
+        filtered = [x for x in coarse if x.HasFundamentalData and x.Price > self.min_price and x.DollarVolume > self.min_volume]
         IpoFiltered = [x for x in filtered if x.SecurityReference.IPODate is not None and (algorithm.Time - x.SecurityReference.IPODate).days > self.min_ipo_days]
         CoarseSelected = [x.Symbol for x in sorted(IpoFiltered, key=lambda x: x.Symbol.Value)]
 
