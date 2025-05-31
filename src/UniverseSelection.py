@@ -1,67 +1,51 @@
 # region imports
 from AlgorithmImports import *
-import pandas as pd
-import itertools
 from statsmodels.tsa.stattools import coint
-from Selection.FundamentalUniverseSelectionModel import FundamentalUniverseSelectionModel
-from collections import defaultdict
-from datetime import timedelta
+from Selection.FineFundamentalUniverseSelectionModel import FineFundamentalUniverseSelectionModel
 # endregion
 
-class MyUniverseSelectionModel(FundamentalUniverseSelectionModel):
+class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
     """
     贝异斯协整选股模型 - 负责选取具有协整关系的资产对
     """
     def __init__(self, algorithm):
-        super().__init__(True)
         self.algorithm = algorithm
         self.numOfCandidates = 50
         self.min_price = 10
         self.min_volume = 10000000
         self.min_ipo_days = 365
         self.min_market_cap = 1e9
-        self.min_roe = 0.1
-        self.max_debt_to_equity = 0.5
-
-        # self.max_pairs = 10
-        # self.max_symbol_repeats = 1
-        # self.cointegrated_pairs = {}
-        # self.lookback_period = 252
-        # self.pvalue_threshold = 0.01
+        self.max_pe = 20
+        self.min_roe = 0.05
+        self.max_debt_to_equity = 0.8
 
         algorithm.Debug("[UniverseSelection] 初始化完成")
 
+        super().__init__(
+            self._select_coarse,  # 传递本类定义的粗选方法
+            self._select_fine     # 传递本类定义的精选方法
+        )
 
 
-    def SelectCoarse(self, algorithm, coarse):
+
+    def _select_coarse(self, algorithm, coarse):
         """
         粗选阶段，负责从所有股票中筛选出符合条件的股票, 轻量级的筛选方法
         """
         filtered = [x for x in coarse if x.HasFundamentalData and x.Price > self.min_price and x.DollarVolume > self.min_volume]
         ipo_filtered = [x for x in filtered if x.SecurityReference.IPODate is not None and (algorithm.Time - x.SecurityReference.IPODate).days > self.min_ipo_days]
         coarse_selected = [x.Symbol for x in sorted(ipo_filtered, key=lambda x: x.Symbol.Value)]
+        self.algorithm.Debug(f"[SelectCoarse] 粗选阶段完成, 共选出: {len(coarse_selected)}, 部分结果展示: {[x.Value for x in coarse_selected[:10]]}")
         return coarse_selected
 
 
 
-    def FineSelectionProcess(self, algorithm, fine):
+    def _select_fine(self, algorithm, fine):
         """
         细选阶段，主要是依据行业和财报信息
         """
-        accounting_filtered = []
         sector_candidates = {}
-        sector_selected = {}
-        all_selected = []
-
-        # 依据财报信息过滤，防止None报错
-        for x in fine:
-            roe = getattr(x.Fundamentals, "ROE", None)
-            debt_to_equity = getattr(x.Fundamentals, "DebtToEquity", None)
-            market_cap = getattr(x, "MarketCap", None)
-            if (roe is not None and roe.Value is not None and roe.Value > self.min_roe and
-                debt_to_equity is not None and debt_to_equity.Value is not None and debt_to_equity.Value < self.max_debt_to_equity and
-                market_cap is not None and market_cap.Value is not None and market_cap.Value > self.min_market_cap):
-                accounting_filtered.append(x)
+        all_sectors_selected_fine = []
 
         # 定义 MorningstarSectorCode 到名字的映射
         sector_map = {
@@ -76,27 +60,46 @@ class MyUniverseSelectionModel(FundamentalUniverseSelectionModel):
 
         # 用循环筛选每个行业
         for name, code in sector_map.items():
-            candidates = [x for x in accounting_filtered if x.AssetClassification.MorningstarSectorCode == code]
-            sector_candidates[name] = candidates
+            candidates = [x for x in fine if x.AssetClassification.MorningstarSectorCode == code]
+            sector_candidates[name] = self._num_of_candidates(candidates)
 
         # 用循环选择每个行业的最终股票
-        for name, candidates in sector_candidates.items():
-            sector_selected[name] = self.NumOfCandidates(candidates)
+        for selected_fine_list in sector_candidates.values():
+            all_sectors_selected_fine.extend(selected_fine_list)
 
-        # 汇总所有行业选股结果
-        for selected in sector_selected.values():
-            all_selected.extend(selected)
+        self.algorithm.Debug(f"[SelectFine] 精选阶段完成, 共选出: {len(all_sectors_selected_fine)}, 部分结果展示: {[x.Value for x in all_sectors_selected_fine[:10]]}")
 
-        return all_selected
+        fine_after_financial_filters = []
+        for x in all_sectors_selected_fine:
+            if hasattr(x, 'Fundamentals') and x.Fundamentals is not None:
+                pe_ratio_obj = x.Fundamentals.PERatio
+                roe_obj = x.Fundamentals.ROE
+                debt_to_equity_obj = getattr(x.Fundamentals, 'DebtToEquity', None)
+
+                passes_pe = pe_ratio_obj is not None and pe_ratio_obj < self.max_pe
+                passes_roe = roe_obj is not None and roe_obj > self.min_roe
+                passes_debt_to_equity = debt_to_equity_obj is not None and debt_to_equity_obj < self.max_debt_to_equity
+
+                if passes_pe and passes_roe and passes_debt_to_equity:
+                    fine_after_financial_filters.append(x)
+            else:
+                self.algorithm.Log(f"[SelectFine] 股票 {x.Symbol.Value} 缺少 Fundamentals 数据.")
+
+        final_selected_symbols = [x.Symbol for x in fine_after_financial_filters]
+        
+        self.algorithm.Debug(f"[SelectFine] 精选阶段完成, 共选出: {len(final_selected_symbols)}, 部分结果展示: {[x.Value for x in final_selected_symbols[:10]]}")
+        return final_selected_symbols
 
 
 
-    def NumOfCandidates(self, sectorCandidates):
+    def _num_of_candidates(self, sectorCandidates):
         """
         根据行业筛选出符合条件的股票，按市值降序排列
         """
-        filtered = [x.Symbol for x in sorted(sectorCandidates, key=lambda x: x.MarketCap.Value if (hasattr(x, 'MarketCap') and x.MarketCap.Value is not None) else 0, reverse=True)]
-        return filtered[:self.numOfCandidates] if len(filtered) > self.numOfCandidates else filtered
+       # 返回市值最高的前 self.numOfCandidates 个股票
+        filtered = [x for x in sectorCandidates if hasattr(x, 'MarketCap') and x.MarketCap is not None and x.MarketCap > 0]
+        sorted_candidates = sorted(filtered, key=lambda x: x.MarketCap, reverse=True)
+        return sorted_candidates[:self.numOfCandidates] if len(sorted_candidates) > self.numOfCandidates else sorted_candidates
  
 
 

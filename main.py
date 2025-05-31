@@ -32,10 +32,8 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # 添加基准ETF和设置分辨率
         self.AddEquity("SPY", Resolution.Daily)
         self.UniverseSettings.Resolution = Resolution.Daily
+  
 
-        self.SetBrokerageModel(BrokerageName.InteractiveBrokersBrokerage, AccountType.Margin)
-        self.UniverseSettings.ExtendedMarketHours = False
-        
         # 设置UniverseSelection模块
         self.SetUniverseSelection(MyUniverseSelectionModel(self))
 
@@ -53,5 +51,5 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         
         # 记录初始化完成
         self.Debug(f"[Initialize] 完成, 起始日期: {self.StartDate}")
-
+    
        
