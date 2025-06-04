@@ -17,6 +17,7 @@ class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
         self.max_pe = 20
         self.min_roe = 0.05
         self.max_debt_to_assets = 0.5
+        self.max_leverage_ratio = 4
 
         algorithm.Debug("[UniverseSelection] 初始化完成")
 
@@ -74,12 +75,13 @@ class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
                 pe_ratio = x.ValuationRatios.PERatio
                 roe_ratio = x.OperationRatios.ROE.Value
                 debt_to_assets_ratio = x.OperationRatios.DebtToAssets.Value
+                leverage_ratio = x.OperationRatios.FinancialLeverage.Value
 
                 passes_pe = pe_ratio is not None and pe_ratio < self.max_pe
                 passes_roe = roe_ratio is not None and roe_ratio > self.min_roe
                 passes_debt_to_assets = debt_to_assets_ratio is not None and debt_to_assets_ratio < self.max_debt_to_assets
-
-                if passes_pe and passes_roe and passes_debt_to_assets:
+                passes_leverage_ratio = leverage_ratio is not None and leverage_ratio < self.max_leverage_ratio
+                if passes_pe and passes_roe and passes_debt_to_assets and passes_leverage_ratio:
                     fine_after_financial_filters.append(x)
 
         final_selected_symbols = [x.Symbol for x in fine_after_financial_filters]
