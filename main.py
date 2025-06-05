@@ -2,7 +2,7 @@
 from AlgorithmImports import *
 from datetime import timedelta
 from src.UniverseSelection import MyUniverseSelectionModel
-# from src.AlphaModel import BayesianCointegrationAlphaModel
+from src.AlphaModel import BayesianCointegrationAlphaModel
 # from src.PortfolioConstruction import BayesianCointegrationPortfolioConstructionModel
 # from src.RiskManagement import BayesianCointegrationRiskManagementModel
 # from src.Execution import MyExecutionModel
@@ -37,8 +37,8 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # 设置UniverseSelection模块
         self.SetUniverseSelection(MyUniverseSelectionModel(self))
 
-        # # 设置Alpha模块
-        # self.SetAlpha(BayesianCointegrationAlphaModel(self))
+        # 设置Alpha模块
+        self.SetAlpha(BayesianCointegrationAlphaModel(self))
 
         # # 设置投资组合构建模块
         # self.SetPortfolioConstruction(BayesianCointegrationPortfolioConstructionModel(self))
