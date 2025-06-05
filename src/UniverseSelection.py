@@ -107,7 +107,7 @@ class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
         根据行业筛选出符合条件的股票，按市值降序排列
         """
        # 返回市值最高的前 self.numOfCandidates 个股票
-        filtered = [x for x in sectorCandidates if hasattr(x, 'MarketCap') and x.MarketCap is not None and x.MarketCap > 0]
+        filtered = [x for x in sectorCandidates if x.MarketCap is not None and x.MarketCap > 0]
         sorted_candidates = sorted(filtered, key=lambda x: x.MarketCap, reverse=True)
         return sorted_candidates[:self.numOfCandidates]
  
