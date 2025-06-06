@@ -25,86 +25,28 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         super().__init__() 
         self.algorithm = algorithm
         self.symbols = []
+        self.last_cointegration_date = None
+        self.cointegration_interval = timedelta(days=30)
         self.cointegrated_pairs = {}
-        self.pvalue_threshold = 0.05  # 协整检验的p值阈值
-        self.max_symbol_repeats = 2  # 每个股票在协整对中最多出现次数
-        self.max_pairs = 10  # 最大协整对数量
-        self.lookback_period = 252  # 用于计算z分数的历史数据长度
-        self.mcmc_samples = 1000  # MCMC采样次数
+        self.price = {}
+        self.pvalue_threshold = 0.05                         # 协整检验的p值阈值
+        self.max_symbol_repeats = 2                          # 每个股票在协整对中最多出现次数
+        self.max_pairs = 100                                 # 最大协整对数量
+        self.lookback_period = 252                           # 用于计算z分数的历史数据长度
+        self.mcmc_burn_in = 2000                             # MCMC采样预热次数
+        self.mcmc_draws = 3000                               # MCMC采样次数
+        self.posterior_params_cache = {}                     # 缓存后验参数
 
-        # 交易信号阈值
-        self.entry_threshold = 1.65  # 入场阈值(标准差倍数)
-        self.exit_threshold = 0.5   # 出场阈值(标准差倍数)
-        self.upper_limit = 3.0      # 上限阈值(避免在极端情况下入场)
-        self.lower_limit = -3.0     # 下限阈值(避免在极端情况下入场)
+        self.entry_threshold = 1.65                          # 入场阈值(标准差倍数)
+        self.exit_threshold = 0.5                            # 出场阈值(标准差倍数)
+        self.upper_limit = 3.0                               # 上限阈值(避免在极端情况下入场)
+        self.lower_limit = -3.0                              # 下限阈值(避免在极端情况下入场)
         
-        # 信号持续时间(以天为单位)
         self.signal_duration = timedelta(days=15)
         self.insight_blocked_count = 0
 
         self.algorithm.Debug("[AlphaModel] 初始化完成")
-
-
-
-    def Update(self, algorithm: QCAlgorithm, data: Slice) -> List[Insight]:
-        Insights = []
-
-        # 如果universeSelectionModel中没有协整对，则不生成任何信号
-        if not self.symbols or len(self.symbols) < 2:
-            self.algorithm.Debug("[AlphaModel] -- [Update] 当前没有足够的活跃股票")
-            return Insights
-
-        # 给所选的股票做两两配对，并进行协整检验
-        pairs = list(itertools.combinations(self.symbols, 2))
-
-        for pair_tuple in pairs:
-            symbol1, symbol2 = pair_tuple
-            cointegrated_pair = self.CointegrationTestForSinglePair(symbol1, symbol2)
-            self.cointegrated_pairs.update(cointegrated_pair)
-
-        # 过滤协整对，使每个股票在协整对中最多出现两次
-        self.cointegrated_pairs = self.FilterCointegratedPairs(self.cointegrated_pairs)
-        self.algorithm.Debug(f"[AlphaModel] -- [Update] 本轮协整对数量: {len(self.cointegrated_pairs)}")
-        self.algorithm.Debug(f"[AlphaModel] -- [Update] 本轮协整对: [{', '.join([f'{symbol1.Value} - {symbol2.Value}' for symbol1, symbol2 in self.cointegrated_pairs.keys()])}]")
-
-        # 遍历协整对
-        for pair_key, _ in self.cointegrated_pairs.items():
-            symbol1, symbol2 = pair_key
-
-            if not algorithm.Securities[symbol1].HasData or not algorithm.Securities[symbol2].HasData:
-                self.algorithm.Debug(f"[AlphaModel] {symbol1.Value} 或 {symbol2.Value} 无数据或未被订阅")
-
-            # 如果数据未准备好，则跳过
-            if not data.ContainsKey(symbol1) or not data.ContainsKey(symbol2):
-                self.algorithm.Debug(f"[AlphaModel] Data not ready for {symbol1.Value} or {symbol2.Value}")
-                continue
-
-            # 获取历史数据
-            history1 = algorithm.History([symbol1], self.lookback_period, Resolution.Daily)
-            history2 = algorithm.History([symbol2], self.lookback_period, Resolution.Daily)
-            price1 = history1.loc[symbol1]['close'].fillna(method='ffill')
-            price2 = history2.loc[symbol2]['close'].fillna(method='ffill')
-
-            # 使用 PyMC 模型计算后验参数
-            posterior_params = self.PyMCModel(price1, price2)
-            if posterior_params is None:
-                self.algorithm.Debug(f"[AlphaModel] -- [Update] 协整对 {symbol1.Value} or {symbol2.Value} PYMC 建模失败")
-                continue
-
-            # 利用后验参数，刻画后验分布，计算z-score并生成信号
-            posterior_params_and_zscore = self.CalculateResidualZScore(price1, price2, posterior_params)
-            signal = self.GenerateSignals(pair_key, posterior_params_and_zscore)
-            Insights.extend(signal)
-        
-        self.algorithm.Debug(f"[AlphaModel] -- [Update] 本轮拦截重复信号: {self.insight_blocked_count}")
-
-        if Insights:
-            self.algorithm.Debug(f"[AlphaModel] -- [Update] 本轮生成信号: {len(Insights)/2:.0f}")
-        else:
-            self.algorithm.Debug("[AlphaModel] -- [Update] 本生成信号：{[0]}")
-
-        return Insights
-
+    
 
 
     def OnSecuritiesChanged(self, algorithm: QCAlgorithm, changes: SecurityChanges):
@@ -115,19 +57,87 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         # 处理新增的证券
         for added_security in changes.AddedSecurities:
             symbol = added_security.Symbol
-            if symbol not in self.symbols: # 避免重复添加
+            if symbol and symbol not in self.symbols:
                 self.symbols.append(symbol)
-       
+    
         # 处理移除的证券
         for removed_security in changes.RemovedSecurities:
             symbol = removed_security.Symbol
-            if symbol in self.symbols:
+            if symbol and symbol in self.symbols:
                 self.symbols.remove(symbol)
-   
+
         if not self.symbols:
             self.algorithm.Log(f"[{self.Name}.OnSecuritiesChanged] Alpha模型当前没有活跃股票。")
         else:
             self.algorithm.Debug(f"[{self.Name}.OnSecuritiesChanged] Alpha模型当前活跃股票数量: {len(self.symbols)}")
+
+
+
+    def Update(self, algorithm: QCAlgorithm, data: Slice) -> List[Insight]:
+        Insights = []
+
+        # 如果universeSelectionModel中没有协整对，则不生成任何信号
+        if not self.symbols or len(self.symbols) < 2:
+            self.algorithm.Debug("[AlphaModel] -- [Update] 当前没有足够的活跃股票")
+            return Insights
+        
+        current_date = self.algorithm.Time.date()
+
+        # 如果上次协整检验的时间距离现在超过10天，则进行协整检验
+        if self.last_cointegration_date is None or (current_date - self.last_cointegration_date).days >= self.cointegration_interval.days:
+            self.cointegrated_pairs = {}
+            self.price = {}
+            pairs = list(itertools.combinations(self.symbols, 2))
+
+            for pair_tuple in pairs:
+                symbol1, symbol2 = pair_tuple
+                cointegrated_pair, price = self.CointegrationTestForSinglePair(symbol1, symbol2)
+                self.cointegrated_pairs.update(cointegrated_pair)
+                self.price.update(price)
+            
+            self.last_cointegration_date = current_date
+                
+            # 过滤协整对，使每个股票在协整对中最多出现两次
+            self.cointegrated_pairs = self.FilterCointegratedPairs(self.cointegrated_pairs)
+            self.algorithm.Debug(f"[AlphaModel] -- [Update] 本轮协整对数量: {len(self.cointegrated_pairs)}")
+            self.algorithm.Debug(f"[AlphaModel] -- [Update] 本轮协整对: [{', '.join([f'{symbol1.Value} - {symbol2.Value}' for symbol1, symbol2 in self.cointegrated_pairs.keys()])}]")
+
+            # 遍历协整对
+            for pair_key in self.cointegrated_pairs.keys():
+                symbol1, symbol2 = pair_key
+
+                # 获取存储在self.price中的历史数据
+                price1 = self.price[symbol1]
+                price2 = self.price[symbol2]
+
+                # 使用 PyMC 模型计算后验参数
+                posterior_params = self.PyMCModel(price1, price2)
+                if posterior_params is not None:
+                    self.posterior_params_cache[pair_key] = posterior_params  # 缓存参数
+                else:
+                    self.algorithm.Debug(f"PyMC建模失败: {symbol1.Value}-{symbol2.Value}")
+
+        for pair_key in self.cointegrated_pairs.keys():
+            if pair_key in self.posterior_params_cache:
+                symbol1, symbol2 = pair_key
+                cached_params = self.posterior_params_cache[pair_key]
+            else:
+                self.algorithm.Debug(f"缓存中没有找到后验参数: {symbol1.Value}-{symbol2.Value}")
+                continue
+        
+            # 利用后验参数，刻画后验分布，计算z-score并生成信号
+            posterior_params_and_zscore = self.CalculateResidualZScore(symbol1, symbol2, data, cached_params)
+            signal = self.GenerateSignals(pair_key, posterior_params_and_zscore)
+            Insights.extend(signal)
+        
+        self.algorithm.Debug(f"[AlphaModel] -- [Update] 本轮拦截重复信号: {self.insight_blocked_count}")
+
+        if Insights:
+            self.algorithm.Debug(f"[AlphaModel] -- [Update] 本轮生成信号: {len(Insights)/2:.0f}")
+        else:
+            self.algorithm.Debug("[AlphaModel] -- [Update] 本生成信号：{[0]}")
+
+        return Insights    
 
 
 
@@ -136,22 +146,22 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         单个股票对协整检验
         """
         cointegrated_pair = {}
+        is_cointegrated = False
+        price = {}
 
         historySymbol1 = self.algorithm.History([symbol1], self.lookback_period, Resolution.Daily)
         historySymbol2 = self.algorithm.History([symbol2], self.lookback_period, Resolution.Daily)
 
-        if historySymbol1.empty or historySymbol2.empty or len(historySymbol1.index.levels[1].unique()) < 2:
-            return False, 1.0, None
-
         try:
-            price1 = historySymbol1.loc[symbol1]['close'].fillna(method='ffill')
-            price2 = historySymbol2.loc[symbol2]['close'].fillna(method='ffill')
-            if len(price1) != len(price2) or price1.isnull().any() or price2.isnull().any():
-                return False, 1.0, None
-            correlation = price1.corr(price2)
-            if abs(correlation) < 0.7:
-                return False, 1.0, None
-            score, pvalue, critical_values = coint(price1, price2)
+            price[symbol1] = historySymbol1.loc[symbol1]['close'].fillna(method='pad')
+            price[symbol2] = historySymbol2.loc[symbol2]['close'].fillna(method='pad')
+            if len(price[symbol1]) != len(price[symbol2]) or price[symbol1].isnull().any() or price[symbol2].isnull().any():
+                return cointegrated_pair, price
+            
+            correlation = price[symbol1].corr(price[symbol2])
+            if abs(correlation) < 0.5:
+                return cointegrated_pair, price
+            score, pvalue, critical_values = coint(price[symbol1], price[symbol2])
             is_cointegrated = pvalue < self.pvalue_threshold
 
         except Exception as e:
@@ -165,7 +175,7 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                 'create_time': self.algorithm.Time
             }
             self.algorithm.Debug(f"[UniverseSelection] -- [CointegrationTestForPairs] 发现协整对: [{symbol1.Value} - {symbol2.Value}], p值: {pvalue:.4f}")
-        return cointegrated_pair
+        return cointegrated_pair, price
     
 
 
@@ -216,7 +226,7 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                 likelihood = pm.Normal('y', mu=mu, sigma=sigmaOfEpsilon, observed=y)
                 
                 # 执行MCMC采样 - 前1000次预热，后1000次用于构建后验分布
-                trace = pm.sample(self.mcmc_samples, tune=self.mcmc_samples, chains=1, cores=1, progressbar=False)
+                trace = pm.sample(draws=self.mcmc_draws, tune=self.mcmc_burn_in, chains=2, cores=1, progressbar=False)
 
                 # 从后验分布中提取模型参数
                 posterior = trace.posterior
@@ -238,18 +248,18 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         
 
 
-    def CalculateResidualZScore(self, price1, price2, posteriorParamSet):
+    def CalculateResidualZScore(self, symbol1, symbol2, data: Slice, posteriorParamSet):
         """
         计算残差并标准化为z分数
 
         该函数利用贝叶斯参数后验分布，计算当前价格的残差分布，
         并将其标准化为z分数, 用于判断价格偏离程度和生成交易信号。
         """
-        # 获取当前价格（最后一个时间点）
-        # current_price1 = price1.iloc[-1]
-        # current_price2 = price2.iloc[-1]
-        current_price1 = np.log(price1.iloc[-1])
-        current_price2 = np.log(price2.iloc[-1])
+        if not (data.ContainsKey(symbol1) and data[symbol1] is not None and data.ContainsKey(symbol2) and data[symbol2] is not None):
+            return None
+        
+        current_price1 = np.log(data[symbol1].Close)
+        current_price2 = np.log(data[symbol2].Close)
         
         # 利用所有后验参数计算残差分布
         alpha = posteriorParamSet['alpha']
