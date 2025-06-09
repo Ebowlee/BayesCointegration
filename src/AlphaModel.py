@@ -32,7 +32,7 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         self.pvalue_threshold = 0.05                         # 协整检验的p值阈值
         self.correlation_threshold = 0.5                     # 协整检验的皮尔逊相关系数阈值
         self.max_symbol_repeats = 2                          # 每个股票在协整对中最多出现次数
-        self.max_pairs = 100                                 # 最大协整对数量
+        self.max_pairs = 10                                  # 最大协整对数量
         self.lookback_period = 252                           # 用于计算z分数的历史数据长度
         self.mcmc_burn_in = 1000                             # MCMC采样预热次数
         self.mcmc_draws = 1000                               # MCMC采样次数
@@ -102,7 +102,7 @@ class BayesianCointegrationAlphaModel(AlphaModel):
             # 过滤协整对，使每个股票在协整对中最多出现两次
             self.cointegrated_pairs = self.FilterCointegratedPairs(self.cointegrated_pairs)
             self.algorithm.Debug(f"[AlphaModel] -- [Update] 本轮协整对数量: {len(self.cointegrated_pairs)}")
-            self.algorithm.Debug(f"[AlphaModel] -- [Update] 本轮协整对: [{', '.join([f'{symbol1.Value} - {symbol2.Value}' for symbol1, symbol2 in self.cointegrated_pairs.keys()])}]")
+            self.algorithm.Debug(f"[AlphaModel] -- [Update] 本轮协整对: [{', '.join([f'{symbol1.Value}-{symbol2.Value}' for symbol1, symbol2 in self.cointegrated_pairs.keys()])}]")
 
             # 遍历协整对
             for pair_key in self.cointegrated_pairs.keys():
@@ -297,6 +297,10 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         当价格偏离度超过阈值时生成反转交易信号，回归均值时生成平仓信号。
         """
         signals = []
+
+        if posteriorParamSet is None:
+            return signals
+        
         symbol1, symbol2 = pair_id
         tag = f"{symbol1.Value}&{symbol2.Value}|{posteriorParamSet['beta_mean']:.4f}|{posteriorParamSet['zscore']:.2f}|{posteriorParamSet['confidence_interval']}"
         z = posteriorParamSet['zscore']

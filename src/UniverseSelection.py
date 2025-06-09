@@ -94,11 +94,11 @@ class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
             final_selected_symbols = [x.Symbol for x in fine_after_financial_filters]
             self.last_fine_selected_symbols = final_selected_symbols
             self.last_fine_selection_date = current_date
-            self.algorithm.Debug(f"[_select_fine] 精选阶段完成, 共选出: {len(final_selected_symbols)}, 部分结果展示: {[x.Value for x in final_selected_symbols[:10]]}")
+            self.algorithm.Debug(f"[UniverseSelection] -- [_select_fine] 精选阶段完成, 共选出: {len(final_selected_symbols)}, 部分结果展示: {[x.Value for x in final_selected_symbols[:10]]}")
             return final_selected_symbols
 
         else:
-            self.algorithm.Debug(f"[_select_fine] 距离下次选股还剩【{self.fine_selection_interval.days - (current_date - self.last_fine_selection_date).days}】天")
+            self.algorithm.Debug(f"[UniverseSelection] -- [_select_fine] 距离下次选股还剩【{self.fine_selection_interval.days - (current_date - self.last_fine_selection_date).days}】天")
             return self.last_fine_selected_symbols
 
 
