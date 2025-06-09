@@ -29,14 +29,14 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         self.cointegration_interval = timedelta(days=30)
         self.cointegrated_pairs = {}
         self.price = {}
-        self.pvalue_threshold = 0.05                         # 协整检验的p值阈值
-        self.correlation_threshold = 0.5                     # 协整检验的皮尔逊相关系数阈值
+        self.pvalue_threshold = 0.01                         # 协整检验的p值阈值
+        self.correlation_threshold = 0.7                     # 协整检验的皮尔逊相关系数阈值
         self.max_symbol_repeats = 2                          # 每个股票在协整对中最多出现次数
         self.max_pairs = 10                                  # 最大协整对数量
         self.lookback_period = 252                           # 用于计算z分数的历史数据长度
         self.mcmc_burn_in = 1000                             # MCMC采样预热次数
         self.mcmc_draws = 1000                               # MCMC采样次数
-        self.mcmc_chains = 2                                 # MCMC链数
+        self.mcmc_chains = 1                                 # MCMC链数
         self.posterior_params_cache = {}                     # 缓存后验参数
 
         self.entry_threshold = 1.65                          # 入场阈值(标准差倍数)
@@ -45,7 +45,6 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         self.lower_limit = -3.0                              # 下限阈值(避免在极端情况下入场)
         
         self.signal_duration = timedelta(days=15)
-        self.insight_blocked_count = 0
 
         self.algorithm.Debug("[AlphaModel] 初始化完成")
     
@@ -77,6 +76,7 @@ class BayesianCointegrationAlphaModel(AlphaModel):
 
     def Update(self, algorithm: QCAlgorithm, data: Slice) -> List[Insight]:
         Insights = []
+        self.insight_blocked_count = 0
 
         # 如果universeSelectionModel中没有协整对，则不生成任何信号
         if not self.symbols or len(self.symbols) < 2:
@@ -137,7 +137,7 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         if Insights:
             self.algorithm.Debug(f"[AlphaModel] -- [Update] 本轮生成信号: {len(Insights)/2:.0f}")
         else:
-            self.algorithm.Debug("[AlphaModel] -- [Update] 本生成信号：{[0]}")
+            self.algorithm.Debug(f"[AlphaModel] -- [Update] 本轮生成信号: 0")
 
         return Insights    
 
@@ -194,7 +194,7 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                 filtered_pairs[keys] = values
                 symbol_count[s1] += 1
                 symbol_count[s2] += 1
-            if len(filtered_pairs) > self.max_pairs:
+            if len(filtered_pairs) >= self.max_pairs:
                 break
         return filtered_pairs
     
@@ -354,10 +354,3 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                     if (ins1.Direction, ins2.Direction) == (direction1, direction2):
                         return False
         return True 
-
-
-
-
-
-   
-        
