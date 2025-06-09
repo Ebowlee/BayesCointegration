@@ -30,11 +30,13 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         self.cointegrated_pairs = {}
         self.price = {}
         self.pvalue_threshold = 0.05                         # 协整检验的p值阈值
+        self.correlation_threshold = 0.5                     # 协整检验的皮尔逊相关系数阈值
         self.max_symbol_repeats = 2                          # 每个股票在协整对中最多出现次数
         self.max_pairs = 100                                 # 最大协整对数量
         self.lookback_period = 252                           # 用于计算z分数的历史数据长度
-        self.mcmc_burn_in = 2000                             # MCMC采样预热次数
-        self.mcmc_draws = 3000                               # MCMC采样次数
+        self.mcmc_burn_in = 1000                             # MCMC采样预热次数
+        self.mcmc_draws = 1000                               # MCMC采样次数
+        self.mcmc_chains = 2                                 # MCMC链数
         self.posterior_params_cache = {}                     # 缓存后验参数
 
         self.entry_threshold = 1.65                          # 入场阈值(标准差倍数)
@@ -67,9 +69,9 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                 self.symbols.remove(symbol)
 
         if not self.symbols:
-            self.algorithm.Log(f"[{self.Name}.OnSecuritiesChanged] Alpha模型当前没有活跃股票。")
+            self.algorithm.Log("[AlphaModel] -- [OnSecuritiesChanged] Alpha模型当前没有活跃股票。")
         else:
-            self.algorithm.Debug(f"[{self.Name}.OnSecuritiesChanged] Alpha模型当前活跃股票数量: {len(self.symbols)}")
+            self.algorithm.Debug(f"[AlphaModel] -- [OnSecuritiesChanged] Alpha模型当前活跃股票数量: {len(self.symbols)}")
 
 
 
@@ -115,14 +117,14 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                 if posterior_params is not None:
                     self.posterior_params_cache[pair_key] = posterior_params  # 缓存参数
                 else:
-                    self.algorithm.Debug(f"PyMC建模失败: {symbol1.Value}-{symbol2.Value}")
+                    self.algorithm.Debug(f"[AlphaModel] -- [Update] PyMC建模失败: {symbol1.Value}-{symbol2.Value}")
 
         for pair_key in self.cointegrated_pairs.keys():
             if pair_key in self.posterior_params_cache:
                 symbol1, symbol2 = pair_key
                 cached_params = self.posterior_params_cache[pair_key]
             else:
-                self.algorithm.Debug(f"缓存中没有找到后验参数: {symbol1.Value}-{symbol2.Value}")
+                self.algorithm.Debug(f"[AlphaModel] -- [Update] 缓存中没有找到后验参数: {symbol1.Value}-{symbol2.Value}")
                 continue
         
             # 利用后验参数，刻画后验分布，计算z-score并生成信号
@@ -159,7 +161,7 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                 return cointegrated_pair, price
             
             correlation = price[symbol1].corr(price[symbol2])
-            if abs(correlation) < 0.5:
+            if abs(correlation) < self.correlation_threshold:
                 return cointegrated_pair, price
             score, pvalue, critical_values = coint(price[symbol1], price[symbol2])
             is_cointegrated = pvalue < self.pvalue_threshold
@@ -206,8 +208,6 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         用于后续的残差计算和交易信号生成。
         """
         # 用两个资产在过去252天内的价格数据, 作为PyMC3模型的输入
-        # y = price1.values
-        # x = price2.values
         y = np.log(price1.values)
         x = np.log(price2.values)
 
@@ -226,7 +226,7 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                 likelihood = pm.Normal('y', mu=mu, sigma=sigmaOfEpsilon, observed=y)
                 
                 # 执行MCMC采样 - 前1000次预热，后1000次用于构建后验分布
-                trace = pm.sample(draws=self.mcmc_draws, tune=self.mcmc_burn_in, chains=2, cores=1, progressbar=False)
+                trace = pm.sample(draws=self.mcmc_draws, tune=self.mcmc_burn_in, chains=self.mcmc_chains, cores=1, progressbar=False)
 
                 # 从后验分布中提取模型参数
                 posterior = trace.posterior
