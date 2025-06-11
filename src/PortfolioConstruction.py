@@ -19,17 +19,13 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
     def __init__(self, algorithm):
         super().__init__() 
         self.algorithm = algorithm
+        self.num_pairs = 10
         self.algorithm.Debug("[PortfolioConstruction] 初始化完成")
 
 
 
     def create_targets(self, algorithm, insights):
         targets = []
-        num_pairs = len(self.algorithm.universeSelectionModel.cointegrated_pairs)
-        self.algorithm.Debug(f"[PC] -- [CreateTargets] 当前持仓配对数量: {num_pairs}")
-        
-        expired_insights = self.algorithm.insights.remove_expired_insights(self.algorithm.utc_time)
-        targets = [PortfolioTarget.Percent(self.algorithm, insight.Symbol, 0) for insight in expired_insights]
 
         # 按 GroupId 分组
         grouped_insights = defaultdict(list)
@@ -52,7 +48,7 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
             insight_info = ", ".join([f"{ins.Symbol.Value}|{ins.Direction}" for ins in group])
             self.algorithm.Debug(f"[PC] -- [CreateTargets] 接收到信号组: {group_id}, 包含信号: {insight_info}")
 
-            # 尝试解析 beta
+            # 尝试解析 beta_mean
             try:
                 tag_parts = insight1.Tag.split('|')
                 beta_mean = float(tag_parts[1])
@@ -61,7 +57,7 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
                 continue
 
             # 构建配对目标持仓
-            pair_targets = self._BuildPairTargets(symbol1, symbol2, direction, group, beta_mean, num_pairs)
+            pair_targets = self._BuildPairTargets(symbol1, symbol2, direction, beta_mean, num_pairs=self.num_pairs)
             targets += pair_targets
         
         self.algorithm.Debug(f"[PC] -- [CreateTargets] 本轮生成 PortfolioTarget 数量: {len(targets)}")
@@ -70,24 +66,30 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
 
 
 
-    def _BuildPairTargets(self, symbol1, symbol2, direction, insights, beta, num_pairs):
+    def _BuildPairTargets(self, symbol1, symbol2, direction, beta, num_pairs):
         """
         按照资金均分 + beta 对冲构建目标持仓, 使得资金控制在100%，整体没有杠杆
         """
-        if not np.isfinite(beta) or beta == 0 or num_pairs == 0:
+        if not np.isfinite(beta) or beta == 0:
             return []
 
         beta = abs(beta)
         L, S = 1.0, beta
         capital_per_pair = 1.0 / num_pairs
-        scale = capital_per_pair / (L + S)
+
+        security1 = self.algorithm.Securities[symbol1]
+        security2 = self.algorithm.Securities[symbol2]
 
         # 多空方向决定最终权重正负
-        if direction == InsightDirection.Up:
+        if direction == InsightDirection.Up and security2.IsShortable:
+            margin = min(0.5, security2.MarginRequirement)
+            scale = capital_per_pair / (L + S*margin)
             self.algorithm.Debug(f"[PC] -- [BuildPairTargets]: [{symbol1.Value}, {symbol2.Value}] | [UP, DOWN] | [{scale:.4f}, {-scale*beta:.4f}]")
             return [PortfolioTarget.Percent(self.algorithm, symbol1, scale), PortfolioTarget.Percent(self.algorithm, symbol2, -scale * beta)]
         
-        elif direction == InsightDirection.Down:
+        elif direction == InsightDirection.Down and security1.IsShortable:
+            margin = min(0.5, security1.MarginRequirement)
+            scale = capital_per_pair / (L + S*margin)   
             self.algorithm.Debug(f"[PC] -- [BuildPairTargets]: [{symbol1.Value}, {symbol2.Value}] | [DOWN, UP] | [{scale:.4f}, {scale*beta:.4f}]")
             return [PortfolioTarget.Percent(self.algorithm, symbol1, -scale), PortfolioTarget.Percent(self.algorithm, symbol2, scale * beta)]
         
