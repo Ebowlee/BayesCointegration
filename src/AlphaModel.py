@@ -304,7 +304,6 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         symbol1, symbol2 = pair_id
         tag = f"{symbol1.Value}&{symbol2.Value}|{posteriorParamSet['beta_mean']:.4f}|{posteriorParamSet['zscore']:.2f}|{posteriorParamSet['confidence_interval']}"
         z = posteriorParamSet['zscore']
-        tag = None
 
         if self.entry_threshold <= z <= self.upper_limit:
             insight1_direction = InsightDirection.Down
@@ -328,8 +327,8 @@ class BayesianCointegrationAlphaModel(AlphaModel):
             tag = "观望"
         
         if self.ShouldEmitInsightPair(symbol1, insight1_direction, symbol2, insight2_direction):
-            insight1 = Insight.Price(symbol1, self.signal_duration, insight1_direction)
-            insight2 = Insight.Price(symbol2, self.signal_duration, insight2_direction)
+            insight1 = Insight.Price(symbol1, self.signal_duration, insight1_direction, tag=tag)
+            insight2 = Insight.Price(symbol2, self.signal_duration, insight2_direction, tag=tag)
             signals = [insight1, insight2]
             self.algorithm.Debug(f"[AlphaModel] -- [GenerateSignals]: zscore {z:.4f}, 【{tag}】 [{symbol1.Value},{symbol2.Value}]")
         else:
