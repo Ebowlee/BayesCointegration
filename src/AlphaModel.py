@@ -56,7 +56,7 @@ class BayesianCointegrationAlphaModel(AlphaModel):
             self.algorithm.Debug("[AlphaModel] -- [Update] 当前没有足够的活跃股票")
             return Insights
         
-        # 周期和选股一致
+        # ============================周期和选股一致============================
         # 如果 OnSecuritiesChanged 被调用代表选股模块已经更新了股票池，则进行协整检验
         if self.is_universe_selection_on:
             self.industry_cointegrated_pairs = {}
@@ -70,14 +70,15 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                 pairs = list(itertools.combinations(symbols, 2))
                 intra_industry_pairs = {}
 
-                # 遍历同行业股票对
+                # 遍历同行业股票对并作协整检验
                 for pair_tuple in pairs:
                     symbol1, symbol2 = pair_tuple
                     cointegrated_pair = self.CointegrationTestForSinglePair(symbol1, symbol2, lookback_period=self.lookback_period)
                     intra_industry_pairs.update(cointegrated_pair)
             
-                # 过滤同行业协整对，使每个股票在同行业协整对中最多出现一次，最多保留10对
+                # 过滤同行业协整对，使每个股票在同行业协整对中最多出现一次，最多保留3对
                 filtered_intra_industry_pairs = self.FilterCointegratedPairs(intra_industry_pairs)
+                # 将所有行业协整对汇总
                 self.industry_cointegrated_pairs.update(filtered_intra_industry_pairs)
 
             self.algorithm.Debug(f"[AlphaModel] -- [Update] 本轮协整对: [{', '.join([f'{symbol1.Value}-{symbol2.Value}' for symbol1, symbol2 in self.industry_cointegrated_pairs.keys()])}]")
@@ -93,10 +94,10 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                 else:
                     self.algorithm.Debug(f"[AlphaModel] -- [Update] PyMC建模失败: {symbol1.Value}-{symbol2.Value}")
             
-            # 协整检验完成，后验参数计算完成，设置标志位为False
+            # 协整检验、后验参数计算已经完成，设置标志位为False，等到下次选股在开启
             self.is_universe_selection_on = False
 
-        # 周期为每日
+        # ============================周期为每日============================
         # 遍历后验参数，计算z-score并生成信号
         self.insight_blocked_count = 0  
         for pair_key in self.posterior_params.keys():
@@ -106,12 +107,12 @@ class BayesianCointegrationAlphaModel(AlphaModel):
             signal = self.GenerateSignals(symbol1, symbol2, posterior_param_with_zscore)
             Insights.extend(signal)
         
-        self.algorithm.Debug(f"[AlphaModel] -- [Update] 本轮拦截重复信号: {self.insight_blocked_count}")
+        self.algorithm.Debug(f"[AlphaModel] -- [Update] 拦截重复信号: {self.insight_blocked_count}")
 
         if Insights:
-            self.algorithm.Debug(f"[AlphaModel] -- [Update] 本轮生成信号: {len(Insights)/2:.0f}")
+            self.algorithm.Debug(f"[AlphaModel] -- [Update] 生成信号: {len(Insights)/2:.0f}")
         else:
-            self.algorithm.Debug(f"[AlphaModel] -- [Update] 本轮生成信号: 0")
+            self.algorithm.Debug(f"[AlphaModel] -- [Update] 生成信号: 0")
         return Insights    
 
 
