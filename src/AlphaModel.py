@@ -3,6 +3,7 @@ from AlgorithmImports import *
 from datetime import timedelta
 import itertools
 from collections import defaultdict
+from QuantConnect.Data.Fundamental import MorningstarSectorCode
 from statsmodels.tsa.stattools import coint
 import numpy as np
 import pymc as pm
@@ -26,12 +27,13 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         self.algorithm = algorithm
         self.is_universe_selection_on = False
         self.symbols = []
-        self.cointegrated_pairs = {}
+        self.intra_industry_cointegrated_pairs = {}
+        self.final_cointegrated_pairs = {}
 
-        self.pvalue_threshold = 0.01                         # 协整检验的p值阈值
-        self.correlation_threshold = 0.7                     # 协整检验的皮尔逊相关系数阈值
+        self.pvalue_threshold = 0.05                         # 协整检验的p值阈值
+        self.correlation_threshold = 0.5                     # 协整检验的皮尔逊相关系数阈值
         self.max_symbol_repeats = 1                          # 每个股票在协整对中最多出现次数
-        self.max_pairs = 10                                  # 最大协整对数量
+        self.max_pairs = 3                                   # 最大协整对数量
         self.lookback_period = 252                           # 用于计算z分数的历史数据长度
         self.mcmc_burn_in = 1000                             # MCMC采样预热次数
         self.mcmc_draws = 1000                               # MCMC采样次数
@@ -44,7 +46,6 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         self.lower_limit = -3.0                              # 下限阈值(避免在极端情况下入场)
         
         self.signal_duration = timedelta(days=30)
-        self.insight_blocked_count = 0  
 
         self.algorithm.Debug("[AlphaModel] 初始化完成")
 
@@ -57,24 +58,33 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         if not self.symbols or len(self.symbols) < 2:
             self.algorithm.Debug("[AlphaModel] -- [Update] 当前没有足够的活跃股票")
             return Insights
-       
+        
         # 周期和选股一致
         # 如果 OnSecuritiesChanged 被调用代表选股模块已经更新了股票池，则进行协整检验
         if self.is_universe_selection_on:
-            pairs = list(itertools.combinations(self.symbols, 2))
+            # 获取同行业股票对
+            sector_to_symbols = self.GetIntraIndustryPairs(self.symbols)
 
-            for pair_tuple in pairs:
-                symbol1, symbol2 = pair_tuple
-                cointegrated_pair = self.CointegrationTestForSinglePair(symbol1, symbol2, lookback_period=self.lookback_period)
-                self.cointegrated_pairs.update(cointegrated_pair)
+            # 配对同行业股票对
+            for sector, symbols in sector_to_symbols.items():
+                pairs = list(itertools.combinations(symbols, 2))
+
+                # 遍历同行业股票对
+                for pair_tuple in pairs:
+                    symbol1, symbol2 = pair_tuple
+                    cointegrated_pair = self.CointegrationTestForSinglePair(symbol1, symbol2, lookback_period=self.lookback_period)
+                    self.intra_industry_cointegrated_pairs.update(cointegrated_pair)
             
-            # 过滤协整对，使每个股票在协整对中最多出现一次，最多保留10对
-            self.cointegrated_pairs = self.FilterCointegratedPairs(self.cointegrated_pairs)
-            self.algorithm.Debug(f"[AlphaModel] -- [Update] 本轮协整对数量: {len(self.cointegrated_pairs)}")
-            self.algorithm.Debug(f"[AlphaModel] -- [Update] 本轮协整对: [{', '.join([f'{symbol1.Value}-{symbol2.Value}' for symbol1, symbol2 in self.cointegrated_pairs.keys()])}]")
+                # 过滤同行业协整对，使每个股票在同行业协整对中最多出现一次，最多保留10对
+                self.intra_industry_cointegrated_pairs = self.FilterCointegratedPairs(self.intra_industry_cointegrated_pairs)
+
+                # 将同行业协整对与跨行业协整对合并
+                self.final_cointegrated_pairs.update(self.intra_industry_cointegrated_pairs)
+
+            self.algorithm.Debug(f"[AlphaModel] -- [Update] 本轮协整对: [{', '.join([f'{symbol1.Value}-{symbol2.Value}' for symbol1, symbol2 in self.final_cointegrated_pairs.keys()])}]")
 
             # 遍历协整对
-            for pair_key in self.cointegrated_pairs.keys():
+            for pair_key in self.final_cointegrated_pairs.keys():
                 symbol1, symbol2 = pair_key
 
                 # 使用 PyMC 模型计算后验参数
@@ -83,10 +93,13 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                     self.posterior_params[pair_key] = posterior_param
                 else:
                     self.algorithm.Debug(f"[AlphaModel] -- [Update] PyMC建模失败: {symbol1.Value}-{symbol2.Value}")
+            
+            # 协整检验完成，后验参数计算完成，设置标志位为False
+            self.is_universe_selection_on = False
 
-        
         # 周期为每日
         # 遍历后验参数，计算z-score并生成信号
+        self.insight_blocked_count = 0  
         for pair_key in self.posterior_params.keys():
             symbol1, symbol2 = pair_key
             posterior_param = self.posterior_params[pair_key]
@@ -100,7 +113,6 @@ class BayesianCointegrationAlphaModel(AlphaModel):
             self.algorithm.Debug(f"[AlphaModel] -- [Update] 本轮生成信号: {len(Insights)/2:.0f}")
         else:
             self.algorithm.Debug(f"[AlphaModel] -- [Update] 本轮生成信号: 0")
-
         return Insights    
 
 
@@ -128,6 +140,31 @@ class BayesianCointegrationAlphaModel(AlphaModel):
             self.algorithm.Log("[AlphaModel] -- [OnSecuritiesChanged] Alpha模型当前没有活跃股票。")
         else:
             self.algorithm.Debug(f"[AlphaModel] -- [OnSecuritiesChanged] Alpha模型当前活跃股票数量: {len(self.symbols)}")
+    
+    
+
+    def GetIntraIndustryPairs(self, symbols: list[Symbol]) -> dict:
+        """
+        获取同行业股票对
+        """
+        sector_map = {
+                "Technology": MorningstarSectorCode.Technology,
+                "Healthcare": MorningstarSectorCode.Healthcare,
+                "Energy": MorningstarSectorCode.Energy,
+                "ConsumerDefensive": MorningstarSectorCode.ConsumerDefensive,
+                "CommunicationServices": MorningstarSectorCode.CommunicationServices,
+                "Industrials": MorningstarSectorCode.Industrials,
+                "Utilities": MorningstarSectorCode.Utilities
+            }
+        
+        sector_to_symbols = defaultdict(list)
+        # 分类 symbols 到对应行业
+        for symbol in symbols:
+            security = self.algorithm.Securities[symbol]
+            sector = security.Fundamentals.MorningstarSectorCode
+            if sector in sector_map.values():
+                sector_to_symbols[sector].append(symbol)
+        return sector_to_symbols
 
 
 
@@ -137,7 +174,6 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         """
         cointegrated_pair = {}
         is_cointegrated = False
-
         history1 = self.algorithm.History([symbol1], lookback_period, Resolution.Daily)
         history2 = self.algorithm.History([symbol2], lookback_period, Resolution.Daily)
 
@@ -155,7 +191,7 @@ class BayesianCointegrationAlphaModel(AlphaModel):
             is_cointegrated = pvalue < self.pvalue_threshold
 
         except Exception as e:
-            self.algorithm.Debug(f"[UniverseSelection] -- [CointegrationTestForSinglePair] 协整检验出错: {str(e)}")
+            self.algorithm.Debug(f"[AlphaModel] -- [CointegrationTestForSinglePair] 协整检验出错: {str(e)}")
 
         if is_cointegrated:
             pair_key = (symbol1, symbol2)
@@ -164,7 +200,7 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                 'critical_values': critical_values,
                 'create_time': self.algorithm.Time
             }
-            self.algorithm.Debug(f"[UniverseSelection] -- [CointegrationTestForPairs] 发现协整对: [{symbol1.Value} - {symbol2.Value}], p值: {pvalue:.4f}")
+            self.algorithm.Debug(f"[AlphaModel] -- [CointegrationTestForPairs] 发现协整对: [{symbol1.Value} - {symbol2.Value}], p值: {pvalue:.4f}")
         return cointegrated_pair
     
 
@@ -271,10 +307,8 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         
         # 计算残差分布的置信区间
         confidence_interval = stats.norm.interval(0.95, loc=residual_mean, scale=residual_std)
-
         posteriorParamSet['zscore'] = zscore
         posteriorParamSet['confidence_interval'] = confidence_interval
-        
         return posteriorParamSet    
 
 
@@ -287,7 +321,6 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         当价格偏离度超过阈值时生成反转交易信号，回归均值时生成平仓信号。
         """
         signals = []
-
         if posteriorParamSet is None:
             return signals
         
@@ -322,23 +355,23 @@ class BayesianCointegrationAlphaModel(AlphaModel):
             self.algorithm.Debug(f"[AlphaModel] -- [GenerateSignals]: zscore {z:.4f}, 【{tag}】 [{symbol1.Value},{symbol2.Value}]")
         else:
             self.insight_blocked_count += 1
-
         return Insight.group(signals)
     
 
     
     def ShouldEmitInsightPair(self, symbol1, direction1, symbol2, direction2):
-        # 从 Insight Manager 获取当前时间这两个 symbol 的所有活跃 Insight
+        # 判断当前两只股票信号是否已经存在
         filter_insights_1 = self.algorithm.insights.get_insights(lambda i: i.Symbol == symbol1 and i.Direction == direction1)
         filter_insights_2 = self.algorithm.insights.get_insights(lambda i: i.Symbol == symbol2 and i.Direction == direction2)
 
+        # 如果两个股票都没有活跃信号，则可以生成信号
         if not filter_insights_1 and not filter_insights_2:
             return True
         else:
             return False
 
     
-    
+
     # def ShouldEmitInsightPair(self, symbol1, direction1, symbol2, direction2):
     #     # 从 Insight Manager 获取当前时间这两个 symbol 的所有活跃 Insight
     #     active_insights_1 = [ins for ins in self.algorithm.insights if ins.symbol == symbol1 and ins.is_active(self.algorithm.utc_time)]
