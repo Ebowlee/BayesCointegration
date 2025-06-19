@@ -27,8 +27,6 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         self.algorithm = algorithm
         self.is_universe_selection_on = False
         self.symbols = []
-        self.intra_industry_cointegrated_pairs = {}
-        self.final_cointegrated_pairs = {}
 
         self.pvalue_threshold = 0.05                         # 协整检验的p值阈值
         self.correlation_threshold = 0.5                     # 协整检验的皮尔逊相关系数阈值
@@ -38,7 +36,6 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         self.mcmc_burn_in = 1000                             # MCMC采样预热次数
         self.mcmc_draws = 1000                               # MCMC采样次数
         self.mcmc_chains = 1                                 # MCMC链数
-        self.posterior_params = {}                           # 缓存后验参数
 
         self.entry_threshold = 1.65                          # 入场阈值(标准差倍数)
         self.exit_threshold = 0.5                            # 出场阈值(标准差倍数)
@@ -62,29 +59,31 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         # 周期和选股一致
         # 如果 OnSecuritiesChanged 被调用代表选股模块已经更新了股票池，则进行协整检验
         if self.is_universe_selection_on:
+            self.industry_cointegrated_pairs = {}
+            self.posterior_params = {}                          
+
             # 获取同行业股票对
             sector_to_symbols = self.GetIntraIndustryPairs(self.symbols)
 
             # 配对同行业股票对
             for sector, symbols in sector_to_symbols.items():
                 pairs = list(itertools.combinations(symbols, 2))
+                intra_industry_pairs = {}
 
                 # 遍历同行业股票对
                 for pair_tuple in pairs:
                     symbol1, symbol2 = pair_tuple
                     cointegrated_pair = self.CointegrationTestForSinglePair(symbol1, symbol2, lookback_period=self.lookback_period)
-                    self.intra_industry_cointegrated_pairs.update(cointegrated_pair)
+                    intra_industry_pairs.update(cointegrated_pair)
             
                 # 过滤同行业协整对，使每个股票在同行业协整对中最多出现一次，最多保留10对
-                self.intra_industry_cointegrated_pairs = self.FilterCointegratedPairs(self.intra_industry_cointegrated_pairs)
+                filtered_intra_industry_pairs = self.FilterCointegratedPairs(intra_industry_pairs)
+                self.industry_cointegrated_pairs.update(filtered_intra_industry_pairs)
 
-                # 将同行业协整对与跨行业协整对合并
-                self.final_cointegrated_pairs.update(self.intra_industry_cointegrated_pairs)
-
-            self.algorithm.Debug(f"[AlphaModel] -- [Update] 本轮协整对: [{', '.join([f'{symbol1.Value}-{symbol2.Value}' for symbol1, symbol2 in self.final_cointegrated_pairs.keys()])}]")
+            self.algorithm.Debug(f"[AlphaModel] -- [Update] 本轮协整对: [{', '.join([f'{symbol1.Value}-{symbol2.Value}' for symbol1, symbol2 in self.industry_cointegrated_pairs.keys()])}]")
 
             # 遍历协整对
-            for pair_key in self.final_cointegrated_pairs.keys():
+            for pair_key in self.industry_cointegrated_pairs.keys():
                 symbol1, symbol2 = pair_key
 
                 # 使用 PyMC 模型计算后验参数
