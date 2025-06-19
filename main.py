@@ -1,9 +1,9 @@
 # region imports
 from AlgorithmImports import *
-from datetime import timedelta
 from src.UniverseSelection import MyUniverseSelectionModel
-from src.AlphaModel import BayesianCointegrationAlphaModel
-from src.PortfolioConstruction import BayesianCointegrationPortfolioConstructionModel
+from System import Action
+# from src.AlphaModel import BayesianCointegrationAlphaModel
+# from src.PortfolioConstruction import BayesianCointegrationPortfolioConstructionModel
 # from src.RiskManagement import BayesianCointegrationRiskManagementModel
 # from src.Execution import MyExecutionModel
 # endregion
@@ -26,7 +26,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         """
         # 设置回测时间段和初始资金
         self.SetStartDate(2024, 6, 20)
-        self.SetEndDate(2024, 6, 30)
+        self.SetEndDate(2024, 8, 30)
         self.SetCash(100000)
         
         # 添加基准ETF和设置分辨率
@@ -35,13 +35,15 @@ class BayesianCointegrationStrategy(QCAlgorithm):
   
 
         # 设置UniverseSelection模块
-        self.SetUniverseSelection(MyUniverseSelectionModel(self))
+        self.universe_selector = MyUniverseSelectionModel(self)
+        self.SetUniverseSelection(self.universe_selector)
+        self.Schedule.On(self.DateRules.MonthStart(), self.TimeRules.At(9, 10), Action(self.universe_selector.TriggerSelection))
 
-        # 设置Alpha模块
-        self.SetAlpha(BayesianCointegrationAlphaModel(self))
+        # # 设置Alpha模块
+        # self.SetAlpha(BayesianCointegrationAlphaModel(self))
 
-        # 设置投资组合构建模块
-        self.SetPortfolioConstruction(BayesianCointegrationPortfolioConstructionModel(self))
+        # # 设置投资组合构建模块
+        # self.SetPortfolioConstruction(BayesianCointegrationPortfolioConstructionModel(self))
 
         # # 设置风险管理模块
         # self.SetRiskManagement(BayesianCointegrationRiskManagementModel(self))
