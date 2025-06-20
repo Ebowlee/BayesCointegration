@@ -45,14 +45,14 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
             # 尝试解析 beta_mean
             try:
                 tag_parts = insight1.Tag.split('|')
-                beta_mean = float(tag_parts[2])  
+                beta_mean = float(tag_parts[2]) 
+                num = int(tag_parts[3])
             except Exception as e:
                 self.algorithm.Debug(f"[PC] 无法解析 beta: {insight1.Tag}, 错误: {e}")
                 continue
 
             # 构建配对目标持仓
-            num = min(len(grouped_insights), 5)
-            pair_targets = self._BuildPairTargets(symbol1, symbol2, direction, beta_mean, num_pairs=num)
+            pair_targets = self._BuildPairTargets(symbol1, symbol2, direction, beta_mean, num)
             targets += pair_targets
         
         self.algorithm.Debug(f"[PC] 生成 【{len(targets)}】 个 PortfolioTarget")
@@ -60,32 +60,29 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
 
 
 
-    def _BuildPairTargets(self, symbol1, symbol2, direction, beta, num_pairs):
+    def _BuildPairTargets(self, symbol1, symbol2, direction, beta, num):
         """
         按照资金均分 + beta 对冲构建目标持仓, 使得资金控制在100%，整体没有杠杆
         """
         L, S = 1.0, abs(beta)  
-        capital_per_pair = 1.0 / num_pairs
+        capital_per_pair = 1.0 / num
 
-        security1 = self.algorithm.Securities[symbol1]
-        security2 = self.algorithm.Securities[symbol2]
-
-        # 多空方向决定最终权重正负
-        if direction == InsightDirection.Up and self.can_short(symbol2) > 0:
-            margin = security2.MarginModel.GetInitialMarginRequirement(security2)
+        # 多空方向决定最终权重正负，这里使用固定保证金率0.5，实际使用时需要根据实际情况调整
+        if direction == InsightDirection.Up and self.can_short(symbol2):
+            margin = 0.5
             scale = capital_per_pair / (L + S*margin)
             self.algorithm.Debug(f"[PC]: [{symbol1.Value}, {symbol2.Value}] | [UP, DOWN] | [{scale:.4f}, {-scale*beta:.4f}]")
-            return [PortfolioTarget.Percent(symbol1, scale), PortfolioTarget.Percent(symbol2, -scale * beta)] 
+            return [PortfolioTarget.Percent(self.algorithm, symbol1, scale), PortfolioTarget.Percent(self.algorithm, symbol2, -scale * beta)] 
         
-        elif direction == InsightDirection.Down and self.can_short(symbol1) > 0:
-            margin = security1.MarginModel.GetInitialMarginRequirement(security1)
+        elif direction == InsightDirection.Down and self.can_short(symbol1):
+            margin = 0.5
             scale = capital_per_pair / (L + S*margin)   
             self.algorithm.Debug(f"[PC]: [{symbol1.Value}, {symbol2.Value}] | [DOWN, UP] | [{-scale:.4f}, {scale*beta:.4f}]")
-            return [PortfolioTarget.Percent(symbol1, -scale), PortfolioTarget.Percent(symbol2, scale * beta)] 
+            return [PortfolioTarget.Percent(self.algorithm, symbol1, -scale), PortfolioTarget.Percent(self.algorithm, symbol2, scale * beta)] 
         
         elif direction == InsightDirection.Flat:
             self.algorithm.Debug(f"[PC]: [{symbol1.Value}, {symbol2.Value}] | [FLAT, FLAT] | [0, 0]")
-            return [PortfolioTarget.Percent(symbol1, 0), PortfolioTarget.Percent(symbol2, 0)]
+            return [PortfolioTarget.Percent(self.algorithm, symbol1, 0), PortfolioTarget.Percent(self.algorithm, symbol2, 0)]
         
         else:
             self.algorithm.Debug(f"[PC]: 无法做空，跳过配对 [{symbol1.Value}, {symbol2.Value}]")
@@ -93,18 +90,12 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
 
 
 
-     # 检查是否可以做空
-    def can_short(self, symbol):
-        try:
-            # QuantConnect中检查做空的正确方法
-            security = self.algorithm.Securities[symbol]
-            # 检查是否有足够的可做空股份
-            shortable_quantity = security.ShortableProvider.ShortableQuantity(symbol, self.algorithm.Time)
-            return shortable_quantity > 0
-        except Exception as e:
-            self.algorithm.Debug(f"[PC] 做空检查失败 {symbol.Value}: {e}")
-            # 在回测中，通常所有股票都可以做空
-            return True
+    # 检查是否可以做空（回测环境所有股票都可以做空，实盘时需要检测）
+    def can_short(self, symbol: Symbol) -> bool:
+        # security = self.algorithm.Securities[symbol]
+        # shortable = security.ShortableProvider.ShortableQuantity(symbol, self.algorithm.Time)
+        # return shortable is not None and shortable > 0
+        return True
   
 
 

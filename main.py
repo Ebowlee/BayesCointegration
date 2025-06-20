@@ -3,7 +3,7 @@ from AlgorithmImports import *
 from src.UniverseSelection import MyUniverseSelectionModel
 from System import Action
 from src.AlphaModel import BayesianCointegrationAlphaModel
-# from src.PortfolioConstruction import BayesianCointegrationPortfolioConstructionModel
+from src.PortfolioConstruction import BayesianCointegrationPortfolioConstructionModel
 # from src.RiskManagement import BayesianCointegrationRiskManagementModel
 # from src.Execution import MyExecutionModel
 # endregion
@@ -26,10 +26,10 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         """
         # 设置回测时间段和初始资金
         self.SetStartDate(2024, 6, 20)
-        self.SetEndDate(2024, 12, 31)
+        self.SetEndDate(2024, 8, 31)
         self.SetCash(100000)
         
-        # 添加基准ETF和设置分辨率
+        # 设置分辨率和账户类型
         self.UniverseSettings.Resolution = Resolution.Daily
         self.SetBrokerageModel(BrokerageName.InteractiveBrokersBrokerage, AccountType.Margin)
 
@@ -41,8 +41,8 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # 设置Alpha模块
         self.SetAlpha(BayesianCointegrationAlphaModel(self))
 
-        # # 设置投资组合构建模块
-        # self.SetPortfolioConstruction(BayesianCointegrationPortfolioConstructionModel(self))
+        # 设置投资组合构建模块
+        self.SetPortfolioConstruction(BayesianCointegrationPortfolioConstructionModel(self))
 
         # # 设置风险管理模块
         # self.SetRiskManagement(BayesianCointegrationRiskManagementModel(self))

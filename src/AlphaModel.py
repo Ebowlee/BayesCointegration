@@ -310,42 +310,43 @@ class BayesianCointegrationAlphaModel(AlphaModel):
     def GenerateSignals(self, symbol1, symbol2, posteriorParamSet):
         """
         根据z分数生成交易信号
-        该函数根据计算出的z分数值, 基于预设阈值生成做多、做空或平仓信号。
-        当价格偏离度超过阈值时生成反转交易信号，回归均值时生成平仓信号。
         """
         signals = []
         if posteriorParamSet is None:
             return signals
         
-        tag = f"{symbol1.Value}&{symbol2.Value}|{posteriorParamSet['alpha_mean']:.4f}|{posteriorParamSet['beta_mean']:.4f}|{posteriorParamSet['zscore']:.2f}"
+        tag = f"{symbol1.Value}&{symbol2.Value}|{posteriorParamSet['alpha_mean']:.4f}|{posteriorParamSet['beta_mean']:.4f}\
+                |{posteriorParamSet['zscore']:.2f}|{len(self.industry_cointegrated_pairs)}"
+        
+
         z = posteriorParamSet['zscore']
 
         if self.entry_threshold <= z <= self.upper_limit:
             insight1_direction = InsightDirection.Down
             insight2_direction = InsightDirection.Up
-            tag = "跌 | 涨"
+            trend = "跌 | 涨"
         elif self.lower_limit <= z <= -self.entry_threshold:
             insight1_direction = InsightDirection.Up
             insight2_direction = InsightDirection.Down
-            tag = "涨 | 跌"
+            trend = "涨 | 跌"
         elif -self.exit_threshold < z < self.exit_threshold:
             insight1_direction = InsightDirection.Flat
             insight2_direction = InsightDirection.Flat  
-            tag = "回归"
+            trend = "回归"
         elif z > self.upper_limit or z < self.lower_limit:
             insight1_direction = InsightDirection.Flat
             insight2_direction = InsightDirection.Flat
-            tag = "失效"
+            trend = "失效"
         else:
             insight1_direction = InsightDirection.Flat
             insight2_direction = InsightDirection.Flat  
-            tag = "观望"
+            trend = "观望"
         
         if self.ShouldEmitInsightPair(symbol1, insight1_direction, symbol2, insight2_direction):
             insight1 = Insight.Price(symbol1, self.signal_duration, insight1_direction, tag=tag)
             insight2 = Insight.Price(symbol2, self.signal_duration, insight2_direction, tag=tag)
             signals = [insight1, insight2]
-            self.algorithm.Debug(f"[AlphaModel] : zscore {z:.4f}, 【{tag}】 [{symbol1.Value},{symbol2.Value}]")
+            self.algorithm.Debug(f"[AlphaModel] : zscore {z:.4f}, 【{trend}】 [{symbol1.Value},{symbol2.Value}]")
         else:
             self.insight_blocked_count += 1
         return Insight.group(signals)
