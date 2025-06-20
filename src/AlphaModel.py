@@ -103,14 +103,14 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         # ==================================================周期为每日==================================================
         # 遍历后验参数，计算z-score并生成信号
         self.insight_blocked_count = 0  
+        self.insight_no_active_count = 0
         for pair_key in self.posterior_params.keys():
             symbol1, symbol2 = pair_key
             posterior_param = self.posterior_params[pair_key]
             posterior_param_with_zscore = self.CalculateResidualZScore(symbol1, symbol2, data, posterior_param)
             signal = self.GenerateSignals(symbol1, symbol2, posterior_param_with_zscore)
             Insights.extend(signal)
-        if Insights:
-            self.algorithm.Debug(f"[AlphaModel] 生成信号: {len(Insights)/2:.0f} 拦截重复信号: {self.insight_blocked_count:.0f}")
+        self.algorithm.Debug(f"[AlphaModel] 生成信号: {len(Insights)/2:.0f} 拦截信号: {self.insight_blocked_count:.0f} 观望信号: {self.insight_no_active_count:.0f}")
         return Insights    
 
 
@@ -318,17 +318,15 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         tag = f"{symbol1.Value}&{symbol2.Value}|{posteriorParamSet['alpha_mean']:.4f}|{posteriorParamSet['beta_mean']:.4f}\
                 |{posteriorParamSet['zscore']:.2f}|{len(self.industry_cointegrated_pairs)}"
         
-
         z = posteriorParamSet['zscore']
-
         if self.entry_threshold <= z <= self.upper_limit:
             insight1_direction = InsightDirection.Down
             insight2_direction = InsightDirection.Up
-            trend = "跌 | 涨"
+            trend = "卖 | 买"
         elif self.lower_limit <= z <= -self.entry_threshold:
             insight1_direction = InsightDirection.Up
             insight2_direction = InsightDirection.Down
-            trend = "涨 | 跌"
+            trend = "买 | 卖"
         elif -self.exit_threshold < z < self.exit_threshold:
             insight1_direction = InsightDirection.Flat
             insight2_direction = InsightDirection.Flat  
@@ -338,10 +336,12 @@ class BayesianCointegrationAlphaModel(AlphaModel):
             insight2_direction = InsightDirection.Flat
             trend = "失效"
         else:
-            insight1_direction = InsightDirection.Flat
-            insight2_direction = InsightDirection.Flat  
-            trend = "观望"
+            # 观望阶段：(-1.65, -0.5] 和 [0.5, 1.65) 
+            # 在这个阶段不发射任何信号，直接返回空列表
+            self.insight_no_active_count += 1
+            return signals  # 返回空的signals列表
         
+        # 只有非观望阶段才会执行到这里
         if self.ShouldEmitInsightPair(symbol1, insight1_direction, symbol2, insight2_direction):
             insight1 = Insight.Price(symbol1, self.signal_duration, insight1_direction, tag=tag)
             insight2 = Insight.Price(symbol2, self.signal_duration, insight2_direction, tag=tag)
@@ -354,30 +354,23 @@ class BayesianCointegrationAlphaModel(AlphaModel):
     
 
     def ShouldEmitInsightPair(self, symbol1, direction1, symbol2, direction2):
-        # 从 Insight Manager 获取当前时间这两个 symbol 的所有活跃 Insight
-        active_insights_1 = [ins for ins in self.algorithm.insights if ins.symbol == symbol1 and ins.is_active(self.algorithm.utc_time)]
-        active_insights_2 = [ins for ins in self.algorithm.insights if ins.symbol == symbol2 and ins.is_active(self.algorithm.utc_time)]
-
-        if not active_insights_1 or not active_insights_2:
-            return True
-
-        # 遍历两组 insight，查找是否存在一组 GroupId 相同 + 方向相同
+        # 获取两个symbol的所有活跃insight
+        active_insights_1 = [ins for ins in self.algorithm.insights if ins.Symbol == symbol1 and ins.IsActive(self.algorithm.utc_time)]
+        active_insights_2 = [ins for ins in self.algorithm.insights if ins.Symbol == symbol2 and ins.IsActive(self.algorithm.utc_time)]
+        
+        # 1. 检查是否要发射无意义的Flat信号
+        if direction1 == InsightDirection.Flat and direction2 == InsightDirection.Flat:
+            # 如果两个symbol都没有有效信号，发射Flat是无意义的
+            if not active_insights_1 and not active_insights_2:
+                return False
+        
+        # 2. 检查是否已存在相同的信号（避免重复发射）
         for ins1 in active_insights_1:
             for ins2 in active_insights_2:
+                # 如果是同一组信号且方向完全相同，则不重复发射
                 if ins1.GroupId == ins2.GroupId:
                     if (ins1.Direction, ins2.Direction) == (direction1, direction2):
                         return False
-        return True 
-
-
-    
-    # def ShouldEmitInsightPair(self, symbol1, direction1, symbol2, direction2):
-    #     # 判断当前两只股票信号是否已经存在
-    #     filter_insights_1 = self.algorithm.insights.get_insights(lambda i: i.Symbol == symbol1 and i.Direction == direction1)
-    #     filter_insights_2 = self.algorithm.insights.get_insights(lambda i: i.Symbol == symbol2 and i.Direction == direction2)
-
-    #     # 如果两个股票都没有活跃信号，则可以生成信号
-    #     if not filter_insights_1 and not filter_insights_2:
-    #         return True
-    #     else:
-    #         return False
+        
+        # 3. 其他情况都可以发射
+        return True

@@ -46,7 +46,7 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
             try:
                 tag_parts = insight1.Tag.split('|')
                 beta_mean = float(tag_parts[2]) 
-                num = int(tag_parts[3])
+                num = int(tag_parts[4])
             except Exception as e:
                 self.algorithm.Debug(f"[PC] 无法解析 beta: {insight1.Tag}, 错误: {e}")
                 continue
@@ -55,7 +55,7 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
             pair_targets = self._BuildPairTargets(symbol1, symbol2, direction, beta_mean, num)
             targets += pair_targets
         
-        self.algorithm.Debug(f"[PC] 生成 【{len(targets)}】 个 PortfolioTarget")
+        self.algorithm.Debug(f"[PC] 生成 【{len(targets)/2:.0f}】 组 PortfolioTarget")
         return targets
 
 
@@ -71,17 +71,17 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         if direction == InsightDirection.Up and self.can_short(symbol2):
             margin = 0.5
             scale = capital_per_pair / (L + S*margin)
-            self.algorithm.Debug(f"[PC]: [{symbol1.Value}, {symbol2.Value}] | [UP, DOWN] | [{scale:.4f}, {-scale*beta:.4f}]")
+            self.algorithm.Debug(f"[PC]: [{symbol1.Value}, {symbol2.Value}] | [BUY, SELL] | [{scale:.4f}, {-scale*beta:.4f}]")
             return [PortfolioTarget.Percent(self.algorithm, symbol1, scale), PortfolioTarget.Percent(self.algorithm, symbol2, -scale * beta)] 
         
         elif direction == InsightDirection.Down and self.can_short(symbol1):
             margin = 0.5
             scale = capital_per_pair / (L + S*margin)   
-            self.algorithm.Debug(f"[PC]: [{symbol1.Value}, {symbol2.Value}] | [DOWN, UP] | [{-scale:.4f}, {scale*beta:.4f}]")
+            self.algorithm.Debug(f"[PC]: [{symbol1.Value}, {symbol2.Value}] | [SELL, BUY] | [{-scale:.4f}, {scale*beta:.4f}]")
             return [PortfolioTarget.Percent(self.algorithm, symbol1, -scale), PortfolioTarget.Percent(self.algorithm, symbol2, scale * beta)] 
         
         elif direction == InsightDirection.Flat:
-            self.algorithm.Debug(f"[PC]: [{symbol1.Value}, {symbol2.Value}] | [FLAT, FLAT] | [0, 0]")
+            self.algorithm.Debug(f"[PC]: [{symbol1.Value}, {symbol2.Value}] | [FLAT, FLAT]")
             return [PortfolioTarget.Percent(self.algorithm, symbol1, 0), PortfolioTarget.Percent(self.algorithm, symbol2, 0)]
         
         else:
