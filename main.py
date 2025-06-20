@@ -31,6 +31,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         
         # 添加基准ETF和设置分辨率
         self.UniverseSettings.Resolution = Resolution.Daily
+        self.SetBrokerageModel(BrokerageName.InteractiveBrokersBrokerage, AccountType.Margin)
 
         # 设置UniverseSelection模块
         self.universe_selector = MyUniverseSelectionModel(self)

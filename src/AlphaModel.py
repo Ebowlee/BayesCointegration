@@ -76,15 +76,15 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                     symbol1, symbol2 = pair_tuple
                     cointegrated_pair = self.CointegrationTestForSinglePair(symbol1, symbol2, lookback_period=self.lookback_period)
                     intra_industry_pairs.update(cointegrated_pair)
-                
-                self.algorithm.Debug(f"[AlphaModel] 【{sector}】 生成协整对: {len(intra_industry_pairs):.0f}")
+                    
+                self.algorithm.Debug(f"[AlphaModel] 【{sector}】: {len(intra_industry_pairs):.0f}")
             
                 # 过滤同行业协整对，使每个股票在同行业协整对中最多出现2次，最多保留2对
                 filtered_intra_industry_pairs = self.FilterCointegratedPairs(intra_industry_pairs)
                 # 将所有行业协整对汇总
                 self.industry_cointegrated_pairs.update(filtered_intra_industry_pairs)
 
-            self.algorithm.Debug(f"[AlphaModel] 筛选出协整对: [{', '.join([f'{symbol1.Value}-{symbol2.Value}' for symbol1, symbol2 in self.industry_cointegrated_pairs.keys()])}]")
+            self.algorithm.Debug(f"[AlphaModel] 筛选出协整对: 【{len(self.industry_cointegrated_pairs)}】")
 
             # 遍历协整对
             for pair_key in self.industry_cointegrated_pairs.keys():
