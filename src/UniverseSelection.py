@@ -12,13 +12,12 @@ class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
         self.selection_needed = False 
         self.numOfCandidates = 50
         self.min_price = 10
-        self.min_volume = 10000000
+        self.min_volume = 1e7
         self.min_ipo_days = 365
-        self.min_market_cap = 1e9
-        self.max_pe = 20
+        self.max_pe = 25
         self.min_roe = 0.05
-        self.max_debt_to_assets = 0.5
-        self.max_leverage_ratio = 4
+        self.max_debt_to_assets = 0.6
+        self.max_leverage_ratio = 5
 
         self.last_fine_selected_symbols = []                            
         self.fine_selection_count = 0                                   
@@ -35,7 +34,7 @@ class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
         外部调用的触发接口：用于在 main.py 中通过 Schedule.On 控制
         """
         self.selection_needed = True
-        self.algorithm.Debug("[UniverseSelection] -- TriggerSelection 收到主控调度，准备执行下一轮选股")
+        self.algorithm.Debug("[UniverseSelection] 收到主控调度，准备执行下一轮选股")
 
 
 
@@ -57,7 +56,7 @@ class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
         if self.selection_needed:
             self.selection_needed = False 
             self.fine_selection_count += 1
-            self.algorithm.Debug(f"=============================第【{self.fine_selection_count}】次选股=============================") 
+            self.algorithm.Debug(f"=====================================第【{self.fine_selection_count}】次选股=====================================") 
 
             sector_candidates = {}
             all_sectors_selected_fine = []
@@ -99,10 +98,10 @@ class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
 
             final_selected_symbols = [x.Symbol for x in fine_after_financial_filters]
             self.last_fine_selected_symbols = final_selected_symbols
-            self.algorithm.Debug(f"[UniverseSelection] -- [_select_fine] 精选阶段完成, 共选出: {len(final_selected_symbols)}, 部分结果展示: {[x.Value for x in final_selected_symbols[:10]]}")
+            self.algorithm.Debug(f"[UniverseSelection] 选股日, 共选出: {len(final_selected_symbols)}, 部分结果展示: {[x.Value for x in final_selected_symbols[:10]]}")
             return final_selected_symbols
         else:
-            self.algorithm.Debug("[UniverseSelection] -- [_select_fine] 不是选股日, 返回上次精选结果")
+            self.algorithm.Debug("[UniverseSelection] 非选股日, 返回上次结果")
             return self.last_fine_selected_symbols
 
 
@@ -110,8 +109,8 @@ class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
         """
         根据行业筛选出符合条件的股票，按市值降序排列
         """
-       # 返回市值最高的前 self.numOfCandidates 个股票
-        filtered = [x for x in sectorCandidates if x.MarketCap is not None and x.MarketCap > self.min_market_cap]
+        # 返回市值最高的前 self.numOfCandidates 个股票
+        filtered = [x for x in sectorCandidates if x.MarketCap is not None and x.MarketCap > 0]
         sorted_candidates = sorted(filtered, key=lambda x: x.MarketCap, reverse=True)
         return sorted_candidates[:self.numOfCandidates]
  

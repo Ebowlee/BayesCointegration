@@ -26,13 +26,11 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         """
         # 设置回测时间段和初始资金
         self.SetStartDate(2024, 6, 20)
-        self.SetEndDate(2024, 8, 30)
+        self.SetEndDate(2024, 7, 3)
         self.SetCash(100000)
         
         # 添加基准ETF和设置分辨率
-        self.AddEquity("SPY", Resolution.Daily)
         self.UniverseSettings.Resolution = Resolution.Daily
-  
 
         # 设置UniverseSelection模块
         self.universe_selector = MyUniverseSelectionModel(self)

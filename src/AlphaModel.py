@@ -30,8 +30,8 @@ class BayesianCointegrationAlphaModel(AlphaModel):
 
         self.pvalue_threshold = 0.05                         # 协整检验的p值阈值
         self.correlation_threshold = 0.5                     # 协整检验的皮尔逊相关系数阈值
-        self.max_symbol_repeats = 1                          # 每个股票在协整对中最多出现次数
-        self.max_pairs = 3                                   # 最大协整对数量
+        self.max_symbol_repeats = 2                          # 每个股票在协整对中最多出现次数
+        self.max_pairs = 2                                   # 最大协整对数量
         self.lookback_period = 252                           # 用于计算z分数的历史数据长度
         self.mcmc_burn_in = 1000                             # MCMC采样预热次数
         self.mcmc_draws = 1000                               # MCMC采样次数
@@ -53,10 +53,12 @@ class BayesianCointegrationAlphaModel(AlphaModel):
 
         # 如果选股模块中没有返回股票或是股票数量小于2，则不生成任何信号
         if not self.symbols or len(self.symbols) < 2:
-            self.algorithm.Debug("[AlphaModel] -- [Update] 当前没有足够的活跃股票")
+            self.algorithm.Debug("[AlphaModel] 当前未接受到足够数量的选股")
             return Insights
         
-        # ============================周期和选股一致============================
+        self.algorithm.Debug(f"[AlphaModel] 当前接收到选股的数量为: {len(self.symbols)}")
+        
+        # ==================================================周期和选股一致===========================================
         # 如果 OnSecuritiesChanged 被调用代表选股模块已经更新了股票池，则进行协整检验
         if self.is_universe_selection_on:
             self.industry_cointegrated_pairs = {}
@@ -75,13 +77,15 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                     symbol1, symbol2 = pair_tuple
                     cointegrated_pair = self.CointegrationTestForSinglePair(symbol1, symbol2, lookback_period=self.lookback_period)
                     intra_industry_pairs.update(cointegrated_pair)
+                
+                self.algorithm.Debug(f"[AlphaModel] 生成同行业协整对: {len(intra_industry_pairs):.0f}")
             
                 # 过滤同行业协整对，使每个股票在同行业协整对中最多出现一次，最多保留3对
                 filtered_intra_industry_pairs = self.FilterCointegratedPairs(intra_industry_pairs)
                 # 将所有行业协整对汇总
                 self.industry_cointegrated_pairs.update(filtered_intra_industry_pairs)
 
-            self.algorithm.Debug(f"[AlphaModel] -- [Update] 本轮协整对: [{', '.join([f'{symbol1.Value}-{symbol2.Value}' for symbol1, symbol2 in self.industry_cointegrated_pairs.keys()])}]")
+            self.algorithm.Debug(f"[AlphaModel] 筛选后同行业协整对: [{', '.join([f'{symbol1.Value}-{symbol2.Value}' for symbol1, symbol2 in self.industry_cointegrated_pairs.keys()])}]")
 
             # 遍历协整对
             for pair_key in self.industry_cointegrated_pairs.keys():
@@ -92,12 +96,12 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                 if posterior_param is not None:
                     self.posterior_params[pair_key] = posterior_param
                 else:
-                    self.algorithm.Debug(f"[AlphaModel] -- [Update] PyMC建模失败: {symbol1.Value}-{symbol2.Value}")
+                    self.algorithm.Debug(f"[AlphaModel] PyMC建模失败: {symbol1.Value}-{symbol2.Value}")
             
             # 协整检验、后验参数计算已经完成，设置标志位为False，等到下次选股在开启
             self.is_universe_selection_on = False
 
-        # ============================周期为每日============================
+        # ==================================================周期为每日==================================================
         # 遍历后验参数，计算z-score并生成信号
         self.insight_blocked_count = 0  
         for pair_key in self.posterior_params.keys():
@@ -106,13 +110,7 @@ class BayesianCointegrationAlphaModel(AlphaModel):
             posterior_param_with_zscore = self.CalculateResidualZScore(symbol1, symbol2, data, posterior_param)
             signal = self.GenerateSignals(symbol1, symbol2, posterior_param_with_zscore)
             Insights.extend(signal)
-        
-        self.algorithm.Debug(f"[AlphaModel] -- [Update] 拦截重复信号: {self.insight_blocked_count}")
-
-        if Insights:
-            self.algorithm.Debug(f"[AlphaModel] -- [Update] 生成信号: {len(Insights)/2:.0f}")
-        else:
-            self.algorithm.Debug(f"[AlphaModel] -- [Update] 生成信号: 0")
+        self.algorithm.Debug(f"[AlphaModel] 生成信号: {len(Insights)/2:.0f} 拦截重复信号: {self.insight_blocked_count:.0f}")
         return Insights    
 
 
@@ -135,11 +133,6 @@ class BayesianCointegrationAlphaModel(AlphaModel):
             symbol = removed_security.Symbol
             if symbol and symbol in self.symbols:
                 self.symbols.remove(symbol)
-
-        if not self.symbols:
-            self.algorithm.Log("[AlphaModel] -- [OnSecuritiesChanged] Alpha模型当前没有活跃股票。")
-        else:
-            self.algorithm.Debug(f"[AlphaModel] -- [OnSecuritiesChanged] Alpha模型当前活跃股票数量: {len(self.symbols)}")
     
     
 
@@ -155,13 +148,13 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                 "CommunicationServices": MorningstarSectorCode.CommunicationServices,
                 "Industrials": MorningstarSectorCode.Industrials,
                 "Utilities": MorningstarSectorCode.Utilities
-            }
+                }
         
         sector_to_symbols = defaultdict(list)
         # 分类 symbols 到对应行业
         for symbol in symbols:
             security = self.algorithm.Securities[symbol]
-            sector = security.Fundamentals.MorningstarSectorCode
+            sector = security.Fundamentals.AssetClassification.MorningstarSectorCode
             if sector in sector_map.values():
                 sector_to_symbols[sector].append(symbol)
         return sector_to_symbols
@@ -191,7 +184,7 @@ class BayesianCointegrationAlphaModel(AlphaModel):
             is_cointegrated = pvalue < self.pvalue_threshold
 
         except Exception as e:
-            self.algorithm.Debug(f"[AlphaModel] -- [CointegrationTestForSinglePair] 协整检验出错: {str(e)}")
+            self.algorithm.Debug(f"[AlphaModel] 协整检验出错: {str(e)}")
 
         if is_cointegrated:
             pair_key = (symbol1, symbol2)
@@ -200,7 +193,6 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                 'critical_values': critical_values,
                 'create_time': self.algorithm.Time
             }
-            self.algorithm.Debug(f"[AlphaModel] -- [CointegrationTestForPairs] 发现协整对: [{symbol1.Value} - {symbol2.Value}], p值: {pvalue:.4f}")
         return cointegrated_pair
     
 
@@ -269,7 +261,7 @@ class BayesianCointegrationAlphaModel(AlphaModel):
             return posteriorParamSet
             
         except Exception as e:
-            self.algorithm.Debug(f"[AlphaModel] -- [PyMCModel] PYMC 模型计算错误: {str(e)}")
+            self.algorithm.Debug(f"[AlphaModel] PYMC 模型计算错误: {str(e)}")
             return None
         
 
@@ -277,7 +269,6 @@ class BayesianCointegrationAlphaModel(AlphaModel):
     def CalculateResidualZScore(self, symbol1, symbol2, data: Slice, posteriorParamSet):
         """
         计算残差并标准化为z分数
-
         该函数利用贝叶斯参数后验分布，计算当前价格的残差分布，
         并将其标准化为z分数, 用于判断价格偏离程度和生成交易信号。
         """
@@ -316,7 +307,6 @@ class BayesianCointegrationAlphaModel(AlphaModel):
     def GenerateSignals(self, symbol1, symbol2, posteriorParamSet):
         """
         根据z分数生成交易信号
-        
         该函数根据计算出的z分数值, 基于预设阈值生成做多、做空或平仓信号。
         当价格偏离度超过阈值时生成反转交易信号，回归均值时生成平仓信号。
         """
@@ -352,38 +342,38 @@ class BayesianCointegrationAlphaModel(AlphaModel):
             insight1 = Insight.Price(symbol1, self.signal_duration, insight1_direction, tag=tag)
             insight2 = Insight.Price(symbol2, self.signal_duration, insight2_direction, tag=tag)
             signals = [insight1, insight2]
-            self.algorithm.Debug(f"[AlphaModel] -- [GenerateSignals]: zscore {z:.4f}, 【{tag}】 [{symbol1.Value},{symbol2.Value}]")
+            self.algorithm.Debug(f"[AlphaModel] : zscore {z:.4f}, 【{tag}】 [{symbol1.Value},{symbol2.Value}]")
         else:
             self.insight_blocked_count += 1
         return Insight.group(signals)
-    
 
     
+
     def ShouldEmitInsightPair(self, symbol1, direction1, symbol2, direction2):
-        # 判断当前两只股票信号是否已经存在
-        filter_insights_1 = self.algorithm.insights.get_insights(lambda i: i.Symbol == symbol1 and i.Direction == direction1)
-        filter_insights_2 = self.algorithm.insights.get_insights(lambda i: i.Symbol == symbol2 and i.Direction == direction2)
+        # 从 Insight Manager 获取当前时间这两个 symbol 的所有活跃 Insight
+        active_insights_1 = [ins for ins in self.algorithm.insights if ins.symbol == symbol1 and ins.is_active(self.algorithm.utc_time)]
+        active_insights_2 = [ins for ins in self.algorithm.insights if ins.symbol == symbol2 and ins.is_active(self.algorithm.utc_time)]
 
-        # 如果两个股票都没有活跃信号，则可以生成信号
-        if not filter_insights_1 and not filter_insights_2:
+        if not active_insights_1 or not active_insights_2:
             return True
-        else:
-            return False
+
+        # 遍历两组 insight，查找是否存在一组 GroupId 相同 + 方向相同
+        for ins1 in active_insights_1:
+            for ins2 in active_insights_2:
+                if ins1.GroupId == ins2.GroupId:
+                    if (ins1.Direction, ins2.Direction) == (direction1, direction2):
+                        return False
+        return True 
+
 
     
-
     # def ShouldEmitInsightPair(self, symbol1, direction1, symbol2, direction2):
-    #     # 从 Insight Manager 获取当前时间这两个 symbol 的所有活跃 Insight
-    #     active_insights_1 = [ins for ins in self.algorithm.insights if ins.symbol == symbol1 and ins.is_active(self.algorithm.utc_time)]
-    #     active_insights_2 = [ins for ins in self.algorithm.insights if ins.symbol == symbol2 and ins.is_active(self.algorithm.utc_time)]
+    #     # 判断当前两只股票信号是否已经存在
+    #     filter_insights_1 = self.algorithm.insights.get_insights(lambda i: i.Symbol == symbol1 and i.Direction == direction1)
+    #     filter_insights_2 = self.algorithm.insights.get_insights(lambda i: i.Symbol == symbol2 and i.Direction == direction2)
 
-    #     if not active_insights_1 or not active_insights_2:
+    #     # 如果两个股票都没有活跃信号，则可以生成信号
+    #     if not filter_insights_1 and not filter_insights_2:
     #         return True
-
-    #     # 遍历两组 insight，查找是否存在一组 GroupId 相同 + 方向相同
-    #     for ins1 in active_insights_1:
-    #         for ins2 in active_insights_2:
-    #             if ins1.GroupId == ins2.GroupId:
-    #                 if (ins1.Direction, ins2.Direction) == (direction1, direction2):
-    #                     return False
-    #     return True 
+    #     else:
+    #         return False
