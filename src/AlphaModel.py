@@ -77,14 +77,14 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                     cointegrated_pair = self.CointegrationTestForSinglePair(symbol1, symbol2, lookback_period=self.lookback_period)
                     intra_industry_pairs.update(cointegrated_pair)
                 
-                self.algorithm.Debug(f"[AlphaModel] 【{sector}】 行业生成协整对: {len(intra_industry_pairs):.0f}")
+                self.algorithm.Debug(f"[AlphaModel] 【{sector}】 生成协整对: {len(intra_industry_pairs):.0f}")
             
                 # 过滤同行业协整对，使每个股票在同行业协整对中最多出现2次，最多保留2对
                 filtered_intra_industry_pairs = self.FilterCointegratedPairs(intra_industry_pairs)
                 # 将所有行业协整对汇总
                 self.industry_cointegrated_pairs.update(filtered_intra_industry_pairs)
 
-            self.algorithm.Debug(f"[AlphaModel] 筛选后同行业协整对: [{', '.join([f'{symbol1.Value}-{symbol2.Value}' for symbol1, symbol2 in self.industry_cointegrated_pairs.keys()])}]")
+            self.algorithm.Debug(f"[AlphaModel] 筛选出协整对: [{', '.join([f'{symbol1.Value}-{symbol2.Value}' for symbol1, symbol2 in self.industry_cointegrated_pairs.keys()])}]")
 
             # 遍历协整对
             for pair_key in self.industry_cointegrated_pairs.keys():
@@ -234,7 +234,7 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         x = np.log(price2.values)
 
         try:
-            # 构建PyMC3模型
+            # 构建PyMC模型
             with pm.Model() as model:
                 # 设置先验分布
                 alpha = pm.Normal('alpha', mu=0, sigma=10)
@@ -246,6 +246,9 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                 
                 # 定义似然函数 - 观测值y围绕预测值mu波动，波动程度由sigmaOfEpsilon控制
                 likelihood = pm.Normal('y', mu=mu, sigma=sigmaOfEpsilon, observed=y)
+
+                # 定义每个点的残差
+                residuals = pm.Deterministic('residuals', y - mu)
                 
                 # 执行MCMC采样 - 前1000次预热，后1000次用于构建后验分布
                 trace = pm.sample(draws=self.mcmc_draws, tune=self.mcmc_burn_in, chains=self.mcmc_chains, cores=1, progressbar=False)
@@ -256,10 +259,13 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                 # 从后验分布中提取模型参数
                 posteriorParamSet = {}
                 posteriorParamSet= {
-                    'alpha': posterior['alpha'].values.flatten(),
-                    'beta': posterior['beta'].values.flatten(),
+                    'alpha': posterior['alpha'].values.flatten(),                              # 数据维度是(chains, draws)
+                    'alpha_mean': posterior['alpha'].values.flatten().mean(),
+                    'beta': posterior['beta'].values.flatten(),                                # 数据维度是(chains, draws)
                     'beta_mean': posterior['beta'].values.flatten().mean(),
-                    'sigmaOfEpsilon': posterior['sigmaOfEpsilon'].values.flatten()   
+                    'residuals': posterior['residuals'].values.flatten(),                      # 数据维度是(chains, draws, lookback_period)
+                    'residuals_mean': posterior['residuals'].values.flatten().mean(),
+                    'residuals_std': posterior['residuals'].values.flatten().std(), 
                 }
             return posteriorParamSet
             
@@ -281,28 +287,22 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         current_price1 = np.log(data[symbol1].Close)
         current_price2 = np.log(data[symbol2].Close)
         
-        # 利用所有后验参数计算残差分布
-        alpha = posteriorParamSet['alpha']
-        beta = posteriorParamSet['beta']  
+        # 调取后验参数
+        alpha_mean = posteriorParamSet['alpha_mean']
+        beta_mean = posteriorParamSet['beta_mean']  
+        epsilon_mean = posteriorParamSet['residuals_mean']
+        epsilon_std = posteriorParamSet['residuals_std']
         
-        # 计算预期价格和残差
-        expected_price1 = alpha + beta * current_price2
-        residual = current_price1 - expected_price1
-        
-        # 计算残差的均值和标准差
-        residual_mean = np.mean(residual)
-        residual_std = np.std(residual)
-        
-        # 计算z分数（标准化残差）
-        if residual_std != 0:   
-            zscore = residual_mean / residual_std
+        # 计算 T+1 时点的残差与残差均值的偏离量（注意：残差的理论均值应该是 0，但实际中使用历史均值不然会造成 z 分数过大）
+        residual = current_price1 - (alpha_mean + beta_mean * current_price2) - epsilon_mean
+
+        # 计算z分数（标准化偏离量）
+        if epsilon_std != 0:   
+            zscore = residual / epsilon_std
         else:
             zscore = 0
-        
-        # 计算残差分布的置信区间
-        confidence_interval = stats.norm.interval(0.95, loc=residual_mean, scale=residual_std)
         posteriorParamSet['zscore'] = zscore
-        posteriorParamSet['confidence_interval'] = confidence_interval
+
         return posteriorParamSet    
 
 
@@ -317,7 +317,7 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         if posteriorParamSet is None:
             return signals
         
-        tag = f"{symbol1.Value}&{symbol2.Value}|{posteriorParamSet['beta_mean']:.4f}|{posteriorParamSet['zscore']:.2f}|{posteriorParamSet['confidence_interval']}"
+        tag = f"{symbol1.Value}&{symbol2.Value}|{posteriorParamSet['alpha_mean']:.4f}|{posteriorParamSet['beta_mean']:.4f}|{posteriorParamSet['zscore']:.2f}"
         z = posteriorParamSet['zscore']
 
         if self.entry_threshold <= z <= self.upper_limit:
