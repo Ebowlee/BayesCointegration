@@ -56,11 +56,10 @@ class BayesianCointegrationAlphaModel(AlphaModel):
             self.algorithm.Debug("[AlphaModel] 当前未接受到足够数量的选股")
             return Insights
         
-        self.algorithm.Debug(f"[AlphaModel] 当前接收到选股的数量为: {len(self.symbols)}")
-        
         # ==================================================周期和选股一致===========================================
         # 如果 OnSecuritiesChanged 被调用代表选股模块已经更新了股票池，则进行协整检验
         if self.is_universe_selection_on:
+            self.algorithm.Debug(f"[AlphaModel] 选股日，接收到: {len(self.symbols)}")
             self.industry_cointegrated_pairs = {}
             self.posterior_params = {}                          
 
@@ -78,9 +77,9 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                     cointegrated_pair = self.CointegrationTestForSinglePair(symbol1, symbol2, lookback_period=self.lookback_period)
                     intra_industry_pairs.update(cointegrated_pair)
                 
-                self.algorithm.Debug(f"[AlphaModel] 生成同行业协整对: {len(intra_industry_pairs):.0f}")
+                self.algorithm.Debug(f"[AlphaModel] 【{sector}】 行业生成协整对: {len(intra_industry_pairs):.0f}")
             
-                # 过滤同行业协整对，使每个股票在同行业协整对中最多出现一次，最多保留3对
+                # 过滤同行业协整对，使每个股票在同行业协整对中最多出现2次，最多保留2对
                 filtered_intra_industry_pairs = self.FilterCointegratedPairs(intra_industry_pairs)
                 # 将所有行业协整对汇总
                 self.industry_cointegrated_pairs.update(filtered_intra_industry_pairs)
@@ -110,7 +109,8 @@ class BayesianCointegrationAlphaModel(AlphaModel):
             posterior_param_with_zscore = self.CalculateResidualZScore(symbol1, symbol2, data, posterior_param)
             signal = self.GenerateSignals(symbol1, symbol2, posterior_param_with_zscore)
             Insights.extend(signal)
-        self.algorithm.Debug(f"[AlphaModel] 生成信号: {len(Insights)/2:.0f} 拦截重复信号: {self.insight_blocked_count:.0f}")
+        if Insights:
+            self.algorithm.Debug(f"[AlphaModel] 生成信号: {len(Insights)/2:.0f} 拦截重复信号: {self.insight_blocked_count:.0f}")
         return Insights    
 
 
@@ -150,13 +150,16 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                 "Utilities": MorningstarSectorCode.Utilities
                 }
         
+        # 创建反向映射：从MorningstarSectorCode值到字符串key
+        reverse_sector_map = {v: k for k, v in sector_map.items()}
         sector_to_symbols = defaultdict(list)
         # 分类 symbols 到对应行业
         for symbol in symbols:
             security = self.algorithm.Securities[symbol]
             sector = security.Fundamentals.AssetClassification.MorningstarSectorCode
             if sector in sector_map.values():
-                sector_to_symbols[sector].append(symbol)
+                sector_name = reverse_sector_map[sector]
+                sector_to_symbols[sector_name].append(symbol)
         return sector_to_symbols
 
 

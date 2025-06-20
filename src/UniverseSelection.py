@@ -101,7 +101,6 @@ class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
             self.algorithm.Debug(f"[UniverseSelection] 选股日, 共选出: {len(final_selected_symbols)}, 部分结果展示: {[x.Value for x in final_selected_symbols[:10]]}")
             return final_selected_symbols
         else:
-            self.algorithm.Debug("[UniverseSelection] 非选股日, 返回上次结果")
             return self.last_fine_selected_symbols
 
 
