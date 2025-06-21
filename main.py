@@ -53,6 +53,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # 记录初始化完成
         self.Debug(f"[Initialize] 完成, 起始日期: {self.StartDate}")
 
-        # rigger QC GitHub Action push
+        # QC GitHub Action push 能否成功
+
     
        
