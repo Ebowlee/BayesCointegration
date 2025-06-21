@@ -110,7 +110,7 @@ class BayesianCointegrationAlphaModel(AlphaModel):
             posterior_param_with_zscore = self.CalculateResidualZScore(symbol1, symbol2, data, posterior_param)
             signal = self.GenerateSignals(symbol1, symbol2, posterior_param_with_zscore)
             Insights.extend(signal)
-        self.algorithm.Debug(f"[AlphaModel] 生成信号: {len(Insights)/2:.0f} 拦截信号: {self.insight_blocked_count:.0f} 观望信号: {self.insight_no_active_count:.0f}")
+        self.algorithm.Debug(f"[AlphaModel] 生成信号: 【{len(Insights)/2:.0f}】 拦截信号: 【{self.insight_blocked_count:.0f}】 观望信号: 【{self.insight_no_active_count:.0f}】 ")
         return Insights    
 
 

@@ -30,8 +30,6 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         for insight in insights:
             if insight.GroupId is not None:
                 grouped_insights[insight.GroupId].append(insight)
-        self.algorithm.Debug(f"[PC] 接收到 {len(grouped_insights)} 组信号")
-    
         
         # 遍历每组 Insight
         for group_id, group in grouped_insights.items():
