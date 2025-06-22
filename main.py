@@ -44,16 +44,14 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # 设置投资组合构建模块
         self.SetPortfolioConstruction(BayesianCointegrationPortfolioConstructionModel(self))
 
-        # # 设置风险管理模块
-        # self.SetRiskManagement(BayesianCointegrationRiskManagementModel(self))
+        # 设置风险管理模块
+        self.SetRiskManagement(BayesianCointegrationRiskManagementModel(self))
 
         # # 设置Execution模块
         # self.SetExecution(MyExecutionModel(self))
         
         # 记录初始化完成
         self.Debug(f"[Initialize] 完成, 起始日期: {self.StartDate}")
-
-        # QC GitHub Action push 能否成功
 
     
        
