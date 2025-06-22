@@ -4,7 +4,7 @@ from src.UniverseSelection import MyUniverseSelectionModel
 from System import Action
 from src.AlphaModel import BayesianCointegrationAlphaModel
 from src.PortfolioConstruction import BayesianCointegrationPortfolioConstructionModel
-# from src.RiskManagement import BayesianCointegrationRiskManagementModel
+from src.RiskManagement import BayesianCointegrationRiskManagementModel
 # from src.Execution import MyExecutionModel
 # endregion
 

@@ -1,6 +1,7 @@
 # region imports
 from AlgorithmImports import *
 from typing import List
+from QuantConnect.Algorithm.Framework.Risk import MaximumDrawdownPercentPerSecurity, TrailingStopRiskManagementModel, MaximumUnrealizedProfitPercentPerSecurity
 # endregion
 
 class BayesianCointegrationRiskManagementModel(RiskManagementModel):
