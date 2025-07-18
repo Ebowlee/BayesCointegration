@@ -36,7 +36,7 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         self.mcmc_draws = 1000                               # MCMC采样次数
         self.mcmc_chains = 1                                 # MCMC链数
 
-        self.entry_threshold = 1.0                           # 入场阈值(标准差倍数)
+        self.entry_threshold = 1.65                          # 入场阈值(标准差倍数)
         self.exit_threshold = 0.5                            # 出场阈值(标准差倍数)
         self.upper_limit = 3.0                               # 上限阈值(避免在极端情况下入场)
         self.lower_limit = -3.0                              # 下限阈值(避免在极端情况下入场)

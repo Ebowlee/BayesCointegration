@@ -21,9 +21,6 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
             symbols = [target.symbol for target in targets]
             self.algorithm.Debug(f"[RiskManagement] - symbols: {[symbol.Value for symbol in symbols]}")
 
-            symbols = self.targets_collection.keys
-            self.algorithm.Debug(f"[RiskManagement] - symbols: {[symbol.Value for symbol in symbols]}")
-
             # 将所有target清仓
             self.is_selection_on_next_day = False
             return [PortfolioTarget(target.symbol, 0) for target in targets]

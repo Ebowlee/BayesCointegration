@@ -12,12 +12,12 @@ class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
         self.selection_on = False 
         self.numOfCandidates = 50
         self.min_price = 10
-        self.min_volume = 1e7
+        self.min_volume = 1e8
         self.min_ipo_days = 1095
         self.max_pe = 25
         self.min_roe = 0.05
         self.max_debt_to_assets = 0.7
-        self.max_leverage_ratio = 10
+        self.max_leverage_ratio = 5
 
         self.last_fine_selected_symbols = []                            
         self.fine_selection_count = 0                                   
