@@ -9,15 +9,15 @@ class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
     """
     def __init__(self, algorithm):
         self.algorithm = algorithm
-        self.selection_needed = False 
+        self.selection_on = False 
         self.numOfCandidates = 50
         self.min_price = 10
         self.min_volume = 1e7
-        self.min_ipo_days = 365
+        self.min_ipo_days = 1095
         self.max_pe = 25
         self.min_roe = 0.05
-        self.max_debt_to_assets = 0.6
-        self.max_leverage_ratio = 5
+        self.max_debt_to_assets = 0.7
+        self.max_leverage_ratio = 10
 
         self.last_fine_selected_symbols = []                            
         self.fine_selection_count = 0                                   
@@ -33,7 +33,7 @@ class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
         """
         外部调用的触发接口：用于在 main.py 中通过 Schedule.On 控制
         """
-        self.selection_needed = True
+        self.selection_on = True
         self.algorithm.Debug("[UniverseSelection] 收到主控调度，准备执行下一轮选股")
 
 
@@ -44,7 +44,7 @@ class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
         """
         filtered = [x for x in coarse if x.HasFundamentalData and x.Price > self.min_price and x.DollarVolume > self.min_volume]
         ipo_filtered = [x for x in filtered if x.SecurityReference.IPODate is not None and (self.algorithm.Time - x.SecurityReference.IPODate).days > self.min_ipo_days]
-        coarse_selected = [x.Symbol for x in sorted(ipo_filtered, key=lambda x: x.Symbol.Value)]
+        coarse_selected = [x.Symbol for x in ipo_filtered] 
         return coarse_selected
 
 
@@ -53,8 +53,8 @@ class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
         """
         细选阶段，主要是依据行业和财报信息
         """
-        if self.selection_needed:
-            self.selection_needed = False 
+        if self.selection_on:
+            self.selection_on = False 
             self.fine_selection_count += 1
             self.algorithm.Debug(f"=====================================第【{self.fine_selection_count}】次选股=====================================") 
 
@@ -67,6 +67,7 @@ class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
                 "Healthcare": MorningstarSectorCode.Healthcare,
                 "Energy": MorningstarSectorCode.Energy,
                 "ConsumerDefensive": MorningstarSectorCode.ConsumerDefensive,
+                "ConsumerCyclical": MorningstarSectorCode.ConsumerCyclical,
                 "CommunicationServices": MorningstarSectorCode.CommunicationServices,
                 "Industrials": MorningstarSectorCode.Industrials,
                 "Utilities": MorningstarSectorCode.Utilities

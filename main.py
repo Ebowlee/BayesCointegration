@@ -26,7 +26,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         """
         # 设置回测时间段和初始资金
         self.SetStartDate(2024, 6, 20)
-        self.SetEndDate(2024, 8, 31)
+        self.SetEndDate(2024, 9, 20)
         self.SetCash(100000)
         
         # 设置分辨率和账户类型
@@ -51,7 +51,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         ## 资产层面分控
         self.risk_manager = BayesianCointegrationRiskManagementModel(self)
         self.SetRiskManagement(self.risk_manager)  
-        self.Schedule.On(self.DateRules.MonthStart(-1), self.TimeRules.At(9, 10), Action(self.risk_manager.IsSelectionOnNextDay))
+        self.Schedule.On(self.DateRules.MonthStart(-1), self.TimeRules.At(16, 00), Action(self.risk_manager.IsSelectionOnNextDay))
 
         # # 设置Execution模块
         # self.SetExecution(MyExecutionModel(self))

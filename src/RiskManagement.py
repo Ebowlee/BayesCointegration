@@ -18,7 +18,11 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
     def manage_risk(self, algorithm: QCAlgorithm, targets: List[PortfolioTarget]) -> List[PortfolioTarget]:
         if self.is_selection_on_next_day:
             # 先打印一下targets包含那些symbol
-            self.algorithm.Debug(f"[RiskManagement] - targets: {[target.symbol for target in targets]}")
+            symbols = [target.symbol for target in targets]
+            self.algorithm.Debug(f"[RiskManagement] - symbols: {[symbol.Value for symbol in symbols]}")
+
+            symbols = self.targets_collection.keys
+            self.algorithm.Debug(f"[RiskManagement] - symbols: {[symbol.Value for symbol in symbols]}")
 
             # 将所有target清仓
             self.is_selection_on_next_day = False
