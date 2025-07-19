@@ -26,7 +26,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         """
         # 设置回测时间段和初始资金
         self.SetStartDate(2024, 6, 20)
-        self.SetEndDate(2024, 9, 20)
+        self.SetEndDate(2024, 10, 20)
         self.SetCash(100000)
         
         # 设置分辨率和账户类型
