@@ -1,0 +1,345 @@
+2024-06-20 00:00:00 Launching analysis for ec4d0ac3c41812fae2980fa952410188 with LEAN Engine v2.5.0.0.17202
+2024-06-20 00:00:00 [UniverseSelection] 初始化完成
+2024-06-20 00:00:00 [AlphaModel] 初始化完成
+2024-06-20 00:00:00 [PortfolioConstruction] 初始化完成
+2024-06-20 00:00:00 Accurate daily end-times now enabled by default. See more at https://qnt.co/3YHaWHL. To disable it and use legacy daily bars set self.settings.daily_precise_end_time = False.
+2024-07-02 00:00:00 [UniverseSelection] 收到主控调度，准备执行下一轮选股
+2024-07-02 00:00:00 [RiskManagement] - IsSelectionOnNextDay: True
+2024-07-02 00:00:00 =====================================第【1】次选股=====================================
+2024-07-02 00:00:00 [UniverseSelection] 选股日, 共选出: 100, 部分结果展示: ['CSCO', 'NXPI', 'TEL', 'JNJ', 'ELV', 'BMY', 'CVS', 'HUM', 'CNC', 'ZBH']
+2024-07-02 16:00:00 [AlphaModel] 选股日，接收到: 100
+2024-07-02 16:00:00 [AlphaModel] 【ConsumerDefensive】: 1
+2024-07-02 16:00:00 [AlphaModel] 【Utilities】: 3
+2024-07-02 16:00:00 [AlphaModel] 【Energy】: 8
+2024-07-02 16:00:00 [AlphaModel] 【Healthcare】: 0
+2024-07-02 16:00:00 [AlphaModel] 【Industrials】: 4
+2024-07-02 16:00:00 [AlphaModel] 【CommunicationServices】: 1
+2024-07-02 16:00:00 [AlphaModel] 【Technology】: 0
+2024-07-02 16:00:00 [AlphaModel] 筛选出协整对: 【8】
+2024-07-02 16:00:00 [AlphaModel] : zscore 1.6613, 【卖 | 买】 [CPB,K]
+2024-07-02 16:00:00 [AlphaModel] 生成信号: 【1】 拦截信号: 【4】 观望信号: 【3】 
+2024-07-02 16:00:00 [PC]: [CPB, K] | [SELL, BUY] | [-0.0931, 0.0639]
+2024-07-02 16:00:00 [PC] 生成 【1】 组 PortfolioTarget
+2024-07-02 16:00:00 [RiskManagement] 选股日前清仓
+2024-07-03 00:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【0】 观望信号: 【0】 
+2024-07-03 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-07-03 13:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【3】 观望信号: 【5】 
+2024-07-03 13:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-07-05 00:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【0】 观望信号: 【0】 
+2024-07-05 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-07-05 16:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【5】 观望信号: 【3】 
+2024-07-05 16:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-07-08 00:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【0】 观望信号: 【0】 
+2024-07-08 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-07-08 16:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【4】 观望信号: 【4】 
+2024-07-08 16:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-07-09 00:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【0】 观望信号: 【0】 
+2024-07-09 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-07-09 16:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【5】 观望信号: 【3】 
+2024-07-09 16:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-07-10 00:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【0】 观望信号: 【0】 
+2024-07-10 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-07-10 16:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【5】 观望信号: 【3】 
+2024-07-10 16:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-07-11 16:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【5】 观望信号: 【3】 
+2024-07-11 16:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-07-12 16:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【2】 观望信号: 【6】 
+2024-07-12 16:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-07-15 16:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【2】 观望信号: 【6】 
+2024-07-15 16:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-07-16 16:00:00 [AlphaModel] : zscore 1.6565, 【卖 | 买】 [GWW,PCAR]
+2024-07-16 16:00:00 [AlphaModel] 生成信号: 【1】 拦截信号: 【3】 观望信号: 【4】 
+2024-07-16 16:00:00 [PC]: [GWW, PCAR] | [SELL, BUY] | [-0.0868, 0.0765]
+2024-07-16 16:00:00 [PC] 生成 【1】 组 PortfolioTarget
+2024-07-16 16:00:00 Warning: all market orders sent using daily data, or market orders sent after hours are automatically converted into MarketOnOpen orders.
+2024-07-17 00:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【0】 观望信号: 【0】 
+2024-07-17 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-07-17 16:00:00 [AlphaModel] : zscore 2.3335, 【卖 | 买】 [NI,PEG]
+2024-07-17 16:00:00 [AlphaModel] 生成信号: 【1】 拦截信号: 【4】 观望信号: 【3】 
+2024-07-17 16:00:00 [PC]: [NI, PEG] | [SELL, BUY] | [-0.0982, 0.0535]
+2024-07-17 16:00:00 [PC] 生成 【1】 组 PortfolioTarget
+2024-07-18 16:00:00 [AlphaModel] : zscore 3.1922, 【失效】 [CPB,K]
+2024-07-18 16:00:00 [AlphaModel] : zscore -1.7672, 【买 | 卖】 [CHK,CTRA]
+2024-07-18 16:00:00 [AlphaModel] : zscore 0.4621, 【回归】 [GWW,PCAR]
+2024-07-18 16:00:00 [AlphaModel] 生成信号: 【3】 拦截信号: 【2】 观望信号: 【3】 
+2024-07-18 16:00:00 [PC]: [CPB, K] | [FLAT, FLAT]
+2024-07-18 16:00:00 Warning: Portfolio rebalance result ignored as it resulted in a single share trade recommendation which can generate high fees. To disable minimum order size checks please set Settings.MinimumOrderMarginPortfolioPercentage = 0.
+2024-07-18 16:00:00 [PC]: [CHK, CTRA] | [BUY, SELL] | [0.0815, -0.0871]
+2024-07-18 16:00:00 [PC]: [GWW, PCAR] | [FLAT, FLAT]
+2024-07-18 16:00:00 [PC] 生成 【3】 组 PortfolioTarget
+2024-07-19 00:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【0】 观望信号: 【0】 
+2024-07-19 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-07-19 16:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【3】 观望信号: 【5】 
+2024-07-19 16:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-07-22 00:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【0】 观望信号: 【0】 
+2024-07-22 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-07-22 16:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【2】 观望信号: 【6】 
+2024-07-22 16:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-07-23 16:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【4】 观望信号: 【4】 
+2024-07-23 16:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-07-24 16:00:00 [AlphaModel] : zscore -1.9906, 【买 | 卖】 [PH,URI]
+2024-07-24 16:00:00 [AlphaModel] : zscore 2.0119, 【卖 | 买】 [T,TMUS]
+2024-07-24 16:00:00 [AlphaModel] 生成信号: 【2】 拦截信号: 【3】 观望信号: 【3】 
+2024-07-24 16:00:00 [PC]: [PH, URI] | [BUY, SELL] | [0.0920, -0.0661]
+2024-07-24 16:00:00 [PC]: [T, TMUS] | [SELL, BUY] | [-0.0817, 0.0865]
+2024-07-24 16:00:00 [PC] 生成 【2】 组 PortfolioTarget
+2024-07-25 16:00:00 [AlphaModel] : zscore 3.1871, 【失效】 [NI,PEG]
+2024-07-25 16:00:00 [AlphaModel] 生成信号: 【1】 拦截信号: 【4】 观望信号: 【3】 
+2024-07-25 16:00:00 [PC]: [NI, PEG] | [FLAT, FLAT]
+2024-07-25 16:00:00 [PC] 生成 【1】 组 PortfolioTarget
+2024-07-26 00:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【0】 观望信号: 【0】 
+2024-07-26 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-07-26 16:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【4】 观望信号: 【4】 
+2024-07-26 16:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-07-29 16:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【5】 观望信号: 【3】 
+2024-07-29 16:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-07-30 16:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【5】 观望信号: 【3】 
+2024-07-30 16:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-07-31 00:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【0】 观望信号: 【0】 
+2024-07-31 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-07-31 16:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【4】 观望信号: 【4】 
+2024-07-31 16:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-08-01 00:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【0】 观望信号: 【0】 
+2024-08-01 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-08-01 16:00:00 [UniverseSelection] 收到主控调度，准备执行下一轮选股
+2024-08-01 16:00:00 [RiskManagement] - IsSelectionOnNextDay: True
+2024-08-01 16:00:00 [AlphaModel] : zscore -0.2091, 【回归】 [AEP,NI]
+2024-08-01 16:00:00 [AlphaModel] : zscore 0.3872, 【回归】 [T,TMUS]
+2024-08-01 16:00:00 [AlphaModel] 生成信号: 【2】 拦截信号: 【4】 观望信号: 【2】 
+2024-08-01 16:00:00 [PC]: [AEP, NI] | [FLAT, FLAT]
+2024-08-01 16:00:00 [PC]: [T, TMUS] | [FLAT, FLAT]
+2024-08-01 16:00:00 [PC] 生成 【2】 组 PortfolioTarget
+2024-08-01 16:00:00 [RiskManagement] 选股日前清仓
+2024-08-02 00:00:00 =====================================第【2】次选股=====================================
+2024-08-02 00:00:00 [UniverseSelection] 选股日, 共选出: 120, 部分结果展示: ['QCOM', 'CSCO', 'AMAT', 'NXPI', 'TEL', 'JNJ', 'ELV', 'BMY', 'CVS', 'CNC']
+2024-08-02 00:00:00 [AlphaModel] 选股日，接收到: 120
+2024-08-02 00:00:00 [AlphaModel] 【ConsumerDefensive】: 8
+2024-08-02 00:00:00 [AlphaModel] 【Utilities】: 8
+2024-08-02 00:00:00 [AlphaModel] 【Energy】: 13
+2024-08-02 00:00:00 [AlphaModel] 【Healthcare】: 0
+2024-08-02 00:00:00 [AlphaModel] 【Industrials】: 0
+2024-08-02 00:00:00 [AlphaModel] 【CommunicationServices】: 2
+2024-08-02 00:00:00 [AlphaModel] 【Technology】: 2
+2024-08-02 00:00:00 [AlphaModel] 筛选出协整对: 【10】
+2024-08-02 00:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【0】 观望信号: 【0】 
+2024-08-02 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-08-02 16:00:00 [AlphaModel] : zscore 0.3082, 【回归】 [COKE,CPB]
+2024-08-02 16:00:00 [AlphaModel] 生成信号: 【1】 拦截信号: 【5】 观望信号: 【4】 
+2024-08-02 16:00:00 [PC]: [COKE, CPB] | [FLAT, FLAT]
+2024-08-02 16:00:00 [PC] 生成 【1】 组 PortfolioTarget
+2024-08-05 16:00:00 [AlphaModel] : zscore -2.0525, 【买 | 卖】 [CSCO,TEL]
+2024-08-05 16:00:00 [AlphaModel] 生成信号: 【1】 拦截信号: 【4】 观望信号: 【5】 
+2024-08-05 16:00:00 [PC]: [CSCO, TEL] | [BUY, SELL] | [0.0814, 0.0372]
+2024-08-05 16:00:00 [PC] 生成 【1】 组 PortfolioTarget
+2024-08-06 00:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【0】 观望信号: 【0】 
+2024-08-06 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-08-06 16:00:00 [AlphaModel] : zscore -0.4033, 【回归】 [NXPI,TEL]
+2024-08-06 16:00:00 [AlphaModel] 生成信号: 【1】 拦截信号: 【5】 观望信号: 【4】 
+2024-08-06 16:00:00 [PC]: [NXPI, TEL] | [FLAT, FLAT]
+2024-08-06 16:00:00 [PC] 生成 【1】 组 PortfolioTarget
+2024-08-07 00:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【0】 观望信号: 【0】 
+2024-08-07 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-08-07 16:00:00 [AlphaModel] : zscore -2.0312, 【买 | 卖】 [ET,OKE]
+2024-08-07 16:00:00 [AlphaModel] 生成信号: 【1】 拦截信号: 【3】 观望信号: 【6】 
+2024-08-07 16:00:00 [PC]: [ET, OKE] | [BUY, SELL] | [0.0688, -0.0624]
+2024-08-07 16:00:00 [PC] 生成 【1】 组 PortfolioTarget
+2024-08-08 16:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【5】 观望信号: 【5】 
+2024-08-08 16:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-08-09 00:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【0】 观望信号: 【0】 
+2024-08-09 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-08-09 16:00:00 [AlphaModel] : zscore -0.4768, 【回归】 [ET,EPD]
+2024-08-09 16:00:00 [AlphaModel] 生成信号: 【1】 拦截信号: 【5】 观望信号: 【4】 
+2024-08-09 16:00:00 [PC]: [ET, EPD] | [FLAT, FLAT]
+2024-08-09 16:00:00 [PC] 生成 【1】 组 PortfolioTarget
+2024-08-12 00:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【0】 观望信号: 【0】 
+2024-08-12 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-08-12 16:00:00 [AlphaModel] : zscore -1.7114, 【买 | 卖】 [T,TMUS]
+2024-08-12 16:00:00 [AlphaModel] 生成信号: 【1】 拦截信号: 【3】 观望信号: 【6】 
+2024-08-12 16:00:00 [PC]: [T, TMUS] | [BUY, SELL] | [0.0650, -0.0700]
+2024-08-12 16:00:00 [PC] 生成 【1】 组 PortfolioTarget
+2024-08-12 16:00:00 [RiskManagement] Trailing Stop触发清仓: T - URI
+2024-08-13 00:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【0】 观望信号: 【0】 
+2024-08-13 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-08-13 00:00:00 [RiskManagement] Trailing Stop触发清仓: T - URI
+2024-08-13 16:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【7】 观望信号: 【3】 
+2024-08-13 16:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-08-13 16:00:00 [RiskManagement] Trailing Stop触发清仓: T - URI
+2024-08-14 00:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【0】 观望信号: 【0】 
+2024-08-14 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-08-14 00:00:00 [RiskManagement] Trailing Stop触发清仓: T - URI
+2024-08-14 16:00:00 [AlphaModel] : zscore 1.7503, 【卖 | 买】 [GIS,KR]
+2024-08-14 16:00:00 [AlphaModel] 生成信号: 【1】 拦截信号: 【6】 观望信号: 【3】 
+2024-08-14 16:00:00 [PC]: [GIS, KR] | [SELL, BUY] | [-0.0865, 0.0271]
+2024-08-14 16:00:00 [PC] 生成 【1】 组 PortfolioTarget
+2024-08-14 16:00:00 [RiskManagement] Trailing Stop触发清仓: GIS - URI
+2024-08-15 00:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【0】 观望信号: 【0】 
+2024-08-15 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-08-15 00:00:00 [RiskManagement] Trailing Stop触发清仓: GIS - URI
+2024-08-15 16:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【7】 观望信号: 【3】 
+2024-08-15 16:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-08-16 00:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【0】 观望信号: 【0】 
+2024-08-16 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-08-16 16:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【6】 观望信号: 【4】 
+2024-08-16 16:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-08-16 16:00:00 [RiskManagement] Trailing Stop触发清仓: GIS - URI
+2024-08-19 00:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【0】 观望信号: 【0】 
+2024-08-19 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-08-19 00:00:00 [RiskManagement] Trailing Stop触发清仓: GIS - URI
+2024-08-19 16:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【6】 观望信号: 【4】 
+2024-08-19 16:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-08-20 00:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【0】 观望信号: 【0】 
+2024-08-20 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-08-20 16:00:00 [AlphaModel] : zscore 1.7194, 【卖 | 买】 [CSCO,TEL]
+2024-08-20 16:00:00 [AlphaModel] 生成信号: 【1】 拦截信号: 【4】 观望信号: 【5】 
+2024-08-20 16:00:00 [PC]: [CSCO, TEL] | [SELL, BUY] | [-0.0814, -0.0372]
+2024-08-20 16:00:00 [PC] 生成 【1】 组 PortfolioTarget
+2024-08-20 16:00:00 [RiskManagement] Trailing Stop触发清仓: URI - TMUS
+2024-08-21 00:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【0】 观望信号: 【0】 
+2024-08-21 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-08-21 00:00:00 [RiskManagement] Trailing Stop触发清仓: URI - TMUS
+2024-08-21 16:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【7】 观望信号: 【3】 
+2024-08-21 16:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-08-22 00:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【0】 观望信号: 【0】 
+2024-08-22 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-08-22 16:00:00 [AlphaModel] : zscore -1.7265, 【买 | 卖】 [AEP,NI]
+2024-08-22 16:00:00 [AlphaModel] 生成信号: 【1】 拦截信号: 【7】 观望信号: 【2】 
+2024-08-22 16:00:00 [PC]: [AEP, NI] | [BUY, SELL] | [0.0634, -0.0731]
+2024-08-22 16:00:00 [PC] 生成 【1】 组 PortfolioTarget
+2024-08-22 16:00:00 [RiskManagement] Trailing Stop触发清仓: URI - TMUS
+2024-08-23 00:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【0】 观望信号: 【0】 
+2024-08-23 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-08-23 00:00:00 [RiskManagement] Trailing Stop触发清仓: URI - TMUS
+2024-08-23 16:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【8】 观望信号: 【2】 
+2024-08-23 16:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-08-26 00:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【0】 观望信号: 【0】 
+2024-08-26 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-08-26 16:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【8】 观望信号: 【2】 
+2024-08-26 16:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-08-27 00:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【0】 观望信号: 【0】 
+2024-08-27 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-08-27 16:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【8】 观望信号: 【2】 
+2024-08-27 16:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-08-28 00:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【0】 观望信号: 【0】 
+2024-08-28 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-08-28 16:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【8】 观望信号: 【2】 
+2024-08-28 16:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-08-29 16:00:00 [AlphaModel] : zscore -3.5124, 【失效】 [ET,OKE]
+2024-08-29 16:00:00 [AlphaModel] 生成信号: 【1】 拦截信号: 【5】 观望信号: 【4】 
+2024-08-29 16:00:00 [PC]: [ET, OKE] | [FLAT, FLAT]
+2024-08-29 16:00:00 [PC] 生成 【1】 组 PortfolioTarget
+2024-08-30 00:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【0】 观望信号: 【0】 
+2024-08-30 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-08-30 16:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【7】 观望信号: 【3】 
+2024-08-30 16:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-09-03 00:00:00 [UniverseSelection] 收到主控调度，准备执行下一轮选股
+2024-09-03 00:00:00 [RiskManagement] - IsSelectionOnNextDay: True
+2024-09-03 00:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【0】 观望信号: 【0】 
+2024-09-03 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-09-03 00:00:00 [RiskManagement] 选股日前清仓
+2024-09-03 16:00:00 [AlphaModel] : zscore -1.8826, 【买 | 卖】 [NXPI,TEL]
+2024-09-03 16:00:00 [AlphaModel] 生成信号: 【1】 拦截信号: 【3】 观望信号: 【6】 
+2024-09-03 16:00:00 [PC]: [NXPI, TEL] | [BUY, SELL] | [0.0554, -0.0891]
+2024-09-03 16:00:00 [PC] 生成 【1】 组 PortfolioTarget
+2024-09-03 16:00:00 [RiskManagement] Trailing Stop触发清仓: GIS - URI
+2024-09-04 00:00:00 =====================================第【3】次选股=====================================
+2024-09-04 00:00:00 [UniverseSelection] 选股日, 共选出: 107, 部分结果展示: ['CSCO', 'QCOM', 'AMAT', 'NXPI', 'TEL', 'CTSH', 'ELV', 'BMY', 'CVS', 'HUM']
+2024-09-04 00:00:00 [AlphaModel] 选股日，接收到: 106
+2024-09-04 00:00:00 [AlphaModel] 【ConsumerDefensive】: 1
+2024-09-04 00:00:00 [AlphaModel] 【Utilities】: 6
+2024-09-04 00:00:00 [AlphaModel] 【Energy】: 6
+2024-09-04 00:00:00 [AlphaModel] 【Healthcare】: 1
+2024-09-04 00:00:00 [AlphaModel] 【Industrials】: 1
+2024-09-04 00:00:00 [AlphaModel] 【CommunicationServices】: 2
+2024-09-04 00:00:00 [AlphaModel] 【Technology】: 5
+2024-09-04 00:00:00 [AlphaModel] 筛选出协整对: 【11】
+2024-09-04 00:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【0】 观望信号: 【0】 
+2024-09-04 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-09-04 00:00:00 [RiskManagement] Trailing Stop触发清仓: GIS - URI
+2024-09-04 16:00:00 [AlphaModel] : zscore 1.8661, 【卖 | 买】 [HSY,HRL]
+2024-09-04 16:00:00 [AlphaModel] : zscore 0.1468, 【回归】 [AEP,ETR]
+2024-09-04 16:00:00 [AlphaModel] 生成信号: 【2】 拦截信号: 【4】 观望信号: 【5】 
+2024-09-04 16:00:00 [PC]: [HSY, HRL] | [SELL, BUY] | [-0.0785, 0.0249]
+2024-09-04 16:00:00 [PC]: [AEP, ETR] | [FLAT, FLAT]
+2024-09-04 16:00:00 [PC] 生成 【2】 组 PortfolioTarget
+2024-09-04 16:00:00 [RiskManagement] Trailing Stop触发清仓: URI - HRL
+2024-09-05 00:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【0】 观望信号: 【0】 
+2024-09-05 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-09-05 00:00:00 [RiskManagement] Trailing Stop触发清仓: URI - HRL
+2024-09-05 16:00:00 [AlphaModel] : zscore -0.1805, 【回归】 [D,ETR]
+2024-09-05 16:00:00 [AlphaModel] : zscore 0.3852, 【回归】 [CSCO,NXPI]
+2024-09-05 16:00:00 [AlphaModel] 生成信号: 【2】 拦截信号: 【2】 观望信号: 【7】 
+2024-09-05 16:00:00 [PC]: [D, ETR] | [FLAT, FLAT]
+2024-09-05 16:00:00 [PC]: [CSCO, NXPI] | [FLAT, FLAT]
+2024-09-05 16:00:00 [PC] 生成 【2】 组 PortfolioTarget
+2024-09-05 16:00:00 [RiskManagement] Trailing Stop触发清仓: URI - HRL
+2024-09-06 00:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【0】 观望信号: 【0】 
+2024-09-06 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-09-06 00:00:00 [RiskManagement] Trailing Stop触发清仓: URI - HRL
+2024-09-06 16:00:00 [AlphaModel] : zscore 2.5506, 【卖 | 买】 [T,TMUS]
+2024-09-06 16:00:00 [AlphaModel] : zscore 0.2194, 【回归】 [CSCO,TEL]
+2024-09-06 16:00:00 [AlphaModel] 生成信号: 【2】 拦截信号: 【5】 观望信号: 【4】 
+2024-09-06 16:00:00 [PC]: [T, TMUS] | [SELL, BUY] | [-0.0612, 0.0594]
+2024-09-06 16:00:00 [PC]: [CSCO, TEL] | [FLAT, FLAT]
+2024-09-06 16:00:00 [PC] 生成 【2】 组 PortfolioTarget
+2024-09-06 16:00:00 [RiskManagement] Trailing Stop触发清仓: GIS - URI
+2024-09-06 16:00:00 [RiskManagement] Trailing Stop触发清仓: HRL - TMUS
+2024-09-06 16:00:00 [RiskManagement] Trailing Stop触发清仓: CSCO - TEL
+2024-09-09 00:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【0】 观望信号: 【0】 
+2024-09-09 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-09-09 00:00:00 [RiskManagement] Trailing Stop触发清仓: GIS - URI
+2024-09-09 00:00:00 [RiskManagement] Trailing Stop触发清仓: HRL - TMUS
+2024-09-09 16:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【7】 观望信号: 【4】 
+2024-09-09 16:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-09-09 16:00:00 [RiskManagement] Trailing Stop触发清仓: GIS - URI
+2024-09-10 00:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【0】 观望信号: 【0】 
+2024-09-10 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-09-10 00:00:00 [RiskManagement] Trailing Stop触发清仓: GIS - URI
+2024-09-10 16:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【8】 观望信号: 【3】 
+2024-09-10 16:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-09-10 16:00:00 [RiskManagement] Trailing Stop触发清仓: GIS - URI
+2024-09-11 00:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【0】 观望信号: 【0】 
+2024-09-11 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-09-11 00:00:00 [RiskManagement] Trailing Stop触发清仓: GIS - URI
+2024-09-11 16:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【7】 观望信号: 【4】 
+2024-09-11 16:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-09-11 16:00:00 [RiskManagement] Trailing Stop触发清仓: GIS - URI
+2024-09-12 00:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【0】 观望信号: 【0】 
+2024-09-12 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-09-12 00:00:00 [RiskManagement] Trailing Stop触发清仓: GIS - URI
+2024-09-12 16:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【6】 观望信号: 【5】 
+2024-09-12 16:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-09-12 16:00:00 [RiskManagement] Trailing Stop触发清仓: GIS - URI
+2024-09-13 00:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【0】 观望信号: 【0】 
+2024-09-13 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-09-13 00:00:00 [RiskManagement] Trailing Stop触发清仓: GIS - URI
+2024-09-13 16:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【4】 观望信号: 【7】 
+2024-09-13 16:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-09-16 00:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【0】 观望信号: 【0】 
+2024-09-16 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-09-16 16:00:00 [AlphaModel] : zscore 1.6677, 【卖 | 买】 [CNC,ZBH]
+2024-09-16 16:00:00 [AlphaModel] 生成信号: 【1】 拦截信号: 【4】 观望信号: 【6】 
+2024-09-16 16:00:00 [PC]: [CNC, ZBH] | [SELL, BUY] | [-0.0732, 0.0353]
+2024-09-16 16:00:00 [PC] 生成 【1】 组 PortfolioTarget
+2024-09-17 00:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【0】 观望信号: 【0】 
+2024-09-17 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-09-17 16:00:00 [AlphaModel] : zscore -2.0801, 【买 | 卖】 [AEP,ETR]
+2024-09-17 16:00:00 [AlphaModel] 生成信号: 【1】 拦截信号: 【5】 观望信号: 【5】 
+2024-09-17 16:00:00 [PC]: [AEP, ETR] | [BUY, SELL] | [0.0578, -0.0662]
+2024-09-17 16:00:00 [PC] 生成 【1】 组 PortfolioTarget
+2024-09-18 16:00:00 [AlphaModel] : zscore -2.0098, 【买 | 卖】 [D,ETR]
+2024-09-18 16:00:00 [AlphaModel] : zscore 3.2540, 【失效】 [T,TMUS]
+2024-09-18 16:00:00 [AlphaModel] 生成信号: 【2】 拦截信号: 【6】 观望信号: 【3】 
+2024-09-18 16:00:00 [PC]: [D, ETR] | [BUY, SELL] | [0.0587, -0.0645]
+2024-09-18 16:00:00 [PC]: [T, TMUS] | [FLAT, FLAT]
+2024-09-18 16:00:00 [PC] 生成 【2】 组 PortfolioTarget
+2024-09-19 00:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【0】 观望信号: 【0】 
+2024-09-19 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-09-19 16:00:00 [AlphaModel] : zscore 1.7481, 【卖 | 买】 [CSCO,NXPI]
+2024-09-19 16:00:00 [AlphaModel] 生成信号: 【1】 拦截信号: 【7】 观望信号: 【3】 
+2024-09-19 16:00:00 [PC]: [CSCO, NXPI] | [SELL, BUY] | [-0.0811, -0.0197]
+2024-09-19 16:00:00 [PC] 生成 【1】 组 PortfolioTarget
+2024-09-20 00:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【0】 观望信号: 【0】 
+2024-09-20 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-09-20 16:00:00 [AlphaModel] 生成信号: 【0】 拦截信号: 【8】 观望信号: 【3】 
+2024-09-20 16:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-09-21 00:00:00 Algorithm Id:(ec4d0ac3c41812fae2980fa952410188) completed in 253.02 seconds at 5k data points per second. Processing total of 1,245,034 data points.
