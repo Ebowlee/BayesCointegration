@@ -4,9 +4,15 @@
 
 ---
 
+## [v2.4.9_universe-config-volatility@20250720]
+- 实施UniverseSelection参数配置化架构
+- 新增波动率筛选功能（60%年化上限）
+- 完善错误处理机制和详细日志输出
+- 支持灵活的选股参数调整和验证
+
 ## [v2.4.8_strategy-optimize@20250720]
 - 优化主策略初始化流程和模块集成
-- 完善AlphaModel贝叶斯协整检验逻辑
+- 完善AlphaModel贝叶斯协整检验参数
 - 改进UniverseSelection选股筛选条件
 - 修复.gitignore文件编码问题并完善忽略规则
 
