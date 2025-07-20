@@ -27,17 +27,17 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         self.is_universe_selection_on = False
         self.symbols = []
 
-        self.pvalue_threshold = 0.05                         # 协整检验的p值阈值
-        self.correlation_threshold = 0.5                     # 协整检验的皮尔逊相关系数阈值
+        self.pvalue_threshold = 0.025                         # 协整检验的p值阈值
+        self.correlation_threshold = 0.2                     # 协整检验的皮尔逊相关系数阈值
         self.max_symbol_repeats = 1                          # 每个股票在协整对中最多出现次数
-        self.max_pairs = 2                                   # 最大协整对数量
+        self.max_pairs = 5                                   # 最大协整对数量
         self.lookback_period = 252                           # 用于计算z分数的历史数据长度
-        self.mcmc_burn_in = 1000                             # MCMC采样预热次数
-        self.mcmc_draws = 1000                               # MCMC采样次数
-        self.mcmc_chains = 1                                 # MCMC链数
+        self.mcmc_burn_in = 1500                             # MCMC采样预热次数
+        self.mcmc_draws = 1500                               # MCMC采样次数
+        self.mcmc_chains = 2                                 # MCMC链数
 
-        self.entry_threshold = 1.65                          # 入场阈值(标准差倍数)
-        self.exit_threshold = 0.5                            # 出场阈值(标准差倍数)
+        self.entry_threshold = 1.65                           # 入场阈值(标准差倍数)
+        self.exit_threshold = 0.3                            # 出场阈值(标准差倍数)
         self.upper_limit = 3.0                               # 上限阈值(避免在极端情况下入场)
         self.lower_limit = -3.0                              # 下限阈值(避免在极端情况下入场)
         
@@ -144,6 +144,7 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                 "Healthcare": MorningstarSectorCode.Healthcare,
                 "Energy": MorningstarSectorCode.Energy,
                 "ConsumerDefensive": MorningstarSectorCode.ConsumerDefensive,
+                "ConsumerCyclical": MorningstarSectorCode.ConsumerCyclical,
                 "CommunicationServices": MorningstarSectorCode.CommunicationServices,
                 "Industrials": MorningstarSectorCode.Industrials,
                 "Utilities": MorningstarSectorCode.Utilities
