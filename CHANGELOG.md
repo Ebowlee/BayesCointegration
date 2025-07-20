@@ -4,6 +4,12 @@
 
 ---
 
+## [v2.5.0_centralized-config@20250720]
+- 实施策略参数集中管理架构
+- 创建StrategyConfig类统一管理所有模块配置
+- UniverseSelection支持配置传入，保持向后兼容
+- 为AlphaModel和PortfolioConstruction配置奠定基础
+
 ## [v2.4.9_universe-config-volatility@20250720]
 - 实施UniverseSelection参数配置化架构
 - 新增波动率筛选功能（60%年化上限）

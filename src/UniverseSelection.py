@@ -1,7 +1,6 @@
 # region imports
 from AlgorithmImports import *
 from QuantConnect.Algorithm.Framework.Selection import FineFundamentalUniverseSelectionModel
-import numpy as np
 # endregion
 
 class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
@@ -12,78 +11,35 @@ class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
         self.algorithm = algorithm
         self.selection_on = False 
         
-        # 默认配置参数
-        default_config = {
-            'selection': {
-                'num_candidates': 30,
-                'min_price': 15,
-                'min_volume': 2.5e8,
-                'min_ipo_days': 1095
-            },
-            'financial': {
-                'max_pe': 30,
-                'min_roe': 0.05,
-                'max_debt_to_assets': 0.6,
-                'max_leverage_ratio': 5
-            },
-            'volatility': {
-                'max_volatility': 0.6,
-                'enabled': True
-            }
-        }
-        
-        # 合并用户配置
-        self.config = self._merge_config(default_config, config or {})
-        
-        # 参数验证
-        self._validate_config()
+        # 使用传入的配置或默认值
+        if config:
+            self.num_candidates = config.get('num_candidates', 30)
+            self.min_price = config.get('min_price', 15)
+            self.min_volume = config.get('min_volume', 2.5e8)
+            self.min_ipo_days = config.get('min_ipo_days', 1095)
+            self.max_pe = config.get('max_pe', 30)
+            self.min_roe = config.get('min_roe', 0.05)
+            self.max_debt_to_assets = config.get('max_debt_to_assets', 0.6)
+            self.max_leverage_ratio = config.get('max_leverage_ratio', 5)
+        else:
+            # 保持向后兼容的默认值
+            self.num_candidates = 30
+            self.min_price = 15
+            self.min_volume = 2.5e8
+            self.min_ipo_days = 1095
+            self.max_pe = 30
+            self.min_roe = 0.05
+            self.max_debt_to_assets = 0.6
+            self.max_leverage_ratio = 5
 
         self.last_fine_selected_symbols = []                            
         self.fine_selection_count = 0                                   
 
-        algorithm.Debug(f"[UniverseSelection] 初始化完成 - 配置: {self._config_summary()}")
+        config_source = "集中配置" if config else "默认配置"
+        algorithm.Debug(f"[UniverseSelection] 初始化完成 - 使用{config_source} (候选数:{self.num_candidates}, 价格>${self.min_price}, PE<{self.max_pe})")
 
         # 初始化父类并传递自定义的粗选和精选方法
         super().__init__(self._select_coarse, self._select_fine)
-
-    def _merge_config(self, default, user_config):
-        """递归合并配置字典"""
-        result = default.copy()
-        for key, value in user_config.items():
-            if key in result and isinstance(result[key], dict) and isinstance(value, dict):
-                result[key].update(value)
-            else:
-                result[key] = value
-        return result
-    
-    def _validate_config(self):
-        """验证配置参数有效性"""
-        selection = self.config['selection']
-        financial = self.config['financial']
-        volatility = self.config['volatility']
-        
-        # 选股参数验证
-        assert selection['num_candidates'] > 0, "num_candidates must be positive"
-        assert selection['min_price'] > 0, "min_price must be positive"
-        assert selection['min_volume'] > 0, "min_volume must be positive"
-        assert selection['min_ipo_days'] >= 0, "min_ipo_days must be non-negative"
-        
-        # 财务参数验证
-        assert financial['max_pe'] > 0, "max_pe must be positive"
-        assert 0 < financial['min_roe'] < 1, "min_roe must be between 0 and 1"
-        assert 0 < financial['max_debt_to_assets'] < 1, "max_debt_to_assets must be between 0 and 1"
-        assert financial['max_leverage_ratio'] > 0, "max_leverage_ratio must be positive"
-        
-        # 波动率参数验证
-        if volatility['enabled']:
-            assert volatility['max_volatility'] > 0, "max_volatility must be positive"
-    
-    def _config_summary(self):
-        """生成配置摘要用于日志"""
-        s = self.config['selection']
-        f = self.config['financial']
-        v = self.config['volatility']
-        return f"选股{s['num_candidates']}只|价格>${s['min_price']}|PE<{f['max_pe']}|波动率{'开启' if v['enabled'] else '关闭'}"
 
     def TriggerSelection(self):
         """
@@ -98,55 +54,20 @@ class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
         """
         粗选阶段，负责从所有股票中筛选出符合条件的股票, 轻量级的筛选方法
         """
-        selection_config = self.config['selection']
-        
         # 基础筛选
         filtered = [x for x in coarse if x.HasFundamentalData and 
-                   x.Price > selection_config['min_price'] and 
-                   x.DollarVolume > selection_config['min_volume']]
+                   x.Price > self.min_price and 
+                   x.DollarVolume > self.min_volume]
         
         # IPO时间筛选
         ipo_filtered = [x for x in filtered if x.SecurityReference.IPODate is not None and 
-                       (self.algorithm.Time - x.SecurityReference.IPODate).days > selection_config['min_ipo_days']]
+                       (self.algorithm.Time - x.SecurityReference.IPODate).days > self.min_ipo_days]
         
-        # 波动率筛选（如果启用）
-        if self.config['volatility']['enabled']:
-            volatility_filtered = []
-            volatility_failed = 0
-            for x in ipo_filtered:
-                if self._check_volatility_from_coarse(x):
-                    volatility_filtered.append(x)
-                else:
-                    volatility_failed += 1
-            coarse_selected = [x.Symbol for x in volatility_filtered]
-            if volatility_failed > 0:
-                self.algorithm.Debug(f"[UniverseSelection] 波动率筛选: 通过{len(volatility_filtered)}只, 过滤{volatility_failed}只")
-        else:
-            coarse_selected = [x.Symbol for x in ipo_filtered]
-        
+        coarse_selected = [x.Symbol for x in ipo_filtered]
         self.algorithm.Debug(f"[UniverseSelection] 粗选完成: {len(coarse_selected)}只股票通过筛选")
         return coarse_selected
 
-    def _check_volatility_from_coarse(self, coarse_data):
-        """从CoarseFundamental数据检查波动率"""
-        try:
-            max_vol = self.config['volatility']['max_volatility']
-            
-            # 方法1：检查是否有Volatility属性
-            if hasattr(coarse_data, 'Volatility') and coarse_data.Volatility is not None:
-                return coarse_data.Volatility <= max_vol
-            
-            # 方法2：检查PriceVariance
-            elif hasattr(coarse_data, 'PriceVariance') and coarse_data.PriceVariance is not None:
-                volatility = np.sqrt(coarse_data.PriceVariance * 252)  # 年化
-                return volatility <= max_vol
-            
-            # 如果没有波动率数据，暂时通过
-            return True
-            
-        except Exception as e:
-            self.algorithm.Debug(f"[UniverseSelection] 波动率检查失败: {str(e)}")
-            return True  # 出错时暂时通过
+
 
     def _select_fine(self, fine: List[FineFundamental]) -> List[Symbol]:
         """
@@ -182,7 +103,6 @@ class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
                 all_sectors_selected_fine.extend(selected_fine_list)
 
             fine_after_financial_filters = []
-            financial_config = self.config['financial']
             financial_failed = 0
             
             for x in all_sectors_selected_fine:
@@ -193,10 +113,10 @@ class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
                         debt_to_assets_ratio = x.OperationRatios.DebtToAssets.Value
                         leverage_ratio = x.OperationRatios.FinancialLeverage.Value
 
-                        passes_pe = pe_ratio is not None and pe_ratio < financial_config['max_pe']
-                        passes_roe = roe_ratio is not None and roe_ratio > financial_config['min_roe']
-                        passes_debt_to_assets = debt_to_assets_ratio is not None and debt_to_assets_ratio < financial_config['max_debt_to_assets']
-                        passes_leverage_ratio = leverage_ratio is not None and leverage_ratio < financial_config['max_leverage_ratio']
+                        passes_pe = pe_ratio is not None and pe_ratio < self.max_pe
+                        passes_roe = roe_ratio is not None and roe_ratio > self.min_roe
+                        passes_debt_to_assets = debt_to_assets_ratio is not None and debt_to_assets_ratio < self.max_debt_to_assets
+                        passes_leverage_ratio = leverage_ratio is not None and leverage_ratio < self.max_leverage_ratio
                         
                         if passes_pe and passes_roe and passes_debt_to_assets and passes_leverage_ratio:
                             fine_after_financial_filters.append(x)
@@ -220,15 +140,15 @@ class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
             return self.last_fine_selected_symbols
 
 
+
     def _num_of_candidates(self, sectorCandidates):
         """
         根据行业筛选出符合条件的股票，按市值降序排列
         """
-        num_candidates = self.config['selection']['num_candidates']
         # 返回市值最高的前 num_candidates 个股票
         filtered = [x for x in sectorCandidates if x.MarketCap is not None and x.MarketCap > 0]
         sorted_candidates = sorted(filtered, key=lambda x: x.MarketCap, reverse=True)
-        return sorted_candidates[:num_candidates]
+        return sorted_candidates[:self.num_candidates]
  
 
 

@@ -8,6 +8,46 @@ from src.PortfolioConstruction import BayesianCointegrationPortfolioConstruction
 # from src.RiskManagement import BayesianCointegrationRiskManagementModel
 # endregion
 
+class StrategyConfig:
+    """
+    策略参数统一配置类
+    """
+    def __init__(self):
+        # UniverseSelection 配置
+        self.universe_selection = {
+            'num_candidates': 30,
+            'min_price': 15,
+            'min_volume': 2.5e8,
+            'min_ipo_days': 1095,
+            'max_pe': 30,
+            'min_roe': 0.05,
+            'max_debt_to_assets': 0.6,
+            'max_leverage_ratio': 5
+        }
+        
+        # AlphaModel 配置
+        self.alpha_model = {
+            'pvalue_threshold': 0.025,
+            'correlation_threshold': 0.2,
+            'max_symbol_repeats': 1,
+            'max_pairs': 5,
+            'lookback_period': 252,
+            'mcmc_burn_in': 1500,
+            'mcmc_draws': 1500,
+            'mcmc_chains': 2,
+            'entry_threshold': 1.65,
+            'exit_threshold': 0.3,
+            'upper_limit': 3.0,
+            'lower_limit': -3.0
+        }
+        
+        # PortfolioConstruction 配置
+        self.portfolio_construction = {
+            'margin_rate': 0.5
+        }
+
+
+
 class BayesianCointegrationStrategy(QCAlgorithm):
     """
     贝叶斯动态协整交易策略  
@@ -24,6 +64,9 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         """
         初始化算法、设置参数、注册事件处理程序
         """
+        # 创建统一配置
+        self.config = StrategyConfig()
+        
         # 设置回测时间段和初始资金
         self.SetStartDate(2024, 6, 20)
         self.SetEndDate(2024, 9, 20)
@@ -34,7 +77,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         self.SetBrokerageModel(BrokerageName.InteractiveBrokersBrokerage, AccountType.Margin)
 
         # 设置UniverseSelection模块
-        self.universe_selector = MyUniverseSelectionModel(self)
+        self.universe_selector = MyUniverseSelectionModel(self, self.config.universe_selection)
         self.SetUniverseSelection(self.universe_selector)
         self.Schedule.On(self.DateRules.MonthStart(), self.TimeRules.At(9, 10), Action(self.universe_selector.TriggerSelection))
 
