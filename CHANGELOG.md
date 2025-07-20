@@ -4,6 +4,11 @@
 
 ---
 
+## [v2.5.1_config-simplify@20250720]
+- 简化UniverseSelection配置逻辑，删除冗余的向后兼容代码
+- 强制使用集中配置，提高代码一致性和可维护性
+- 消除重复代码，符合DRY原则
+
 ## [v2.5.0_centralized-config@20250720]
 - 实施策略参数集中管理架构
 - 创建StrategyConfig类统一管理所有模块配置

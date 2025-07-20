@@ -7,36 +7,24 @@ class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
     """
     贝异斯协整选股模型 - 负责选取具有协整关系的资产对
     """
-    def __init__(self, algorithm, config=None):
+    def __init__(self, algorithm, config):
         self.algorithm = algorithm
         self.selection_on = False 
         
-        # 使用传入的配置或默认值
-        if config:
-            self.num_candidates = config.get('num_candidates', 30)
-            self.min_price = config.get('min_price', 15)
-            self.min_volume = config.get('min_volume', 2.5e8)
-            self.min_ipo_days = config.get('min_ipo_days', 1095)
-            self.max_pe = config.get('max_pe', 30)
-            self.min_roe = config.get('min_roe', 0.05)
-            self.max_debt_to_assets = config.get('max_debt_to_assets', 0.6)
-            self.max_leverage_ratio = config.get('max_leverage_ratio', 5)
-        else:
-            # 保持向后兼容的默认值
-            self.num_candidates = 30
-            self.min_price = 15
-            self.min_volume = 2.5e8
-            self.min_ipo_days = 1095
-            self.max_pe = 30
-            self.min_roe = 0.05
-            self.max_debt_to_assets = 0.6
-            self.max_leverage_ratio = 5
+        # 使用集中配置
+        self.num_candidates = config['num_candidates']
+        self.min_price = config['min_price']
+        self.min_volume = config['min_volume']
+        self.min_ipo_days = config['min_ipo_days']
+        self.max_pe = config['max_pe']
+        self.min_roe = config['min_roe']
+        self.max_debt_to_assets = config['max_debt_to_assets']
+        self.max_leverage_ratio = config['max_leverage_ratio']
 
         self.last_fine_selected_symbols = []                            
         self.fine_selection_count = 0                                   
 
-        config_source = "集中配置" if config else "默认配置"
-        algorithm.Debug(f"[UniverseSelection] 初始化完成 - 使用{config_source} (候选数:{self.num_candidates}, 价格>${self.min_price}, PE<{self.max_pe})")
+        algorithm.Debug(f"[UniverseSelection] 初始化完成 (候选数:{self.num_candidates}, 价格>${self.min_price}, PE<{self.max_pe})")
 
         # 初始化父类并传递自定义的粗选和精选方法
         super().__init__(self._select_coarse, self._select_fine)
