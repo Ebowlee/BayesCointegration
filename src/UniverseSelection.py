@@ -11,7 +11,7 @@ class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
         self.algorithm = algorithm
         self.selection_on = False 
         
-        # 使用集中配置
+        # 强制使用集中配置
         self.num_candidates = config['num_candidates']
         self.min_price = config['min_price']
         self.min_volume = config['min_volume']
@@ -28,6 +28,8 @@ class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
 
         # 初始化父类并传递自定义的粗选和精选方法
         super().__init__(self._select_coarse, self._select_fine)
+
+
 
     def TriggerSelection(self):
         """
@@ -92,6 +94,11 @@ class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
 
             fine_after_financial_filters = []
             financial_failed = 0
+            pe_failed = 0
+            roe_failed = 0 
+            debt_failed = 0
+            leverage_failed = 0
+            data_missing = 0
             
             for x in all_sectors_selected_fine:
                 try:
@@ -110,19 +117,64 @@ class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
                             fine_after_financial_filters.append(x)
                         else:
                             financial_failed += 1
+                            # 记录具体失败原因
+                            if not passes_pe:
+                                pe_failed += 1
+                            if not passes_roe:
+                                roe_failed += 1
+                            if not passes_debt_to_assets:
+                                debt_failed += 1
+                            if not passes_leverage_ratio:
+                                leverage_failed += 1
                     else:
                         financial_failed += 1
+                        data_missing += 1
                 except Exception as e:
-                    self.algorithm.Debug(f"[UniverseSelection] 财务筛选错误 {x.Symbol}: {str(e)}")
+                    self.algorithm.Debug(f"[UniverseSelection] 财务数据异常 {x.Symbol}: {str(e)[:50]}")
                     financial_failed += 1
+                    data_missing += 1
 
             final_selected_symbols = [x.Symbol for x in fine_after_financial_filters]
             self.last_fine_selected_symbols = final_selected_symbols
             
-            # 详细的选股结果日志
+            # 计算行业分布统计
+            sector_distribution = {}
+            for selected_fine in fine_after_financial_filters:
+                sector = selected_fine.AssetClassification.MorningstarSectorCode
+                sector_name = None
+                for name, code in sector_map.items():
+                    if code == sector:
+                        sector_name = name
+                        break
+                if sector_name:
+                    sector_distribution[sector_name] = sector_distribution.get(sector_name, 0) + 1
+            
+            # 选股结果统计日志
             total_candidates = len(all_sectors_selected_fine)
-            self.algorithm.Debug(f"[UniverseSelection] 财务筛选: 候选{total_candidates}只, 通过{len(final_selected_symbols)}只, 过滤{financial_failed}只")
-            self.algorithm.Debug(f"[UniverseSelection] 选股完成: 共选出{len(final_selected_symbols)}只, 样本: {[x.Value for x in final_selected_symbols[:5]]}")
+            self.algorithm.Debug(f"[UniverseSelection] 财务筛选: 候选{total_candidates}只 → 通过{len(final_selected_symbols)}只 (过滤{financial_failed}只)")
+            
+            # 财务筛选详细统计
+            if financial_failed > 0:
+                financial_details = []
+                if pe_failed > 0:
+                    financial_details.append(f"PE({pe_failed})")
+                if roe_failed > 0:
+                    financial_details.append(f"ROE({roe_failed})")
+                if debt_failed > 0:
+                    financial_details.append(f"债务({debt_failed})")
+                if leverage_failed > 0:
+                    financial_details.append(f"杠杆({leverage_failed})")
+                if data_missing > 0:
+                    financial_details.append(f"缺失({data_missing})")
+                
+                if financial_details:
+                    self.algorithm.Debug(f"[UniverseSelection] 财务过滤明细: {' '.join(financial_details)}")
+            
+            # 行业分布统计
+            sector_stats = " ".join([f"{name}({count})" for name, count in sorted(sector_distribution.items())])
+            self.algorithm.Debug(f"[UniverseSelection] 行业分布: {sector_stats}")
+            
+            self.algorithm.Debug(f"[UniverseSelection] 选股完成: 共{len(final_selected_symbols)}只股票, 前5样本: {[x.Value for x in final_selected_symbols[:5]]}")
             return final_selected_symbols
         else:
             return self.last_fine_selected_symbols
