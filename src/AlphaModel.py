@@ -18,7 +18,7 @@ class BayesianCointegrationAlphaModel(AlphaModel):
     通过持续监控价格偏离程度和均值回归特性, 在合适时机产生做多/做空信号。
     """
     
-    def __init__(self, algorithm):
+    def __init__(self, algorithm, config):
         """
         初始化Alpha模型
         """
@@ -27,23 +27,30 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         self.is_universe_selection_on = False
         self.symbols = []
 
-        self.pvalue_threshold = 0.025                         # 协整检验的p值阈值
-        self.correlation_threshold = 0.2                     # 协整检验的皮尔逊相关系数阈值
-        self.max_symbol_repeats = 1                          # 每个股票在协整对中最多出现次数
-        self.max_pairs = 5                                   # 最大协整对数量
-        self.lookback_period = 252                           # 用于计算z分数的历史数据长度
-        self.mcmc_burn_in = 1500                             # MCMC采样预热次数
-        self.mcmc_draws = 1500                               # MCMC采样次数
-        self.mcmc_chains = 2                                 # MCMC链数
-
-        self.entry_threshold = 1.65                           # 入场阈值(标准差倍数)
-        self.exit_threshold = 0.3                            # 出场阈值(标准差倍数)
-        self.upper_limit = 3.0                               # 上限阈值(避免在极端情况下入场)
-        self.lower_limit = -3.0                              # 下限阈值(避免在极端情况下入场)
+        # 强制使用集中配置
+        self.pvalue_threshold = config['pvalue_threshold']
+        self.correlation_threshold = config['correlation_threshold']
+        self.max_symbol_repeats = config['max_symbol_repeats']
+        self.max_pairs = config['max_pairs']
+        self.lookback_period = config['lookback_period']
+        self.mcmc_burn_in = config['mcmc_burn_in']
+        self.mcmc_draws = config['mcmc_draws']
+        self.mcmc_chains = config['mcmc_chains']
+        self.entry_threshold = config['entry_threshold']
+        self.exit_threshold = config['exit_threshold']
+        self.upper_limit = config['upper_limit']
+        self.lower_limit = config['lower_limit']
+        
+        # 波动率筛选配置
+        self.max_volatility_3month = config['max_volatility_3month']
+        self.volatility_lookback_days = config['volatility_lookback_days']
         
         self.signal_duration = timedelta(days=30)
+        
+        # 数据缓存
+        self.historical_data_cache = {}
 
-        self.algorithm.Debug("[AlphaModel] 初始化完成")
+        self.algorithm.Debug(f"[AlphaModel] 初始化完成 (协整p值<{self.pvalue_threshold}, 最大{self.max_pairs}对, 波动率<{self.max_volatility_3month:.0%})")
 
 
 
@@ -58,12 +65,25 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         # ==================================================周期和选股一致===========================================
         # 如果 OnSecuritiesChanged 被调用代表选股模块已经更新了股票池，则进行协整检验
         if self.is_universe_selection_on:
+            import time
+            start_time = time.time()
+            
             self.algorithm.Debug(f"[AlphaModel] 选股日，接收到: {len(self.symbols)}")
             self.industry_cointegrated_pairs = {}
-            self.posterior_params = {}                          
-
+            self.posterior_params = {}
+            
+            # 批量获取所有股票的历史数据并缓存
+            cache_start = time.time()
+            self._BatchLoadHistoricalData(self.symbols)
+            cache_time = time.time() - cache_start
+            
+            # 波动率筛选
+            volatility_start = time.time()
+            volatility_filtered_symbols = self._VolatilityFilter(self.symbols)
+            volatility_time = time.time() - volatility_start
+            
             # 获取同行业股票对
-            sector_to_symbols = self.GetIntraIndustryPairs(self.symbols)
+            sector_to_symbols = self.GetIntraIndustryPairs(volatility_filtered_symbols)
 
             # 配对同行业股票对
             for sector, symbols in sector_to_symbols.items():
@@ -83,9 +103,15 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                 # 将所有行业协整对汇总
                 self.industry_cointegrated_pairs.update(filtered_intra_industry_pairs)
 
+            cointegration_time = time.time() - volatility_start - volatility_time
+            
             self.algorithm.Debug(f"[AlphaModel] 筛选出协整对: 【{len(self.industry_cointegrated_pairs)}】")
 
-            # 遍历协整对
+            # 遍历协整对进行MCMC建模
+            mcmc_start = time.time()
+            mcmc_success = 0
+            mcmc_failed = 0
+            
             for pair_key in self.industry_cointegrated_pairs.keys():
                 symbol1, symbol2 = pair_key
 
@@ -93,8 +119,16 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                 posterior_param = self.PyMCModel(symbol1, symbol2, lookback_period=self.lookback_period)
                 if posterior_param is not None:
                     self.posterior_params[pair_key] = posterior_param
+                    mcmc_success += 1
                 else:
-                    self.algorithm.Debug(f"[AlphaModel] PyMC建模失败: {symbol1.Value}-{symbol2.Value}")
+                    mcmc_failed += 1
+            
+            mcmc_time = time.time() - mcmc_start
+            total_time = time.time() - start_time
+            
+            # 性能和统计日志
+            self.algorithm.Debug(f"[AlphaModel] 贝叶斯建模: 尝试{len(self.industry_cointegrated_pairs)}对 → 成功{mcmc_success}对 (失败{mcmc_failed}对)")
+            self.algorithm.Debug(f"[AlphaModel] 选股日耗时: 总计{total_time:.1f}s (缓存{cache_time:.1f}s 波动率{volatility_time:.1f}s 协整{cointegration_time:.1f}s MCMC{mcmc_time:.1f}s)")
             
             # 协整检验、后验参数计算已经完成，设置标志位为False，等到下次选股在开启
             self.is_universe_selection_on = False
@@ -135,6 +169,82 @@ class BayesianCointegrationAlphaModel(AlphaModel):
     
     
 
+    def _BatchLoadHistoricalData(self, symbols: list[Symbol]):
+        """
+        批量获取所有股票的历史数据并缓存，避免重复API调用
+        """
+        try:
+            # 一次性获取所有股票的历史数据
+            all_histories = self.algorithm.History(symbols, self.lookback_period, Resolution.Daily)
+            
+            # 将数据按symbol分别缓存
+            self.historical_data_cache = {}
+            for symbol in symbols:
+                if symbol in all_histories.index.get_level_values(0):
+                    symbol_data = all_histories.loc[symbol]
+                    if not symbol_data.empty:
+                        self.historical_data_cache[symbol] = symbol_data
+                        
+        except Exception as e:
+            self.algorithm.Debug(f"[AlphaModel] 批量数据获取失败: {str(e)[:50]}")
+            self.historical_data_cache = {}
+
+    def _VolatilityFilter(self, symbols: list[Symbol]) -> list[Symbol]:
+        """
+        基于缓存数据进行波动率筛选
+        """
+        filtered_symbols = []
+        volatility_failed = 0
+        data_missing = 0
+        
+        for symbol in symbols:
+            try:
+                if symbol in self.historical_data_cache:
+                    price_data = self.historical_data_cache[symbol]['close']
+                    
+                    # 计算近3个月的数据
+                    recent_data = price_data.tail(self.volatility_lookback_days)
+                    
+                    if len(recent_data) >= self.volatility_lookback_days:
+                        # 计算日收益率
+                        returns = recent_data.pct_change().dropna()
+                        
+                        # 计算年化波动率
+                        if len(returns) > 0:
+                            daily_volatility = returns.std()
+                            annual_volatility = daily_volatility * np.sqrt(252)
+                            
+                            if annual_volatility <= self.max_volatility_3month:
+                                filtered_symbols.append(symbol)
+                            else:
+                                volatility_failed += 1
+                        else:
+                            data_missing += 1
+                    else:
+                        data_missing += 1
+                else:
+                    data_missing += 1
+                    
+            except Exception as e:
+                self.algorithm.Debug(f"[AlphaModel] 波动率计算异常 {symbol.Value}: {str(e)[:30]}")
+                data_missing += 1
+        
+        # 日志输出
+        total_input = len(symbols)
+        total_filtered = len(filtered_symbols)
+        total_failed = volatility_failed + data_missing
+        
+        self.algorithm.Debug(f"[AlphaModel] 波动率筛选: 候选{total_input}只 → 通过{total_filtered}只 (过滤{total_failed}只)")
+        if total_failed > 0:
+            details = []
+            if volatility_failed > 0:
+                details.append(f"波动率({volatility_failed})")
+            if data_missing > 0:
+                details.append(f"数据缺失({data_missing})")
+            self.algorithm.Debug(f"[AlphaModel] 波动率过滤明细: {' '.join(details)}")
+            
+        return filtered_symbols
+
     def GetIntraIndustryPairs(self, symbols: list[Symbol]) -> dict:
         """
         获取同行业股票对
@@ -166,16 +276,18 @@ class BayesianCointegrationAlphaModel(AlphaModel):
 
     def CointegrationTestForSinglePair(self, symbol1, symbol2, lookback_period):
         """
-        单个股票对协整检验
+        基于缓存数据进行单个股票对协整检验
         """
         cointegrated_pair = {}
         is_cointegrated = False
-        history1 = self.algorithm.History([symbol1], lookback_period, Resolution.Daily)
-        history2 = self.algorithm.History([symbol2], lookback_period, Resolution.Daily)
 
         try:
-            price1 = history1.loc[symbol1]['close'].fillna(method='pad')
-            price2 = history2.loc[symbol2]['close'].fillna(method='pad')
+            # 从缓存中获取数据
+            if symbol1 not in self.historical_data_cache or symbol2 not in self.historical_data_cache:
+                return cointegrated_pair
+                
+            price1 = self.historical_data_cache[symbol1]['close'].fillna(method='pad')
+            price2 = self.historical_data_cache[symbol2]['close'].fillna(method='pad')
             if len(price1) != len(price2) or price1.isnull().any() or price2.isnull().any():
                 return cointegrated_pair
             
@@ -221,19 +333,20 @@ class BayesianCointegrationAlphaModel(AlphaModel):
 
     def PyMCModel(self, symbol1, symbol2, lookback_period):
         """
-        使用贝叶斯方法更新协整模型参数
-        该函数利用PyMC3框架构建线性回归模型, 通过MCMC方法生成beta和alpha的联合后验分布,
+        基于缓存数据使用贝叶斯方法更新协整模型参数
+        该函数利用PyMC框架构建线性回归模型, 通过MCMC方法生成beta和alpha的联合后验分布,
         用于后续的残差计算和交易信号生成。
         """
-        # 用两个资产在过去252天内的价格数据, 作为PyMC3模型的输入
-        history1 = self.algorithm.History([symbol1], lookback_period, Resolution.Daily)
-        history2 = self.algorithm.History([symbol2], lookback_period, Resolution.Daily)
-        price1 = history1.loc[symbol1]['close'].fillna(method='pad')
-        price2 = history2.loc[symbol2]['close'].fillna(method='pad')
-        y = np.log(price1.values)
-        x = np.log(price2.values)
-
         try:
+            # 从缓存中获取数据
+            if symbol1 not in self.historical_data_cache or symbol2 not in self.historical_data_cache:
+                return None
+                
+            price1 = self.historical_data_cache[symbol1]['close'].fillna(method='pad')
+            price2 = self.historical_data_cache[symbol2]['close'].fillna(method='pad')
+            y = np.log(price1.values)
+            x = np.log(price2.values)
+
             # 构建PyMC模型
             with pm.Model() as model:
                 # 设置先验分布
