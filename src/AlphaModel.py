@@ -336,8 +336,7 @@ class BayesianCointegrationAlphaModel(AlphaModel):
             insight2_direction = InsightDirection.Flat
             trend = "失效"
         else:
-            # 观望阶段：(-1.0, -0.5] 和 [0.5, 1.0) 
-            # 在这个阶段不发射任何信号，直接返回空列表
+            # 观望阶段：在这个阶段不发射任何信号，直接返回空列表
             self.insight_no_active_count += 1
             return signals  # 返回空的signals列表
         

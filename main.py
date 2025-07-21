@@ -2,8 +2,8 @@
 from AlgorithmImports import *
 from src.UniverseSelection import MyUniverseSelectionModel
 from System import Action
-from src.AlphaModel import BayesianCointegrationAlphaModel
-from src.PortfolioConstruction import BayesianCointegrationPortfolioConstructionModel
+# from src.AlphaModel import BayesianCointegrationAlphaModel
+# from src.PortfolioConstruction import BayesianCointegrationPortfolioConstructionModel
 # from QuantConnect.Algorithm.Framework.Risk import MaximumDrawdownPercentPortfolio, MaximumSectorExposureRiskManagementModel
 # from src.RiskManagement import BayesianCointegrationRiskManagementModel
 # endregion
@@ -19,7 +19,7 @@ class StrategyConfig:
             'min_price': 15,
             'min_volume': 2.5e8,
             'min_ipo_days': 1095,
-            'max_pe': 30,
+            'max_pe': 50,
             'min_roe': 0.05,
             'max_debt_to_assets': 0.6,
             'max_leverage_ratio': 5
@@ -81,11 +81,11 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         self.SetUniverseSelection(self.universe_selector)
         self.Schedule.On(self.DateRules.MonthStart(), self.TimeRules.At(9, 10), Action(self.universe_selector.TriggerSelection))
 
-        # 设置Alpha模块
-        self.SetAlpha(BayesianCointegrationAlphaModel(self))
+        # # 设置Alpha模块
+        # self.SetAlpha(BayesianCointegrationAlphaModel(self))
 
-        # 设置投资组合构建模块
-        self.SetPortfolioConstruction(BayesianCointegrationPortfolioConstructionModel(self))
+        # # 设置投资组合构建模块
+        # self.SetPortfolioConstruction(BayesianCointegrationPortfolioConstructionModel(self))
 
         # # 设置风险管理模块
         # ## 组合层面分控
