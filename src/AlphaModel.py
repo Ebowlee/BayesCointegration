@@ -55,12 +55,35 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         
         self.max_volatility_3month = config['max_volatility_3month']
         self.volatility_lookback_days = config['volatility_lookback_days']
+        self.selection_interval_days = config.get('selection_interval_days', 30)
+        self.dynamic_update_enabled = config.get('dynamic_update_enabled', True)
         
-        self.signal_duration = timedelta(days=30)
+        self.signal_duration = timedelta(days=self.selection_interval_days)
         
+        # 历史数据缓存
+        # 数据结构: {Symbol: pandas.DataFrame}
+        # DataFrame包含列: ['open', 'high', 'low', 'close', 'volume'] 
+        # 索引: DatetimeIndex
+        # 示例: self.historical_data_cache[Symbol("AAPL")] = DataFrame with 252 days of price data
         self.historical_data_cache = {}
+        
+        # 数据质量分类：根据数据质量将symbols分类
+        self.data_quality = {
+            'basic_valid': set(),          # 基础数据可用（有数据，无空值）
+            'volatility_ready': set(),     # 波动率计算就绪（足够的波动率计算天数）
+            'cointegration_ready': set(),  # 协整检验就绪（足够的协整检验天数，价格合理）
+            'full_modeling_ready': set()   # 完整建模就绪（满足所有建模要求）
+        }
+        
+        # 动态贝叶斯更新：存储历史后验分布用作下轮先验
+        self.historical_posteriors = {}  # {(symbol1, symbol2): {'alpha_samples': array, 'beta_samples': array, 'sigma_samples': array, 'update_time': datetime}}
+        self.dynamic_update_lookback_days = self.selection_interval_days  # 动态更新时使用的最近数据天数
+        
+        # 动态间隔计算：记录上次选股日期
+        self.last_selection_date = None
 
-        self.algorithm.Debug(f"[AlphaModel] 初始化完成 (协整p值<{self.pvalue_threshold}, 最大{self.max_pairs}对, 波动率<{self.max_volatility_3month:.0%})")
+        dynamic_status = "启用" if self.dynamic_update_enabled else "禁用"
+        self.algorithm.Debug(f"[AlphaModel] 初始化完成 (协整p值<{self.pvalue_threshold}, 最大{self.max_pairs}对, 波动率<{self.max_volatility_3month:.0%}, 选股间隔{self.selection_interval_days}天, 动态更新{dynamic_status})")
 
 
 
@@ -87,9 +110,19 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         
         # 选股日执行协整检验和贝叶斯建模
         if self.is_universe_selection_on:
+            # 计算实际选股间隔
+            actual_interval_days = self.selection_interval_days
+            if self.last_selection_date is not None:
+                actual_interval_days = (self.algorithm.Time - self.last_selection_date).days
+                self.algorithm.Debug(f"[AlphaModel] 实际选股间隔: {actual_interval_days}天 (上次: {self.last_selection_date.strftime('%Y-%m-%d')})")
+            
             self.algorithm.Debug(f"[AlphaModel] 选股日, 接收到: {len(self.symbols)}")
             self.industry_cointegrated_pairs = {}
             self.posterior_params = {}
+            
+            # 更新动态间隔天数
+            self.dynamic_update_lookback_days = actual_interval_days
+            self.last_selection_date = self.algorithm.Time
             
             self._BatchLoadHistoricalData(self.symbols)
             
@@ -107,7 +140,7 @@ class BayesianCointegrationAlphaModel(AlphaModel):
 
                 for pair_tuple in pairs:
                     symbol1, symbol2 = pair_tuple
-                    cointegrated_pair = self.CointegrationTestForSinglePair(symbol1, symbol2, lookback_period=self.lookback_period)
+                    cointegrated_pair = self.CointegrationTestForSinglePair(symbol1, symbol2)
                     intra_industry_pairs.update(cointegrated_pair)
             
                 filtered_intra_industry_pairs = self.FilterCointegratedPairs(intra_industry_pairs)
@@ -133,26 +166,58 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                 self.algorithm.Debug(f"[AlphaModel] 行业协整对: {' '.join(summary_parts)}")
                 self.algorithm.Debug(f"[AlphaModel] 具体配对: {' '.join(detail_parts)}")
             
-            self.algorithm.Debug(f"[AlphaModel] 筛选出协整对: {len(self.industry_cointegrated_pairs)}对")
-
-            # 遍历协整对进行MCMC建模
-            mcmc_success = 0
-            mcmc_failed = 0
+            # 处理所有协整对：统一流程
+            success_count = 0
+            dynamic_update_count = 0
+            new_modeling_count = 0
             
-            # 对筛选后的协整对逐个进行贝叶斯建模
-            # MCMC采样可能因数据质量或数值问题失败, 需要记录成功率
             for pair_key in self.industry_cointegrated_pairs.keys():
                 symbol1, symbol2 = pair_key
-
-                posterior_param = self.PyMCModel(symbol1, symbol2, lookback_period=self.lookback_period)
+                posterior_param = None
+                
+                # 尝试动态更新（如果启用且存在历史后验）
+                if self.dynamic_update_enabled:
+                    # 检查正向和反向键
+                    if pair_key in self.historical_posteriors:
+                        # 使用正向键，保持当前顺序
+                        prior_params = self.historical_posteriors[pair_key]
+                        posterior_param = self.PyMCModel(
+                            symbol1, symbol2,
+                            use_prior=True,
+                            data_range='recent',
+                            prior_params=prior_params
+                        )
+                    elif (symbol2, symbol1) in self.historical_posteriors:
+                        # 使用反向键，保持历史顺序
+                        prior_params = self.historical_posteriors[(symbol2, symbol1)]
+                        posterior_param = self.PyMCModel(
+                            symbol2, symbol1,
+                            use_prior=True,
+                            data_range='recent',
+                            prior_params=prior_params
+                        )
+                    
+                    if posterior_param is not None:
+                        dynamic_update_count += 1
+                
+                # 如果动态更新失败或不适用，使用完整建模
+                if posterior_param is None:
+                    posterior_param = self.PyMCModel(symbol1, symbol2)
+                    if posterior_param is not None:
+                        new_modeling_count += 1
+                
+                # 保存成功的结果
                 if posterior_param is not None:
                     self.posterior_params[pair_key] = posterior_param
-                    mcmc_success += 1
-                else:
-                    mcmc_failed += 1
+                    success_count += 1
             
-            # 贝叶斯建模结果统计
-            self.algorithm.Debug(f"[AlphaModel] 贝叶斯建模: 尝试{len(self.industry_cointegrated_pairs)}对 → 成功{mcmc_success}对 失败{mcmc_failed}对")
+            # 统计和日志输出
+            total_pairs = len(self.industry_cointegrated_pairs)
+            failed_count = total_pairs - success_count
+            
+            self.algorithm.Debug(f"[AlphaModel] 协整对建模: 总计{total_pairs}对 → 成功{success_count}对 失败{failed_count}对")
+            if self.dynamic_update_enabled and (dynamic_update_count > 0 or new_modeling_count > 0):
+                self.algorithm.Debug(f"[AlphaModel] 建模方式: 动态更新{dynamic_update_count}对 完整建模{new_modeling_count}对")
             
             self.is_universe_selection_on = False
 
@@ -203,28 +268,88 @@ class BayesianCointegrationAlphaModel(AlphaModel):
 
     def _BatchLoadHistoricalData(self, symbols: list[Symbol]):
         """
-        批量加载历史数据到内存缓存
+        批量加载历史数据并进行全面的数据质量检查和分类
         
-        使用单次History API调用获取所有股票数据, 相比逐个调用可显著提升性能.
-        缓存数据用于后续的协整检验, 波动率计算和贝叶斯建模.
+        使用单次History API调用获取所有股票数据，并根据不同用途的数据质量要求
+        对symbols进行分类，避免后续方法中的重复检查。
+        
+        数据质量分类：
+        - basic_valid: 基础数据可用（有数据，无空值）
+        - volatility_ready: 波动率计算就绪
+        - cointegration_ready: 协整检验就绪  
+        - full_modeling_ready: 完整建模就绪
         
         Args:
             symbols: 需要获取历史数据的股票符号列表
-            
-        Note:
-            缓存失败时会初始化为空字典, 后续操作会优雅降级
         """
+        # 重置基础数据质量分类 (仅基础检查)
+        self.data_quality = {
+            'basic_valid': set(),      # 存在性、完整性通过
+            'data_complete': set(),    # 数据长度充足  
+            'price_valid': set()       # 价格数据合理
+        }
+        
         try:
-            # 一次性获取所有股票的历史数据
+            # 一次性获取所有股票的历史数据 (性能优化)
             all_histories = self.algorithm.History(symbols, self.lookback_period, Resolution.Daily)
-            
-            # 将数据按symbol分别缓存
             self.historical_data_cache = {}
+            
+            data_stats = {
+                'total': len(symbols),
+                'basic_valid': 0,
+                'data_complete': 0,
+                'price_valid': 0,
+                'failed': 0
+            }
+            
             for symbol in symbols:
-                if symbol in all_histories.index.get_level_values(0):
+                try:
+                    # 1. 基础存在性检查
+                    if symbol not in all_histories.index.get_level_values(0):
+                        data_stats['failed'] += 1
+                        continue
+                        
                     symbol_data = all_histories.loc[symbol]
-                    if not symbol_data.empty:
-                        self.historical_data_cache[symbol] = symbol_data
+                    if symbol_data.empty:
+                        data_stats['failed'] += 1
+                        continue
+                        
+                    # 2. 数据完整性检查 (填充缺失值)
+                    close_prices = symbol_data['close']
+                    if close_prices.isnull().any():
+                        close_prices = close_prices.fillna(method='pad').fillna(method='bfill')
+                        if close_prices.isnull().any():
+                            data_stats['failed'] += 1
+                            continue
+                    
+                    # 更新缓存为处理后的数据
+                    symbol_data['close'] = close_prices
+                    self.historical_data_cache[symbol] = symbol_data
+                    
+                    # 3. 基础数据质量达标
+                    self.data_quality['basic_valid'].add(symbol)
+                    data_stats['basic_valid'] += 1
+                    
+                    # 4. 数据长度完整性检查 (至少95%的期望数据，确保协整检验统计有效性)
+                    if len(close_prices) >= int(self.lookback_period * 0.95):
+                        self.data_quality['data_complete'].add(symbol)
+                        data_stats['data_complete'] += 1
+                    
+                    # 5. 价格合理性检查 (正数、无异常值)
+                    if (close_prices > 0).all():
+                        self.data_quality['price_valid'].add(symbol)
+                        data_stats['price_valid'] += 1
+                        
+                except Exception as e:
+                    self.algorithm.Debug(f"[AlphaModel] 数据质量检查失败 {symbol.Value}: {str(e)[:30]}")
+                    data_stats['failed'] += 1
+            
+            # 简化的数据质量统计
+            self.algorithm.Debug(f"[AlphaModel] 基础数据统计: 总计{data_stats['total']}只 → "
+                               f"存在{data_stats['basic_valid']}只 "
+                               f"完整{data_stats['data_complete']}只 "
+                               f"有效{data_stats['price_valid']}只 "
+                               f"失败{data_stats['failed']}只")
                         
         except (KeyError, ValueError, IndexError) as e:
             self.algorithm.Debug(f"[AlphaModel] 数据处理错误: {str(e)[:50]}")
@@ -239,17 +364,16 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         """
         基于年化波动率进行股票筛选
         
-        计算过去N天的年化波动率, 过滤掉高波动性股票以提高配对交易的稳定性.
-        高波动股票的协整关系往往不稳定, 不适合均值回归策略.
+        结合基础数据质量检查和波动率业务逻辑：
+        1. 使用基础数据质量确保数据可用性  
+        2. 计算波动率并应用业务阈值判断
+        3. 过滤高波动股票以提高配对稳定性
         
         Args:
             symbols: 候选股票符号列表
             
         Returns:
             list[Symbol]: 通过波动率筛选的股票列表
-            
-        Note:
-            年化波动率 = 日波动率 × sqrt(252), 阈值由配置参数控制
         """
         filtered_symbols = []
         volatility_failed = 0
@@ -257,44 +381,42 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         
         for symbol in symbols:
             try:
-                if symbol in self.historical_data_cache:
-                    price_data = self.historical_data_cache[symbol]['close']
+                # 1. 基础数据质量门槛检查
+                if symbol not in self.data_quality['price_valid']:
+                    data_missing += 1
+                    continue
+                
+                # 2. 业务逻辑：波动率计算和阈值判断
+                price_data = self.historical_data_cache[symbol]['close']
+                recent_data = price_data.tail(self.volatility_lookback_days)
+                
+                # 确保有足够数据进行波动率计算
+                if len(recent_data) >= self.volatility_lookback_days:
+                    returns = recent_data.pct_change().dropna()
                     
-                    recent_data = price_data.tail(self.volatility_lookback_days)
-                    
-                    # 只有数据充足时才计算波动率, 防止估计偏差
-                    if len(recent_data) >= self.volatility_lookback_days:
-                        returns = recent_data.pct_change().dropna()
+                    if len(returns) > 0:
+                        daily_volatility = returns.std()
+                        # 年化波动率 = 日波动率 × √252 (交易日年化)
+                        annual_volatility = daily_volatility * np.sqrt(252)
                         
-                        if len(returns) > 0:
-                            daily_volatility = returns.std()
-                            # 年化波动率 = 日波动率 × √252 (交易日年化)
-                            annual_volatility = daily_volatility * np.sqrt(252)
-                            
-                            if annual_volatility <= self.max_volatility_3month:
-                                filtered_symbols.append(symbol)
-                            else:
-                                volatility_failed += 1
+                        # 业务阈值判断
+                        if annual_volatility <= self.max_volatility_3month:
+                            filtered_symbols.append(symbol)
                         else:
-                            data_missing += 1
+                            volatility_failed += 1
                     else:
                         data_missing += 1
                 else:
                     data_missing += 1
                     
-            except (KeyError, ValueError, ZeroDivisionError) as e:
-                self.algorithm.Debug(f"[AlphaModel] 波动率计算错误 {symbol.Value}: {str(e)[:30]}")
-                data_missing += 1
             except Exception as e:
                 self.algorithm.Debug(f"[AlphaModel] 波动率计算异常 {symbol.Value}: {str(e)[:30]}")
                 data_missing += 1
         
-        # 日志输出
+        # 详细的筛选统计输出
         total_input = len(symbols)
         total_filtered = len(filtered_symbols)
-        total_failed = volatility_failed + data_missing
         
-        # 合并输出为一行，包含明细
         details = []
         if volatility_failed > 0:
             details.append(f"波动率过滤{volatility_failed}只")
@@ -345,57 +467,58 @@ class BayesianCointegrationAlphaModel(AlphaModel):
 
 
 
-    def CointegrationTestForSinglePair(self, symbol1, symbol2, lookback_period):
+    def CointegrationTestForSinglePair(self, symbol1, symbol2):
         """
         对单个股票对执行Engle-Granger协整检验
         
-        协整检验分为两步: 1) 相关性预筛选 2) Engle-Granger统计检验
-        只有通过两步检验的股票对才被认为存在长期均衡关系.
+        信任基础数据质量保证，专注协整检验的业务逻辑：
+        1. 基础数据质量门槛检查（信任_BatchLoadHistoricalData的80%长度保证）
+        2. 相关性预筛选（业务逻辑）
+        3. Engle-Granger统计检验（核心业务）
         
         Args:
             symbol1, symbol2: 待检验的股票对
-            lookback_period: 历史数据回看期长度
             
         Returns:
             dict: 协整对信息字典, 空字典表示未通过检验
                  格式: {(symbol1, symbol2): {"pvalue": 0.01, "critical_values": [...]}}
         """
         cointegrated_pair = {}
-        is_cointegrated = False
-
+        
         try:
-            # 从缓存中获取数据
-            if symbol1 not in self.historical_data_cache or symbol2 not in self.historical_data_cache:
-                return cointegrated_pair
-                
-            price1 = self.historical_data_cache[symbol1]['close'].fillna(method='pad')
-            price2 = self.historical_data_cache[symbol2]['close'].fillna(method='pad')
-            if len(price1) != len(price2) or price1.isnull().any() or price2.isnull().any():
+            # 1. 基础数据质量门槛检查（信任data_complete已保证80%长度要求）
+            if (symbol1 not in self.data_quality['data_complete'] or 
+                symbol2 not in self.data_quality['data_complete']):
                 return cointegrated_pair
             
-            # 预筛选: 相关性过低的股票对不太可能存在协整关系
+            # 2. 直接获取预处理的价格数据（质量已保证）
+            price1 = self.historical_data_cache[symbol1]['close']
+            price2 = self.historical_data_cache[symbol2]['close']
+            
+            # 3. 业务逻辑：相关性预筛选 - 相关性过低不太可能存在协整关系
             correlation = price1.corr(price2)
             if abs(correlation) < self.correlation_threshold:
                 return cointegrated_pair
             
-            # Engle-Granger协整检验: 检验价格序列的线性组合是否平稳
+            # 4. 核心业务：Engle-Granger协整检验 - 检验价格序列线性组合是否平稳
             score, pvalue, critical_values = coint(price1, price2)
             is_cointegrated = pvalue < self.pvalue_threshold
 
+            if is_cointegrated:
+                pair_key = (symbol1, symbol2)
+                cointegrated_pair[pair_key] = {
+                    'pvalue': pvalue,
+                    'critical_values': critical_values,
+                    'create_time': self.algorithm.Time
+                }
+                
         except (KeyError, ValueError) as e:
-            self.algorithm.Debug(f"[AlphaModel] 数据错误: {str(e)[:50]}")
+            self.algorithm.Debug(f"[AlphaModel] 数据错误 {symbol1.Value}-{symbol2.Value}: {str(e)[:50]}")
         except ImportError as e:
             self.algorithm.Debug(f"[AlphaModel] 统计库错误: {str(e)[:50]}")
         except Exception as e:
-            self.algorithm.Debug(f"[AlphaModel] 协整检验异常: {str(e)[:50]}")
+            self.algorithm.Debug(f"[AlphaModel] 协整检验异常 {symbol1.Value}-{symbol2.Value}: {str(e)[:50]}")
 
-        if is_cointegrated:
-            pair_key = (symbol1, symbol2)
-            cointegrated_pair[pair_key] = {
-                'pvalue': pvalue,
-                'critical_values': critical_values,
-                'create_time': self.algorithm.Time
-            }
         return cointegrated_pair
     
 
@@ -430,68 +553,171 @@ class BayesianCointegrationAlphaModel(AlphaModel):
     
 
 
-    def PyMCModel(self, symbol1, symbol2, lookback_period):
+
+
+    def _GetRecentData(self, symbol1: Symbol, symbol2: Symbol, days: int = None) -> tuple:
         """
-        使用PyMC进行贝叶斯线性回归建模
+        获取指定天数的最近价格数据用于动态更新
         
-        构建线性回归模型: log(price1) = alpha + beta × log(price2) + epsilon
-        通过MCMC采样获得alpha, beta和残差的完整后验分布, 相比OLS回归能更好地量化参数不确定性.
-        
-        建模流程:
-        1. 设置先验分布: alpha~N(0,10), beta~N(0,10), sigma~HalfNormal(1)
-        2. 定义似然函数: 观测价格围绕线性预测值的正态分布
-        3. MCMC采样: 获取参数后验样本
-        4. 提取统计量: 均值, 标准差用于后续z-score计算
+        信任基础数据质量保证，专注动态数据提取的业务逻辑：
+        1. 基础数据质量门槛检查（信任_BatchLoadHistoricalData结果）
+        2. 动态数据范围验证（业务逻辑：是否有足够的最近数据）
         
         Args:
             symbol1, symbol2: 协整对股票
-            lookback_period: 回看期长度
+            days: 回看天数，None时使用动态计算的间隔天数
             
         Returns:
-            dict: 后验参数字典, 包含alpha, beta均值和残差统计量
-                 None表示建模失败
+            tuple: (recent_price1, recent_price2) 或 (None, None) 如果数据不足
+        """
+        # 使用动态计算的间隔天数
+        if days is None:
+            days = self.dynamic_update_lookback_days
+        
+        try:
+            # 1. 基础数据质量门槛检查（信任批量加载的质量保证）
+            if (symbol1 not in self.data_quality['data_complete'] or 
+                symbol2 not in self.data_quality['data_complete']):
+                return None, None
+            
+            # 2. 直接获取预处理的缓存数据（质量已保证）
+            price1_full = self.historical_data_cache[symbol1]['close']
+            price2_full = self.historical_data_cache[symbol2]['close']
+            
+            # 3. 业务逻辑验证：动态数据范围是否足够
+            if len(price1_full) < days or len(price2_full) < days:
+                return None, None
+            
+            # 4. 提取最近N天数据（无需重复验证质量）
+            recent_price1 = price1_full.tail(days)
+            recent_price2 = price2_full.tail(days)
+            
+            return recent_price1, recent_price2
+            
+        except Exception as e:
+            self.algorithm.Debug(f"[AlphaModel] 动态数据提取异常 {symbol1.Value}-{symbol2.Value}: {str(e)[:40]}")
+            return None, None
+
+
+
+    
+
+
+    def PyMCModel(self, symbol1, symbol2, use_prior=False, data_range='full', prior_params=None):
+        """
+        统一的PyMC贝叶斯建模方法
+        
+        支持两种模式：
+        1. 完整建模：use_prior=False, data_range='full' (默认)
+        2. 动态更新：use_prior=True, data_range='recent'
+        
+        使用预验证的数据质量分类，简化数据获取和验证逻辑.
+        
+        Args:
+            symbol1, symbol2: 协整对股票
+            use_prior: 是否使用历史后验作为先验
+            data_range: 数据范围 ('full': 全部数据, 'recent': 最近数据)
+            prior_params: 先验参数字典，当use_prior=True时必须提供
+            
+        Returns:
+            dict: 后验参数字典，None表示建模失败
         """
         try:
-            # 从缓存中获取数据
-            if symbol1 not in self.historical_data_cache or symbol2 not in self.historical_data_cache:
+            # 1. 基础数据质量门槛检查
+            if (symbol1 not in self.data_quality['price_valid'] or 
+                symbol2 not in self.data_quality['price_valid']):
                 return None
+            
+            # 2. 准备建模数据（信任基础质量保证和_GetRecentData验证）
+            if data_range == 'recent':
+                # 动态更新：使用最近N天数据（_GetRecentData已验证质量）
+                recent_price1, recent_price2 = self._GetRecentData(symbol1, symbol2, self.dynamic_update_lookback_days)
+                if recent_price1 is None or recent_price2 is None:
+                    return None
+                    
+                y_data = np.log(recent_price1.values)
+                x_data = np.log(recent_price2.values)
+            else:
+                # 完整建模：直接使用预处理的缓存数据（quality已保证80%长度）
+                price1 = self.historical_data_cache[symbol1]['close']
+                price2 = self.historical_data_cache[symbol2]['close']
                 
-            price1 = self.historical_data_cache[symbol1]['close'].fillna(method='pad')
-            price2 = self.historical_data_cache[symbol2]['close'].fillna(method='pad')
-            # 使用对数价格进行建模, 减少价格水平和波动率影响
-            y = np.log(price1.values)
-            x = np.log(price2.values)
-
-            # 构建PyMC模型
+                y_data = np.log(price1.values)
+                x_data = np.log(price2.values)
+                
+            # 3. 业务逻辑：最终建模数据合理性检查（至少50个观测点用于MCMC）
+            if len(y_data) < 50:
+                return None
+            
+            # 4. 配置先验分布参数
+            if use_prior and prior_params is not None:
+                # 使用历史后验作为先验
+                alpha_mu = float(np.mean(prior_params['alpha_samples']))
+                alpha_sigma = max(float(np.std(prior_params['alpha_samples'])), 0.1)
+                beta_mu = float(np.mean(prior_params['beta_samples']))
+                beta_sigma = max(float(np.std(prior_params['beta_samples'])), 0.1)
+                sigma_sigma = max(float(np.mean(prior_params['sigma_samples'])), 0.1)
+            else:
+                # 使用无信息先验
+                alpha_mu, alpha_sigma = 0, 10
+                beta_mu, beta_sigma = 0, 10
+                sigma_sigma = 1
+            
+            # 5. 构建PyMC模型
             with pm.Model() as model:
-                # 设置先验分布
-                alpha = pm.Normal('alpha', mu=0, sigma=10)
-                beta = pm.Normal('beta', mu=0, sigma=10)
-                sigmaOfEpsilon = pm.HalfNormal('sigmaOfEpsilon', sigma=1)
+                # 先验分布
+                alpha = pm.Normal('alpha', mu=alpha_mu, sigma=alpha_sigma)
+                beta = pm.Normal('beta', mu=beta_mu, sigma=beta_sigma)
+                sigmaOfEpsilon = pm.HalfNormal('sigmaOfEpsilon', sigma=sigma_sigma)
                 
-                # 定义线性关系
-                mu = alpha + beta * x
+                # 线性关系
+                mu = alpha + beta * x_data
                 
-                likelihood = pm.Normal('y', mu=mu, sigma=sigmaOfEpsilon, observed=y)
-
-                residuals = pm.Deterministic('residuals', y - mu)
+                # 似然函数
+                likelihood = pm.Normal('y', mu=mu, sigma=sigmaOfEpsilon, observed=y_data)
                 
-                trace = pm.sample(draws=self.mcmc_draws, tune=self.mcmc_burn_in, chains=self.mcmc_chains, cores=1, progressbar=False)
-
+                # 残差计算
+                residuals = pm.Deterministic('residuals', y_data - mu)
+                
+                # MCMC采样配置
+                if data_range == 'recent':
+                    # 动态更新：轻量级采样
+                    draws = max(self.mcmc_draws // 2, 500)
+                    tune = max(self.mcmc_burn_in // 2, 500)
+                else:
+                    # 完整建模：标准采样
+                    draws = self.mcmc_draws
+                    tune = self.mcmc_burn_in
+                
+                trace = pm.sample(draws=draws, tune=tune, 
+                                chains=self.mcmc_chains, cores=1, progressbar=False)
+                
                 posterior = trace.posterior
                 
-                posteriorParamSet = {}
-                posteriorParamSet= {
-                    'alpha': posterior['alpha'].values.flatten(),                              # 数据维度是(chains, draws)
+                # 6. 提取后验参数
+                posterior_params = {
+                    'alpha': posterior['alpha'].values.flatten(),
                     'alpha_mean': posterior['alpha'].values.flatten().mean(),
-                    'beta': posterior['beta'].values.flatten(),                                # 数据维度是(chains, draws)
+                    'beta': posterior['beta'].values.flatten(),
                     'beta_mean': posterior['beta'].values.flatten().mean(),
-                    'residuals': posterior['residuals'].values.flatten(),                      # 数据维度是(chains, draws, lookback_period)
+                    'residuals': posterior['residuals'].values.flatten(),
                     'residuals_mean': posterior['residuals'].values.flatten().mean(),
-                    'residuals_std': posterior['residuals'].values.flatten().std(), 
+                    'residuals_std': posterior['residuals'].values.flatten().std(),
+                    'sigma_samples': posterior['sigmaOfEpsilon'].values.flatten()
                 }
-            return posteriorParamSet
-            
+                
+                # 7. 成功建模时总是保存历史后验（无论是完整建模还是动态更新）
+                if posterior_params is not None:
+                    pair_key = (symbol1, symbol2)
+                    self.historical_posteriors[pair_key] = {
+                        'alpha_samples': posterior_params['alpha'],
+                        'beta_samples': posterior_params['beta'],
+                        'sigma_samples': posterior_params['sigma_samples'],
+                        'update_time': self.algorithm.Time
+                    }
+                
+                return posterior_params
+                
         except ImportError as e:
             self.algorithm.Debug(f"[AlphaModel] PyMC导入错误: {str(e)[:50]}")
             return None
@@ -499,7 +725,8 @@ class BayesianCointegrationAlphaModel(AlphaModel):
             self.algorithm.Debug(f"[AlphaModel] MCMC采样错误: {str(e)[:50]}")
             return None
         except Exception as e:
-            self.algorithm.Debug(f"[AlphaModel] 贝叶斯建模异常: {str(e)[:50]}")
+            operation_type = "动态更新" if data_range == 'recent' else "完整建模"
+            self.algorithm.Debug(f"[AlphaModel] {operation_type}失败 {symbol1.Value}-{symbol2.Value}: {str(e)[:50]}")
             return None
         
 
