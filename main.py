@@ -28,18 +28,18 @@ class StrategyConfig:
         # AlphaModel 配置
         self.alpha_model = {
             'pvalue_threshold': 0.025,
-            'correlation_threshold': 0.2,
+            'correlation_threshold': 0.5,
             'max_symbol_repeats': 1,
-            'max_pairs': 5,
+            'max_pairs': 4,
             'lookback_period': 252,
-            'mcmc_burn_in': 1500,
-            'mcmc_draws': 1500,
+            'mcmc_burn_in': 1000,
+            'mcmc_draws': 1000,
             'mcmc_chains': 2,
             'entry_threshold': 1.65,
             'exit_threshold': 0.3,
             'upper_limit': 3.0,
             'lower_limit': -3.0,
-            'max_volatility_3month': 0.6,
+            'max_volatility_3month': 0.45,
             'volatility_lookback_days': 63
         }
         

@@ -1,0 +1,252 @@
+2024-06-20 00:00:00 Launching analysis for dec13557ee858fdb6d6b396ee91b0b89 with LEAN Engine v2.5.0.0.17202
+2024-06-20 00:00:00 [UniverseSelection] 初始化完成 (候选数:30, 价格>$15, PE<50)
+2024-06-20 00:00:00 [AlphaModel] 初始化完成 (协整p值<0.025, 最大4对, 波动率<45%)
+2024-06-20 00:00:00 Accurate daily end-times now enabled by default. See more at https://qnt.co/3YHaWHL. To disable it and use legacy daily bars set self.settings.daily_precise_end_time = False.
+2024-06-20 00:00:00 [UniverseSelection] 粗选完成: 262只股票通过筛选
+2024-06-21 00:00:00 [UniverseSelection] 粗选完成: 282只股票通过筛选
+2024-06-22 00:00:00 [UniverseSelection] 粗选完成: 461只股票通过筛选
+2024-06-25 00:00:00 [UniverseSelection] 粗选完成: 272只股票通过筛选
+2024-06-26 00:00:00 [UniverseSelection] 粗选完成: 246只股票通过筛选
+2024-06-27 00:00:00 [UniverseSelection] 粗选完成: 225只股票通过筛选
+2024-06-28 00:00:00 [UniverseSelection] 粗选完成: 239只股票通过筛选
+2024-06-29 00:00:00 [UniverseSelection] 粗选完成: 428只股票通过筛选
+2024-07-02 00:00:00 [UniverseSelection] 收到主控调度，准备执行下一轮选股
+2024-07-02 00:00:00 [UniverseSelection] 粗选完成: 234只股票通过筛选
+2024-07-02 00:00:00 =====================================第【1】次选股=====================================
+2024-07-02 00:00:00 [UniverseSelection] 财务筛选: 候选163只 → 通过82只 (过滤81只)
+2024-07-02 00:00:00 [UniverseSelection] 财务过滤明细: PE(37) ROE(24) 债务(22) 杠杆(42)
+2024-07-02 00:00:00 [UniverseSelection] 行业分布: CommunicationServices(7) ConsumerCyclical(11) ConsumerDefensive(8) Energy(8) Healthcare(18) Industrials(18) Technology(10) Utilities(2)
+2024-07-02 00:00:00 [UniverseSelection] 选股完成: 共82只股票, 前5样本: ['MSFT', 'CRM', 'QCOM', 'AMAT', 'CSCO']
+2024-07-02 16:00:00 [AlphaModel] 选股日, 接收到: 82
+2024-07-02 16:00:00 [AlphaModel] 波动率筛选: 候选82只 → 通过80只 过滤2只
+2024-07-02 16:00:00 [AlphaModel] 波动率过滤明细: 波动率(2)
+2024-07-02 16:00:00 [AlphaModel] Healthcare行业: 2对
+2024-07-02 16:00:00 [AlphaModel] ConsumerCyclical行业: 0对
+2024-07-02 16:00:00 [AlphaModel] Technology行业: 1对
+2024-07-02 16:00:00 [AlphaModel] Industrials行业: 4对
+2024-07-02 16:00:00 [AlphaModel] CommunicationServices行业: 1对
+2024-07-02 16:00:00 [AlphaModel] Energy行业: 0对
+2024-07-02 16:00:00 [AlphaModel] ConsumerDefensive行业: 0对
+2024-07-02 16:00:00 [AlphaModel] Utilities行业: 0对
+2024-07-02 16:00:00 [AlphaModel] 筛选出协整对: 8对
+2024-07-02 16:00:00 [AlphaModel] 贝叶斯建模: 尝试8对 → 成功8对 失败0对
+2024-07-02 16:00:00 [AlphaModel] 生成信号: 0对 拦截: 2 观望: 6
+2024-07-03 00:00:00 [UniverseSelection] 粗选完成: 215只股票通过筛选
+2024-07-03 00:00:00 [AlphaModel] 生成信号: 0对 拦截: 0 观望: 0
+2024-07-03 13:00:00 [AlphaModel] 生成信号: 0对 拦截: 4 观望: 4
+2024-07-04 00:00:00 [UniverseSelection] 粗选完成: 121只股票通过筛选
+2024-07-05 00:00:00 [AlphaModel] 生成信号: 0对 拦截: 0 观望: 0
+2024-07-05 16:00:00 [AlphaModel] zscore -1.8246 [买 | 卖] PH-WM
+2024-07-05 16:00:00 [AlphaModel] 生成信号: 1对 拦截: 1 观望: 6
+2024-07-06 00:00:00 [UniverseSelection] 粗选完成: 192只股票通过筛选
+2024-07-08 00:00:00 [AlphaModel] 生成信号: 0对 拦截: 0 观望: 0
+2024-07-08 16:00:00 [AlphaModel] zscore -0.2644 [回归] PH-URI
+2024-07-08 16:00:00 [AlphaModel] 生成信号: 1对 拦截: 3 观望: 4
+2024-07-09 00:00:00 [UniverseSelection] 粗选完成: 201只股票通过筛选
+2024-07-09 00:00:00 [AlphaModel] 生成信号: 0对 拦截: 0 观望: 0
+2024-07-09 16:00:00 [AlphaModel] 生成信号: 0对 拦截: 4 观望: 4
+2024-07-10 00:00:00 [UniverseSelection] 粗选完成: 209只股票通过筛选
+2024-07-10 00:00:00 [AlphaModel] 生成信号: 0对 拦截: 0 观望: 0
+2024-07-10 16:00:00 [AlphaModel] zscore -1.6683 [买 | 卖] CAT-EMR
+2024-07-10 16:00:00 [AlphaModel] 生成信号: 1对 拦截: 1 观望: 6
+2024-07-11 00:00:00 [UniverseSelection] 粗选完成: 227只股票通过筛选
+2024-07-11 00:00:00 [AlphaModel] 生成信号: 0对 拦截: 0 观望: 0
+2024-07-11 16:00:00 [AlphaModel] 生成信号: 0对 拦截: 4 观望: 4
+2024-07-12 00:00:00 [UniverseSelection] 粗选完成: 256只股票通过筛选
+2024-07-12 16:00:00 [AlphaModel] 生成信号: 0对 拦截: 4 观望: 4
+2024-07-13 00:00:00 [UniverseSelection] 粗选完成: 242只股票通过筛选
+2024-07-15 00:00:00 [AlphaModel] 生成信号: 0对 拦截: 0 观望: 0
+2024-07-15 16:00:00 [AlphaModel] 生成信号: 0对 拦截: 4 观望: 4
+2024-07-16 00:00:00 [UniverseSelection] 粗选完成: 254只股票通过筛选
+2024-07-16 16:00:00 [AlphaModel] zscore -0.2527 [回归] PH-WM
+2024-07-16 16:00:00 [AlphaModel] 生成信号: 1对 拦截: 5 观望: 2
+2024-07-17 00:00:00 [UniverseSelection] 粗选完成: 280只股票通过筛选
+2024-07-17 00:00:00 [AlphaModel] 生成信号: 0对 拦截: 0 观望: 0
+2024-07-17 16:00:00 [AlphaModel] zscore 2.1381 [卖 | 买] CI-HUM
+2024-07-17 16:00:00 [AlphaModel] 生成信号: 1对 拦截: 2 观望: 5
+2024-07-18 00:00:00 [UniverseSelection] 粗选完成: 298只股票通过筛选
+2024-07-18 00:00:00 [AlphaModel] 生成信号: 0对 拦截: 0 观望: 0
+2024-07-18 16:00:00 [AlphaModel] 生成信号: 0对 拦截: 1 观望: 7
+2024-07-19 00:00:00 [UniverseSelection] 粗选完成: 276只股票通过筛选
+2024-07-19 00:00:00 [AlphaModel] 生成信号: 0对 拦截: 0 观望: 0
+2024-07-19 16:00:00 [AlphaModel] 生成信号: 0对 拦截: 1 观望: 7
+2024-07-20 00:00:00 [UniverseSelection] 粗选完成: 247只股票通过筛选
+2024-07-22 00:00:00 [AlphaModel] 生成信号: 0对 拦截: 0 观望: 0
+2024-07-22 16:00:00 [AlphaModel] 生成信号: 0对 拦截: 2 观望: 6
+2024-07-23 00:00:00 [UniverseSelection] 粗选完成: 236只股票通过筛选
+2024-07-23 16:00:00 [AlphaModel] zscore 2.0178 [卖 | 买] CTAS-TT
+2024-07-23 16:00:00 [AlphaModel] 生成信号: 1对 拦截: 2 观望: 5
+2024-07-24 00:00:00 [UniverseSelection] 粗选完成: 238只股票通过筛选
+2024-07-24 16:00:00 [AlphaModel] zscore -1.9953 [买 | 卖] PH-URI
+2024-07-24 16:00:00 [AlphaModel] zscore 2.0145 [卖 | 买] T-TMUS
+2024-07-24 16:00:00 [AlphaModel] 生成信号: 2对 拦截: 2 观望: 4
+2024-07-25 00:00:00 [UniverseSelection] 粗选完成: 277只股票通过筛选
+2024-07-25 16:00:00 [AlphaModel] zscore 3.8420 [失效] CTAS-TT
+2024-07-25 16:00:00 [AlphaModel] 生成信号: 1对 拦截: 3 观望: 4
+2024-07-26 00:00:00 [UniverseSelection] 粗选完成: 317只股票通过筛选
+2024-07-26 16:00:00 [AlphaModel] zscore 2.3602 [卖 | 买] PH-WM
+2024-07-26 16:00:00 [AlphaModel] 生成信号: 1对 拦截: 3 观望: 4
+2024-07-27 00:00:00 [UniverseSelection] 粗选完成: 267只股票通过筛选
+2024-07-29 16:00:00 [AlphaModel] 生成信号: 0对 拦截: 5 观望: 3
+2024-07-30 00:00:00 [UniverseSelection] 粗选完成: 241只股票通过筛选
+2024-07-30 16:00:00 [AlphaModel] 生成信号: 0对 拦截: 5 观望: 3
+2024-07-31 00:00:00 [UniverseSelection] 粗选完成: 283只股票通过筛选
+2024-07-31 00:00:00 [AlphaModel] 生成信号: 0对 拦截: 0 观望: 0
+2024-07-31 16:00:00 [AlphaModel] 生成信号: 0对 拦截: 4 观望: 4
+2024-08-01 00:00:00 [UniverseSelection] 粗选完成: 337只股票通过筛选
+2024-08-01 00:00:00 [AlphaModel] 生成信号: 0对 拦截: 0 观望: 0
+2024-08-01 16:00:00 [UniverseSelection] 收到主控调度，准备执行下一轮选股
+2024-08-01 16:00:00 [AlphaModel] zscore 0.1531 [回归] CI-HUM
+2024-08-01 16:00:00 [AlphaModel] zscore -0.1949 [回归] HUM-SYK
+2024-08-01 16:00:00 [AlphaModel] 生成信号: 2对 拦截: 3 观望: 3
+2024-08-02 00:00:00 [UniverseSelection] 粗选完成: 326只股票通过筛选
+2024-08-02 00:00:00 =====================================第【2】次选股=====================================
+2024-08-02 00:00:00 [UniverseSelection] 财务筛选: 候选186只 → 通过108只 (过滤78只)
+2024-08-02 00:00:00 [UniverseSelection] 财务过滤明细: PE(37) ROE(20) 债务(19) 杠杆(39)
+2024-08-02 00:00:00 [UniverseSelection] 行业分布: CommunicationServices(8) ConsumerCyclical(12) ConsumerDefensive(12) Energy(16) Healthcare(17) Industrials(21) Technology(13) Utilities(9)
+2024-08-02 00:00:00 [UniverseSelection] 选股完成: 共108只股票, 前5样本: ['MSFT', 'CRM', 'ADBE', 'ACN', 'QCOM']
+2024-08-02 16:00:00 [AlphaModel] 选股日, 接收到: 108
+2024-08-02 16:00:00 [AlphaModel] 波动率筛选: 候选108只 → 通过98只 过滤10只
+2024-08-02 16:00:00 [AlphaModel] 波动率过滤明细: 波动率(10)
+2024-08-02 16:00:00 [AlphaModel] Healthcare行业: 2对
+2024-08-02 16:00:00 [AlphaModel] ConsumerCyclical行业: 0对
+2024-08-02 16:00:00 [AlphaModel] Technology行业: 0对
+2024-08-02 16:00:00 [AlphaModel] Industrials行业: 4对
+2024-08-02 16:00:00 [AlphaModel] CommunicationServices行业: 2对
+2024-08-02 16:00:00 [AlphaModel] Energy行业: 1对
+2024-08-02 16:00:00 [AlphaModel] ConsumerDefensive行业: 0对
+2024-08-02 16:00:00 [AlphaModel] Utilities行业: 0对
+2024-08-02 16:00:00 [AlphaModel] 筛选出协整对: 9对
+2024-08-02 16:00:00 [AlphaModel] 贝叶斯建模: 尝试9对 → 成功9对 失败0对
+2024-08-02 16:00:00 [AlphaModel] zscore -2.0848 [买 | 卖] AME-PCAR
+2024-08-02 16:00:00 [AlphaModel] zscore -0.1162 [回归] URI-WM
+2024-08-02 16:00:00 [AlphaModel] 生成信号: 2对 拦截: 2 观望: 5
+2024-08-03 00:00:00 [UniverseSelection] 粗选完成: 339只股票通过筛选
+2024-08-05 00:00:00 [AlphaModel] 生成信号: 0对 拦截: 0 观望: 0
+2024-08-05 16:00:00 [AlphaModel] 生成信号: 0对 拦截: 0 观望: 9
+2024-08-06 00:00:00 [UniverseSelection] 粗选完成: 359只股票通过筛选
+2024-08-06 16:00:00 [AlphaModel] 生成信号: 0对 拦截: 1 观望: 8
+2024-08-07 00:00:00 [UniverseSelection] 粗选完成: 292只股票通过筛选
+2024-08-07 00:00:00 [AlphaModel] 生成信号: 0对 拦截: 0 观望: 0
+2024-08-07 16:00:00 [AlphaModel] zscore -1.8011 [买 | 卖] HUM-SYK
+2024-08-07 16:00:00 [AlphaModel] 生成信号: 1对 拦截: 1 观望: 7
+2024-08-08 00:00:00 [UniverseSelection] 粗选完成: 280只股票通过筛选
+2024-08-08 16:00:00 [AlphaModel] zscore 1.9890 [卖 | 买] PH-URI
+2024-08-08 16:00:00 [AlphaModel] zscore 1.9649 [卖 | 买] OXY-HES
+2024-08-08 16:00:00 [AlphaModel] 生成信号: 2对 拦截: 2 观望: 5
+2024-08-09 00:00:00 [UniverseSelection] 粗选完成: 262只股票通过筛选
+2024-08-09 00:00:00 [AlphaModel] 生成信号: 0对 拦截: 0 观望: 0
+2024-08-09 16:00:00 [AlphaModel] zscore -0.0906 [回归] AME-PCAR
+2024-08-09 16:00:00 [AlphaModel] 生成信号: 1对 拦截: 3 观望: 5
+2024-08-10 00:00:00 [UniverseSelection] 粗选完成: 211只股票通过筛选
+2024-08-12 00:00:00 [AlphaModel] 生成信号: 0对 拦截: 0 观望: 0
+2024-08-12 16:00:00 [AlphaModel] zscore -1.7146 [买 | 卖] T-TMUS
+2024-08-12 16:00:00 [AlphaModel] 生成信号: 1对 拦截: 3 观望: 5
+2024-08-13 00:00:00 [UniverseSelection] 粗选完成: 219只股票通过筛选
+2024-08-13 00:00:00 [AlphaModel] 生成信号: 0对 拦截: 0 观望: 0
+2024-08-13 16:00:00 [AlphaModel] 生成信号: 0对 拦截: 3 观望: 6
+2024-08-14 00:00:00 [UniverseSelection] 粗选完成: 227只股票通过筛选
+2024-08-14 00:00:00 [AlphaModel] 生成信号: 0对 拦截: 0 观望: 0
+2024-08-14 16:00:00 [AlphaModel] 生成信号: 0对 拦截: 5 观望: 4
+2024-08-15 00:00:00 [UniverseSelection] 粗选完成: 217只股票通过筛选
+2024-08-15 00:00:00 [AlphaModel] 生成信号: 0对 拦截: 0 观望: 0
+2024-08-15 16:00:00 [AlphaModel] 生成信号: 0对 拦截: 5 观望: 4
+2024-08-16 00:00:00 [UniverseSelection] 粗选完成: 249只股票通过筛选
+2024-08-16 00:00:00 [AlphaModel] 生成信号: 0对 拦截: 0 观望: 0
+2024-08-16 16:00:00 [AlphaModel] 生成信号: 0对 拦截: 5 观望: 4
+2024-08-17 00:00:00 [UniverseSelection] 粗选完成: 227只股票通过筛选
+2024-08-19 00:00:00 [AlphaModel] 生成信号: 0对 拦截: 0 观望: 0
+2024-08-19 16:00:00 [AlphaModel] zscore -0.1019 [回归] OXY-HES
+2024-08-19 16:00:00 [AlphaModel] 生成信号: 1对 拦截: 4 观望: 4
+2024-08-20 00:00:00 [UniverseSelection] 粗选完成: 192只股票通过筛选
+2024-08-20 00:00:00 [AlphaModel] 生成信号: 0对 拦截: 0 观望: 0
+2024-08-20 16:00:00 [AlphaModel] 生成信号: 0对 拦截: 4 观望: 5
+2024-08-21 00:00:00 [UniverseSelection] 粗选完成: 187只股票通过筛选
+2024-08-21 00:00:00 [AlphaModel] 生成信号: 0对 拦截: 0 观望: 0
+2024-08-21 16:00:00 [AlphaModel] 生成信号: 0对 拦截: 3 观望: 6
+2024-08-22 00:00:00 [UniverseSelection] 粗选完成: 202只股票通过筛选
+2024-08-22 00:00:00 [AlphaModel] 生成信号: 0对 拦截: 0 观望: 0
+2024-08-22 16:00:00 [AlphaModel] 生成信号: 0对 拦截: 3 观望: 6
+2024-08-23 00:00:00 [UniverseSelection] 粗选完成: 197只股票通过筛选
+2024-08-23 16:00:00 [AlphaModel] 生成信号: 0对 拦截: 4 观望: 5
+2024-08-24 00:00:00 [UniverseSelection] 粗选完成: 209只股票通过筛选
+2024-08-26 16:00:00 [AlphaModel] 生成信号: 0对 拦截: 3 观望: 6
+2024-08-27 00:00:00 [UniverseSelection] 粗选完成: 181只股票通过筛选
+2024-08-27 00:00:00 [AlphaModel] 生成信号: 0对 拦截: 0 观望: 0
+2024-08-27 16:00:00 [AlphaModel] zscore -3.2453 [失效] T-TMUS
+2024-08-27 16:00:00 [AlphaModel] 生成信号: 1对 拦截: 2 观望: 6
+2024-08-28 00:00:00 [UniverseSelection] 粗选完成: 187只股票通过筛选
+2024-08-28 00:00:00 [AlphaModel] 生成信号: 0对 拦截: 0 观望: 0
+2024-08-28 16:00:00 [AlphaModel] zscore 1.6701 [卖 | 买] AME-PCAR
+2024-08-28 16:00:00 [AlphaModel] 生成信号: 1对 拦截: 5 观望: 3
+2024-08-29 00:00:00 [UniverseSelection] 粗选完成: 203只股票通过筛选
+2024-08-29 16:00:00 [AlphaModel] 生成信号: 0对 拦截: 5 观望: 4
+2024-08-30 00:00:00 [UniverseSelection] 粗选完成: 211只股票通过筛选
+2024-08-30 00:00:00 [AlphaModel] 生成信号: 0对 拦截: 0 观望: 0
+2024-08-30 16:00:00 [AlphaModel] zscore 1.7428 [卖 | 买] CI-HUM
+2024-08-30 16:00:00 [AlphaModel] 生成信号: 1对 拦截: 5 观望: 3
+2024-08-31 00:00:00 [UniverseSelection] 粗选完成: 290只股票通过筛选
+2024-09-03 00:00:00 [UniverseSelection] 收到主控调度，准备执行下一轮选股
+2024-09-03 00:00:00 [AlphaModel] 生成信号: 0对 拦截: 0 观望: 0
+2024-09-03 16:00:00 [AlphaModel] 生成信号: 0对 拦截: 3 观望: 6
+2024-09-04 00:00:00 [UniverseSelection] 粗选完成: 271只股票通过筛选
+2024-09-04 00:00:00 =====================================第【3】次选股=====================================
+2024-09-04 00:00:00 [UniverseSelection] 财务筛选: 候选177只 → 通过105只 (过滤72只)
+2024-09-04 00:00:00 [UniverseSelection] 财务过滤明细: PE(35) ROE(16) 债务(19) 杠杆(38)
+2024-09-04 00:00:00 [UniverseSelection] 行业分布: CommunicationServices(9) ConsumerCyclical(14) ConsumerDefensive(13) Energy(14) Healthcare(18) Industrials(19) Technology(12) Utilities(6)
+2024-09-04 00:00:00 [UniverseSelection] 选股完成: 共105只股票, 前5样本: ['MSFT', 'CRM', 'ACN', 'CSCO', 'TXN']
+2024-09-04 00:00:00 [AlphaModel] 选股日, 接收到: 105
+2024-09-04 00:00:00 [AlphaModel] 波动率筛选: 候选105只 → 通过95只 过滤10只
+2024-09-04 00:00:00 [AlphaModel] 波动率过滤明细: 波动率(10)
+2024-09-04 00:00:00 [AlphaModel] ConsumerCyclical行业: 3对
+2024-09-04 00:00:00 [AlphaModel] Healthcare行业: 4对
+2024-09-04 00:00:00 [AlphaModel] Technology行业: 2对
+2024-09-04 00:00:00 [AlphaModel] Industrials行业: 1对
+2024-09-04 00:00:00 [AlphaModel] CommunicationServices行业: 3对
+2024-09-04 00:00:00 [AlphaModel] Energy行业: 0对
+2024-09-04 00:00:00 [AlphaModel] ConsumerDefensive行业: 0对
+2024-09-04 00:00:00 [AlphaModel] Utilities行业: 0对
+2024-09-04 00:00:00 [AlphaModel] 筛选出协整对: 12对
+2024-09-04 00:00:00 [AlphaModel] 贝叶斯建模: 尝试12对 → 成功12对 失败0对
+2024-09-04 00:00:00 [AlphaModel] 生成信号: 0对 拦截: 0 观望: 0
+2024-09-04 16:00:00 [AlphaModel] 生成信号: 0对 拦截: 1 观望: 11
+2024-09-05 00:00:00 [UniverseSelection] 粗选完成: 237只股票通过筛选
+2024-09-05 00:00:00 [AlphaModel] 生成信号: 0对 拦截: 0 观望: 0
+2024-09-05 16:00:00 [AlphaModel] zscore -0.0616 [回归] GD-TT
+2024-09-05 16:00:00 [AlphaModel] 生成信号: 1对 拦截: 2 观望: 9
+2024-09-06 00:00:00 [UniverseSelection] 粗选完成: 238只股票通过筛选
+2024-09-06 00:00:00 [AlphaModel] 生成信号: 0对 拦截: 0 观望: 0
+2024-09-06 16:00:00 [AlphaModel] zscore 2.5442 [卖 | 买] T-TMUS
+2024-09-06 16:00:00 [AlphaModel] 生成信号: 1对 拦截: 3 观望: 8
+2024-09-07 00:00:00 [UniverseSelection] 粗选完成: 276只股票通过筛选
+2024-09-09 00:00:00 [AlphaModel] 生成信号: 0对 拦截: 0 观望: 0
+2024-09-09 16:00:00 [AlphaModel] 生成信号: 0对 拦截: 6 观望: 6
+2024-09-10 00:00:00 [UniverseSelection] 粗选完成: 271只股票通过筛选
+2024-09-10 00:00:00 [AlphaModel] 生成信号: 0对 拦截: 0 观望: 0
+2024-09-10 16:00:00 [AlphaModel] 生成信号: 0对 拦截: 3 观望: 9
+2024-09-11 00:00:00 [UniverseSelection] 粗选完成: 244只股票通过筛选
+2024-09-11 16:00:00 [AlphaModel] 生成信号: 0对 拦截: 2 观望: 10
+2024-09-12 00:00:00 [UniverseSelection] 粗选完成: 276只股票通过筛选
+2024-09-12 16:00:00 [AlphaModel] 生成信号: 0对 拦截: 2 观望: 10
+2024-09-13 00:00:00 [UniverseSelection] 粗选完成: 234只股票通过筛选
+2024-09-13 00:00:00 [AlphaModel] 生成信号: 0对 拦截: 0 观望: 0
+2024-09-13 16:00:00 [AlphaModel] 生成信号: 0对 拦截: 3 观望: 9
+2024-09-14 00:00:00 [UniverseSelection] 粗选完成: 229只股票通过筛选
+2024-09-16 00:00:00 [AlphaModel] 生成信号: 0对 拦截: 0 观望: 0
+2024-09-16 16:00:00 [AlphaModel] zscore 2.3408 [卖 | 买] CSCO-MSFT
+2024-09-16 16:00:00 [AlphaModel] zscore 2.1569 [卖 | 买] CSCO-APH
+2024-09-16 16:00:00 [AlphaModel] 生成信号: 2对 拦截: 4 观望: 6
+2024-09-17 00:00:00 [UniverseSelection] 粗选完成: 237只股票通过筛选
+2024-09-17 00:00:00 [AlphaModel] 生成信号: 0对 拦截: 0 观望: 0
+2024-09-17 16:00:00 [AlphaModel] zscore 0.0049 [回归] CI-HUM
+2024-09-17 16:00:00 [AlphaModel] 生成信号: 1对 拦截: 7 观望: 4
+2024-09-18 00:00:00 [UniverseSelection] 粗选完成: 234只股票通过筛选
+2024-09-18 00:00:00 [AlphaModel] 生成信号: 0对 拦截: 0 观望: 0
+2024-09-18 16:00:00 [AlphaModel] 生成信号: 0对 拦截: 8 观望: 4
+2024-09-19 00:00:00 [UniverseSelection] 粗选完成: 253只股票通过筛选
+2024-09-19 00:00:00 [AlphaModel] 生成信号: 0对 拦截: 0 观望: 0
+2024-09-19 16:00:00 [AlphaModel] 生成信号: 0对 拦截: 5 观望: 7
+2024-09-20 00:00:00 [UniverseSelection] 粗选完成: 293只股票通过筛选
+2024-09-20 00:00:00 [AlphaModel] 生成信号: 0对 拦截: 0 观望: 0
+2024-09-20 16:00:00 [AlphaModel] 生成信号: 0对 拦截: 6 观望: 6
+2024-09-21 00:00:00 Algorithm Id:(dec13557ee858fdb6d6b396ee91b0b89) completed in 293.43 seconds at 0k data points per second. Processing total of 106,071 data points.

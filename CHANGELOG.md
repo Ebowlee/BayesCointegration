@@ -4,6 +4,62 @@
 
 ---
 
+## [v2.6.1_alphamodel-log-optimize@20250722]
+### 工作内容
+- 优化AlphaModel日志输出，减少冗余信息提升回测日志可读性
+- 合并波动率筛选的多行输出为简洁的单行格式，详细信息内嵌
+- 改进行业协整对报告，分离统计汇总和具体配对信息
+- 实现每日信号生成的条件日志输出，仅在有意义时记录
+
+### 技术细节
+- 波动率筛选日志优化：将原来的2行输出（总体统计+明细统计）合并为1行，使用`候选45只 → 通过38只 (波动率过滤5只, 数据缺失2只)`格式
+- 行业协整对日志分层：第1行显示行业统计汇总`Technology(2) Healthcare(1)`，第2行显示具体配对`Technology[AAPL-MSFT,GOOG-META]`
+- 每日信号日志条件化：仅在`signal_count > 0 or insight_blocked_count > 0`时输出，避免无意义的"观望"日志
+- 新增`insight_no_active_count`计数器追踪观望状态，提供完整的信号生成统计
+
+### 架构影响
+- 显著减少回测日志冗余，提升日志分析效率和可读性
+- 保持所有关键信息的完整性，优化信息展示方式而非删除信息
+- 建立条件化日志输出模式，为其他模块的日志优化提供参考
+- 增强协整对信息的层次化展示，便于快速定位和分析
+
+### 下一步计划
+- 实施动态贝叶斯更新：使用历史后验作为新一轮选股的先验
+- 对重复协整对使用最近30天数据进行似然更新，避免重新建模
+- 建立后验参数存储机制，支持跨选股周期的参数传递
+
+## [v2.6.0_alpha-config-volatility@20250721]
+### 工作内容
+- AlphaModel完成配置化架构改造，统一使用StrategyConfig集中管理参数
+- 波动率筛选功能从UniverseSelection迁移到AlphaModel，实现更合理的筛选位置
+- 实施批量数据缓存机制，显著优化History API调用性能
+- 增强性能监控和详细日志输出，提供各处理阶段的耗时统计
+
+### 技术细节
+- 修改`BayesianCointegrationAlphaModel.__init__()`构造函数：从`__init__(self, algorithm)`改为`__init__(self, algorithm, config)`
+- 将15个硬编码参数全部迁移到配置字典：协整检验、MCMC采样、信号阈值、波动率筛选等
+- 新增`_BatchLoadHistoricalData()`方法：一次API调用获取所有股票历史数据并缓存，替代N次单独调用
+- 新增`_VolatilityFilter()`方法：基于缓存数据计算3个月年化波动率，筛选低于60%的股票
+- 实现详细性能监控：记录缓存、波动率、协整检验、MCMC各阶段耗时，总计耗时统计
+- 更新main.py中StrategyConfig.alpha_model配置，增加波动率相关参数：`max_volatility_3month`、`volatility_lookback_days`
+
+### 架构影响
+- AlphaModel实现完全配置化，与StrategyConfig紧密集成，消除硬编码参数
+- 建立批量数据处理模式，将API调用从O(N)优化为O(1)，显著提升性能
+- 实现筛选职责合理分配：UniverseSelection负责基础筛选，AlphaModel负责策略相关筛选
+- 统一各模块配置架构模式，为PortfolioConstruction配置化提供清晰参考
+- 建立性能监控标准，为后续性能优化提供量化指标
+
+### 性能优化
+- 批量数据缓存：消除重复History API调用，预期性能提升80%以上
+- 基于缓存的协整检验：避免PyMCModel中重复数据获取
+- 详细耗时统计：便于识别性能瓶颈和优化效果评估
+
+### 下一步计划
+- 继续推进PortfolioConstruction配置化改造，完成算法框架的全面配置化
+- 基于性能监控数据，进一步优化MCMC采样和协整检验的算法效率
+- 评估波动率筛选迁移后的选股效果，优化筛选参数和逻辑
+
 ## [v2.5.2_universe-log-enhance@20250721]
 ### 工作内容
 - 优化UniverseSelection日志输出，增强选股过程可观测性
