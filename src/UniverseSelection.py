@@ -54,7 +54,9 @@ class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
                        (self.algorithm.Time - x.SecurityReference.IPODate).days > self.min_ipo_days]
         
         coarse_selected = [x.Symbol for x in ipo_filtered]
-        self.algorithm.Debug(f"[UniverseSelection] 粗选完成: {len(coarse_selected)}只股票通过筛选")
+        # 只在选股日输出粗选结果，避免每日重复日志
+        if self.selection_on:
+            self.algorithm.Debug(f"[UniverseSelection] 粗选完成: {len(coarse_selected)}只股票通过筛选")
         return coarse_selected
 
 

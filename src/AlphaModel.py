@@ -82,8 +82,7 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         # 动态间隔计算：记录上次选股日期
         self.last_selection_date = None
 
-        dynamic_status = "启用" if self.dynamic_update_enabled else "禁用"
-        self.algorithm.Debug(f"[AlphaModel] 初始化完成 (协整p值<{self.pvalue_threshold}, 最大{self.max_pairs}对, 波动率<{self.max_volatility_3month:.0%}, 选股间隔{self.selection_interval_days}天, 动态更新{dynamic_status})")
+        self.algorithm.Debug(f"[AlphaModel] 初始化完成 (最大{self.max_pairs}对, 波动率<{self.max_volatility_3month:.0%})")
 
 
 
@@ -117,6 +116,10 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                 self.algorithm.Debug(f"[AlphaModel] 实际选股间隔: {actual_interval_days}天 (上次: {self.last_selection_date.strftime('%Y-%m-%d')})")
             
             self.algorithm.Debug(f"[AlphaModel] 选股日, 接收到: {len(self.symbols)}")
+            self.algorithm.Debug(f"[Debug] 选股日开始，当前历史后验数量: {len(self.historical_posteriors)}")
+            if self.historical_posteriors:
+                keys_list = list(self.historical_posteriors.keys())[:5]  # 显示前5个键
+                self.algorithm.Debug(f"[Debug] 历史后验样本键: {keys_list}")
             self.industry_cointegrated_pairs = {}
             self.posterior_params = {}
             
@@ -196,6 +199,8 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                             data_range='recent',
                             prior_params=prior_params
                         )
+                    else:
+                        self.algorithm.Debug(f"[Debug] 未找到历史后验: {pair_key} 或 {(symbol2, symbol1)}")
                     
                     if posterior_param is not None:
                         dynamic_update_count += 1
@@ -205,6 +210,9 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                     posterior_param = self.PyMCModel(symbol1, symbol2)
                     if posterior_param is not None:
                         new_modeling_count += 1
+                        self.algorithm.Debug(f"[Debug] 完整建模成功: {pair_key}")
+                    else:
+                        self.algorithm.Debug(f"[Debug] 完整建模失败: {pair_key}")
                 
                 # 保存成功的结果
                 if posterior_param is not None:
@@ -216,8 +224,7 @@ class BayesianCointegrationAlphaModel(AlphaModel):
             failed_count = total_pairs - success_count
             
             self.algorithm.Debug(f"[AlphaModel] 协整对建模: 总计{total_pairs}对 → 成功{success_count}对 失败{failed_count}对")
-            if self.dynamic_update_enabled and (dynamic_update_count > 0 or new_modeling_count > 0):
-                self.algorithm.Debug(f"[AlphaModel] 建模方式: 动态更新{dynamic_update_count}对 完整建模{new_modeling_count}对")
+            self.algorithm.Debug(f"[Debug] 选股结束，最终历史后验数量: {len(self.historical_posteriors)}")
             
             self.is_universe_selection_on = False
 
@@ -232,9 +239,9 @@ class BayesianCointegrationAlphaModel(AlphaModel):
             signal = self.GenerateSignals(symbol1, symbol2, posterior_param_with_zscore)
             Insights.extend(signal)
         
-        # 只在有意义的情况下输出日志
+        # 只在有实际信号生成时输出日志
         signal_count = len(Insights) // 2
-        if signal_count > 0 or self.insight_blocked_count > 0:
+        if signal_count > 0:
             self.algorithm.Debug(f"[AlphaModel] 生成信号: {signal_count}对 拦截: {self.insight_blocked_count} 观望: {self.insight_no_active_count}")
         
         return Insights    
@@ -270,8 +277,8 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         """
         批量加载历史数据并进行全面的数据质量检查和分类
         
-        使用单次History API调用获取所有股票数据，并根据不同用途的数据质量要求
-        对symbols进行分类，避免后续方法中的重复检查。
+        使用单次History API调用获取所有股票数据, 并根据不同用途的数据质量要求
+        对symbols进行分类, 避免后续方法中的重复检查。
         
         数据质量分类：
         - basic_valid: 基础数据可用（有数据，无空值）
@@ -331,7 +338,7 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                     data_stats['basic_valid'] += 1
                     
                     # 4. 数据长度完整性检查 (至少95%的期望数据，确保协整检验统计有效性)
-                    if len(close_prices) >= int(self.lookback_period * 0.95):
+                    if len(close_prices) >= int(self.lookback_period * 0.98):
                         self.data_quality['data_complete'].add(symbol)
                         data_stats['data_complete'] += 1
                     
@@ -341,21 +348,14 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                         data_stats['price_valid'] += 1
                         
                 except Exception as e:
-                    self.algorithm.Debug(f"[AlphaModel] 数据质量检查失败 {symbol.Value}: {str(e)[:30]}")
                     data_stats['failed'] += 1
             
             # 简化的数据质量统计
-            self.algorithm.Debug(f"[AlphaModel] 基础数据统计: 总计{data_stats['total']}只 → "
-                               f"存在{data_stats['basic_valid']}只 "
-                               f"完整{data_stats['data_complete']}只 "
-                               f"有效{data_stats['price_valid']}只 "
-                               f"失败{data_stats['failed']}只")
+            self.algorithm.Debug(f"[AlphaModel] 数据统计: {data_stats['total']}只 → 有效{data_stats['price_valid']}只")
                         
         except (KeyError, ValueError, IndexError) as e:
-            self.algorithm.Debug(f"[AlphaModel] 数据处理错误: {str(e)[:50]}")
             self.historical_data_cache = {}
         except Exception as e:
-            self.algorithm.Debug(f"[AlphaModel] 批量数据获取失败: {str(e)[:50]}")
             self.historical_data_cache = {}
 
 
@@ -472,9 +472,9 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         对单个股票对执行Engle-Granger协整检验
         
         信任基础数据质量保证，专注协整检验的业务逻辑：
-        1. 基础数据质量门槛检查（信任_BatchLoadHistoricalData的80%长度保证）
-        2. 相关性预筛选（业务逻辑）
-        3. Engle-Granger统计检验（核心业务）
+        1. 基础数据质量门槛检查 (信任_BatchLoadHistoricalData的98%长度保证)
+        2. 相关性预筛选 (业务逻辑)
+        3. Engle-Granger统计检验 (核心业务)
         
         Args:
             symbol1, symbol2: 待检验的股票对
@@ -512,10 +512,8 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                     'create_time': self.algorithm.Time
                 }
                 
-        except (KeyError, ValueError) as e:
-            self.algorithm.Debug(f"[AlphaModel] 数据错误 {symbol1.Value}-{symbol2.Value}: {str(e)[:50]}")
-        except ImportError as e:
-            self.algorithm.Debug(f"[AlphaModel] 统计库错误: {str(e)[:50]}")
+        except (KeyError, ValueError, ImportError):
+            return None
         except Exception as e:
             self.algorithm.Debug(f"[AlphaModel] 协整检验异常 {symbol1.Value}-{symbol2.Value}: {str(e)[:50]}")
 
@@ -554,18 +552,17 @@ class BayesianCointegrationAlphaModel(AlphaModel):
 
 
 
-
     def _GetRecentData(self, symbol1: Symbol, symbol2: Symbol, days: int = None) -> tuple:
         """
         获取指定天数的最近价格数据用于动态更新
         
         信任基础数据质量保证，专注动态数据提取的业务逻辑：
-        1. 基础数据质量门槛检查（信任_BatchLoadHistoricalData结果）
-        2. 动态数据范围验证（业务逻辑：是否有足够的最近数据）
+        1. 基础数据质量门槛检查 (信任_BatchLoadHistoricalData结果)
+        2. 动态数据范围验证 (业务逻辑：是否有足够的最近数据)
         
         Args:
             symbol1, symbol2: 协整对股票
-            days: 回看天数，None时使用动态计算的间隔天数
+            days: 回看天数, None时使用动态计算的间隔天数
             
         Returns:
             tuple: (recent_price1, recent_price2) 或 (None, None) 如果数据不足
@@ -585,6 +582,7 @@ class BayesianCointegrationAlphaModel(AlphaModel):
             price2_full = self.historical_data_cache[symbol2]['close']
             
             # 3. 业务逻辑验证：动态数据范围是否足够
+            self.algorithm.Debug(f"[Debug] _GetRecentData验证: {symbol1.Value}-{symbol2.Value}, 需要{days}天, 实际{len(price1_full)}-{len(price2_full)}天")
             if len(price1_full) < days or len(price2_full) < days:
                 return None, None
             
@@ -595,12 +593,8 @@ class BayesianCointegrationAlphaModel(AlphaModel):
             return recent_price1, recent_price2
             
         except Exception as e:
-            self.algorithm.Debug(f"[AlphaModel] 动态数据提取异常 {symbol1.Value}-{symbol2.Value}: {str(e)[:40]}")
             return None, None
 
-
-
-    
 
 
     def PyMCModel(self, symbol1, symbol2, use_prior=False, data_range='full', prior_params=None):
@@ -608,8 +602,8 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         统一的PyMC贝叶斯建模方法
         
         支持两种模式：
-        1. 完整建模：use_prior=False, data_range='full' (默认)
-        2. 动态更新：use_prior=True, data_range='recent'
+        1. 完整建模: use_prior=False, data_range='full' (默认)
+        2. 动态更新: use_prior=True, data_range='recent'
         
         使用预验证的数据质量分类，简化数据获取和验证逻辑.
         
@@ -617,10 +611,10 @@ class BayesianCointegrationAlphaModel(AlphaModel):
             symbol1, symbol2: 协整对股票
             use_prior: 是否使用历史后验作为先验
             data_range: 数据范围 ('full': 全部数据, 'recent': 最近数据)
-            prior_params: 先验参数字典，当use_prior=True时必须提供
+            prior_params: 先验参数字典, 当use_prior=True时必须提供
             
         Returns:
-            dict: 后验参数字典，None表示建模失败
+            dict: 后验参数字典, None表示建模失败
         """
         try:
             # 1. 基础数据质量门槛检查
@@ -645,18 +639,32 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                 y_data = np.log(price1.values)
                 x_data = np.log(price2.values)
                 
-            # 3. 业务逻辑：最终建模数据合理性检查（至少50个观测点用于MCMC）
-            if len(y_data) < 50:
+            # 3. 业务逻辑：最终建模数据合理性检查
+            # 动态更新时放宽数据长度要求（30天），完整建模要求50天
+            min_data_length = 30 if data_range == 'recent' else 50
+            if len(y_data) < min_data_length:
                 return None
             
             # 4. 配置先验分布参数
             if use_prior and prior_params is not None:
+                # 验证先验参数
+                if (len(prior_params.get('alpha_samples', [])) == 0 or 
+                    len(prior_params.get('beta_samples', [])) == 0 or
+                    len(prior_params.get('sigma_samples', [])) == 0):
+                    return None
+                
                 # 使用历史后验作为先验
                 alpha_mu = float(np.mean(prior_params['alpha_samples']))
                 alpha_sigma = max(float(np.std(prior_params['alpha_samples'])), 0.1)
                 beta_mu = float(np.mean(prior_params['beta_samples']))
                 beta_sigma = max(float(np.std(prior_params['beta_samples'])), 0.1)
-                sigma_sigma = max(float(np.mean(prior_params['sigma_samples'])), 0.1)
+                
+                # 改进的sigma先验设置：使用均值+2倍标准差作为HalfNormal的尺度参数
+                sigma_mean = float(np.mean(prior_params['sigma_samples']))
+                sigma_std = float(np.std(prior_params['sigma_samples']))
+                sigma_sigma = max(sigma_mean + 2*sigma_std, 0.1)  # 覆盖约95%的历史分布
+                
+                # 调试日志
             else:
                 # 使用无信息先验
                 alpha_mu, alpha_sigma = 0, 10
@@ -689,8 +697,10 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                     draws = self.mcmc_draws
                     tune = self.mcmc_burn_in
                 
+                
                 trace = pm.sample(draws=draws, tune=tune, 
                                 chains=self.mcmc_chains, cores=1, progressbar=False)
+                
                 
                 posterior = trace.posterior
                 
@@ -715,6 +725,8 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                         'sigma_samples': posterior_params['sigma_samples'],
                         'update_time': self.algorithm.Time
                     }
+                    operation_type = "动态更新" if data_range == 'recent' else "完整建模"
+                    self.algorithm.Debug(f"[Debug] {operation_type}成功，保存后验: {pair_key}")
                 
                 return posterior_params
                 
@@ -722,7 +734,6 @@ class BayesianCointegrationAlphaModel(AlphaModel):
             self.algorithm.Debug(f"[AlphaModel] PyMC导入错误: {str(e)[:50]}")
             return None
         except (ValueError, RuntimeError) as e:
-            self.algorithm.Debug(f"[AlphaModel] MCMC采样错误: {str(e)[:50]}")
             return None
         except Exception as e:
             operation_type = "动态更新" if data_range == 'recent' else "完整建模"
@@ -818,6 +829,8 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         
         self.algorithm.Debug(f"[AlphaModel] zscore {z:.4f} [{trend}] {symbol1.Value}-{symbol2.Value}")
         return Insight.group(signals)
+    
+
     
     def _GetSignalConfiguration(self, z):
         """
