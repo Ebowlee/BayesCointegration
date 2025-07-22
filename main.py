@@ -40,7 +40,9 @@ class StrategyConfig:
             'upper_limit': 3.0,
             'lower_limit': -3.0,
             'max_volatility_3month': 0.45,
-            'volatility_lookback_days': 63
+            'volatility_lookback_days': 63,
+            'selection_interval_days': 30,  # 选股间隔天数，用于动态贝叶斯更新
+            'dynamic_update_enabled': True   # 是否启用动态贝叶斯更新
         }
         
         # PortfolioConstruction 配置

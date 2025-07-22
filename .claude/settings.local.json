@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(python:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(del test_refactor.py simple_test.py)",
+      "Bash(rm:*)"
     ],
     "deny": []
   }
