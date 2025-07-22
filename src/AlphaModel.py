@@ -116,10 +116,8 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                 self.algorithm.Debug(f"[AlphaModel] 实际选股间隔: {actual_interval_days}天 (上次: {self.last_selection_date.strftime('%Y-%m-%d')})")
             
             self.algorithm.Debug(f"[AlphaModel] 选股日, 接收到: {len(self.symbols)}")
-            self.algorithm.Debug(f"[Debug] 选股日开始，当前历史后验数量: {len(self.historical_posteriors)}")
             if self.historical_posteriors:
                 keys_list = list(self.historical_posteriors.keys())[:5]  # 显示前5个键
-                self.algorithm.Debug(f"[Debug] 历史后验样本键: {keys_list}")
             self.industry_cointegrated_pairs = {}
             self.posterior_params = {}
             
@@ -161,18 +159,19 @@ class BayesianCointegrationAlphaModel(AlphaModel):
             # 输出行业协整对汇总
             if sector_pairs_info:
                 summary_parts = []
-                detail_parts = []
                 for sector, info in sector_pairs_info.items():
                     summary_parts.append(f"{sector}({info['count']})")
-                    detail_parts.append(f"{sector}[{','.join(info['pairs'])}]")
                 
                 self.algorithm.Debug(f"[AlphaModel] 行业协整对: {' '.join(summary_parts)}")
-                self.algorithm.Debug(f"[AlphaModel] 具体配对: {' '.join(detail_parts)}")
             
             # 处理所有协整对：统一流程
             success_count = 0
             dynamic_update_count = 0
             new_modeling_count = 0
+            
+            # 收集按建模方式分类的协整对信息
+            dynamic_update_pairs = []
+            new_modeling_pairs = []
             
             for pair_key in self.industry_cointegrated_pairs.keys():
                 symbol1, symbol2 = pair_key
@@ -199,20 +198,17 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                             data_range='recent',
                             prior_params=prior_params
                         )
-                    else:
-                        self.algorithm.Debug(f"[Debug] 未找到历史后验: {pair_key} 或 {(symbol2, symbol1)}")
                     
                     if posterior_param is not None:
                         dynamic_update_count += 1
+                        dynamic_update_pairs.append(f"{symbol1.Value}-{symbol2.Value}")
                 
                 # 如果动态更新失败或不适用，使用完整建模
                 if posterior_param is None:
                     posterior_param = self.PyMCModel(symbol1, symbol2)
                     if posterior_param is not None:
                         new_modeling_count += 1
-                        self.algorithm.Debug(f"[Debug] 完整建模成功: {pair_key}")
-                    else:
-                        self.algorithm.Debug(f"[Debug] 完整建模失败: {pair_key}")
+                        new_modeling_pairs.append(f"{symbol1.Value}-{symbol2.Value}")
                 
                 # 保存成功的结果
                 if posterior_param is not None:
@@ -223,14 +219,20 @@ class BayesianCointegrationAlphaModel(AlphaModel):
             total_pairs = len(self.industry_cointegrated_pairs)
             failed_count = total_pairs - success_count
             
-            self.algorithm.Debug(f"[AlphaModel] 协整对建模: 总计{total_pairs}对 → 成功{success_count}对 失败{failed_count}对")
-            self.algorithm.Debug(f"[Debug] 选股结束，最终历史后验数量: {len(self.historical_posteriors)}")
+            # 简化的建模统计
+            self.algorithm.Debug(f"[AlphaModel] 建模统计: 动态更新{dynamic_update_count}对, 完整建模{new_modeling_count}对, 总成功{success_count}对")
+            
+            # 按建模方式分类显示协整对
+            if dynamic_update_pairs:
+                self.algorithm.Debug(f"[AlphaModel] 动态更新: {', '.join(dynamic_update_pairs)}")
+            if new_modeling_pairs:
+                self.algorithm.Debug(f"[AlphaModel] 完整建模: {', '.join(new_modeling_pairs)}")
+            if failed_count > 0:
+                self.algorithm.Debug(f"[AlphaModel] 建模失败: {failed_count}对")
             
             self.is_universe_selection_on = False
 
         # 每日执行的信号生成逻辑
-        self.insight_blocked_count = 0  
-        self.insight_no_active_count = 0
         # 遍历所有成功建模的协整对, 计算当前价格偏离并生成交易信号
         for pair_key in self.posterior_params.keys():
             symbol1, symbol2 = pair_key
@@ -239,10 +241,10 @@ class BayesianCointegrationAlphaModel(AlphaModel):
             signal = self.GenerateSignals(symbol1, symbol2, posterior_param_with_zscore)
             Insights.extend(signal)
         
-        # 只在有实际信号生成时输出日志
+        # 信号生成日志
         signal_count = len(Insights) // 2
         if signal_count > 0:
-            self.algorithm.Debug(f"[AlphaModel] 生成信号: {signal_count}对 拦截: {self.insight_blocked_count} 观望: {self.insight_no_active_count}")
+            self.algorithm.Debug(f"[AlphaModel] 生成信号: {signal_count}对")
         
         return Insights    
 
@@ -582,7 +584,6 @@ class BayesianCointegrationAlphaModel(AlphaModel):
             price2_full = self.historical_data_cache[symbol2]['close']
             
             # 3. 业务逻辑验证：动态数据范围是否足够
-            self.algorithm.Debug(f"[Debug] _GetRecentData验证: {symbol1.Value}-{symbol2.Value}, 需要{days}天, 实际{len(price1_full)}-{len(price2_full)}天")
             if len(price1_full) < days or len(price2_full) < days:
                 return None, None
             
@@ -726,7 +727,6 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                         'update_time': self.algorithm.Time
                     }
                     operation_type = "动态更新" if data_range == 'recent' else "完整建模"
-                    self.algorithm.Debug(f"[Debug] {operation_type}成功，保存后验: {pair_key}")
                 
                 return posterior_params
                 
@@ -810,17 +810,11 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         signal_config = self._GetSignalConfiguration(z)
         if signal_config is None:
             # 观望阶段: 不发射任何信号
-            self.insight_no_active_count += 1
             return []
         
         insight1_direction, insight2_direction, trend = signal_config
         
-        # 检查是否应该发射信号
-        if not self.ShouldEmitInsightPair(symbol1, insight1_direction, symbol2, insight2_direction):
-            self.insight_blocked_count += 1
-            return []
-        
-        # 生成信号标签和洞察
+        # 直接生成信号，不做任何拦截或验证
         tag = f"{symbol1.Value}&{symbol2.Value}|{posteriorParamSet['alpha_mean']:.4f}|{posteriorParamSet['beta_mean']:.4f}|{z:.2f}|{len(self.industry_cointegrated_pairs)}"
         
         insight1 = Insight.Price(symbol1, self.signal_duration, insight1_direction, tag=tag)
@@ -862,50 +856,5 @@ class BayesianCointegrationAlphaModel(AlphaModel):
 
     
 
-    def ShouldEmitInsightPair(self, symbol1, direction1, symbol2, direction2):
-        """
-        检查是否应该发出交易信号, 避免重复和无效信号
-        
-        信号过滤规则:
-        1. 避免无意义的平仓信号: 当没有持仓时不发出Flat信号
-        2. 避免重复信号: 检查是否已存在相同方向的活跃信号
-        
-        Args:
-            symbol1, symbol2: 交易对股票
-            direction1, direction2: 对应的交易方向
-            
-        Returns:
-            bool: True表示应该发出信号, False表示应该拦截
-        """
-        # 获取两个symbol的活跃洞察
-        active_insights_1 = self._GetActiveInsights(symbol1)
-        active_insights_2 = self._GetActiveInsights(symbol2)
-        
-        # 检查是否要发射无意义的Flat信号
-        if self._IsMeaninglessFlatSignal(direction1, direction2, active_insights_1, active_insights_2):
-            return False
-        
-        # 检查是否存在重复信号
-        if self._HasDuplicateSignal(active_insights_1, active_insights_2, direction1, direction2):
-            return False
-        
-        return True
     
-    def _GetActiveInsights(self, symbol):
-        """获取指定股票的当前活跃交易信号"""
-        return [ins for ins in self.algorithm.insights 
-                if ins.Symbol == symbol and ins.IsActive(self.algorithm.utc_time)]
-    
-    def _IsMeaninglessFlatSignal(self, direction1, direction2, active_insights_1, active_insights_2):
-        """检查是否为无意义的Flat信号"""
-        return (direction1 == InsightDirection.Flat and direction2 == InsightDirection.Flat and
-                not active_insights_1 and not active_insights_2)
-    
-    def _HasDuplicateSignal(self, active_insights_1, active_insights_2, direction1, direction2):
-        """检查是否存在重复信号"""
-        for ins1 in active_insights_1:
-            for ins2 in active_insights_2:
-                if (ins1.GroupId == ins2.GroupId and 
-                    (ins1.Direction, ins2.Direction) == (direction1, direction2)):
-                    return True
-        return False
+

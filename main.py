@@ -88,8 +88,17 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # 设置Alpha模块
         self.SetAlpha(BayesianCointegrationAlphaModel(self, self.config.alpha_model))
 
-        # # 设置投资组合构建模块
-        # self.SetPortfolioConstruction(BayesianCointegrationPortfolioConstructionModel(self))
+        # 测试模式配置：用于验证Alpha信号逻辑
+        test_mode = self.GetParameter("test_mode", "false").lower() == "true"
+        if test_mode:
+            # 使用NullPortfolioConstructionModel直接执行Alpha信号
+            from QuantConnect.Algorithm.Framework.Portfolio import NullPortfolioConstructionModel
+            self.SetPortfolioConstruction(NullPortfolioConstructionModel())
+            self.Debug("[Initialize] 测试模式启用：Alpha信号将直接执行")
+        else:
+            # # 正常模式：使用完整的框架模块
+            # self.SetPortfolioConstruction(BayesianCointegrationPortfolioConstructionModel(self))
+            pass
 
         # # 设置风险管理模块
         # ## 组合层面分控
