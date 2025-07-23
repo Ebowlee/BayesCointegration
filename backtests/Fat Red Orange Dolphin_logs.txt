@@ -1,0 +1,440 @@
+2024-06-20 00:00:00 Launching analysis for c4d662940e1e90c1c1546e89e2526356 with LEAN Engine v2.5.0.0.17206
+2024-06-20 00:00:00 [UniverseSelection] 初始化完成 (候选数:30, 价格>$15, PE<50)
+2024-06-20 00:00:00 [AlphaModel] 初始化完成 (最大4对, 波动率<45%)
+2024-06-20 00:00:00 [PortfolioConstruction] 初始化完成 (保证金率: 0.5)
+2024-06-20 00:00:00 [Initialize] 正常模式启用：使用PortfolioConstruction模块
+2024-06-20 00:00:00 Accurate daily end-times now enabled by default. See more at https://qnt.co/3YHaWHL. To disable it and use legacy daily bars set self.settings.daily_precise_end_time = False.
+2024-07-02 00:00:00 [UniverseSelection] 收到主控调度，准备执行下一轮选股
+2024-07-02 00:00:00 =====================================第【1】次选股=====================================
+2024-07-02 00:00:00 [UniverseSelection] 粗选完成: 234只股票通过筛选
+2024-07-02 00:00:00 [UniverseSelection] 财务筛选: 候选163只 → 通过82只 (过滤81只)
+2024-07-02 00:00:00 [UniverseSelection] 财务过滤明细: PE(37) ROE(24) 债务(22) 杠杆(42)
+2024-07-02 00:00:00 [UniverseSelection] 行业分布: CommunicationServices(7) ConsumerCyclical(11) ConsumerDefensive(8) Energy(8) Healthcare(18) Industrials(18) Technology(10) Utilities(2)
+2024-07-02 00:00:00 [UniverseSelection] 选股完成: 共82只股票, 前5样本: ['MSFT', 'CRM', 'QCOM', 'AMAT', 'CSCO']
+2024-07-02 16:00:00 [AlphaModel] 数据统计: 82只 → 有效82只
+2024-07-02 16:00:00 [AlphaModel] 波动率筛选: 候选82只 → 通过80只 (波动率过滤2只)
+2024-07-02 16:00:00 [AlphaModel] 行业协整对: Healthcare(2) Technology(1) Industrials(4) CommunicationServices(1)
+2024-07-02 16:00:00 [AlphaModel] 建模统计: 动态更新0对, 完整建模8对, 总成功8对
+2024-07-02 16:00:00 [AlphaModel] 完整建模: CI-HUM, HUM-SYK, ANET-KLAC, PH-URI, CTAS-TT, CAT-EMR, PH-WM, T-TMUS
+2024-07-02 16:00:00 [AlphaModel] 生成信号: 2对
+2024-07-02 16:00:00 [PC] 信号处理: 总计2组, 有效0组, 忽略2组, 转换0组
+2024-07-02 16:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-07-03 00:00:00 [PC] 信号处理: 总计0组, 有效0组, 忽略0组, 转换0组
+2024-07-03 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-07-03 13:00:00 [AlphaModel] 生成信号: 4对
+2024-07-03 13:00:00 [PC] 信号处理: 总计4组, 有效0组, 忽略4组, 转换0组
+2024-07-03 13:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-07-05 00:00:00 [PC] 信号处理: 总计0组, 有效0组, 忽略0组, 转换0组
+2024-07-05 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-07-05 16:00:00 [AlphaModel] zscore -1.8230 [买 | 卖] PH-WM
+2024-07-05 16:00:00 [AlphaModel] 生成信号: 2对
+2024-07-05 16:00:00 [PC]: [PH, WM] | [BUY, SELL] | [0.0866, -0.0769] | beta=1.126
+2024-07-05 16:00:00 [PC] 信号处理: 总计2组, 有效1组, 忽略1组, 转换0组
+2024-07-05 16:00:00 [PC] 生成 【1】 组 PortfolioTarget
+2024-07-05 16:00:00 Warning: all market orders sent using daily data, or market orders sent after hours are automatically converted into MarketOnOpen orders.
+2024-07-08 00:00:00 [PC] 信号处理: 总计0组, 有效0组, 忽略0组, 转换0组
+2024-07-08 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-07-08 16:00:00 [AlphaModel] zscore -1.7002 [买 | 卖] PH-WM
+2024-07-08 16:00:00 [AlphaModel] 生成信号: 4对
+2024-07-08 16:00:00 [PC] 信号处理: 总计4组, 有效0组, 忽略4组, 转换0组
+2024-07-08 16:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-07-09 00:00:00 [PC] 信号处理: 总计0组, 有效0组, 忽略0组, 转换0组
+2024-07-09 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-07-09 16:00:00 [AlphaModel] 生成信号: 4对
+2024-07-09 16:00:00 [PC] 信号处理: 总计4组, 有效0组, 忽略4组, 转换0组
+2024-07-09 16:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-07-10 00:00:00 [PC] 信号处理: 总计0组, 有效0组, 忽略0组, 转换0组
+2024-07-10 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-07-10 16:00:00 [AlphaModel] zscore -1.6657 [买 | 卖] CAT-EMR
+2024-07-10 16:00:00 [AlphaModel] 生成信号: 2对
+2024-07-10 16:00:00 [PC]: [CAT, EMR] | [BUY, SELL] | [0.0929, -0.0642] | beta=1.448
+2024-07-10 16:00:00 [PC] 信号处理: 总计2组, 有效1组, 忽略1组, 转换0组
+2024-07-10 16:00:00 [PC] 生成 【1】 组 PortfolioTarget
+2024-07-11 00:00:00 [PC] 信号处理: 总计0组, 有效0组, 忽略0组, 转换0组
+2024-07-11 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-07-11 16:00:00 [AlphaModel] zscore -2.3087 [买 | 卖] CAT-EMR
+2024-07-11 16:00:00 [AlphaModel] 生成信号: 4对
+2024-07-11 16:00:00 [PC] 信号处理: 总计4组, 有效0组, 忽略4组, 转换0组
+2024-07-11 16:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-07-12 16:00:00 [AlphaModel] zscore -2.1153 [买 | 卖] CAT-EMR
+2024-07-12 16:00:00 [AlphaModel] 生成信号: 4对
+2024-07-12 16:00:00 [PC] 信号处理: 总计4组, 有效0组, 忽略4组, 转换0组
+2024-07-12 16:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-07-15 00:00:00 [PC] 信号处理: 总计0组, 有效0组, 忽略0组, 转换0组
+2024-07-15 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-07-15 16:00:00 [AlphaModel] zscore -2.1123 [买 | 卖] CAT-EMR
+2024-07-15 16:00:00 [AlphaModel] 生成信号: 4对
+2024-07-15 16:00:00 [PC] 信号处理: 总计4组, 有效0组, 忽略4组, 转换0组
+2024-07-15 16:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-07-16 16:00:00 [AlphaModel] zscore -1.6515 [买 | 卖] CAT-EMR
+2024-07-16 16:00:00 [AlphaModel] 生成信号: 6对
+2024-07-16 16:00:00 [PC]: [PH, WM] | [FLAT, FLAT]
+2024-07-16 16:00:00 [PC] 信号处理: 总计6组, 有效1组, 忽略5组, 转换0组
+2024-07-16 16:00:00 [PC] 生成 【1】 组 PortfolioTarget
+2024-07-17 00:00:00 [PC] 信号处理: 总计0组, 有效0组, 忽略0组, 转换0组
+2024-07-17 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-07-17 16:00:00 [AlphaModel] zscore 2.1373 [卖 | 买] CI-HUM
+2024-07-17 16:00:00 [AlphaModel] zscore -1.6557 [买 | 卖] CAT-EMR
+2024-07-17 16:00:00 [AlphaModel] 生成信号: 3对
+2024-07-17 16:00:00 [PC]: [CI, HUM] | [SELL, BUY] | [-0.0495, 0.1002] | beta=-0.494
+2024-07-17 16:00:00 [PC] 信号处理: 总计3组, 有效1组, 忽略2组, 转换0组
+2024-07-17 16:00:00 [PC] 生成 【1】 组 PortfolioTarget
+2024-07-18 00:00:00 [PC] 信号处理: 总计0组, 有效0组, 忽略0组, 转换0组
+2024-07-18 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-07-18 16:00:00 [AlphaModel] 生成信号: 1对
+2024-07-18 16:00:00 [PC] 信号处理: 总计1组, 有效0组, 忽略1组, 转换0组
+2024-07-18 16:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-07-19 00:00:00 [PC] 信号处理: 总计0组, 有效0组, 忽略0组, 转换0组
+2024-07-19 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-07-19 16:00:00 [AlphaModel] 生成信号: 1对
+2024-07-19 16:00:00 [PC] 信号处理: 总计1组, 有效0组, 忽略1组, 转换0组
+2024-07-19 16:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-07-22 00:00:00 [PC] 信号处理: 总计0组, 有效0组, 忽略0组, 转换0组
+2024-07-22 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-07-22 16:00:00 [AlphaModel] zscore -2.1244 [买 | 卖] CAT-EMR
+2024-07-22 16:00:00 [AlphaModel] 生成信号: 2对
+2024-07-22 16:00:00 [PC] 信号处理: 总计2组, 有效0组, 忽略2组, 转换0组
+2024-07-22 16:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-07-23 16:00:00 [AlphaModel] zscore 2.0108 [卖 | 买] CTAS-TT
+2024-07-23 16:00:00 [AlphaModel] zscore -2.3251 [买 | 卖] CAT-EMR
+2024-07-23 16:00:00 [AlphaModel] 生成信号: 3对
+2024-07-23 16:00:00 [PC]: [CTAS, TT] | [SELL, BUY] | [-0.0629, 0.0936] | beta=0.672
+2024-07-23 16:00:00 [PC] 信号处理: 总计3组, 有效1组, 忽略2组, 转换0组
+2024-07-23 16:00:00 [PC] 生成 【1】 组 PortfolioTarget
+2024-07-24 16:00:00 [AlphaModel] zscore -1.9949 [买 | 卖] PH-URI
+2024-07-24 16:00:00 [AlphaModel] zscore 2.8940 [卖 | 买] CTAS-TT
+2024-07-24 16:00:00 [AlphaModel] zscore -1.8217 [买 | 卖] CAT-EMR
+2024-07-24 16:00:00 [AlphaModel] zscore 2.0180 [卖 | 买] T-TMUS
+2024-07-24 16:00:00 [AlphaModel] 生成信号: 4对
+2024-07-24 16:00:00 [PC]: [PH, URI] | [BUY, SELL] | [0.0737, -0.1025] | beta=0.719
+2024-07-24 16:00:00 [PC]: [T, TMUS] | [SELL, BUY] | [-0.0865, 0.0818] | beta=1.058
+2024-07-24 16:00:00 [PC] 信号处理: 总计4组, 有效2组, 忽略2组, 转换0组
+2024-07-24 16:00:00 [PC] 生成 【2】 组 PortfolioTarget
+2024-07-25 16:00:00 [AlphaModel] zscore -2.3129 [买 | 卖] PH-URI
+2024-07-25 16:00:00 [AlphaModel] zscore 2.4776 [卖 | 买] T-TMUS
+2024-07-25 16:00:00 [AlphaModel] 生成信号: 4对
+2024-07-25 16:00:00 [PC]: [CTAS, TT] | [FLAT, FLAT]
+2024-07-25 16:00:00 [PC] 信号处理: 总计4组, 有效1组, 忽略3组, 转换0组
+2024-07-25 16:00:00 [PC] 生成 【1】 组 PortfolioTarget
+2024-07-26 16:00:00 [AlphaModel] zscore 1.8113 [卖 | 买] CI-HUM
+2024-07-26 16:00:00 [AlphaModel] zscore 2.3597 [卖 | 买] PH-WM
+2024-07-26 16:00:00 [AlphaModel] zscore 2.0296 [卖 | 买] T-TMUS
+2024-07-26 16:00:00 [AlphaModel] 生成信号: 4对
+2024-07-26 16:00:00 [PC]: [PH, WM] | [SELL, BUY] | [-0.0900, 0.0800] | beta=1.126
+2024-07-26 16:00:00 [PC] 信号处理: 总计4组, 有效1组, 忽略3组, 转换0组
+2024-07-26 16:00:00 [PC] 生成 【1】 组 PortfolioTarget
+2024-07-29 16:00:00 [AlphaModel] zscore 1.9786 [卖 | 买] CI-HUM
+2024-07-29 16:00:00 [AlphaModel] zscore -1.7117 [买 | 卖] PH-URI
+2024-07-29 16:00:00 [AlphaModel] zscore -2.3541 [买 | 卖] CAT-EMR
+2024-07-29 16:00:00 [AlphaModel] 生成信号: 5对
+2024-07-29 16:00:00 [PC]: [PH, URI] | [BUY, SELL] | [0.0737, -0.1025] | beta=0.719
+2024-07-29 16:00:00 Warning: Portfolio rebalance result ignored as it resulted in a single share trade recommendation which can generate high fees. To disable minimum order size checks please set Settings.MinimumOrderMarginPortfolioPercentage = 0.
+2024-07-29 16:00:00 [PC] 信号处理: 总计5组, 有效1组, 忽略4组, 转换0组
+2024-07-29 16:00:00 [PC] 生成 【1】 组 PortfolioTarget
+2024-07-30 16:00:00 [AlphaModel] zscore 2.6946 [卖 | 买] CI-HUM
+2024-07-30 16:00:00 [AlphaModel] zscore -1.9121 [买 | 卖] CAT-EMR
+2024-07-30 16:00:00 [AlphaModel] zscore 2.0085 [卖 | 买] T-TMUS
+2024-07-30 16:00:00 [AlphaModel] 生成信号: 5对
+2024-07-30 16:00:00 [PC] 信号处理: 总计5组, 有效0组, 忽略5组, 转换0组
+2024-07-30 16:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-07-31 00:00:00 [PC] 信号处理: 总计0组, 有效0组, 忽略0组, 转换0组
+2024-07-31 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-07-31 16:00:00 [AlphaModel] zscore -2.0238 [买 | 卖] CAT-EMR
+2024-07-31 16:00:00 [AlphaModel] zscore 1.8482 [卖 | 买] PH-WM
+2024-07-31 16:00:00 [AlphaModel] 生成信号: 4对
+2024-07-31 16:00:00 [PC]: [PH, WM] | [SELL, BUY] | [-0.0900, 0.0800] | beta=1.126
+2024-07-31 16:00:00 [PC] 信号处理: 总计4组, 有效1组, 忽略3组, 转换0组
+2024-07-31 16:00:00 [PC] 生成 【1】 组 PortfolioTarget
+2024-08-01 00:00:00 [PC] 信号处理: 总计0组, 有效0组, 忽略0组, 转换0组
+2024-08-01 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-08-01 16:00:00 [UniverseSelection] 收到主控调度，准备执行下一轮选股
+2024-08-01 16:00:00 [AlphaModel] zscore -1.8445 [买 | 卖] CAT-EMR
+2024-08-01 16:00:00 [AlphaModel] 生成信号: 5对
+2024-08-01 16:00:00 [PC]: [CI, HUM] | [FLAT, FLAT]
+2024-08-01 16:00:00 [PC]: [PH, WM] | [FLAT, FLAT]
+2024-08-01 16:00:00 [PC] 信号处理: 总计5组, 有效2组, 忽略3组, 转换0组
+2024-08-01 16:00:00 [PC] 生成 【2】 组 PortfolioTarget
+2024-08-02 00:00:00 =====================================第【2】次选股=====================================
+2024-08-02 00:00:00 [UniverseSelection] 粗选完成: 326只股票通过筛选
+2024-08-02 00:00:00 [UniverseSelection] 财务筛选: 候选186只 → 通过108只 (过滤78只)
+2024-08-02 00:00:00 [UniverseSelection] 财务过滤明细: PE(37) ROE(20) 债务(19) 杠杆(39)
+2024-08-02 00:00:00 [UniverseSelection] 行业分布: CommunicationServices(8) ConsumerCyclical(12) ConsumerDefensive(12) Energy(16) Healthcare(17) Industrials(21) Technology(13) Utilities(9)
+2024-08-02 00:00:00 [UniverseSelection] 选股完成: 共108只股票, 前5样本: ['MSFT', 'CRM', 'ADBE', 'ACN', 'QCOM']
+2024-08-02 16:00:00 [AlphaModel] 实际选股间隔: 31天 (上次: 2024-07-02)
+2024-08-02 16:00:00 [AlphaModel] 数据统计: 108只 → 有效108只
+2024-08-02 16:00:00 [AlphaModel] 波动率筛选: 候选108只 → 通过98只 (波动率过滤10只)
+2024-08-02 16:00:00 [AlphaModel] 行业协整对: Healthcare(2) Industrials(4) CommunicationServices(2) Energy(1)
+2024-08-02 16:00:00 [AlphaModel] 建模统计: 动态更新5对, 完整建模4对, 总成功9对
+2024-08-02 16:00:00 [AlphaModel] 动态更新: CI-HUM, HUM-SYK, PH-WM, PH-URI, T-TMUS
+2024-08-02 16:00:00 [AlphaModel] 完整建模: AME-PCAR, URI-WM, CMCSA-GOOG, OXY-HES
+2024-08-02 16:00:00 [AlphaModel] zscore -2.0843 [买 | 卖] AME-PCAR
+2024-08-02 16:00:00 [AlphaModel] 生成信号: 4对
+2024-08-02 16:00:00 [PC]: [AME, PCAR] | [BUY, SELL] | [0.0546, -0.1131] | beta=0.482
+2024-08-02 16:00:00 [PC] 信号处理: 总计4组, 有效1组, 忽略3组, 转换0组
+2024-08-02 16:00:00 [PC] 生成 【1】 组 PortfolioTarget
+2024-08-05 00:00:00 [PC] 信号处理: 总计0组, 有效0组, 忽略0组, 转换0组
+2024-08-05 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-08-05 16:00:00 [AlphaModel] zscore -1.6807 [买 | 卖] CI-HUM
+2024-08-05 16:00:00 [AlphaModel] zscore -1.7902 [买 | 卖] T-TMUS
+2024-08-05 16:00:00 [AlphaModel] 生成信号: 4对
+2024-08-05 16:00:00 [PC]: [CI, HUM] | [BUY, SELL] | [0.0544, -0.1134] | beta=-0.480
+2024-08-05 16:00:00 [PC] 信号转换: T-TMUS [买|卖→平仓]
+2024-08-05 16:00:00 [PC]: [T, TMUS] | [FLAT, FLAT]
+2024-08-05 16:00:00 [PC] 信号处理: 总计4组, 有效1组, 忽略2组, 转换1组
+2024-08-05 16:00:00 [PC] 生成 【2】 组 PortfolioTarget
+2024-08-06 16:00:00 [AlphaModel] zscore -1.9620 [买 | 卖] T-TMUS
+2024-08-06 16:00:00 [AlphaModel] 生成信号: 2对
+2024-08-06 16:00:00 [PC]: [T, TMUS] | [BUY, SELL] | [0.0754, -0.0715] | beta=1.055
+2024-08-06 16:00:00 [PC] 信号处理: 总计2组, 有效1组, 忽略1组, 转换0组
+2024-08-06 16:00:00 [PC] 生成 【1】 组 PortfolioTarget
+2024-08-07 00:00:00 [PC] 信号处理: 总计0组, 有效0组, 忽略0组, 转换0组
+2024-08-07 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-08-07 16:00:00 [AlphaModel] zscore -1.8168 [买 | 卖] CI-HUM
+2024-08-07 16:00:00 [AlphaModel] zscore -1.9560 [买 | 卖] T-TMUS
+2024-08-07 16:00:00 [AlphaModel] 生成信号: 5对
+2024-08-07 16:00:00 [PC] 信号处理: 总计5组, 有效0组, 忽略5组, 转换0组
+2024-08-07 16:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-08-08 16:00:00 [AlphaModel] zscore -2.9962 [买 | 卖] HUM-SYK
+2024-08-08 16:00:00 [AlphaModel] zscore 1.9637 [卖 | 买] PH-WM
+2024-08-08 16:00:00 [AlphaModel] zscore -2.4082 [买 | 卖] T-TMUS
+2024-08-08 16:00:00 [AlphaModel] zscore 1.9763 [卖 | 买] OXY-HES
+2024-08-08 16:00:00 [AlphaModel] 生成信号: 5对
+2024-08-08 16:00:00 [PC]: [HUM, SYK] | [BUY, SELL] | [0.0837, -0.0548] | beta=-1.528
+2024-08-08 16:00:00 [PC]: [PH, WM] | [SELL, BUY] | [-0.0796, 0.0713] | beta=1.116
+2024-08-08 16:00:00 [PC]: [OXY, HES] | [SELL, BUY] | [-0.0704, 0.0759] | beta=0.928
+2024-08-08 16:00:00 [PC] 信号处理: 总计5组, 有效3组, 忽略2组, 转换0组
+2024-08-08 16:00:00 [PC] 生成 【3】 组 PortfolioTarget
+2024-08-09 00:00:00 [PC] 信号处理: 总计0组, 有效0组, 忽略0组, 转换0组
+2024-08-09 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-08-09 16:00:00 [AlphaModel] zscore -2.7360 [买 | 卖] HUM-SYK
+2024-08-09 16:00:00 [AlphaModel] zscore 2.0886 [卖 | 买] PH-WM
+2024-08-09 16:00:00 [AlphaModel] zscore -2.3617 [买 | 卖] T-TMUS
+2024-08-09 16:00:00 [AlphaModel] 生成信号: 5对
+2024-08-09 16:00:00 [PC]: [AME, PCAR] | [FLAT, FLAT]
+2024-08-09 16:00:00 [PC] 信号处理: 总计5组, 有效1组, 忽略4组, 转换0组
+2024-08-09 16:00:00 [PC] 生成 【1】 组 PortfolioTarget
+2024-08-12 00:00:00 [PC] 信号处理: 总计0组, 有效0组, 忽略0组, 转换0组
+2024-08-12 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-08-12 16:00:00 [AlphaModel] zscore -1.7870 [买 | 卖] CI-HUM
+2024-08-12 16:00:00 [AlphaModel] zscore 2.2453 [卖 | 买] PH-WM
+2024-08-12 16:00:00 [AlphaModel] zscore -2.7020 [买 | 卖] T-TMUS
+2024-08-12 16:00:00 [AlphaModel] zscore 1.8519 [卖 | 买] OXY-HES
+2024-08-12 16:00:00 [AlphaModel] 生成信号: 6对
+2024-08-12 16:00:00 [PC]: [CI, HUM] | [BUY, SELL] | [0.0544, -0.1134] | beta=-0.480
+2024-08-12 16:00:00 [PC]: [HUM, SYK] | [FLAT, FLAT]
+2024-08-12 16:00:00 [PC] 信号处理: 总计6组, 有效2组, 忽略4组, 转换0组
+2024-08-12 16:00:00 [PC] 生成 【2】 组 PortfolioTarget
+2024-08-13 00:00:00 [PC] 信号处理: 总计0组, 有效0组, 忽略0组, 转换0组
+2024-08-13 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-08-13 16:00:00 [AlphaModel] zscore -2.1568 [买 | 卖] HUM-SYK
+2024-08-13 16:00:00 [AlphaModel] zscore 2.2863 [卖 | 买] PH-WM
+2024-08-13 16:00:00 [AlphaModel] zscore -2.5703 [买 | 卖] T-TMUS
+2024-08-13 16:00:00 [AlphaModel] 生成信号: 4对
+2024-08-13 16:00:00 [PC]: [HUM, SYK] | [BUY, SELL] | [0.0837, -0.0548] | beta=-1.528
+2024-08-13 16:00:00 [PC] 信号处理: 总计4组, 有效1组, 忽略3组, 转换0组
+2024-08-13 16:00:00 [PC] 生成 【1】 组 PortfolioTarget
+2024-08-14 00:00:00 [PC] 信号处理: 总计0组, 有效0组, 忽略0组, 转换0组
+2024-08-14 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-08-14 16:00:00 [AlphaModel] zscore -1.7492 [买 | 卖] HUM-SYK
+2024-08-14 16:00:00 [AlphaModel] zscore 2.2617 [卖 | 买] PH-WM
+2024-08-14 16:00:00 [AlphaModel] zscore -2.6547 [买 | 卖] T-TMUS
+2024-08-14 16:00:00 [AlphaModel] 生成信号: 5对
+2024-08-14 16:00:00 [PC] 信号处理: 总计5组, 有效0组, 忽略5组, 转换0组
+2024-08-14 16:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-08-15 00:00:00 [PC] 信号处理: 总计0组, 有效0组, 忽略0组, 转换0组
+2024-08-15 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-08-15 16:00:00 [AlphaModel] zscore 2.6119 [卖 | 买] PH-WM
+2024-08-15 16:00:00 [AlphaModel] 生成信号: 4对
+2024-08-15 16:00:00 [PC]: [T, TMUS] | [FLAT, FLAT]
+2024-08-15 16:00:00 [PC] 信号处理: 总计4组, 有效1组, 忽略3组, 转换0组
+2024-08-15 16:00:00 [PC] 生成 【1】 组 PortfolioTarget
+2024-08-16 00:00:00 [PC] 信号处理: 总计0组, 有效0组, 忽略0组, 转换0组
+2024-08-16 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-08-16 16:00:00 [AlphaModel] zscore 2.5256 [卖 | 买] PH-WM
+2024-08-16 16:00:00 [AlphaModel] 生成信号: 5对
+2024-08-16 16:00:00 [PC] 信号处理: 总计5组, 有效0组, 忽略5组, 转换0组
+2024-08-16 16:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-08-19 00:00:00 [PC] 信号处理: 总计0组, 有效0组, 忽略0组, 转换0组
+2024-08-19 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-08-19 16:00:00 [AlphaModel] zscore 2.5037 [卖 | 买] PH-WM
+2024-08-19 16:00:00 [AlphaModel] 生成信号: 4对
+2024-08-19 16:00:00 [PC]: [OXY, HES] | [FLAT, FLAT]
+2024-08-19 16:00:00 [PC] 信号处理: 总计4组, 有效1组, 忽略3组, 转换0组
+2024-08-19 16:00:00 [PC] 生成 【1】 组 PortfolioTarget
+2024-08-20 00:00:00 [PC] 信号处理: 总计0组, 有效0组, 忽略0组, 转换0组
+2024-08-20 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-08-20 16:00:00 [AlphaModel] zscore 2.2099 [卖 | 买] PH-WM
+2024-08-20 16:00:00 [AlphaModel] zscore -2.8951 [买 | 卖] T-TMUS
+2024-08-20 16:00:00 [AlphaModel] 生成信号: 4对
+2024-08-20 16:00:00 [PC]: [T, TMUS] | [BUY, SELL] | [0.0754, -0.0715] | beta=1.055
+2024-08-20 16:00:00 [PC] 信号处理: 总计4组, 有效1组, 忽略3组, 转换0组
+2024-08-20 16:00:00 [PC] 生成 【1】 组 PortfolioTarget
+2024-08-21 00:00:00 [PC] 信号处理: 总计0组, 有效0组, 忽略0组, 转换0组
+2024-08-21 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-08-21 16:00:00 [AlphaModel] zscore 2.1986 [卖 | 买] PH-WM
+2024-08-21 16:00:00 [AlphaModel] zscore -2.5669 [买 | 卖] T-TMUS
+2024-08-21 16:00:00 [AlphaModel] 生成信号: 6对
+2024-08-21 16:00:00 [PC]: [HUM, SYK] | [FLAT, FLAT]
+2024-08-21 16:00:00 [PC] 信号处理: 总计6组, 有效1组, 忽略5组, 转换0组
+2024-08-21 16:00:00 [PC] 生成 【1】 组 PortfolioTarget
+2024-08-22 00:00:00 [PC] 信号处理: 总计0组, 有效0组, 忽略0组, 转换0组
+2024-08-22 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-08-22 16:00:00 [AlphaModel] zscore 2.1676 [卖 | 买] PH-WM
+2024-08-22 16:00:00 [AlphaModel] zscore -2.8768 [买 | 卖] T-TMUS
+2024-08-22 16:00:00 [AlphaModel] 生成信号: 6对
+2024-08-22 16:00:00 [PC] 信号处理: 总计6组, 有效0组, 忽略6组, 转换0组
+2024-08-22 16:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-08-23 16:00:00 [AlphaModel] zscore 2.3934 [卖 | 买] PH-WM
+2024-08-23 16:00:00 [AlphaModel] zscore -2.9141 [买 | 卖] T-TMUS
+2024-08-23 16:00:00 [AlphaModel] 生成信号: 5对
+2024-08-23 16:00:00 [PC] 信号处理: 总计5组, 有效0组, 忽略5组, 转换0组
+2024-08-23 16:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-08-26 16:00:00 [AlphaModel] zscore 2.4287 [卖 | 买] PH-WM
+2024-08-26 16:00:00 [AlphaModel] 生成信号: 4对
+2024-08-26 16:00:00 [PC]: [T, TMUS] | [FLAT, FLAT]
+2024-08-26 16:00:00 [PC] 信号处理: 总计4组, 有效1组, 忽略3组, 转换0组
+2024-08-26 16:00:00 [PC] 生成 【1】 组 PortfolioTarget
+2024-08-27 00:00:00 [PC] 信号处理: 总计0组, 有效0组, 忽略0组, 转换0组
+2024-08-27 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-08-27 16:00:00 [AlphaModel] zscore 2.3522 [卖 | 买] PH-WM
+2024-08-27 16:00:00 [AlphaModel] 生成信号: 4对
+2024-08-27 16:00:00 [PC] 信号处理: 总计4组, 有效0组, 忽略4组, 转换0组
+2024-08-27 16:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-08-28 00:00:00 [PC] 信号处理: 总计0组, 有效0组, 忽略0组, 转换0组
+2024-08-28 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-08-28 16:00:00 [AlphaModel] zscore 2.3263 [卖 | 买] PH-WM
+2024-08-28 16:00:00 [AlphaModel] zscore 1.6706 [卖 | 买] AME-PCAR
+2024-08-28 16:00:00 [AlphaModel] 生成信号: 6对
+2024-08-28 16:00:00 [PC]: [AME, PCAR] | [SELL, BUY] | [-0.0432, 0.0895] | beta=0.482
+2024-08-28 16:00:00 [PC] 信号处理: 总计6组, 有效1组, 忽略5组, 转换0组
+2024-08-28 16:00:00 [PC] 生成 【1】 组 PortfolioTarget
+2024-08-29 16:00:00 [AlphaModel] zscore 2.3725 [卖 | 买] PH-WM
+2024-08-29 16:00:00 [AlphaModel] zscore 1.8290 [卖 | 买] AME-PCAR
+2024-08-29 16:00:00 [AlphaModel] 生成信号: 5对
+2024-08-29 16:00:00 [PC] 信号处理: 总计5组, 有效0组, 忽略5组, 转换0组
+2024-08-29 16:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-08-30 00:00:00 [PC] 信号处理: 总计0组, 有效0组, 忽略0组, 转换0组
+2024-08-30 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-08-30 16:00:00 [AlphaModel] zscore 2.4425 [卖 | 买] PH-WM
+2024-08-30 16:00:00 [AlphaModel] zscore 1.9099 [卖 | 买] AME-PCAR
+2024-08-30 16:00:00 [AlphaModel] zscore -2.6882 [买 | 卖] T-TMUS
+2024-08-30 16:00:00 [AlphaModel] 生成信号: 5对
+2024-08-30 16:00:00 [PC]: [T, TMUS] | [BUY, SELL] | [0.0754, -0.0715] | beta=1.055
+2024-08-30 16:00:00 [PC] 信号处理: 总计5组, 有效1组, 忽略4组, 转换0组
+2024-08-30 16:00:00 [PC] 生成 【1】 组 PortfolioTarget
+2024-09-03 00:00:00 [UniverseSelection] 收到主控调度，准备执行下一轮选股
+2024-09-03 00:00:00 [PC] 信号处理: 总计0组, 有效0组, 忽略0组, 转换0组
+2024-09-03 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-09-03 16:00:00 [AlphaModel] zscore 2.0195 [卖 | 买] CI-HUM
+2024-09-03 16:00:00 [AlphaModel] zscore 1.8435 [卖 | 买] HUM-SYK
+2024-09-03 16:00:00 [AlphaModel] zscore 1.9001 [卖 | 买] PH-WM
+2024-09-03 16:00:00 [AlphaModel] zscore -1.8054 [买 | 卖] T-TMUS
+2024-09-03 16:00:00 [AlphaModel] 生成信号: 5对
+2024-09-03 16:00:00 [PC]: [CI, HUM] | [SELL, BUY] | [-0.0430, 0.0896] | beta=-0.480
+2024-09-03 16:00:00 [PC]: [HUM, SYK] | [SELL, BUY] | [-0.0962, 0.0630] | beta=-1.528
+2024-09-03 16:00:00 [PC] 信号处理: 总计5组, 有效2组, 忽略3组, 转换0组
+2024-09-03 16:00:00 [PC] 生成 【2】 组 PortfolioTarget
+2024-09-04 00:00:00 =====================================第【3】次选股=====================================
+2024-09-04 00:00:00 [UniverseSelection] 粗选完成: 271只股票通过筛选
+2024-09-04 00:00:00 [UniverseSelection] 财务筛选: 候选177只 → 通过105只 (过滤72只)
+2024-09-04 00:00:00 [UniverseSelection] 财务过滤明细: PE(35) ROE(16) 债务(19) 杠杆(38)
+2024-09-04 00:00:00 [UniverseSelection] 行业分布: CommunicationServices(9) ConsumerCyclical(14) ConsumerDefensive(13) Energy(14) Healthcare(18) Industrials(19) Technology(12) Utilities(6)
+2024-09-04 00:00:00 [UniverseSelection] 选股完成: 共105只股票, 前5样本: ['MSFT', 'CRM', 'ACN', 'CSCO', 'TXN']
+2024-09-04 00:00:00 [AlphaModel] 实际选股间隔: 32天 (上次: 2024-08-02)
+2024-09-04 00:00:00 [AlphaModel] 数据统计: 105只 → 有效105只
+2024-09-04 00:00:00 [AlphaModel] 波动率筛选: 候选105只 → 通过95只 (波动率过滤10只)
+2024-09-04 00:00:00 [AlphaModel] 行业协整对: ConsumerCyclical(3) Healthcare(3) Technology(2) Industrials(1) CommunicationServices(3)
+2024-09-04 00:00:00 [AlphaModel] 建模统计: 动态更新3对, 完整建模9对, 总成功12对
+2024-09-04 00:00:00 [AlphaModel] 动态更新: CI-HUM, T-TMUS, CMCSA-GOOG
+2024-09-04 00:00:00 [AlphaModel] 完整建模: AMZN-DECK, GM-TSCO, AMZN-DKS, BDX-DHR, ELV-DHR, CSCO-MSFT, CSCO-APH, GD-TT, META-NFLX
+2024-09-04 00:00:00 [PC] 信号处理: 总计0组, 有效0组, 忽略0组, 转换0组
+2024-09-04 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-09-04 16:00:00 [AlphaModel] zscore 2.1880 [卖 | 买] CI-HUM
+2024-09-04 16:00:00 [AlphaModel] zscore -1.8080 [买 | 卖] CMCSA-GOOG
+2024-09-04 16:00:00 [AlphaModel] 生成信号: 2对
+2024-09-04 16:00:00 [PC]: [CMCSA, GOOG] | [BUY, SELL] | [0.0338, -0.0991] | beta=-0.341
+2024-09-04 16:00:00 [PC] 信号处理: 总计2组, 有效1组, 忽略1组, 转换0组
+2024-09-04 16:00:00 [PC] 生成 【1】 组 PortfolioTarget
+2024-09-05 00:00:00 [PC] 信号处理: 总计0组, 有效0组, 忽略0组, 转换0组
+2024-09-05 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-09-05 16:00:00 [AlphaModel] 生成信号: 2对
+2024-09-05 16:00:00 [PC] 信号处理: 总计2组, 有效0组, 忽略2组, 转换0组
+2024-09-05 16:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-09-06 00:00:00 [PC] 信号处理: 总计0组, 有效0组, 忽略0组, 转换0组
+2024-09-06 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-09-06 16:00:00 [AlphaModel] zscore 1.7247 [卖 | 买] T-TMUS
+2024-09-06 16:00:00 [AlphaModel] 生成信号: 4对
+2024-09-06 16:00:00 [PC] 信号转换: T-TMUS [卖|买→平仓]
+2024-09-06 16:00:00 [PC]: [T, TMUS] | [FLAT, FLAT]
+2024-09-06 16:00:00 [PC] 信号处理: 总计4组, 有效0组, 忽略3组, 转换1组
+2024-09-06 16:00:00 [PC] 生成 【1】 组 PortfolioTarget
+2024-09-09 00:00:00 [PC] 信号处理: 总计0组, 有效0组, 忽略0组, 转换0组
+2024-09-09 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-09-09 16:00:00 [AlphaModel] zscore 2.0632 [卖 | 买] T-TMUS
+2024-09-09 16:00:00 [AlphaModel] 生成信号: 6对
+2024-09-09 16:00:00 [PC]: [T, TMUS] | [SELL, BUY] | [-0.0568, 0.0549] | beta=1.034
+2024-09-09 16:00:00 [PC] 信号处理: 总计6组, 有效1组, 忽略5组, 转换0组
+2024-09-09 16:00:00 [PC] 生成 【1】 组 PortfolioTarget
+2024-09-10 00:00:00 [PC] 信号处理: 总计0组, 有效0组, 忽略0组, 转换0组
+2024-09-10 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-09-10 16:00:00 [AlphaModel] zscore 2.1697 [卖 | 买] T-TMUS
+2024-09-10 16:00:00 [AlphaModel] zscore -2.0054 [买 | 卖] CMCSA-GOOG
+2024-09-10 16:00:00 [AlphaModel] 生成信号: 4对
+2024-09-10 16:00:00 [PC] 信号处理: 总计4组, 有效0组, 忽略4组, 转换0组
+2024-09-10 16:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-09-11 16:00:00 [AlphaModel] zscore -2.2947 [买 | 卖] CMCSA-GOOG
+2024-09-11 16:00:00 [AlphaModel] 生成信号: 3对
+2024-09-11 16:00:00 [PC]: [CI, HUM] | [FLAT, FLAT]
+2024-09-11 16:00:00 [PC] 信号处理: 总计3组, 有效1组, 忽略2组, 转换0组
+2024-09-11 16:00:00 [PC] 生成 【1】 组 PortfolioTarget
+2024-09-12 16:00:00 [AlphaModel] 生成信号: 2对
+2024-09-12 16:00:00 [PC] 信号处理: 总计2组, 有效0组, 忽略2组, 转换0组
+2024-09-12 16:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-09-13 00:00:00 [PC] 信号处理: 总计0组, 有效0组, 忽略0组, 转换0组
+2024-09-13 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-09-13 16:00:00 [AlphaModel] 生成信号: 3对
+2024-09-13 16:00:00 [PC] 信号处理: 总计3组, 有效0组, 忽略3组, 转换0组
+2024-09-13 16:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-09-16 00:00:00 [PC] 信号处理: 总计0组, 有效0组, 忽略0组, 转换0组
+2024-09-16 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-09-16 16:00:00 [AlphaModel] zscore 2.3431 [卖 | 买] CSCO-MSFT
+2024-09-16 16:00:00 [AlphaModel] zscore 2.1548 [卖 | 买] CSCO-APH
+2024-09-16 16:00:00 [AlphaModel] 生成信号: 6对
+2024-09-16 16:00:00 [PC]: [CSCO, MSFT] | [SELL, BUY] | [-0.0243, 0.0712] | beta=-0.341
+2024-09-16 16:00:00 [PC] Beta超出范围，跳过: CSCO-APH, beta=-0.186
+2024-09-16 16:00:00 [PC] 信号处理: 总计6组, 有效2组, 忽略4组, 转换0组
+2024-09-16 16:00:00 [PC] 生成 【1】 组 PortfolioTarget
+2024-09-17 00:00:00 [PC] 信号处理: 总计0组, 有效0组, 忽略0组, 转换0组
+2024-09-17 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-09-17 16:00:00 [AlphaModel] zscore 2.1837 [卖 | 买] CSCO-MSFT
+2024-09-17 16:00:00 [AlphaModel] zscore 1.9918 [卖 | 买] CSCO-APH
+2024-09-17 16:00:00 [AlphaModel] 生成信号: 6对
+2024-09-17 16:00:00 [PC] Beta超出范围，跳过: CSCO-APH, beta=-0.186
+2024-09-17 16:00:00 [PC] 信号处理: 总计6组, 有效1组, 忽略5组, 转换0组
+2024-09-17 16:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-09-18 00:00:00 [PC] 信号处理: 总计0组, 有效0组, 忽略0组, 转换0组
+2024-09-18 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-09-18 16:00:00 [AlphaModel] zscore 2.0560 [卖 | 买] CSCO-MSFT
+2024-09-18 16:00:00 [AlphaModel] zscore 1.9113 [卖 | 买] CSCO-APH
+2024-09-18 16:00:00 [AlphaModel] zscore 2.1690 [卖 | 买] T-TMUS
+2024-09-18 16:00:00 [AlphaModel] 生成信号: 6对
+2024-09-18 16:00:00 [PC] Beta超出范围，跳过: CSCO-APH, beta=-0.186
+2024-09-18 16:00:00 [PC] 信号处理: 总计6组, 有效1组, 忽略5组, 转换0组
+2024-09-18 16:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-09-19 00:00:00 [PC] 信号处理: 总计0组, 有效0组, 忽略0组, 转换0组
+2024-09-19 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-09-19 16:00:00 [AlphaModel] zscore 2.7604 [卖 | 买] CSCO-MSFT
+2024-09-19 16:00:00 [AlphaModel] zscore 2.5660 [卖 | 买] CSCO-APH
+2024-09-19 16:00:00 [AlphaModel] 生成信号: 2对
+2024-09-19 16:00:00 [PC] Beta超出范围，跳过: CSCO-APH, beta=-0.186
+2024-09-19 16:00:00 [PC] 信号处理: 总计2组, 有效1组, 忽略1组, 转换0组
+2024-09-19 16:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-09-20 00:00:00 [PC] 信号处理: 总计0组, 有效0组, 忽略0组, 转换0组
+2024-09-20 00:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-09-20 16:00:00 [AlphaModel] zscore 2.9901 [卖 | 买] CSCO-MSFT
+2024-09-20 16:00:00 [AlphaModel] zscore 2.9107 [卖 | 买] CSCO-APH
+2024-09-20 16:00:00 [AlphaModel] 生成信号: 3对
+2024-09-20 16:00:00 [PC] Beta超出范围，跳过: CSCO-APH, beta=-0.186
+2024-09-20 16:00:00 [PC] 信号处理: 总计3组, 有效1组, 忽略2组, 转换0组
+2024-09-20 16:00:00 [PC] 生成 【0】 组 PortfolioTarget
+2024-09-21 00:00:00 Algorithm Id:(c4d662940e1e90c1c1546e89e2526356) completed in 244.60 seconds at 0k data points per second. Processing total of 106,085 data points.

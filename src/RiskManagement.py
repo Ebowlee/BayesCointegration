@@ -117,7 +117,7 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
 
     def IsSelectionOnNextDay(self):
         """
-        外部调用的接口：设置选股日标志
+        外部调用的接口: 设置选股日标志
         """
         self.is_selection_on_next_day = True
         self.algorithm.Debug("[RiskManagement] - IsSelectionOnNextDay: True") 

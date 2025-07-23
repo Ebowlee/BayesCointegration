@@ -1,17 +1,17 @@
 # region imports
 from AlgorithmImports import *
-from typing import List  # 通常用于类型提示，当前结构中是良好习惯
+from typing import List  # 通常用于类型提示, 当前结构中是良好习惯
 from AlgorithmImports import PortfolioTargetCollection
 # endregion
 
 class MyExecutionModel(ExecutionModel):
     """
-    工作流程：
-        1. 添加新的目标进集合；
-        2. 遍历所有未完成的目标；
-        3. 计算是否还有未执行的数量；
-        4. 若有未执行，则下单；
-        5. 清理已完成目标。
+    工作流程:
+        1. 添加新的目标进集合;
+        2. 遍历所有未完成的目标;
+        3. 计算是否还有未执行的数量;
+        4. 若有未执行, 则下单;
+        5. 清理已完成目标.
     """
 
     def __init__(self, algorithm: QCAlgorithm):
@@ -26,7 +26,7 @@ class MyExecutionModel(ExecutionModel):
         for t in targets:
             self.algorithm.Debug(f"[Execution] 下单目标: {t.Symbol.Value}, {t.Quantity}")
 
-        # 2. 成对处理（默认 PortfolioConstruction 输出顺序是成对的）
+        # 2. 成对处理(默认 PortfolioConstruction 输出顺序是成对的)
         if len(targets) != 0:
             pair_targets = []
             for target in targets:

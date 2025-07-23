@@ -5,15 +5,15 @@ from collections import defaultdict
 
 class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel):
     """
-    贝叶斯协整投资组合构建模型：
-    - 从 AlphaModel 获取 insights。
-    - 解析 Insight Tag 获取配对信息 (symbol2, beta)。
-    - 为每个 Insight (代表一个配对操作) 生成独立的 PortfolioTarget 对。
+    贝叶斯协整投资组合构建模型:
+    - 从 AlphaModel 获取 insights.
+    - 解析 Insight Tag 获取配对信息 (symbol2, beta).
+    - 为每个 Insight (代表一个配对操作) 生成独立的 PortfolioTarget 对.
       - Down: [PortfolioTarget(symbol1, -1), PortfolioTarget(symbol2, beta)]
       - Up:   [PortfolioTarget(symbol1, 1), PortfolioTarget(symbol2, -beta)]
       - Flat: [PortfolioTarget(symbol1, 0), PortfolioTarget(symbol2, 0)]
-    - 不在模型内部聚合单个资产的权重，保留每个配对的独立目标。
-    - 返回所有生成的 PortfolioTarget 对象的扁平列表。
+    - 不在模型内部聚合单个资产的权重,保留每个配对的独立目标.
+    - 返回所有生成的 PortfolioTarget 对象的扁平列表.
     """
     def __init__(self, algorithm, config):
         super().__init__() 
@@ -48,15 +48,13 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
             pair_targets = self._process_signal_pair(group, stats)
             targets.extend(pair_targets)
         
-        # 输出统计信息
-        self.algorithm.Debug(f"[PC] 信号处理: 总计{stats['total_groups']}组, 有效{stats['valid_signals']}组, 忽略{stats['ignored_signals']}组, 转换{stats['converted_signals']}组")
-        self.algorithm.Debug(f"[PC] 生成 【{len(targets)//2}】 组 PortfolioTarget")
+        # No longer output statistics to reduce log volume
         return targets
 
 
     def _process_signal_pair(self, group, stats):
         """
-        处理一对信号，返回有效的PortfolioTarget列表
+        处理一对信号,返回有效的PortfolioTarget列表
         """
         if len(group) != 2:
             self.algorithm.Debug(f"[PC] 接收到 {len(group)} 个信号, 预期应为2, 跳过")
@@ -82,7 +80,7 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         validated_direction = self._validate_signal(current_position, original_direction)
 
         if validated_direction is None:
-            # 无效信号，忽略
+            # 无效信号,忽略
             stats['ignored_signals'] += 1
             return []
 
@@ -117,7 +115,7 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         协整关系: log(symbol1) = alpha + beta × log(symbol2)
         即: symbol1 = y(因变量), symbol2 = x(自变量)
         
-        资金分配目标：
+        资金分配目标:
         1. 实现100%资金利用率
         2. 保持Beta中性风险对冲
         """
@@ -125,9 +123,9 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         beta_abs = abs(beta)
         m = self.margin_rate
         
-        # Beta筛选：只在合理范围内的beta值才建仓
+        # Beta筛选:只在合理范围内的beta值才建仓
         if beta_abs < 0.2 or beta_abs > 3.0:
-            self.algorithm.Debug(f"[PC] Beta超出范围，跳过: {symbol1.Value}-{symbol2.Value}, beta={beta:.3f}")
+            self.algorithm.Debug(f"[PC] Beta超出范围, 跳过: {symbol1.Value}-{symbol2.Value}, beta={beta:.3f}")
             return []
 
         # 平仓信号
@@ -135,37 +133,37 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
             self.algorithm.Debug(f"[PC]: [{symbol1.Value}, {symbol2.Value}] | [FLAT, FLAT]")
             return [PortfolioTarget.Percent(self.algorithm, symbol1, 0), PortfolioTarget.Percent(self.algorithm, symbol2, 0)]
 
-        # 建仓信号：根据协整关系和保证金机制计算权重
+        # 建仓信号:根据协整关系和保证金机制计算权重
         if direction == InsightDirection.Up and self.can_short(symbol2):
-            # InsightDirection.Up: y(symbol1)做多，x(symbol2)做空
-            # 算法：x做空出资 + y做多出资 = c，(x/m)*beta = y
+            # InsightDirection.Up: y(symbol1)做多,x(symbol2)做空
+            # 算法:x做空出资 + y做多出资 = c,(x/m)*beta = y
             y_fund = capital_per_pair * beta_abs / (m + beta_abs)  # y做多资金
             x_fund = capital_per_pair * m / (m + beta_abs)         # x做空保证金
             
-            # 转换为PortfolioTarget权重（头寸大小）
-            symbol1_weight = y_fund                    # y做多：权重 = 资金
-            symbol2_weight = -x_fund / m              # x做空：权重 = 资金/保证金率
+            # 转换为PortfolioTarget权重(头寸大小)
+            symbol1_weight = y_fund                    # y做多:权重 = 资金
+            symbol2_weight = -x_fund / m              # x做空:权重 = 资金/保证金率
             
             self.algorithm.Debug(f"[PC]: [{symbol1.Value}, {symbol2.Value}] | [BUY, SELL] | [{symbol1_weight:.4f}, {symbol2_weight:.4f}] | beta={beta:.3f}")
             return [PortfolioTarget.Percent(self.algorithm, symbol1, symbol1_weight), 
                    PortfolioTarget.Percent(self.algorithm, symbol2, symbol2_weight)] 
         
         elif direction == InsightDirection.Down and self.can_short(symbol1):
-            # InsightDirection.Down: y(symbol1)做空，x(symbol2)做多
-            # 算法：x做多出资 + y做空出资 = c，y/m = beta*x
+            # InsightDirection.Down: y(symbol1)做空,x(symbol2)做多
+            # 算法:x做多出资 + y做空出资 = c,y/m = beta*x
             y_fund = capital_per_pair * m * beta_abs / (1 + m * beta_abs)  # y做空保证金
             x_fund = capital_per_pair / (1 + m * beta_abs)                 # x做多资金
             
-            # 转换为PortfolioTarget权重（头寸大小）
-            symbol1_weight = -y_fund / m              # y做空：权重 = 资金/保证金率
-            symbol2_weight = x_fund                   # x做多：权重 = 资金
+            # 转换为PortfolioTarget权重(头寸大小)
+            symbol1_weight = -y_fund / m              # y做空:权重 = 资金/保证金率
+            symbol2_weight = x_fund                   # x做多:权重 = 资金
             
             self.algorithm.Debug(f"[PC]: [{symbol1.Value}, {symbol2.Value}] | [SELL, BUY] | [{symbol1_weight:.4f}, {symbol2_weight:.4f}] | beta={beta:.3f}")
             return [PortfolioTarget.Percent(self.algorithm, symbol1, symbol1_weight), 
                    PortfolioTarget.Percent(self.algorithm, symbol2, symbol2_weight)] 
         
         else:
-            self.algorithm.Debug(f"[PC]: 无法做空，跳过配对 [{symbol1.Value}, {symbol2.Value}]")
+            self.algorithm.Debug(f"[PC]: 无法做空,跳过配对 [{symbol1.Value}, {symbol2.Value}]")
             return []
 
 
@@ -191,11 +189,11 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         s2_quantity = portfolio[symbol2].Quantity
         
         if s1_quantity > 0 and s2_quantity < 0:
-            return InsightDirection.Up  # 多symbol1，空symbol2
+            return InsightDirection.Up  # 多symbol1,空symbol2
         elif s1_quantity < 0 and s2_quantity > 0:
-            return InsightDirection.Down  # 空symbol1，多symbol2
+            return InsightDirection.Down  # 空symbol1,多symbol2
         else:
-            # 异常状态：同向持仓或其他情况
+            # 异常状态:同向持仓或其他情况
             return None
 
 
@@ -210,23 +208,23 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         Returns:
             InsightDirection: 验证后的有效方向, None表示应忽略
         """
-        # 平仓信号：必须有持仓
+        # 平仓信号:必须有持仓
         if signal_direction == InsightDirection.Flat:
             return signal_direction if current_position is not None else None
         
         # 建仓信号
         if current_position is None:
-            # 未持仓，可以建仓
+            # 未持仓,可以建仓
             return signal_direction
         elif current_position == signal_direction:
-            # 同方向，忽略重复信号
+            # 同方向,忽略重复信号
             return None
         else:
-            # 反方向，转为平仓
+            # 反方向,转为平仓
             return InsightDirection.Flat
 
 
-    # 检查是否可以做空（回测环境所有股票都可以做空，实盘时需要检测）
+    # 检查是否可以做空(回测环境所有股票都可以做空,实盘时需要检测)
     def can_short(self, symbol: Symbol) -> bool:
         # security = self.algorithm.Securities[symbol]
         # shortable = security.ShortableProvider.ShortableQuantity(symbol, self.algorithm.Time)

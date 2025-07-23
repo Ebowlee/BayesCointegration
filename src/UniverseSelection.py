@@ -33,16 +33,16 @@ class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
 
     def TriggerSelection(self):
         """
-        外部调用的触发接口：用于在 main.py 中通过 Schedule.On 控制
+        外部调用的触发接口: 用于在 main.py 中通过 Schedule.On 控制
         """
         self.selection_on = True
-        self.algorithm.Debug("[UniverseSelection] 收到主控调度，准备执行下一轮选股")
+        self.algorithm.Debug("[UniverseSelection] 收到主控调度, 准备执行下一轮选股")
 
 
 
     def _select_coarse(self, coarse: List[CoarseFundamental]) -> List[Symbol]:
         """
-        粗选阶段，负责从所有股票中筛选出符合条件的股票, 轻量级的筛选方法
+        粗选阶段, 负责从所有股票中筛选出符合条件的股票, 轻量级的筛选方法
         """
         # 基础筛选
         filtered = [x for x in coarse if x.HasFundamentalData and 
@@ -54,7 +54,7 @@ class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
                        (self.algorithm.Time - x.SecurityReference.IPODate).days > self.min_ipo_days]
         
         coarse_selected = [x.Symbol for x in ipo_filtered]
-        # 暂存粗选数量，在细选阶段输出
+        # 暂存粗选数量, 在细选阶段输出
         self.coarse_selected_count = len(coarse_selected) if self.selection_on else 0
         return coarse_selected
 
@@ -62,7 +62,7 @@ class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
 
     def _select_fine(self, fine: List[FineFundamental]) -> List[Symbol]:
         """
-        细选阶段，主要是依据行业和财报信息
+        细选阶段, 主要是依据行业和财报信息
         """
         if self.selection_on:
             self.selection_on = False 
@@ -187,7 +187,7 @@ class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
 
     def _num_of_candidates(self, sectorCandidates):
         """
-        根据行业筛选出符合条件的股票，按市值降序排列
+        根据行业筛选出符合条件的股票, 按市值降序排列
         """
         # 返回市值最高的前 num_candidates 个股票
         filtered = [x for x in sectorCandidates if x.MarketCap is not None and x.MarketCap > 0]
