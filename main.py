@@ -3,7 +3,7 @@ from AlgorithmImports import *
 from src.UniverseSelection import MyUniverseSelectionModel
 from System import Action
 from src.AlphaModel import BayesianCointegrationAlphaModel
-# from src.PortfolioConstruction import BayesianCointegrationPortfolioConstructionModel
+from src.PortfolioConstruction import BayesianCointegrationPortfolioConstructionModel
 # from QuantConnect.Algorithm.Framework.Risk import MaximumDrawdownPercentPortfolio, MaximumSectorExposureRiskManagementModel
 # from src.RiskManagement import BayesianCointegrationRiskManagementModel
 # endregion
@@ -96,9 +96,9 @@ class BayesianCointegrationStrategy(QCAlgorithm):
             self.SetPortfolioConstruction(NullPortfolioConstructionModel())
             self.Debug("[Initialize] 测试模式启用：Alpha信号将直接执行")
         else:
-            # # 正常模式：使用完整的框架模块
-            # self.SetPortfolioConstruction(BayesianCointegrationPortfolioConstructionModel(self))
-            pass
+            # 正常模式：使用完整的框架模块
+            self.SetPortfolioConstruction(BayesianCointegrationPortfolioConstructionModel(self, self.config.portfolio_construction))
+            self.Debug("[Initialize] 正常模式启用：使用PortfolioConstruction模块")
 
         # # 设置风险管理模块
         # ## 组合层面分控

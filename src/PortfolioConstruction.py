@@ -15,15 +15,25 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
     - 不在模型内部聚合单个资产的权重，保留每个配对的独立目标。
     - 返回所有生成的 PortfolioTarget 对象的扁平列表。
     """
-    def __init__(self, algorithm):
+    def __init__(self, algorithm, config):
         super().__init__() 
         self.algorithm = algorithm
-        self.algorithm.Debug("[PortfolioConstruction] 初始化完成")
+        self.margin_rate = config.get('margin_rate', 0.5)
+        self.algorithm.Debug(f"[PortfolioConstruction] 初始化完成 (保证金率: {self.margin_rate})")
 
 
 
     def create_targets(self, algorithm, insights):
         targets = []
+        
+        # 统计计数器
+        stats = {
+            'total_groups': 0,
+            'valid_signals': 0,
+            'ignored_signals': 0,
+            'converted_signals': 0,
+            'error_signals': 0
+        }
 
         # 按 GroupId 分组
         grouped_insights = defaultdict(list)
@@ -31,30 +41,73 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
             if insight.GroupId is not None:
                 grouped_insights[insight.GroupId].append(insight)
         
+        stats['total_groups'] = len(grouped_insights)
+        
         # 遍历每组 Insight
         for group_id, group in grouped_insights.items():
-            if len(group) != 2:
-                self.algorithm.Debug(f"[PC] 接收到 {len(group)} 个信号, 预期应为2, 跳过")
-                continue
-            insight1, insight2 = group
-            symbol1, symbol2 = insight1.Symbol, insight2.Symbol
-            direction = insight1.Direction  
-
-            # 尝试解析 beta_mean
-            try:
-                tag_parts = insight1.Tag.split('|')
-                beta_mean = float(tag_parts[2]) 
-                num = int(tag_parts[4])
-            except Exception as e:
-                self.algorithm.Debug(f"[PC] 无法解析 beta: {insight1.Tag}, 错误: {e}")
-                continue
-
-            # 构建配对目标持仓
-            pair_targets = self._BuildPairTargets(symbol1, symbol2, direction, beta_mean, num)
-            targets += pair_targets
+            pair_targets = self._process_signal_pair(group, stats)
+            targets.extend(pair_targets)
         
-        self.algorithm.Debug(f"[PC] 生成 【{len(targets)/2:.0f}】 组 PortfolioTarget")
+        # 输出统计信息
+        self.algorithm.Debug(f"[PC] 信号处理: 总计{stats['total_groups']}组, 有效{stats['valid_signals']}组, 忽略{stats['ignored_signals']}组, 转换{stats['converted_signals']}组")
+        self.algorithm.Debug(f"[PC] 生成 【{len(targets)//2}】 组 PortfolioTarget")
         return targets
+
+
+    def _process_signal_pair(self, group, stats):
+        """
+        处理一对信号，返回有效的PortfolioTarget列表
+        """
+        if len(group) != 2:
+            self.algorithm.Debug(f"[PC] 接收到 {len(group)} 个信号, 预期应为2, 跳过")
+            stats['error_signals'] += 1
+            return []
+            
+        insight1, insight2 = group
+        symbol1, symbol2 = insight1.Symbol, insight2.Symbol
+        original_direction = insight1.Direction
+
+        # 解析Tag信息
+        try:
+            tag_parts = insight1.Tag.split('|')
+            beta_mean = float(tag_parts[2])
+            num = int(tag_parts[4])
+        except Exception as e:
+            self.algorithm.Debug(f"[PC] 无法解析Tag: {insight1.Tag}, 错误: {e}")
+            stats['error_signals'] += 1
+            return []
+
+        # 获取当前持仓状态并验证信号
+        current_position = self._get_pair_position_status(symbol1, symbol2)
+        validated_direction = self._validate_signal(current_position, original_direction)
+
+        if validated_direction is None:
+            # 无效信号，忽略
+            self.algorithm.Debug(f"[PC] 忽略信号: {symbol1.Value}-{symbol2.Value} [{self._direction_to_str(original_direction)}]")
+            stats['ignored_signals'] += 1
+            return []
+
+        # 检查信号是否被转换
+        if original_direction != validated_direction:
+            self.algorithm.Debug(f"[PC] 信号转换: {symbol1.Value}-{symbol2.Value} [{self._direction_to_str(original_direction)}→{self._direction_to_str(validated_direction)}]")
+            stats['converted_signals'] += 1
+        else:
+            stats['valid_signals'] += 1
+
+        # 生成PortfolioTarget
+        return self._BuildPairTargets(symbol1, symbol2, validated_direction, beta_mean, num)
+
+
+    def _direction_to_str(self, direction):
+        """将InsightDirection转换为可读字符串"""
+        if direction == InsightDirection.Up:
+            return "买|卖"
+        elif direction == InsightDirection.Down:
+            return "卖|买"
+        elif direction == InsightDirection.Flat:
+            return "平仓"
+        else:
+            return "未知"
 
 
 
@@ -65,27 +118,82 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         L, S = 1.0, abs(beta)  
         capital_per_pair = 1.0 / num
 
-        # 多空方向决定最终权重正负，这里使用固定保证金率0.5，实际使用时需要根据实际情况调整
+        # 平仓信号
+        if direction == InsightDirection.Flat:
+            self.algorithm.Debug(f"[PC]: [{symbol1.Value}, {symbol2.Value}] | [FLAT, FLAT]")
+            return [PortfolioTarget.Percent(self.algorithm, symbol1, 0), PortfolioTarget.Percent(self.algorithm, symbol2, 0)]
+
+        # 建仓信号：多空方向决定最终权重正负
         if direction == InsightDirection.Up and self.can_short(symbol2):
-            margin = 0.5
-            scale = capital_per_pair / (L + S*margin)
+            scale = capital_per_pair / (L + S * self.margin_rate)
             self.algorithm.Debug(f"[PC]: [{symbol1.Value}, {symbol2.Value}] | [BUY, SELL] | [{scale:.4f}, {-scale*beta:.4f}]")
             return [PortfolioTarget.Percent(self.algorithm, symbol1, scale), PortfolioTarget.Percent(self.algorithm, symbol2, -scale * beta)] 
         
         elif direction == InsightDirection.Down and self.can_short(symbol1):
-            margin = 0.5
-            scale = capital_per_pair / (L + S*margin)   
+            scale = capital_per_pair / (L + S * self.margin_rate)   
             self.algorithm.Debug(f"[PC]: [{symbol1.Value}, {symbol2.Value}] | [SELL, BUY] | [{-scale:.4f}, {scale*beta:.4f}]")
             return [PortfolioTarget.Percent(self.algorithm, symbol1, -scale), PortfolioTarget.Percent(self.algorithm, symbol2, scale * beta)] 
-        
-        elif direction == InsightDirection.Flat:
-            self.algorithm.Debug(f"[PC]: [{symbol1.Value}, {symbol2.Value}] | [FLAT, FLAT]")
-            return [PortfolioTarget.Percent(self.algorithm, symbol1, 0), PortfolioTarget.Percent(self.algorithm, symbol2, 0)]
         
         else:
             self.algorithm.Debug(f"[PC]: 无法做空，跳过配对 [{symbol1.Value}, {symbol2.Value}]")
             return []
 
+
+
+    def _get_pair_position_status(self, symbol1: Symbol, symbol2: Symbol):
+        """
+        获取配对的当前持仓状态
+        
+        Args:
+            symbol1, symbol2: 配对的两个股票
+            
+        Returns:
+            InsightDirection: 当前持仓方向，None表示未持仓或异常状态
+        """
+        portfolio = self.algorithm.Portfolio
+        
+        # 检查两个股票是否都有持仓
+        if not (portfolio[symbol1].Invested and portfolio[symbol2].Invested):
+            return None  # 未持仓或部分持仓
+        
+        # 根据持仓数量判断配对方向
+        s1_quantity = portfolio[symbol1].Quantity
+        s2_quantity = portfolio[symbol2].Quantity
+        
+        if s1_quantity > 0 and s2_quantity < 0:
+            return InsightDirection.Up  # 多symbol1，空symbol2
+        elif s1_quantity < 0 and s2_quantity > 0:
+            return InsightDirection.Down  # 空symbol1，多symbol2
+        else:
+            # 异常状态：同向持仓或其他情况
+            return None
+
+
+    def _validate_signal(self, current_position, signal_direction):
+        """
+        验证信号有效性
+        
+        Args:
+            current_position: 当前持仓方向或None
+            signal_direction: 信号方向
+            
+        Returns:
+            InsightDirection: 验证后的有效方向，None表示应忽略
+        """
+        # 平仓信号：必须有持仓
+        if signal_direction == InsightDirection.Flat:
+            return signal_direction if current_position is not None else None
+        
+        # 建仓信号
+        if current_position is None:
+            # 未持仓，可以建仓
+            return signal_direction
+        elif current_position == signal_direction:
+            # 同方向，忽略重复信号
+            return None
+        else:
+            # 反方向，转为平仓
+            return InsightDirection.Flat
 
 
     # 检查是否可以做空（回测环境所有股票都可以做空，实盘时需要检测）
@@ -94,12 +202,6 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         # shortable = security.ShortableProvider.ShortableQuantity(symbol, self.algorithm.Time)
         # return shortable is not None and shortable > 0
         return True
-  
-
-
-        
-        
-        
 
 
 

@@ -814,11 +814,19 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         
         insight1_direction, insight2_direction, trend = signal_config
         
+        # 根据信号类型设置不同的有效期
+        if insight1_direction == InsightDirection.Flat:
+            # 平仓信号：1天有效期
+            duration = timedelta(days=1)
+        else:
+            # 建仓信号：2天有效期
+            duration = timedelta(days=2)
+        
         # 直接生成信号，不做任何拦截或验证
         tag = f"{symbol1.Value}&{symbol2.Value}|{posteriorParamSet['alpha_mean']:.4f}|{posteriorParamSet['beta_mean']:.4f}|{z:.2f}|{len(self.industry_cointegrated_pairs)}"
         
-        insight1 = Insight.Price(symbol1, self.signal_duration, insight1_direction, tag=tag)
-        insight2 = Insight.Price(symbol2, self.signal_duration, insight2_direction, tag=tag)
+        insight1 = Insight.Price(symbol1, duration, insight1_direction, tag=tag)
+        insight2 = Insight.Price(symbol2, duration, insight2_direction, tag=tag)
         signals = [insight1, insight2]
         
         self.algorithm.Debug(f"[AlphaModel] zscore {z:.4f} [{trend}] {symbol1.Value}-{symbol2.Value}")
