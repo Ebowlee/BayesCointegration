@@ -322,19 +322,37 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
                        f"权重[{symbol1_weight:.4f}, {symbol2_weight:.4f}], beta={beta:.3f}")
     
     def _validate_margin_mechanism(self, algorithm):
-        """验证保证金机制是否正常工作"""
+        """验证保证金机制是否正常工作，包含详细的保证金模型诊断"""
         portfolio = algorithm.Portfolio
         total_short_holdings = 0
         total_long_holdings = 0
         
-        # 统计所有头寸
+        # 统计所有头寸并检查保证金模型配置
+        margin_model_info = []
         for symbol in algorithm.Securities.Keys:
             if portfolio[symbol].Invested:
                 holding = portfolio[symbol]
+                security = algorithm.Securities[symbol]
+                
+                # 检查保证金模型配置
+                margin_model = security.MarginModel
+                margin_model_type = type(margin_model).__name__
+                
+                if hasattr(margin_model, 'Leverage'):
+                    leverage = margin_model.Leverage
+                else:
+                    leverage = "未知"
+                
+                margin_model_info.append(f"{symbol.Value}:{margin_model_type}(杠杆:{leverage})")
+                
                 if holding.Quantity < 0:  # 做空头寸
                     total_short_holdings += abs(holding.HoldingsValue)
                 else:  # 做多头寸
                     total_long_holdings += holding.HoldingsValue
+        
+        # 输出保证金模型配置信息
+        if margin_model_info:
+            algorithm.Debug(f"[保证金模型] {', '.join(margin_model_info[:3])}{'...' if len(margin_model_info) > 3 else ''}")
         
         # 理论上，做空总价值的50%应该是所需保证金
         if total_short_holdings > 0:
@@ -350,9 +368,20 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
                            f"实际保证金: ${actual_margin_used:.0f}, "
                            f"效率: {margin_ratio:.2f}x")
             
-            # 如果保证金效率异常，可能存在问题
+            # 如果保证金效率异常，提供更详细的诊断信息
             if margin_ratio > 1.8:
-                algorithm.Debug(f"[保证金警告] 保证金效率异常，可能做空未使用50%保证金")
+                algorithm.Debug(f"[保证金警告] 保证金效率异常({margin_ratio:.2f}x > 1.8x)，可能原因:")
+                algorithm.Debug(f"  1. SecurityMarginModel未正确配置为2倍杠杆")
+                algorithm.Debug(f"  2. 做空头寸使用了100%资金而非50%保证金")
+                algorithm.Debug(f"  3. CustomSecurityInitializer未被正确调用")
+                
+                # 检查杠杆设置
+                universe_leverage = algorithm.UniverseSettings.Leverage
+                algorithm.Debug(f"  UniverseSettings.Leverage: {universe_leverage}x")
+                
+                # 建议解决方案
+                if margin_ratio > 2.5:
+                    algorithm.Debug(f"[建议] 考虑调整算法以适配当前保证金机制")
 
     def _check_minimum_order_size(self, symbol1: Symbol, weight1: float, symbol2: Symbol, weight2: float) -> bool:
         """检查订单大小是否满足最小要求，避免minimum order size警告"""
