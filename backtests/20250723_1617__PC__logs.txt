@@ -1,0 +1,90 @@
+2024-06-20 00:00:00 Launching analysis for 4bb1d4e36e75da176f3963e5c9b3d526 with LEAN Engine v2.5.0.0.17206
+2024-06-20 00:00:00 [UniverseSelection] 初始化完成 (候选数:30, 价格>$15, PE<50)
+2024-06-20 00:00:00 [AlphaModel] 初始化完成 (最大4对, 波动率<45%)
+2024-06-20 00:00:00 [PortfolioConstruction] 初始化完成 (保证金率: 0.5)
+2024-06-20 00:00:00 [Initialize] 正常模式启用：使用PortfolioConstruction模块
+2024-06-20 00:00:00 Accurate daily end-times now enabled by default. See more at https://qnt.co/3YHaWHL. To disable it and use legacy daily bars set self.settings.daily_precise_end_time = False.
+2024-07-02 00:00:00 [UniverseSelection] 收到主控调度, 准备执行下一轮选股
+2024-07-02 00:00:00 =====================================第【1】次选股=====================================
+2024-07-02 00:00:00 [UniverseSelection] 粗选完成: 234只股票通过筛选
+2024-07-02 00:00:00 [UniverseSelection] 财务筛选: 候选163只 → 通过82只 (过滤81只)
+2024-07-02 00:00:00 [UniverseSelection] 财务过滤明细: PE(37) ROE(24) 债务(22) 杠杆(42)
+2024-07-02 00:00:00 [UniverseSelection] 行业分布: CommunicationServices(7) ConsumerCyclical(11) ConsumerDefensive(8) Energy(8) Healthcare(18) Industrials(18) Technology(10) Utilities(2)
+2024-07-02 00:00:00 [UniverseSelection] 选股完成: 共82只股票, 前5样本: ['MSFT', 'CRM', 'QCOM', 'AMAT', 'CSCO']
+2024-07-02 16:00:00 [AlphaModel] 数据统计: 82只 → 有效82只
+2024-07-02 16:00:00 [AlphaModel] 波动率筛选: 候选82只 → 通过80只 (波动率过滤2只)
+2024-07-02 16:00:00 [AlphaModel] 行业协整对: Healthcare(2) Technology(1) Industrials(4) CommunicationServices(1)
+2024-07-02 16:00:00 [AlphaModel] 建模统计: 动态更新0对, 完整建模8对, 总成功8对
+2024-07-02 16:00:00 [AlphaModel] 完整建模: CI-HUM, HUM-SYK, ANET-KLAC, PH-URI, CTAS-TT, CAT-EMR, PH-WM, T-TMUS
+2024-07-05 16:00:00 [PC]: [PH, WM] | [BUY, SELL] | [0.0866, -0.0769] | beta=1.126
+2024-07-05 16:00:00 Warning: all market orders sent using daily data, or market orders sent after hours are automatically converted into MarketOnOpen orders.
+2024-07-10 16:00:00 [PC]: [CAT, EMR] | [BUY, SELL] | [0.0929, -0.0641] | beta=1.450
+2024-07-16 16:00:00 [PC]: [PH, WM] | [FLAT, FLAT]
+2024-07-17 16:00:00 [PC]: [CI, HUM] | [SELL, BUY] | [-0.0496, 0.1002] | beta=-0.495
+2024-07-23 16:00:00 [PC]: [CTAS, TT] | [SELL, BUY] | [-0.0628, 0.0936] | beta=0.671
+2024-07-24 16:00:00 [PC]: [PH, URI] | [BUY, SELL] | [0.0737, -0.1025] | beta=0.719
+2024-07-24 16:00:00 [PC]: [T, TMUS] | [SELL, BUY] | [-0.0864, 0.0818] | beta=1.057
+2024-07-25 16:00:00 [PC]: [CTAS, TT] | [FLAT, FLAT]
+2024-07-26 16:00:00 [PC]: [PH, WM] | [SELL, BUY] | [-0.0901, 0.0800] | beta=1.126
+2024-07-29 16:00:00 [PC]: [PH, URI] | [BUY, SELL] | [0.0737, -0.1025] | beta=0.719
+2024-07-29 16:00:00 Warning: Portfolio rebalance result ignored as it resulted in a single share trade recommendation which can generate high fees. To disable minimum order size checks please set Settings.MinimumOrderMarginPortfolioPercentage = 0.
+2024-07-31 16:00:00 [PC]: [PH, WM] | [SELL, BUY] | [-0.0901, 0.0800] | beta=1.126
+2024-08-01 16:00:00 [UniverseSelection] 收到主控调度, 准备执行下一轮选股
+2024-08-01 16:00:00 [PC]: [CI, HUM] | [FLAT, FLAT]
+2024-08-01 16:00:00 [PC]: [PH, WM] | [FLAT, FLAT]
+2024-08-02 00:00:00 =====================================第【2】次选股=====================================
+2024-08-02 00:00:00 [UniverseSelection] 粗选完成: 326只股票通过筛选
+2024-08-02 00:00:00 [UniverseSelection] 财务筛选: 候选186只 → 通过108只 (过滤78只)
+2024-08-02 00:00:00 [UniverseSelection] 财务过滤明细: PE(37) ROE(20) 债务(19) 杠杆(39)
+2024-08-02 00:00:00 [UniverseSelection] 行业分布: CommunicationServices(8) ConsumerCyclical(12) ConsumerDefensive(12) Energy(16) Healthcare(17) Industrials(21) Technology(13) Utilities(9)
+2024-08-02 00:00:00 [UniverseSelection] 选股完成: 共108只股票, 前5样本: ['MSFT', 'CRM', 'ADBE', 'ACN', 'QCOM']
+2024-08-02 16:00:00 [AlphaModel] 实际选股间隔: 31天 (上次: 2024-07-02)
+2024-08-02 16:00:00 [AlphaModel] 数据统计: 108只 → 有效108只
+2024-08-02 16:00:00 [AlphaModel] 波动率筛选: 候选108只 → 通过98只 (波动率过滤10只)
+2024-08-02 16:00:00 [AlphaModel] 行业协整对: Healthcare(2) Industrials(4) CommunicationServices(2) Energy(1)
+2024-08-02 16:00:00 [AlphaModel] 建模统计: 动态更新5对, 完整建模4对, 总成功9对
+2024-08-02 16:00:00 [AlphaModel] 动态更新: CI-HUM, HUM-SYK, PH-WM, PH-URI, T-TMUS
+2024-08-02 16:00:00 [AlphaModel] 完整建模: AME-PCAR, URI-WM, CMCSA-GOOG, OXY-HES
+2024-08-02 16:00:00 [PC]: [AME, PCAR] | [BUY, SELL] | [0.0546, -0.1131] | beta=0.482
+2024-08-05 16:00:00 [PC]: [CI, HUM] | [BUY, SELL] | [0.0544, -0.1134] | beta=-0.480
+2024-08-05 16:00:00 [PC] 信号转换: T-TMUS [买|卖→平仓]
+2024-08-05 16:00:00 [PC]: [T, TMUS] | [FLAT, FLAT]
+2024-08-06 16:00:00 [PC]: [T, TMUS] | [BUY, SELL] | [0.0754, -0.0714] | beta=1.056
+2024-08-08 16:00:00 [PC]: [HUM, SYK] | [BUY, SELL] | [0.0837, -0.0549] | beta=-1.524
+2024-08-08 16:00:00 [PC]: [PH, WM] | [SELL, BUY] | [-0.0796, 0.0713] | beta=1.115
+2024-08-08 16:00:00 [PC]: [OXY, HES] | [SELL, BUY] | [-0.0705, 0.0759] | beta=0.929
+2024-08-09 16:00:00 [PC]: [AME, PCAR] | [FLAT, FLAT]
+2024-08-12 16:00:00 [PC]: [CI, HUM] | [BUY, SELL] | [0.0544, -0.1134] | beta=-0.480
+2024-08-12 16:00:00 [PC]: [HUM, SYK] | [FLAT, FLAT]
+2024-08-13 16:00:00 [PC]: [HUM, SYK] | [BUY, SELL] | [0.0837, -0.0549] | beta=-1.524
+2024-08-15 16:00:00 [PC]: [T, TMUS] | [FLAT, FLAT]
+2024-08-19 16:00:00 [PC]: [OXY, HES] | [FLAT, FLAT]
+2024-08-20 16:00:00 [PC]: [T, TMUS] | [BUY, SELL] | [0.0754, -0.0714] | beta=1.056
+2024-08-21 16:00:00 [PC]: [HUM, SYK] | [FLAT, FLAT]
+2024-08-26 16:00:00 [PC]: [T, TMUS] | [FLAT, FLAT]
+2024-08-28 16:00:00 [PC]: [AME, PCAR] | [SELL, BUY] | [-0.0432, 0.0895] | beta=0.482
+2024-08-30 16:00:00 [PC]: [T, TMUS] | [BUY, SELL] | [0.0754, -0.0714] | beta=1.056
+2024-09-03 00:00:00 [UniverseSelection] 收到主控调度, 准备执行下一轮选股
+2024-09-03 16:00:00 [PC]: [CI, HUM] | [SELL, BUY] | [-0.0430, 0.0896] | beta=-0.480
+2024-09-03 16:00:00 [PC]: [HUM, SYK] | [SELL, BUY] | [-0.0961, 0.0631] | beta=-1.524
+2024-09-04 00:00:00 =====================================第【3】次选股=====================================
+2024-09-04 00:00:00 [UniverseSelection] 粗选完成: 271只股票通过筛选
+2024-09-04 00:00:00 [UniverseSelection] 财务筛选: 候选177只 → 通过105只 (过滤72只)
+2024-09-04 00:00:00 [UniverseSelection] 财务过滤明细: PE(35) ROE(16) 债务(19) 杠杆(38)
+2024-09-04 00:00:00 [UniverseSelection] 行业分布: CommunicationServices(9) ConsumerCyclical(14) ConsumerDefensive(13) Energy(14) Healthcare(18) Industrials(19) Technology(12) Utilities(6)
+2024-09-04 00:00:00 [UniverseSelection] 选股完成: 共105只股票, 前5样本: ['MSFT', 'CRM', 'ACN', 'CSCO', 'TXN']
+2024-09-04 00:00:00 [AlphaModel] 实际选股间隔: 32天 (上次: 2024-08-02)
+2024-09-04 00:00:00 [AlphaModel] 数据统计: 105只 → 有效105只
+2024-09-04 00:00:00 [AlphaModel] 波动率筛选: 候选105只 → 通过95只 (波动率过滤10只)
+2024-09-04 00:00:00 [AlphaModel] 行业协整对: ConsumerCyclical(3) Healthcare(3) Technology(2) Industrials(1) CommunicationServices(3)
+2024-09-04 00:00:00 [AlphaModel] 建模统计: 动态更新3对, 完整建模9对, 总成功12对
+2024-09-04 00:00:00 [AlphaModel] 动态更新: CI-HUM, T-TMUS, CMCSA-GOOG
+2024-09-04 00:00:00 [AlphaModel] 完整建模: AMZN-DECK, GM-TSCO, AMZN-DKS, BDX-DHR, ELV-DHR, CSCO-MSFT, CSCO-APH, GD-TT, META-NFLX
+2024-09-04 16:00:00 [PC]: [CMCSA, GOOG] | [BUY, SELL] | [0.0338, -0.0991] | beta=-0.341
+2024-09-06 16:00:00 [PC] 信号转换: T-TMUS [卖|买→平仓]
+2024-09-06 16:00:00 [PC]: [T, TMUS] | [FLAT, FLAT]
+2024-09-09 16:00:00 [PC]: [T, TMUS] | [SELL, BUY] | [-0.0569, 0.0549] | beta=1.036
+2024-09-11 16:00:00 [PC]: [CI, HUM] | [FLAT, FLAT]
+2024-09-16 16:00:00 [PC]: [CSCO, MSFT] | [SELL, BUY] | [-0.0243, 0.0712] | beta=-0.341
+2024-09-16 16:00:00 [PC] Beta超出范围, 跳过: CSCO-APH, beta=-0.186
+2024-09-21 00:00:00 Algorithm Id:(4bb1d4e36e75da176f3963e5c9b3d526) completed in 257.32 seconds at 0k data points per second. Processing total of 106,085 data points.

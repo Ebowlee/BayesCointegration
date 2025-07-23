@@ -19,7 +19,9 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         super().__init__() 
         self.algorithm = algorithm
         self.margin_rate = config.get('margin_rate', 0.5)
-        self.algorithm.Debug(f"[PortfolioConstruction] 初始化完成 (保证金率: {self.margin_rate})")
+        self.cooling_period_days = config.get('cooling_period_days', 7)
+        self.pair_cooling_history = {}  # {(symbol1, symbol2): last_flat_datetime}
+        self.algorithm.Debug(f"[PortfolioConstruction] 初始化完成 (保证金率: {self.margin_rate}, 冷却期: {self.cooling_period_days}天)")
 
 
 
@@ -77,7 +79,7 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
 
         # 获取当前持仓状态并验证信号
         current_position = self._get_pair_position_status(symbol1, symbol2)
-        validated_direction = self._validate_signal(current_position, original_direction)
+        validated_direction = self._validate_signal(current_position, original_direction, symbol1, symbol2)
 
         if validated_direction is None:
             # 无效信号,忽略
@@ -131,6 +133,8 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         # 平仓信号
         if direction == InsightDirection.Flat:
             self.algorithm.Debug(f"[PC]: [{symbol1.Value}, {symbol2.Value}] | [FLAT, FLAT]")
+            # 记录平仓时间用于冷却期计算
+            self._record_cooling_history(symbol1, symbol2)
             return [PortfolioTarget.Percent(self.algorithm, symbol1, 0), PortfolioTarget.Percent(self.algorithm, symbol2, 0)]
 
         # 建仓信号:根据协整关系和保证金机制计算权重
@@ -197,13 +201,14 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
             return None
 
 
-    def _validate_signal(self, current_position, signal_direction):
+    def _validate_signal(self, current_position, signal_direction, symbol1, symbol2):
         """
-        验证信号有效性
+        验证信号有效性,包括冷却期检查
         
         Args:
             current_position: 当前持仓方向或None
             signal_direction: 信号方向
+            symbol1, symbol2: 配对股票
             
         Returns:
             InsightDirection: 验证后的有效方向, None表示应忽略
@@ -211,6 +216,11 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         # 平仓信号:必须有持仓
         if signal_direction == InsightDirection.Flat:
             return signal_direction if current_position is not None else None
+        
+        # 建仓信号:检查冷却期
+        if signal_direction in [InsightDirection.Up, InsightDirection.Down]:
+            if self._is_in_cooling_period(symbol1, symbol2):
+                return None  # 冷却期内,忽略建仓信号
         
         # 建仓信号
         if current_position is None:
@@ -223,6 +233,41 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
             # 反方向,转为平仓
             return InsightDirection.Flat
 
+
+    def _is_in_cooling_period(self, symbol1: Symbol, symbol2: Symbol) -> bool:
+        """
+        检查配对是否在冷却期内
+        
+        Args:
+            symbol1, symbol2: 配对股票
+            
+        Returns:
+            bool: True表示在冷却期内,不能建仓
+        """
+        # 检查正向和反向键
+        pair_key1 = (symbol1, symbol2)
+        pair_key2 = (symbol2, symbol1)
+        
+        for pair_key in [pair_key1, pair_key2]:
+            if pair_key in self.pair_cooling_history:
+                last_flat_time = self.pair_cooling_history[pair_key]
+                time_diff = self.algorithm.Time - last_flat_time
+                if time_diff.days < self.cooling_period_days:
+                    self.algorithm.Debug(f"[PC] 冷却期内,忽略建仓: {symbol1.Value}-{symbol2.Value} (剩余{self.cooling_period_days - time_diff.days}天)")
+                    return True
+        
+        return False
+    
+    def _record_cooling_history(self, symbol1: Symbol, symbol2: Symbol):
+        """
+        记录配对的平仓时间,用于冷却期计算
+        
+        Args:
+            symbol1, symbol2: 配对股票
+        """
+        pair_key = (symbol1, symbol2)
+        self.pair_cooling_history[pair_key] = self.algorithm.Time
+        self.algorithm.Debug(f"[PC] 记录冷却历史: {symbol1.Value}-{symbol2.Value} 平仓于 {self.algorithm.Time.strftime('%Y-%m-%d')}")
 
     # 检查是否可以做空(回测环境所有股票都可以做空,实盘时需要检测)
     def can_short(self, symbol: Symbol) -> bool:

@@ -49,7 +49,8 @@ class StrategyConfig:
         
         # PortfolioConstruction 配置
         self.portfolio_construction = {
-            'margin_rate': 0.5
+            'margin_rate': 0.5,
+            'cooling_period_days': 7
         }
 
 
