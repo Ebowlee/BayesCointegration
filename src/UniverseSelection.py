@@ -54,9 +54,8 @@ class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
                        (self.algorithm.Time - x.SecurityReference.IPODate).days > self.min_ipo_days]
         
         coarse_selected = [x.Symbol for x in ipo_filtered]
-        # 只在选股日输出粗选结果，避免每日重复日志
-        if self.selection_on:
-            self.algorithm.Debug(f"[UniverseSelection] 粗选完成: {len(coarse_selected)}只股票通过筛选")
+        # 暂存粗选数量，在细选阶段输出
+        self.coarse_selected_count = len(coarse_selected) if self.selection_on else 0
         return coarse_selected
 
 
@@ -68,7 +67,10 @@ class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
         if self.selection_on:
             self.selection_on = False 
             self.fine_selection_count += 1
-            self.algorithm.Debug(f"=====================================第【{self.fine_selection_count}】次选股=====================================") 
+            self.algorithm.Debug(f"=====================================第【{self.fine_selection_count}】次选股=====================================")
+            # 输出粗选结果
+            if hasattr(self, 'coarse_selected_count') and self.coarse_selected_count > 0:
+                self.algorithm.Debug(f"[UniverseSelection] 粗选完成: {self.coarse_selected_count}只股票通过筛选")
 
             sector_candidates = {}
             all_sectors_selected_fine = []

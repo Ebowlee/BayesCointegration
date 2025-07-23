@@ -83,7 +83,6 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
 
         if validated_direction is None:
             # 无效信号，忽略
-            self.algorithm.Debug(f"[PC] 忽略信号: {symbol1.Value}-{symbol2.Value} [{self._direction_to_str(original_direction)}]")
             stats['ignored_signals'] += 1
             return []
 
@@ -115,8 +114,8 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         """
         按照新的资金分配算法构建目标持仓
         
-        协整关系：log(symbol1) = alpha + beta × log(symbol2)
-        即：symbol1 = y（因变量），symbol2 = x（自变量）
+        协整关系: log(symbol1) = alpha + beta × log(symbol2)
+        即: symbol1 = y(因变量), symbol2 = x(自变量)
         
         资金分配目标：
         1. 实现100%资金利用率
@@ -125,6 +124,11 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         capital_per_pair = 1.0 / num
         beta_abs = abs(beta)
         m = self.margin_rate
+        
+        # Beta筛选：只在合理范围内的beta值才建仓
+        if beta_abs < 0.2 or beta_abs > 3.0:
+            self.algorithm.Debug(f"[PC] Beta超出范围，跳过: {symbol1.Value}-{symbol2.Value}, beta={beta:.3f}")
+            return []
 
         # 平仓信号
         if direction == InsightDirection.Flat:
@@ -174,7 +178,7 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
             symbol1, symbol2: 配对的两个股票
             
         Returns:
-            InsightDirection: 当前持仓方向，None表示未持仓或异常状态
+            InsightDirection: 当前持仓方向, None表示未持仓或异常状态
         """
         portfolio = self.algorithm.Portfolio
         
@@ -204,7 +208,7 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
             signal_direction: 信号方向
             
         Returns:
-            InsightDirection: 验证后的有效方向，None表示应忽略
+            InsightDirection: 验证后的有效方向, None表示应忽略
         """
         # 平仓信号：必须有持仓
         if signal_direction == InsightDirection.Flat:
