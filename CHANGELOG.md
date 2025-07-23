@@ -4,6 +4,44 @@
 
 ---
 
+## [v2.7.6_portfolio-api-fix@20250723]
+### 工作内容
+- 修复QuantConnect Portfolio API属性名称错误，解决保证金监控功能的语法问题
+- 统一使用Python snake_case命名规范，确保与QuantConnect框架兼容
+- 完善保证金机制验证和资金分配监控功能
+- 添加订单大小预检查机制，主动避免minimum order size警告
+
+### 技术细节
+- 核心修复：`SecurityPortfolioManager`对象属性名称标准化
+  - `TotalBuyingPower` → `cash + margin_remaining`（计算购买力）
+  - `TotalPortfolioValue` → `total_portfolio_value`
+  - `TotalMarginUsed` → `total_margin_used`
+  - `MarginRemaining` → `margin_remaining`
+  - `Keys` → `keys`
+- SecurityHolding属性标准化：
+  - `Invested` → `invested`
+  - `Quantity` → `quantity`
+  - `HoldingsValue` → `holdings_value`
+- 预检机制：`_check_minimum_order_size()`方法在生成PortfolioTarget前验证订单规模
+
+### 架构影响
+- 消除语法错误：Portfolio API调用完全兼容QuantConnect框架
+- 增强监控能力：保证金使用效率分析、预期vs实际资金分配对比
+- 提前问题发现：订单大小预检查避免运行时警告
+- 代码质量提升：统一命名规范，提高代码可维护性
+
+### 调查成果
+- 创建详细的保证金调查报告：`MARGIN_INVESTIGATION_REPORT.md`
+- 确认保证金配置正确：`SetBrokerageModel(InteractiveBrokers, Margin)`有效
+- 识别资金利用率偏低的潜在原因：需要通过监控验证保证金机制实际效果
+- 建立完整的诊断体系：从配置验证到实时监控的全链路分析
+
+### 下一步计划
+- 运行修复后的回测，观察保证金监控数据
+- 验证保证金使用效率是否接近理论值（0.5x）
+- 根据监控结果优化资金分配算法或识别配置问题
+- 建立基于实际数据的保证金机制优化方案
+
 ## [v2.7.5_margin-leverage-investigation@20250723]
 ### 工作内容
 - 初步优化保证金配置，为深度调查QuantConnect保证金机制做准备

@@ -202,12 +202,12 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         portfolio = self.algorithm.Portfolio
         
         # 检查两个股票是否都有持仓
-        if not (portfolio[symbol1].invested and portfolio[symbol2].invested):
+        if not (portfolio[symbol1].Invested and portfolio[symbol2].Invested):
             return None  # 未持仓或部分持仓
         
         # 根据持仓数量判断配对方向
-        s1_quantity = portfolio[symbol1].quantity
-        s2_quantity = portfolio[symbol2].quantity
+        s1_quantity = portfolio[symbol1].Quantity
+        s2_quantity = portfolio[symbol2].Quantity
         
         if s1_quantity > 0 and s2_quantity < 0:
             return InsightDirection.Up  # 多symbol1,空symbol2
@@ -290,17 +290,17 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         """监控投资组合资金状态和保证金机制"""
         portfolio = algorithm.Portfolio
         
-        total_value = portfolio.total_portfolio_value
-        cash = portfolio.cash
-        margin_used = portfolio.total_margin_used  
-        margin_remaining = portfolio.margin_remaining
+        total_value = portfolio.TotalPortfolioValue
+        cash = portfolio.Cash
+        margin_used = portfolio.TotalMarginUsed
+        margin_remaining = portfolio.MarginRemaining
         # buying_power 使用 cash + margin_remaining 计算
         buying_power = cash + margin_remaining
         
         utilization = (margin_used / total_value) * 100 if total_value > 0 else 0
         
         # 仅在有持仓时输出资金监控信息
-        if any(portfolio[s].invested for s in portfolio.keys):
+        if any(portfolio[s].Invested for s in algorithm.Securities.Keys):
             algorithm.Debug(f"[资金监控] 总资产: ${total_value:.0f}, 现金: ${cash:.0f}, "
                            f"已用保证金: ${margin_used:.0f}, 购买力: ${buying_power:.0f}, "
                            f"资金利用率: {utilization:.1f}%")
@@ -311,7 +311,7 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
     def _log_expected_allocation(self, algorithm, symbol1, symbol2, targets, beta, num):
         """记录预期资金分配，用于后续对比验证"""
         capital_per_pair = 1.0 / num
-        total_portfolio_value = algorithm.Portfolio.total_portfolio_value
+        total_portfolio_value = algorithm.Portfolio.TotalPortfolioValue
         expected_dollar_per_pair = capital_per_pair * total_portfolio_value
         
         symbol1_weight = targets[0].Quantity if len(targets) > 0 else 0
@@ -328,18 +328,18 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         total_long_holdings = 0
         
         # 统计所有头寸
-        for symbol in portfolio.keys:
-            holding = portfolio[symbol]
-            if holding.invested:
-                if holding.quantity < 0:  # 做空头寸
-                    total_short_holdings += abs(holding.holdings_value)
+        for symbol in algorithm.Securities.Keys:
+            if portfolio[symbol].Invested:
+                holding = portfolio[symbol]
+                if holding.Quantity < 0:  # 做空头寸
+                    total_short_holdings += abs(holding.HoldingsValue)
                 else:  # 做多头寸
-                    total_long_holdings += holding.holdings_value
+                    total_long_holdings += holding.HoldingsValue
         
         # 理论上，做空总价值的50%应该是所需保证金
         if total_short_holdings > 0:
             expected_margin_from_shorts = total_short_holdings * 0.5
-            actual_margin_used = portfolio.total_margin_used
+            actual_margin_used = portfolio.TotalMarginUsed
             total_holdings_value = total_short_holdings + total_long_holdings
             
             # 计算保证金效率
@@ -356,7 +356,7 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
 
     def _check_minimum_order_size(self, symbol1: Symbol, weight1: float, symbol2: Symbol, weight2: float) -> bool:
         """检查订单大小是否满足最小要求，避免minimum order size警告"""
-        portfolio_value = self.algorithm.Portfolio.total_portfolio_value
+        portfolio_value = self.algorithm.Portfolio.TotalPortfolioValue
         min_percentage = self.algorithm.Settings.MinimumOrderMarginPortfolioPercentage
         
         # 计算预期订单金额
