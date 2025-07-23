@@ -6,7 +6,9 @@
       "Bash(del test_refactor.py simple_test.py)",
       "Bash(rm:*)",
       "Bash(git log:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "mcp__context7__resolve-library-id",
+      "mcp__context7__get-library-docs"
     ],
     "deny": []
   }

@@ -82,6 +82,12 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # 设置分辨率和账户类型
         self.UniverseSettings.Resolution = Resolution.Daily
         self.SetBrokerageModel(BrokerageName.InteractiveBrokersBrokerage, AccountType.Margin)
+        
+        # 设置杠杆提高资金利用率
+        self.UniverseSettings.Leverage = 2.0
+        
+        # 调整最小订单限制，解决"minimum order size"警告
+        self.Settings.MinimumOrderMarginPortfolioPercentage = 0.001  # 0.1%，从默认0.5%降低
 
         # 设置UniverseSelection模块
         self.universe_selector = MyUniverseSelectionModel(self, self.config.universe_selection)

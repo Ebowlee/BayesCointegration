@@ -28,6 +28,9 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
     def create_targets(self, algorithm, insights):
         targets = []
         
+        # 资金状态监控
+        self._log_portfolio_status(algorithm)
+        
         # 统计计数器
         stats = {
             'total_groups': 0,
@@ -268,6 +271,24 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         pair_key = (symbol1, symbol2)
         self.pair_cooling_history[pair_key] = self.algorithm.Time
         self.algorithm.Debug(f"[PC] 记录冷却历史: {symbol1.Value}-{symbol2.Value} 平仓于 {self.algorithm.Time.strftime('%Y-%m-%d')}")
+
+    def _log_portfolio_status(self, algorithm):
+        """监控投资组合资金状态"""
+        portfolio = algorithm.Portfolio
+        
+        total_value = portfolio.TotalPortfolioValue
+        cash = portfolio.Cash
+        margin_used = portfolio.TotalMarginUsed
+        margin_remaining = portfolio.MarginRemaining
+        buying_power = portfolio.TotalBuyingPower
+        
+        utilization = (margin_used / total_value) * 100 if total_value > 0 else 0
+        
+        # 仅在有交易时输出资金监控信息
+        if margin_used > 100:  # 只有在使用超过$100保证金时才输出
+            algorithm.Debug(f"[资金监控] 总资产: ${total_value:.0f}, 现金: ${cash:.0f}, "
+                           f"已用保证金: ${margin_used:.0f}, 购买力: ${buying_power:.0f}, "
+                           f"资金利用率: {utilization:.1f}%")
 
     # 检查是否可以做空(回测环境所有股票都可以做空,实盘时需要检测)
     def can_short(self, symbol: Symbol) -> bool:

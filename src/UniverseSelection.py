@@ -36,7 +36,6 @@ class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
         外部调用的触发接口: 用于在 main.py 中通过 Schedule.On 控制
         """
         self.selection_on = True
-        self.algorithm.Debug("[UniverseSelection] 收到主控调度, 准备执行下一轮选股")
 
 
 
