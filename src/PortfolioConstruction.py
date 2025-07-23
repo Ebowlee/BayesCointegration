@@ -28,9 +28,6 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
     def create_targets(self, algorithm, insights):
         targets = []
         
-        # 资金状态监控
-        self._log_portfolio_status(algorithm)
-        
         # 统计计数器
         stats = {
             'total_groups': 0,
@@ -99,10 +96,6 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         # 生成PortfolioTarget
         targets = self._BuildPairTargets(symbol1, symbol2, validated_direction, beta_mean, num)
         
-        # 监控预期资金分配
-        if targets and validated_direction != InsightDirection.Flat:
-            self._log_expected_allocation(self.algorithm, symbol1, symbol2, targets, beta_mean, num)
-        
         return targets
 
 
@@ -157,13 +150,9 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
             symbol1_weight = y_fund                    # y做多:权重 = 资金
             symbol2_weight = -x_fund / m              # x做空:权重 = 资金/保证金率
             
-            # 检查订单大小是否满足最小要求
-            if self._check_minimum_order_size(symbol1, symbol1_weight, symbol2, symbol2_weight):
-                self.algorithm.Debug(f"[PC]: [{symbol1.Value}, {symbol2.Value}] | [BUY, SELL] | [{symbol1_weight:.4f}, {symbol2_weight:.4f}] | beta={beta:.3f}")
-                return [PortfolioTarget.Percent(self.algorithm, symbol1, symbol1_weight), 
-                       PortfolioTarget.Percent(self.algorithm, symbol2, symbol2_weight)]
-            else:
-                return [] 
+            self.algorithm.Debug(f"[PC]: [{symbol1.Value}, {symbol2.Value}] | [BUY, SELL] | [{symbol1_weight:.4f}, {symbol2_weight:.4f}] | beta={beta:.3f}")
+            return [PortfolioTarget.Percent(self.algorithm, symbol1, symbol1_weight), 
+                   PortfolioTarget.Percent(self.algorithm, symbol2, symbol2_weight)] 
         
         elif direction == InsightDirection.Down and self.can_short(symbol1):
             # InsightDirection.Down: y(symbol1)做空,x(symbol2)做多
@@ -175,13 +164,9 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
             symbol1_weight = -y_fund / m              # y做空:权重 = 资金/保证金率
             symbol2_weight = x_fund                   # x做多:权重 = 资金
             
-            # 检查订单大小是否满足最小要求
-            if self._check_minimum_order_size(symbol1, symbol1_weight, symbol2, symbol2_weight):
-                self.algorithm.Debug(f"[PC]: [{symbol1.Value}, {symbol2.Value}] | [SELL, BUY] | [{symbol1_weight:.4f}, {symbol2_weight:.4f}] | beta={beta:.3f}")
-                return [PortfolioTarget.Percent(self.algorithm, symbol1, symbol1_weight), 
-                       PortfolioTarget.Percent(self.algorithm, symbol2, symbol2_weight)]
-            else:
-                return [] 
+            self.algorithm.Debug(f"[PC]: [{symbol1.Value}, {symbol2.Value}] | [SELL, BUY] | [{symbol1_weight:.4f}, {symbol2_weight:.4f}] | beta={beta:.3f}")
+            return [PortfolioTarget.Percent(self.algorithm, symbol1, symbol1_weight), 
+                   PortfolioTarget.Percent(self.algorithm, symbol2, symbol2_weight)] 
         
         else:
             self.algorithm.Debug(f"[PC]: 无法做空,跳过配对 [{symbol1.Value}, {symbol2.Value}]")
@@ -286,134 +271,9 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         self.pair_cooling_history[pair_key] = self.algorithm.Time
         self.algorithm.Debug(f"[PC] 记录冷却历史: {symbol1.Value}-{symbol2.Value} 平仓于 {self.algorithm.Time.strftime('%Y-%m-%d')}")
 
-    def _log_portfolio_status(self, algorithm):
-        """监控投资组合资金状态和保证金机制"""
-        portfolio = algorithm.Portfolio
-        
-        total_value = portfolio.TotalPortfolioValue
-        cash = portfolio.Cash
-        margin_used = portfolio.TotalMarginUsed
-        margin_remaining = portfolio.MarginRemaining
-        # buying_power 使用 cash + margin_remaining 计算
-        buying_power = cash + margin_remaining
-        
-        utilization = (margin_used / total_value) * 100 if total_value > 0 else 0
-        
-        # 仅在有持仓时输出资金监控信息
-        if any(portfolio[s].Invested for s in algorithm.Securities.Keys):
-            algorithm.Debug(f"[资金监控] 总资产: ${total_value:.0f}, 现金: ${cash:.0f}, "
-                           f"已用保证金: ${margin_used:.0f}, 购买力: ${buying_power:.0f}, "
-                           f"资金利用率: {utilization:.1f}%")
-            
-            # 验证保证金机制是否正常工作
-            self._validate_margin_mechanism(algorithm)
 
-    def _log_expected_allocation(self, algorithm, symbol1, symbol2, targets, beta, num):
-        """记录预期资金分配，用于后续对比验证"""
-        capital_per_pair = 1.0 / num
-        total_portfolio_value = algorithm.Portfolio.TotalPortfolioValue
-        expected_dollar_per_pair = capital_per_pair * total_portfolio_value
-        
-        symbol1_weight = targets[0].Quantity if len(targets) > 0 else 0
-        symbol2_weight = targets[1].Quantity if len(targets) > 1 else 0
-        
-        algorithm.Debug(f"[预期分配] {symbol1.Value}-{symbol2.Value}: "
-                       f"单对资金{capital_per_pair:.1%}(${expected_dollar_per_pair:.0f}), "
-                       f"权重[{symbol1_weight:.4f}, {symbol2_weight:.4f}], beta={beta:.3f}")
     
-    def _validate_margin_mechanism(self, algorithm):
-        """验证保证金机制是否正常工作，包含详细的保证金模型诊断"""
-        portfolio = algorithm.Portfolio
-        total_short_holdings = 0
-        total_long_holdings = 0
-        
-        # 统计所有头寸并检查保证金模型配置
-        margin_model_info = []
-        for symbol in algorithm.Securities.Keys:
-            if portfolio[symbol].Invested:
-                holding = portfolio[symbol]
-                security = algorithm.Securities[symbol]
-                
-                # 检查保证金模型配置
-                margin_model = security.MarginModel
-                margin_model_type = type(margin_model).__name__
-                
-                if hasattr(margin_model, 'Leverage'):
-                    leverage = margin_model.Leverage
-                else:
-                    leverage = "未知"
-                
-                margin_model_info.append(f"{symbol.Value}:{margin_model_type}(杠杆:{leverage})")
-                
-                if holding.Quantity < 0:  # 做空头寸
-                    total_short_holdings += abs(holding.HoldingsValue)
-                else:  # 做多头寸
-                    total_long_holdings += holding.HoldingsValue
-        
-        # 输出保证金模型配置信息
-        if margin_model_info:
-            algorithm.Debug(f"[保证金模型] {', '.join(margin_model_info[:3])}{'...' if len(margin_model_info) > 3 else ''}")
-        
-        # 理论上，做空总价值的50%应该是所需保证金
-        if total_short_holdings > 0:
-            expected_margin_from_shorts = total_short_holdings * 0.5
-            actual_margin_used = portfolio.TotalMarginUsed
-            total_holdings_value = total_short_holdings + total_long_holdings
-            
-            # 计算保证金效率
-            margin_ratio = actual_margin_used / expected_margin_from_shorts if expected_margin_from_shorts > 0 else 0
-            
-            algorithm.Debug(f"[保证金分析] 做多: ${total_long_holdings:.0f}, 做空: ${total_short_holdings:.0f}, "
-                           f"预期保证金: ${expected_margin_from_shorts:.0f}, "  
-                           f"实际保证金: ${actual_margin_used:.0f}, "
-                           f"效率: {margin_ratio:.2f}x")
-            
-            # 如果保证金效率异常，提供更详细的诊断信息
-            if margin_ratio > 1.8:
-                algorithm.Debug(f"[保证金警告] 保证金效率异常({margin_ratio:.2f}x > 1.8x)，可能原因:")
-                algorithm.Debug(f"  1. SecurityMarginModel未正确配置为2倍杠杆")
-                algorithm.Debug(f"  2. 做空头寸使用了100%资金而非50%保证金")
-                algorithm.Debug(f"  3. CustomSecurityInitializer未被正确调用")
-                
-                # 检查杠杆设置
-                universe_leverage = algorithm.UniverseSettings.Leverage
-                algorithm.Debug(f"  UniverseSettings.Leverage: {universe_leverage}x")
-                
-                # 建议解决方案
-                if margin_ratio > 2.5:
-                    algorithm.Debug(f"[建议] 考虑调整算法以适配当前保证金机制")
 
-    def _check_minimum_order_size(self, symbol1: Symbol, weight1: float, symbol2: Symbol, weight2: float) -> bool:
-        """检查订单大小是否满足最小要求，避免minimum order size警告"""
-        portfolio_value = self.algorithm.Portfolio.TotalPortfolioValue
-        min_percentage = self.algorithm.Settings.MinimumOrderMarginPortfolioPercentage
-        
-        # 计算预期订单金额
-        expected_value1 = abs(weight1 * portfolio_value)
-        expected_value2 = abs(weight2 * portfolio_value)
-        min_threshold = portfolio_value * min_percentage
-        
-        # 检查两个订单是否都满足最小规模要求
-        order1_valid = expected_value1 >= min_threshold
-        order2_valid = expected_value2 >= min_threshold
-        
-        # 记录详细的订单大小信息
-        self.algorithm.Debug(f"[订单检查] {symbol1.Value}: ${expected_value1:.0f}({order1_valid}), "
-                           f"{symbol2.Value}: ${expected_value2:.0f}({order2_valid}), "
-                           f"阈值: ${min_threshold:.0f}")
-        
-        if not (order1_valid and order2_valid):
-            # 记录被拒绝的原因
-            rejected_reasons = []
-            if not order1_valid:
-                rejected_reasons.append(f"{symbol1.Value}(${expected_value1:.0f})")
-            if not order2_valid:
-                rejected_reasons.append(f"{symbol2.Value}(${expected_value2:.0f})")
-            
-            self.algorithm.Debug(f"[订单拒绝] 订单金额低于阈值: {', '.join(rejected_reasons)}")
-            return False
-        
-        return True
 
     # 检查是否可以做空(回测环境所有股票都可以做空,实盘时需要检测)
     def can_short(self, symbol: Symbol) -> bool:

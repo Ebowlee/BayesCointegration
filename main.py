@@ -83,14 +83,6 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         self.UniverseSettings.Resolution = Resolution.Daily
         self.SetBrokerageModel(BrokerageName.InteractiveBrokersBrokerage, AccountType.Margin)
         
-        # 设置杠杆提高资金利用率
-        self.UniverseSettings.Leverage = 2.0
-        
-        # 🔥 关键修复：设置自定义证券初始化器以正确配置保证金模型
-        self.SetSecurityInitializer(self.CustomSecurityInitializer)
-        
-        # 调整最小订单限制，解决"minimum order size"警告
-        self.Settings.MinimumOrderMarginPortfolioPercentage = 0.001  # 0.1%，从默认0.5%降低
 
         # 设置UniverseSelection模块
         self.universe_selector = MyUniverseSelectionModel(self, self.config.universe_selection)
@@ -127,28 +119,5 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # # # 记录初始化完成
         # # self.Debug(f"[Initialize] 完成, 起始日期: {self.StartDate}")
     
-    def CustomSecurityInitializer(self, security):
-        """
-        自定义证券初始化器，确保保证金机制正确配置
-        这是修复保证金效率异常的关键配置
-        """
-        # 基础设置
-        security.SetDataNormalizationMode(DataNormalizationMode.Adjusted)
-        
-        # 🔥 关键修复：为股票设置适当的保证金模型
-        if security.Type == SecurityType.Equity:
-            # 使用2倍杠杆的保证金模型（50%保证金要求）
-            security.SetMarginModel(SecurityMarginModel(2.0))
-            
-            # 设置适当的结算模型（保证金账户立即结算）
-            security.SetSettlementModel(ImmediateSettlementModel())
-            
-            self.Debug(f"[保证金配置] {security.Symbol}: 设置2倍杠杆保证金模型")
-        
-        # 设置手续费模型
-        security.SetFeeModel(InteractiveBrokersFeeModel())
-        
-        # 设置填充模型
-        security.SetFillModel(ImmediateFillModel())
 
        

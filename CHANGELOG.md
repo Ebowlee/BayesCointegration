@@ -4,6 +4,30 @@
 
 ---
 
+## [v2.7.8_margin-mechanism-fix@20250723]
+### 工作内容
+- 实施QuantConnect保证金机制修复，通过CustomSecurityInitializer确保SecurityMarginModel正确配置
+- 增强保证金验证诊断功能，提供详细的保证金模型配置信息和异常分析
+- 建立完整的保证金效率监控体系，帮助识别和诊断保证金配置问题
+- 为保证金机制异常提供详细的解决建议和算法调整方案
+
+### 技术细节
+- 核心修复：在main.py中添加CustomSecurityInitializer
+  - 为每个股票证券设置SecurityMarginModel(2.0)确保2倍杠杆（50%保证金率）
+  - 配置ImmediateSettlementModel确保保证金账户立即结算
+  - 添加保证金配置日志便于验证初始化过程
+- 保证金诊断增强：
+  - 检查每个持仓证券的保证金模型类型和杠杆配置
+  - 监控保证金效率异常时的详细诊断信息（>1.8x）
+  - 提供UniverseSettings.Leverage配置检查
+  - 当保证金效率>2.5x时建议算法调整方案
+
+### 预期效果
+- 做空头寸应正确使用50%保证金而非100%资金
+- 保证金效率监控值应接近1.0x（理想状态）
+- 提高整体资金利用率，减少"资金积压"问题
+- 为后续算法优化提供详细的保证金配置诊断信息
+
 ## [v2.7.6_portfolio-api-fix@20250723]
 ### 工作内容
 - 修复QuantConnect Portfolio API属性名称错误，解决保证金监控功能的语法问题
