@@ -42,7 +42,9 @@ class StrategyConfig:
             'max_volatility_3month': 0.45,
             'volatility_lookback_days': 63,
             'selection_interval_days': 30,  # 选股间隔天数，用于动态贝叶斯更新
-            'dynamic_update_enabled': True   # 是否启用动态贝叶斯更新
+            'dynamic_update_enabled': True,  # 是否启用动态贝叶斯更新
+            'min_beta_threshold': 0.2,       # Beta最小阈值，过滤极小beta的协整对
+            'max_beta_threshold': 3.0        # Beta最大阈值，过滤极大beta的协整对
         }
         
         # PortfolioConstruction 配置

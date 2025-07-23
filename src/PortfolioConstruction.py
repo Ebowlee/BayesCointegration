@@ -113,26 +113,52 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
 
     def _BuildPairTargets(self, symbol1, symbol2, direction, beta, num):
         """
-        按照资金均分 + beta 对冲构建目标持仓, 使得资金控制在100%，整体没有杠杆
+        按照新的资金分配算法构建目标持仓
+        
+        协整关系：log(symbol1) = alpha + beta × log(symbol2)
+        即：symbol1 = y（因变量），symbol2 = x（自变量）
+        
+        资金分配目标：
+        1. 实现100%资金利用率
+        2. 保持Beta中性风险对冲
         """
-        L, S = 1.0, abs(beta)  
         capital_per_pair = 1.0 / num
+        beta_abs = abs(beta)
+        m = self.margin_rate
 
         # 平仓信号
         if direction == InsightDirection.Flat:
             self.algorithm.Debug(f"[PC]: [{symbol1.Value}, {symbol2.Value}] | [FLAT, FLAT]")
             return [PortfolioTarget.Percent(self.algorithm, symbol1, 0), PortfolioTarget.Percent(self.algorithm, symbol2, 0)]
 
-        # 建仓信号：多空方向决定最终权重正负
+        # 建仓信号：根据协整关系和保证金机制计算权重
         if direction == InsightDirection.Up and self.can_short(symbol2):
-            scale = capital_per_pair / (L + S * self.margin_rate)
-            self.algorithm.Debug(f"[PC]: [{symbol1.Value}, {symbol2.Value}] | [BUY, SELL] | [{scale:.4f}, {-scale*beta:.4f}]")
-            return [PortfolioTarget.Percent(self.algorithm, symbol1, scale), PortfolioTarget.Percent(self.algorithm, symbol2, -scale * beta)] 
+            # InsightDirection.Up: y(symbol1)做多，x(symbol2)做空
+            # 算法：x做空出资 + y做多出资 = c，(x/m)*beta = y
+            y_fund = capital_per_pair * beta_abs / (m + beta_abs)  # y做多资金
+            x_fund = capital_per_pair * m / (m + beta_abs)         # x做空保证金
+            
+            # 转换为PortfolioTarget权重（头寸大小）
+            symbol1_weight = y_fund                    # y做多：权重 = 资金
+            symbol2_weight = -x_fund / m              # x做空：权重 = 资金/保证金率
+            
+            self.algorithm.Debug(f"[PC]: [{symbol1.Value}, {symbol2.Value}] | [BUY, SELL] | [{symbol1_weight:.4f}, {symbol2_weight:.4f}] | beta={beta:.3f}")
+            return [PortfolioTarget.Percent(self.algorithm, symbol1, symbol1_weight), 
+                   PortfolioTarget.Percent(self.algorithm, symbol2, symbol2_weight)] 
         
         elif direction == InsightDirection.Down and self.can_short(symbol1):
-            scale = capital_per_pair / (L + S * self.margin_rate)   
-            self.algorithm.Debug(f"[PC]: [{symbol1.Value}, {symbol2.Value}] | [SELL, BUY] | [{-scale:.4f}, {scale*beta:.4f}]")
-            return [PortfolioTarget.Percent(self.algorithm, symbol1, -scale), PortfolioTarget.Percent(self.algorithm, symbol2, scale * beta)] 
+            # InsightDirection.Down: y(symbol1)做空，x(symbol2)做多
+            # 算法：x做多出资 + y做空出资 = c，y/m = beta*x
+            y_fund = capital_per_pair * m * beta_abs / (1 + m * beta_abs)  # y做空保证金
+            x_fund = capital_per_pair / (1 + m * beta_abs)                 # x做多资金
+            
+            # 转换为PortfolioTarget权重（头寸大小）
+            symbol1_weight = -y_fund / m              # y做空：权重 = 资金/保证金率
+            symbol2_weight = x_fund                   # x做多：权重 = 资金
+            
+            self.algorithm.Debug(f"[PC]: [{symbol1.Value}, {symbol2.Value}] | [SELL, BUY] | [{symbol1_weight:.4f}, {symbol2_weight:.4f}] | beta={beta:.3f}")
+            return [PortfolioTarget.Percent(self.algorithm, symbol1, symbol1_weight), 
+                   PortfolioTarget.Percent(self.algorithm, symbol2, symbol2_weight)] 
         
         else:
             self.algorithm.Debug(f"[PC]: 无法做空，跳过配对 [{symbol1.Value}, {symbol2.Value}]")

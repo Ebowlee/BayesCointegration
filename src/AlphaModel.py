@@ -57,6 +57,8 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         self.volatility_lookback_days = config['volatility_lookback_days']
         self.selection_interval_days = config.get('selection_interval_days', 30)
         self.dynamic_update_enabled = config.get('dynamic_update_enabled', True)
+        self.min_beta_threshold = config.get('min_beta_threshold', 0.2)
+        self.max_beta_threshold = config.get('max_beta_threshold', 3.0)
         
         self.signal_duration = timedelta(days=self.selection_interval_days)
         
@@ -164,21 +166,29 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                 
                 self.algorithm.Debug(f"[AlphaModel] 行业协整对: {' '.join(summary_parts)}")
             
-            # 处理所有协整对：统一流程
+            # 处理所有协整对：优化后的流程，复用FilterCointegratedPairs的建模结果
             success_count = 0
             dynamic_update_count = 0
             new_modeling_count = 0
+            reused_modeling_count = 0
             
             # 收集按建模方式分类的协整对信息
             dynamic_update_pairs = []
             new_modeling_pairs = []
+            reused_modeling_pairs = []
             
-            for pair_key in self.industry_cointegrated_pairs.keys():
+            for pair_key, pair_info in self.industry_cointegrated_pairs.items():
                 symbol1, symbol2 = pair_key
                 posterior_param = None
                 
-                # 尝试动态更新（如果启用且存在历史后验）
-                if self.dynamic_update_enabled:
+                # 优先检查是否已有预建模的结果（来自Beta筛选）
+                if 'posterior_param' in pair_info:
+                    posterior_param = pair_info['posterior_param']
+                    reused_modeling_count += 1
+                    reused_modeling_pairs.append(f"{symbol1.Value}-{symbol2.Value}")
+                
+                # 如果没有预建模结果，尝试动态更新（如果启用且存在历史后验）
+                elif self.dynamic_update_enabled:
                     # 检查正向和反向键
                     if pair_key in self.historical_posteriors:
                         # 使用正向键，保持当前顺序
@@ -219,10 +229,12 @@ class BayesianCointegrationAlphaModel(AlphaModel):
             total_pairs = len(self.industry_cointegrated_pairs)
             failed_count = total_pairs - success_count
             
-            # 简化的建模统计
-            self.algorithm.Debug(f"[AlphaModel] 建模统计: 动态更新{dynamic_update_count}对, 完整建模{new_modeling_count}对, 总成功{success_count}对")
+            # 优化的建模统计
+            self.algorithm.Debug(f"[AlphaModel] 建模统计: 复用{reused_modeling_count}对, 动态更新{dynamic_update_count}对, 完整建模{new_modeling_count}对, 总成功{success_count}对")
             
             # 按建模方式分类显示协整对
+            if reused_modeling_pairs:
+                self.algorithm.Debug(f"[AlphaModel] 复用建模: {', '.join(reused_modeling_pairs)}")
             if dynamic_update_pairs:
                 self.algorithm.Debug(f"[AlphaModel] 动态更新: {', '.join(dynamic_update_pairs)}")
             if new_modeling_pairs:
@@ -527,8 +539,11 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         """
         按质量筛选协整对, 控制投资组合规模
         
-        根据p值排序选择最优协整对, 同时限制每只股票的重复使用次数.
-        避免过度集中和降低整体组合风险.
+        筛选流程：
+        1. Beta范围筛选：过滤极端beta值的协整对
+        2. p值排序：选择最强协整关系的股票对
+        3. 重复限制：限制每只股票的重复使用次数
+        4. 数量控制：限制最大协整对数量
         
         Args:
             cointegrated_pairs: 原始协整对字典
@@ -536,10 +551,38 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         Returns:
             dict: 筛选后的协整对字典, 数量受max_pairs参数限制
         """
-        # 按p值排序, 选择最强协整关系的股票对
-        sorted_pairs = sorted(cointegrated_pairs.items(), key=lambda kv: kv[1]['pvalue'])
+        beta_filtered_pairs = {}
+        beta_failed_count = 0
+        
+        # 第一步：Beta范围筛选，需要先进行贝叶斯建模获取beta值
+        for pair_key, pair_info in cointegrated_pairs.items():
+            symbol1, symbol2 = pair_key
+            
+            # 进行初步的贝叶斯建模获取beta值
+            posterior_param = self.PyMCModel(symbol1, symbol2)
+            if posterior_param is not None:
+                beta_mean = abs(posterior_param['beta_mean'])
+                
+                # Beta范围检查
+                if self.min_beta_threshold <= beta_mean <= self.max_beta_threshold:
+                    # 将beta信息保存到pair_info中，避免重复建模
+                    pair_info['beta_mean'] = posterior_param['beta_mean']
+                    pair_info['posterior_param'] = posterior_param
+                    beta_filtered_pairs[pair_key] = pair_info
+                else:
+                    beta_failed_count += 1
+            else:
+                beta_failed_count += 1
+        
+        # 输出Beta筛选统计
+        if beta_failed_count > 0:
+            self.algorithm.Debug(f"[AlphaModel] Beta筛选: 原始{len(cointegrated_pairs)}对 → 通过{len(beta_filtered_pairs)}对 (Beta过滤{beta_failed_count}对)")
+        
+        # 第二步：按p值排序, 选择最强协整关系的股票对
+        sorted_pairs = sorted(beta_filtered_pairs.items(), key=lambda kv: kv[1]['pvalue'])
         symbol_count = defaultdict(int)
         filtered_pairs = {}
+        
         for keys, values in sorted_pairs:
             s1, s2 = keys
             # 避免单一股票在多个配对中重复使用, 降低集中度风险
@@ -549,6 +592,7 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                 symbol_count[s2] += 1
             if len(filtered_pairs) >= self.max_pairs:
                 break
+                
         return filtered_pairs
     
 
