@@ -4,6 +4,12 @@
 
 ---
 
+## [v2.8.4_sector-mapping-centralization@20250724]
+- 将行业映射(sector_code_to_name)移到main.py的StrategyConfig中统一管理
+- UniverseSelection和AlphaModel现在共享同一份行业映射配置
+- 移除各模块中重复的MorningstarSectorCode导入和映射定义
+- 提高代码可维护性，避免行业映射的重复定义
+
 ## [v2.8.3_bayesian-modeling-refactor@20250724]
 ### 工作内容
 - 消除BayesianModelingManager中的四大冗余问题
