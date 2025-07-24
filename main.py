@@ -2,7 +2,7 @@
 from AlgorithmImports import *
 from src.UniverseSelection import MyUniverseSelectionModel
 from System import Action
-# from src.AlphaModel import BayesianCointegrationAlphaModel
+from src.AlphaModel import BayesianCointegrationAlphaModel
 # from src.PortfolioConstruction import BayesianCointegrationPortfolioConstructionModel
 # from QuantConnect.Algorithm.Framework.Risk import MaximumDrawdownPercentPortfolio, MaximumSectorExposureRiskManagementModel
 # from src.RiskManagement import BayesianCointegrationRiskManagementModel
@@ -95,6 +95,20 @@ class StrategyConfig:
         self.risk_management = {
             'max_drawdown_percent': 0.10
         }
+        
+        # 行业映射配置 (共享给UniverseSelection和AlphaModel使用)
+        from QuantConnect.Data.Fundamental import MorningstarSectorCode
+        self.sector_code_to_name = {
+            MorningstarSectorCode.Technology: "Technology",
+            MorningstarSectorCode.Healthcare: "Healthcare",
+            MorningstarSectorCode.Energy: "Energy",
+            MorningstarSectorCode.ConsumerDefensive: "ConsumerDefensive",
+            MorningstarSectorCode.ConsumerCyclical: "ConsumerCyclical",
+            MorningstarSectorCode.CommunicationServices: "CommunicationServices",
+            MorningstarSectorCode.Industrials: "Industrials",
+            MorningstarSectorCode.Utilities: "Utilities"
+        }
+        self.sector_name_to_code = {v: k for k, v in self.sector_code_to_name.items()}
 
 
 
@@ -131,7 +145,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         
 
         # 设置UniverseSelection模块
-        self.universe_selector = MyUniverseSelectionModel(self, self.config.universe_selection)
+        self.universe_selector = MyUniverseSelectionModel(self, self.config.universe_selection, self.config.sector_code_to_name, self.config.sector_name_to_code)
         self.SetUniverseSelection(self.universe_selector)
         # 设置选股调度
         schedule_frequency = self.config.main['schedule_frequency']
@@ -140,8 +154,8 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         time_rule = self.TimeRules.At(*schedule_time)
         self.Schedule.On(date_rule, time_rule, Action(self.universe_selector.TriggerSelection))
 
-        # # 设置Alpha模块
-        # self.SetAlpha(BayesianCointegrationAlphaModel(self, self.config.alpha_model, self.pair_ledger))
+        # 设置Alpha模块
+        self.SetAlpha(BayesianCointegrationAlphaModel(self, self.config.alpha_model, self.pair_ledger, self.config.sector_code_to_name))
 
         # # 设置PortfolioConstruction模块
         # self.SetPortfolioConstruction(BayesianCointegrationPortfolioConstructionModel(self, self.config.portfolio_construction))

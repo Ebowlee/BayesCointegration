@@ -3,7 +3,6 @@ from AlgorithmImports import *
 from datetime import timedelta
 import itertools
 from collections import defaultdict
-from QuantConnect.Data.Fundamental import MorningstarSectorCode
 from statsmodels.tsa.stattools import coint
 import numpy as np
 import pymc as pm
@@ -553,7 +552,7 @@ class BayesianCointegrationAlphaModel(AlphaModel):
     # 1. 初始化和框架接口方法
     # =========================
     
-    def __init__(self, algorithm, config, pair_ledger):
+    def __init__(self, algorithm, config, pair_ledger, sector_code_to_name):
         """
         初始化贝叶斯协整Alpha模型
         
@@ -561,6 +560,7 @@ class BayesianCointegrationAlphaModel(AlphaModel):
             algorithm: QuantConnect算法实例, 提供数据和交易接口
             config: 配置字典, 包含所有模型参数和阈值设置
             pair_ledger: 配对记账簿实例
+            sector_code_to_name: 行业代码到名称的映射字典
         """
         super().__init__() 
         self.algorithm = algorithm
@@ -617,6 +617,9 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         
         # 选股日期跟踪
         self.last_selection_date = None
+        
+        # 使用从main.py传入的行业映射
+        self.sector_code_to_name = sector_code_to_name
 
         self.algorithm.Debug(f"[AlphaModel] 初始化完成 (最大{self.max_pairs}对, 波动率<{self.max_annual_volatility:.0%})")
 
@@ -842,27 +845,14 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         协整关系在同行业内更为稳定, 跨行业配对容易受到行业轮动影响.
         支持8个主要Morningstar行业分类.
         """
-        sector_map = {
-                "Technology": MorningstarSectorCode.Technology,
-                "Healthcare": MorningstarSectorCode.Healthcare,
-                "Energy": MorningstarSectorCode.Energy,
-                "ConsumerDefensive": MorningstarSectorCode.ConsumerDefensive,
-                "ConsumerCyclical": MorningstarSectorCode.ConsumerCyclical,
-                "CommunicationServices": MorningstarSectorCode.CommunicationServices,
-                "Industrials": MorningstarSectorCode.Industrials,
-                "Utilities": MorningstarSectorCode.Utilities
-                }
-        
-        # 创建反向映射
-        reverse_sector_map = {v: k for k, v in sector_map.items()}
         sector_to_symbols = defaultdict(list)
         
         # 分类symbols到对应行业
         for symbol in symbols:
             security = self.algorithm.Securities[symbol]
             sector = security.Fundamentals.AssetClassification.MorningstarSectorCode
-            if sector in sector_map.values():
-                sector_name = reverse_sector_map[sector]
+            sector_name = self.sector_code_to_name.get(sector)
+            if sector_name:
                 sector_to_symbols[sector_name].append(symbol)
         
         return sector_to_symbols

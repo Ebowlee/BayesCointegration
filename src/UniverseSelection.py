@@ -7,7 +7,7 @@ class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
     """
     贝异斯协整选股模型 - 负责选取具有协整关系的资产对
     """
-    def __init__(self, algorithm, config):
+    def __init__(self, algorithm, config, sector_code_to_name, sector_name_to_code):
         self.algorithm = algorithm
         self.selection_on = False 
         
@@ -24,18 +24,9 @@ class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
         self.last_fine_selected_symbols = []                            
         self.fine_selection_count = 0
         
-        # 定义行业映射（双向）
-        self.sector_code_to_name = {
-            MorningstarSectorCode.Technology: "Technology",
-            MorningstarSectorCode.Healthcare: "Healthcare",
-            MorningstarSectorCode.Energy: "Energy",
-            MorningstarSectorCode.ConsumerDefensive: "ConsumerDefensive",
-            MorningstarSectorCode.ConsumerCyclical: "ConsumerCyclical",
-            MorningstarSectorCode.CommunicationServices: "CommunicationServices",
-            MorningstarSectorCode.Industrials: "Industrials",
-            MorningstarSectorCode.Utilities: "Utilities"
-        }
-        self.sector_name_to_code = {v: k for k, v in self.sector_code_to_name.items()}
+        # 使用从main.py传入的行业映射
+        self.sector_code_to_name = sector_code_to_name
+        self.sector_name_to_code = sector_name_to_code
 
         algorithm.Debug(f"[UniverseSelection] 初始化完成")
 
