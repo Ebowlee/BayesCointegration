@@ -6,44 +6,87 @@ from typing import List
 class BayesianCointegrationRiskManagementModel(RiskManagementModel):
     """
     协整对层面的精细化风险管理
-    1. 选股日前全部清仓
-    2. 协整对最大回撤控制(10%)
-    3. Trailing Stop跟踪(5%)
+    1. 协整对最大回撤控制(10%)
+    2. Trailing Stop跟踪(5%)
     """
     
-    def __init__(self, algorithm: QCAlgorithm):
+    def __init__(self, algorithm: QCAlgorithm, config: dict = None):
         super().__init__()
         self.algorithm = algorithm
-        self.is_selection_on_next_day = False
+        
+        # 从配置读取参数，如果没有配置则使用默认值
+        if config is None:
+            config = {}
+        
+        self.trailing_stop_percent = config.get('trailing_stop_percent', 0.05)  # 5% trailing stop
+        self.max_drawdown_percent = config.get('max_drawdown_percent', 0.10)   # 10% 最大回撤
         
         # 跟踪每个股票的最高价
         self.high_water_marks = {}
-        self.trailing_stop_percent = 0.05  # 5% trailing stop
-        self.max_drawdown_percent = 0.10   # 10% 最大回撤
 
     def manage_risk(self, algorithm: QCAlgorithm, targets: List[PortfolioTarget]) -> List[PortfolioTarget]:
         """
         主要风险管理入口
         """
-        # 1. 选股日前清仓
-        if self.is_selection_on_next_day:
-            self.is_selection_on_next_day = False
-            self.algorithm.Debug("[RiskManagement] 选股日前清仓")
-            return [PortfolioTarget(target.symbol, 0) for target in targets]
+        # 1. 从Insights中获取配对关系
+        pairs_dict = {}  # {symbol: paired_symbol}
         
-        # 2. 将targets按配对分组
-        pairs = []
-        for i in range(0, len(targets), 2):
-            if i + 1 < len(targets):
-                pair = (targets[i], targets[i + 1])
-                pairs.append(pair)
+        # 遍历当前活跃的insights
+        for kvp in algorithm.Insights:
+            insight = kvp.Value
+            if insight.Tag and "&" in insight.Tag:
+                # 解析tag: "symbol1&symbol2|alpha|beta|zscore|num_pairs"
+                parts = insight.Tag.split("|")
+                if len(parts) >= 1:
+                    symbol_pair = parts[0].split("&")
+                    if len(symbol_pair) == 2:
+                        # 使用algorithm.Symbol创建symbol对象
+                        symbol1_str = symbol_pair[0]
+                        symbol2_str = symbol_pair[1]
+                        
+                        # 在targets中查找对应的symbol对象
+                        symbol1 = None
+                        symbol2 = None
+                        for target in targets:
+                            if target.symbol.Value == symbol1_str:
+                                symbol1 = target.symbol
+                            elif target.symbol.Value == symbol2_str:
+                                symbol2 = target.symbol
+                        
+                        if symbol1 and symbol2:
+                            pairs_dict[symbol1] = symbol2
+                            pairs_dict[symbol2] = symbol1
         
-        # 3. 对每个协整对进行风险管理
+        # 2. 对每个target进行风险检查
+        processed_symbols = set()
         final_targets = []
-        for pair in pairs:
-            target1, target2 = pair
-            managed_pair = self._manage_pair_risk(algorithm, target1, target2)
-            final_targets.extend(managed_pair)
+        
+        for target in targets:
+            if target.symbol in processed_symbols:
+                continue
+                
+            # 检查是否有配对
+            if target.symbol in pairs_dict:
+                paired_symbol = pairs_dict[target.symbol]
+                # 找到配对的target
+                paired_target = next((t for t in targets if t.symbol == paired_symbol), None)
+                
+                if paired_target:
+                    # 进行配对风险管理
+                    managed_pair = self._manage_pair_risk(algorithm, target, paired_target)
+                    final_targets.extend(managed_pair)
+                    processed_symbols.add(target.symbol)
+                    processed_symbols.add(paired_symbol)
+                else:
+                    # 配对的另一半不在targets中，单独处理
+                    # 这种情况下，可能需要将两个都平仓
+                    self.algorithm.Debug(f"[RiskManagement] 警告: {target.symbol.Value}的配对{paired_symbol.Value}不在targets中")
+                    final_targets.append(target)
+                    processed_symbols.add(target.symbol)
+            else:
+                # 没有配对信息，单独处理（可能是单边持仓或其他情况）
+                final_targets.append(target)
+                processed_symbols.add(target.symbol)
         
         return final_targets
 
@@ -114,11 +157,3 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
             return 0
 
 
-
-    def IsSelectionOnNextDay(self):
-        """
-        外部调用的接口: 设置选股日标志
-        """
-        self.is_selection_on_next_day = True
-        self.algorithm.Debug("[RiskManagement] - IsSelectionOnNextDay: True") 
-        

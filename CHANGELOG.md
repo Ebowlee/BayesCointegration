@@ -4,6 +4,31 @@
 
 ---
 
+## [v2.7.9_margin-cleanup@20250723]
+### 工作内容
+- 清理保证金机制相关代码，回归简洁的核心交易逻辑
+- 移除复杂的保证金诊断和监控功能，专注策略核心功能
+- 将保证金优化问题标记为遗留待解决，等待QuantConnect管理员回复
+- 简化代码结构，提高可维护性和可读性
+
+### 技术细节
+- 代码清理：移除main.py中的CustomSecurityInitializer和杠杆配置
+- 简化PortfolioConstruction.py：
+  - 移除_log_portfolio_status、_validate_margin_mechanism等保证金诊断方法
+  - 移除_check_minimum_order_size订单检查机制
+  - 移除_log_expected_allocation资金分配监控
+- 文档清理：删除MARGIN_INVESTIGATION_REPORT.md文件
+
+### 保留功能
+- Beta中性资金分配算法（核心数学逻辑）
+- 协整对交易逻辑和7天冷却机制
+- Beta筛选功能（0.2-3.0范围）
+- 基本的PC模块交易日志
+
+### 遗留问题
+- 保证金机制优化：等待QuantConnect管理员回复关于自定义保证金模型的实现方法
+- 资金利用率优化：当前受限于平台保证金机制，暂时保持现状
+
 ## [v2.7.8_margin-mechanism-fix@20250723]
 ### 工作内容
 - 实施QuantConnect保证金机制修复，通过CustomSecurityInitializer确保SecurityMarginModel正确配置

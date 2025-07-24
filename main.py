@@ -4,8 +4,8 @@ from src.UniverseSelection import MyUniverseSelectionModel
 from System import Action
 from src.AlphaModel import BayesianCointegrationAlphaModel
 from src.PortfolioConstruction import BayesianCointegrationPortfolioConstructionModel
-# from QuantConnect.Algorithm.Framework.Risk import MaximumDrawdownPercentPortfolio, MaximumSectorExposureRiskManagementModel
-# from src.RiskManagement import BayesianCointegrationRiskManagementModel
+from QuantConnect.Algorithm.Framework.Risk import MaximumDrawdownPercentPortfolio, MaximumSectorExposureRiskManagementModel
+from src.RiskManagement import BayesianCointegrationRiskManagementModel
 # endregion
 
 class StrategyConfig:
@@ -44,13 +44,21 @@ class StrategyConfig:
             'selection_interval_days': 30,  # 选股间隔天数，用于动态贝叶斯更新
             'dynamic_update_enabled': True,  # 是否启用动态贝叶斯更新
             'min_beta_threshold': 0.2,       # Beta最小阈值，过滤极小beta的协整对
-            'max_beta_threshold': 3.0        # Beta最大阈值，过滤极大beta的协整对
+            'max_beta_threshold': 3.0,       # Beta最大阈值，过滤极大beta的协整对
+            'flat_signal_duration_days': 1,  # 平仓信号有效期（天）
+            'entry_signal_duration_days': 2  # 建仓信号有效期（天）
         }
         
         # PortfolioConstruction 配置
         self.portfolio_construction = {
-            'margin_rate': 0.5,
+            'margin_rate': 1.0,
             'cooling_period_days': 7
+        }
+        
+        # RiskManagement 配置
+        self.risk_management = {
+            'trailing_stop_percent': 0.05,
+            'max_drawdown_percent': 0.10
         }
 
 
@@ -92,26 +100,16 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # 设置Alpha模块
         self.SetAlpha(BayesianCointegrationAlphaModel(self, self.config.alpha_model))
 
-        # 测试模式配置：用于验证Alpha信号逻辑
-        test_mode = self.GetParameter("test_mode", "false").lower() == "true"
-        if test_mode:
-            # 使用NullPortfolioConstructionModel直接执行Alpha信号
-            from QuantConnect.Algorithm.Framework.Portfolio import NullPortfolioConstructionModel
-            self.SetPortfolioConstruction(NullPortfolioConstructionModel())
-            self.Debug("[Initialize] 测试模式启用：Alpha信号将直接执行")
-        else:
-            # 正常模式：使用完整的框架模块
-            self.SetPortfolioConstruction(BayesianCointegrationPortfolioConstructionModel(self, self.config.portfolio_construction))
-            self.Debug("[Initialize] 正常模式启用：使用PortfolioConstruction模块")
+        # 设置PortfolioConstruction模块
+        self.SetPortfolioConstruction(BayesianCointegrationPortfolioConstructionModel(self, self.config.portfolio_construction))
 
-        # # 设置风险管理模块
-        # ## 组合层面分控
-        # self.AddRiskManagement(MaximumDrawdownPercentPortfolio(0.1))  
-        # self.AddRiskManagement(MaximumSectorExposureRiskManagementModel(0.3))
-        # ## 资产层面分控
-        # self.risk_manager = BayesianCointegrationRiskManagementModel(self)
-        # self.AddRiskManagement(self.risk_manager)  
-        # self.Schedule.On(self.DateRules.MonthStart(-1), self.TimeRules.At(16, 00), Action(self.risk_manager.IsSelectionOnNextDay))
+        # 设置风险管理模块
+        ## 组合层面风控
+        self.AddRiskManagement(MaximumDrawdownPercentPortfolio(0.1))  
+        self.AddRiskManagement(MaximumSectorExposureRiskManagementModel(0.3))
+        ## 资产层面风控
+        self.risk_manager = BayesianCointegrationRiskManagementModel(self, self.config.risk_management)
+        self.AddRiskManagement(self.risk_manager)
 
         # # # # 设置Execution模块
         # # # self.SetExecution(MyExecutionModel(self))

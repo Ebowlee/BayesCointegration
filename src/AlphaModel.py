@@ -60,7 +60,9 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         self.min_beta_threshold = config.get('min_beta_threshold', 0.2)
         self.max_beta_threshold = config.get('max_beta_threshold', 3.0)
         
-        self.signal_duration = timedelta(days=self.selection_interval_days)
+        # 信号有效期配置
+        self.flat_signal_duration_days = config.get('flat_signal_duration_days', 1)
+        self.entry_signal_duration_days = config.get('entry_signal_duration_days', 2)
         
         # 历史数据缓存
         # 数据结构: {Symbol: pandas.DataFrame}
@@ -816,11 +818,11 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         
         # 根据信号类型设置不同的有效期
         if insight1_direction == InsightDirection.Flat:
-            # 平仓信号:1天有效期
-            duration = timedelta(days=1)
+            # 平仓信号
+            duration = timedelta(days=self.flat_signal_duration_days)
         else:
-            # 建仓信号:2天有效期
-            duration = timedelta(days=2)
+            # 建仓信号
+            duration = timedelta(days=self.entry_signal_duration_days)
         
         # 直接生成信号,不做任何拦截或验证
         tag = f"{symbol1.Value}&{symbol2.Value}|{posteriorParamSet['alpha_mean']:.4f}|{posteriorParamSet['beta_mean']:.4f}|{z:.2f}|{len(self.industry_cointegrated_pairs)}"
