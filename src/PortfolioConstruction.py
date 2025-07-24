@@ -19,9 +19,9 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         super().__init__() 
         self.algorithm = algorithm
         self.margin_rate = config.get('margin_rate', 0.5)
-        self.cooling_period_days = config.get('cooling_period_days', 7)
+        self.pair_reentry_cooldown_days = config.get('pair_reentry_cooldown_days', 7)
         self.pair_cooling_history = {}  # {(symbol1, symbol2): last_flat_datetime}
-        self.algorithm.Debug(f"[PortfolioConstruction] 初始化完成 (保证金率: {self.margin_rate}, 冷却期: {self.cooling_period_days}天)")
+        self.algorithm.Debug(f"[PortfolioConstruction] 初始化完成 (保证金率: {self.margin_rate}, 冷却期: {self.pair_reentry_cooldown_days}天)")
 
 
 
@@ -254,8 +254,8 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
             if pair_key in self.pair_cooling_history:
                 last_flat_time = self.pair_cooling_history[pair_key]
                 time_diff = self.algorithm.Time - last_flat_time
-                if time_diff.days < self.cooling_period_days:
-                    self.algorithm.Debug(f"[PC] 冷却期内,忽略建仓: {symbol1.Value}-{symbol2.Value} (剩余{self.cooling_period_days - time_diff.days}天)")
+                if time_diff.days < self.pair_reentry_cooldown_days:
+                    self.algorithm.Debug(f"[PC] 冷却期内,忽略建仓: {symbol1.Value}-{symbol2.Value} (剩余{self.pair_reentry_cooldown_days - time_diff.days}天)")
                     return True
         
         return False

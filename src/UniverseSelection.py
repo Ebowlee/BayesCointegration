@@ -12,19 +12,32 @@ class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
         self.selection_on = False 
         
         # 强制使用集中配置
-        self.num_candidates = config['num_candidates']
+        self.max_stocks_per_sector = config['max_stocks_per_sector']
         self.min_price = config['min_price']
         self.min_volume = config['min_volume']
-        self.min_ipo_days = config['min_ipo_days']
+        self.min_days_since_ipo = config['min_days_since_ipo']
         self.max_pe = config['max_pe']
         self.min_roe = config['min_roe']
-        self.max_debt_to_assets = config['max_debt_to_assets']
+        self.max_debt_ratio = config['max_debt_ratio']
         self.max_leverage_ratio = config['max_leverage_ratio']
 
         self.last_fine_selected_symbols = []                            
-        self.fine_selection_count = 0                                   
+        self.fine_selection_count = 0
+        
+        # 定义行业映射（双向）
+        self.sector_code_to_name = {
+            MorningstarSectorCode.Technology: "Technology",
+            MorningstarSectorCode.Healthcare: "Healthcare",
+            MorningstarSectorCode.Energy: "Energy",
+            MorningstarSectorCode.ConsumerDefensive: "ConsumerDefensive",
+            MorningstarSectorCode.ConsumerCyclical: "ConsumerCyclical",
+            MorningstarSectorCode.CommunicationServices: "CommunicationServices",
+            MorningstarSectorCode.Industrials: "Industrials",
+            MorningstarSectorCode.Utilities: "Utilities"
+        }
+        self.sector_name_to_code = {v: k for k, v in self.sector_code_to_name.items()}
 
-        algorithm.Debug(f"[UniverseSelection] 初始化完成 (候选数:{self.num_candidates}, 价格>${self.min_price}, PE<{self.max_pe})")
+        algorithm.Debug(f"[UniverseSelection] 初始化完成")
 
         # 初始化父类并传递自定义的粗选和精选方法
         super().__init__(self._select_coarse, self._select_fine)
@@ -43,6 +56,10 @@ class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
         """
         粗选阶段, 负责从所有股票中筛选出符合条件的股票, 轻量级的筛选方法
         """
+        # 只在选股日进行实际筛选
+        if not self.selection_on:
+            return self.last_fine_selected_symbols
+            
         # 基础筛选
         filtered = [x for x in coarse if x.HasFundamentalData and 
                    x.Price > self.min_price and 
@@ -50,11 +67,10 @@ class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
         
         # IPO时间筛选
         ipo_filtered = [x for x in filtered if x.SecurityReference.IPODate is not None and 
-                       (self.algorithm.Time - x.SecurityReference.IPODate).days > self.min_ipo_days]
+                       (self.algorithm.Time - x.SecurityReference.IPODate).days > self.min_days_since_ipo]
         
         coarse_selected = [x.Symbol for x in ipo_filtered]
-        # 暂存粗选数量, 在细选阶段输出
-        self.coarse_selected_count = len(coarse_selected) if self.selection_on else 0
+        
         return coarse_selected
 
 
@@ -67,29 +83,17 @@ class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
             self.selection_on = False 
             self.fine_selection_count += 1
             self.algorithm.Debug(f"=====================================第【{self.fine_selection_count}】次选股=====================================")
-            # 输出粗选结果
-            if hasattr(self, 'coarse_selected_count') and self.coarse_selected_count > 0:
-                self.algorithm.Debug(f"[UniverseSelection] 粗选完成: {self.coarse_selected_count}只股票通过筛选")
 
             sector_candidates = {}
             all_sectors_selected_fine = []
-
-            # 定义 MorningstarSectorCode 到名字的映射
-            sector_map = {
-                "Technology": MorningstarSectorCode.Technology,
-                "Healthcare": MorningstarSectorCode.Healthcare,
-                "Energy": MorningstarSectorCode.Energy,
-                "ConsumerDefensive": MorningstarSectorCode.ConsumerDefensive,
-                "ConsumerCyclical": MorningstarSectorCode.ConsumerCyclical,
-                "CommunicationServices": MorningstarSectorCode.CommunicationServices,
-                "Industrials": MorningstarSectorCode.Industrials,
-                "Utilities": MorningstarSectorCode.Utilities
-            }
+            sector_distribution = {}  # 提前初始化行业分布统计
 
             # 用循环筛选每个行业
-            for name, code in sector_map.items():
+            for name, code in self.sector_name_to_code.items():
                 candidates = [x for x in fine if x.AssetClassification.MorningstarSectorCode == code]
-                sector_candidates[name] = self._num_of_candidates(candidates)
+                selected = self._num_of_candidates(candidates)
+                if selected:  # 只记录有候选股的行业
+                    sector_candidates[name] = selected
 
             # 把每个行业的股票合并到一起
             for selected_fine_list in sector_candidates.values():
@@ -113,11 +117,15 @@ class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
 
                         passes_pe = pe_ratio is not None and pe_ratio < self.max_pe
                         passes_roe = roe_ratio is not None and roe_ratio > self.min_roe
-                        passes_debt_to_assets = debt_to_assets_ratio is not None and debt_to_assets_ratio < self.max_debt_to_assets
+                        passes_debt_to_assets = debt_to_assets_ratio is not None and debt_to_assets_ratio < self.max_debt_ratio
                         passes_leverage_ratio = leverage_ratio is not None and leverage_ratio < self.max_leverage_ratio
                         
                         if passes_pe and passes_roe and passes_debt_to_assets and passes_leverage_ratio:
                             fine_after_financial_filters.append(x)
+                            # 同步更新行业分布
+                            sector_name = self.sector_code_to_name.get(x.AssetClassification.MorningstarSectorCode)
+                            if sector_name:
+                                sector_distribution[sector_name] = sector_distribution.get(sector_name, 0) + 1
                         else:
                             financial_failed += 1
                             # 记录具体失败原因
@@ -140,17 +148,6 @@ class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
             final_selected_symbols = [x.Symbol for x in fine_after_financial_filters]
             self.last_fine_selected_symbols = final_selected_symbols
             
-            # 计算行业分布统计
-            sector_distribution = {}
-            for selected_fine in fine_after_financial_filters:
-                sector = selected_fine.AssetClassification.MorningstarSectorCode
-                sector_name = None
-                for name, code in sector_map.items():
-                    if code == sector:
-                        sector_name = name
-                        break
-                if sector_name:
-                    sector_distribution[sector_name] = sector_distribution.get(sector_name, 0) + 1
             
             # 选股结果统计日志
             total_candidates = len(all_sectors_selected_fine)
@@ -188,10 +185,10 @@ class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
         """
         根据行业筛选出符合条件的股票, 按市值降序排列
         """
-        # 返回市值最高的前 num_candidates 个股票
+        # 返回市值最高的前 max_stocks_per_sector 个股票
         filtered = [x for x in sectorCandidates if x.MarketCap is not None and x.MarketCap > 0]
         sorted_candidates = sorted(filtered, key=lambda x: x.MarketCap, reverse=True)
-        return sorted_candidates[:self.num_candidates]
+        return sorted_candidates[:self.max_stocks_per_sector]
  
 
 

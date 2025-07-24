@@ -4,6 +4,90 @@
 
 ---
 
+## [v2.8.3_bayesian-modeling-refactor@20250724]
+### 工作内容
+- 消除BayesianModelingManager中的四大冗余问题
+- 重构贝叶斯建模流程，提高代码质量和性能
+- 修正MCMC采样配置逻辑，基于prior_params存在性而非lookback_days判断
+- 统一后验参数处理，避免重复的统计计算
+
+### 技术细节
+- **新增方法**：
+  - `_extract_posterior_statistics`: 统一后验统计计算，消除重复代码
+  - `_process_posterior_results`: 整合后验提取和历史保存功能
+  - `_determine_sampling_config`: 正确的采样策略决策方法
+- **重构方法**：
+  - `perform_single_pair_modeling`: 简化建模流程，从70行减少到35行
+  - `perform_all_pairs_modeling`: 消除重复的建模策略判断逻辑
+- **逻辑修正**：
+  - MCMC采样配置：`if prior_params is not None` 替代 `if lookback_days < lookback_period`
+  - 错误处理：`operation_type = "动态更新" if prior_params is not None else "完整建模"`
+- **性能提升**：减少约40行重复代码，提高数据处理效率和代码可维护性
+
+## [v2.8.2_risk-management-optimization@20250724]
+### 工作内容
+- 修复RiskManagement模块中的typo："规细化" → "精细化"
+- 增强回撤计算功能，支持做多和做空头寸的精确回撤计算
+- 添加边界条件检查和空值保护，提高模块健壮性
+- 优化代码结构，拆分长方法提高可读性和维护性
+
+### 技术细节
+- 回撤计算优化：`_calculate_drawdown`方法支持双向头寸
+  - 做多头寸：价格下跌为回撤 `max(0, (avg_cost - current_price) / avg_cost)`
+  - 做空头寸：价格上涨为回撤 `max(0, (current_price - avg_cost) / avg_cost)`
+- 边界检查增强：添加对`pair_ledger`为None和价格≤0的检查
+- 代码结构重构：新增`_process_single_target`方法拆分`manage_risk`长方法
+- 错误处理完善：使用`max(0, ...)`确保回撤值非负，避免异常计算结果
+
+### 架构影响
+- 提高风控模块的健壮性：支持更多边界情况和异常场景
+- 功能完整性增强：做空头寸风控计算准确性显著提升
+- 代码质量改善：方法职责单一明确，可读性和维护性大幅提升
+- 建立标准错误处理模式：为其他模块的健壮性改进提供参考
+
+### 下一步计划
+- 基于增强的风控功能进行全面回测验证
+- 监控做空头寸回撤计算的实际效果
+- 考虑添加更多风控指标和动态阈值调整
+
+## [v2.8.1_pairledger-simplification@20250724]
+### 工作内容
+- PairLedger极简化重构，移除过度工程化设计
+- 删除复杂的轮次追踪、Beta信息存储、时间戳记录等冗余功能
+- 在main.py中实现15行极简PairLedger类，彻底简化配对管理
+- 优化模块依赖关系，通过参数传递实例实现更清晰的架构
+
+### 技术细节
+- 删除src/PairLedger.py文件（原99行代码）
+- 在main.py中创建极简PairLedger类（仅15行）：
+  ```python
+  class PairLedger:
+      def __init__(self): self.pairs = {}
+      def update_pairs(self, pair_list): # 双向映射更新
+      def get_paired_symbol(self, symbol): # 配对查询
+  ```
+- 模块集成优化：
+  - AlphaModel: `self.pair_ledger.update_pairs(successful_pairs)`
+  - RiskManagement: `self.pair_ledger.get_paired_symbol(target.symbol)`
+- 删除冗余功能：轮次计数、Beta变化检测、详细日志、多种查询方法
+
+### 架构影响
+- 代码量减少85%：从202行代码缩减至15行，极大简化维护成本
+- 更清晰的面向对象设计：通过参数传递实例，依赖关系明确
+- 消除过度工程化：只保留核心业务需求，删除所有非必要功能
+- 遵循"简洁优雅"原则：实现最小功能集，完全满足配对管理和风控需求
+
+### 功能保持完整
+- ✅ 配对关系管理：双向映射存储和查询
+- ✅ 风控集成：RiskManagement配对完整性检查
+- ✅ Alpha集成：成功建模后的配对更新
+- ❌ 轮次追踪、Beta存储、时间戳等过度设计功能
+
+### 下一步计划
+- 基于极简设计进行全面回测验证功能完整性
+- 评估简化后的维护成本和开发效率提升
+- 为其他模块的简化重构提供参考模式
+
 ## [v2.7.9_margin-cleanup@20250723]
 ### 工作内容
 - 清理保证金机制相关代码，回归简洁的核心交易逻辑

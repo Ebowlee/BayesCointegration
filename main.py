@@ -2,10 +2,10 @@
 from AlgorithmImports import *
 from src.UniverseSelection import MyUniverseSelectionModel
 from System import Action
-from src.AlphaModel import BayesianCointegrationAlphaModel
-from src.PortfolioConstruction import BayesianCointegrationPortfolioConstructionModel
-from QuantConnect.Algorithm.Framework.Risk import MaximumDrawdownPercentPortfolio, MaximumSectorExposureRiskManagementModel
-from src.RiskManagement import BayesianCointegrationRiskManagementModel
+# from src.AlphaModel import BayesianCointegrationAlphaModel
+# from src.PortfolioConstruction import BayesianCointegrationPortfolioConstructionModel
+# from QuantConnect.Algorithm.Framework.Risk import MaximumDrawdownPercentPortfolio, MaximumSectorExposureRiskManagementModel
+# from src.RiskManagement import BayesianCointegrationRiskManagementModel
 # endregion
 
 class PairLedger:
@@ -31,15 +31,29 @@ class StrategyConfig:
     策略参数统一配置类
     """
     def __init__(self):
+        # Main 配置 - main.py中的硬编码参数
+        self.main = {
+            'start_date': (2024, 6, 20),
+            'end_date': (2024, 9, 20),
+            'cash': 100000,
+            'resolution': Resolution.Daily,
+            'brokerage_name': BrokerageName.InteractiveBrokersBrokerage,
+            'account_type': AccountType.Margin,
+            'schedule_frequency': 'MonthStart',
+            'schedule_time': (9, 10),
+            'portfolio_max_drawdown': 0.1,
+            'portfolio_max_sector_exposure': 0.3
+        }
+        
         # UniverseSelection 配置
         self.universe_selection = {
-            'num_candidates': 30,
+            'max_stocks_per_sector': 30,
             'min_price': 15,
             'min_volume': 2.5e8,
-            'min_ipo_days': 1095,
+            'min_days_since_ipo': 1095,
             'max_pe': 50,
             'min_roe': 0.05,
-            'max_debt_to_assets': 0.6,
+            'max_debt_ratio': 0.6,
             'max_leverage_ratio': 5
         }
         
@@ -50,27 +64,31 @@ class StrategyConfig:
             'max_symbol_repeats': 1,
             'max_pairs': 4,
             'lookback_period': 252,
-            'mcmc_burn_in': 1000,
-            'mcmc_draws': 1000,
+            'mcmc_warmup_samples': 1000,
+            'mcmc_posterior_samples': 1000,
             'mcmc_chains': 2,
             'entry_threshold': 1.65,
             'exit_threshold': 0.3,
             'upper_limit': 3.0,
             'lower_limit': -3.0,
-            'max_volatility_3month': 0.45,
-            'volatility_lookback_days': 63,
+            'max_annual_volatility': 0.45,
+            'volatility_window_days': 63,
             'selection_interval_days': 30,  # 选股间隔天数，用于动态贝叶斯更新
             'dynamic_update_enabled': True,  # 是否启用动态贝叶斯更新
             'min_beta_threshold': 0.2,       # Beta最小阈值，过滤极小beta的协整对
             'max_beta_threshold': 3.0,       # Beta最大阈值，过滤极大beta的协整对
             'flat_signal_duration_days': 1,  # 平仓信号有效期（天）
-            'entry_signal_duration_days': 2  # 建仓信号有效期（天）
+            'entry_signal_duration_days': 2, # 建仓信号有效期（天）
+            # 数据质量配置
+            'min_data_completeness_ratio': 0.98,  # 数据完整性最低要求(98%)
+            'prior_coverage_ratio': 0.95,          # 先验分布覆盖比例(95%)
+            'min_mcmc_samples': 500,               # MCMC采样最少样本数
         }
         
         # PortfolioConstruction 配置
         self.portfolio_construction = {
             'margin_rate': 1.0,
-            'cooling_period_days': 7
+            'pair_reentry_cooldown_days': 7
         }
         
         # RiskManagement 配置
@@ -103,33 +121,38 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         self.pair_ledger = PairLedger()
         
         # 设置回测时间段和初始资金
-        self.SetStartDate(2024, 6, 20)
-        self.SetEndDate(2024, 9, 20)
-        self.SetCash(100000)
+        self.SetStartDate(*self.config.main['start_date'])
+        self.SetEndDate(*self.config.main['end_date'])
+        self.SetCash(self.config.main['cash'])
         
         # 设置分辨率和账户类型
-        self.UniverseSettings.Resolution = Resolution.Daily
-        self.SetBrokerageModel(BrokerageName.InteractiveBrokersBrokerage, AccountType.Margin)
+        self.UniverseSettings.Resolution = self.config.main['resolution']
+        self.SetBrokerageModel(self.config.main['brokerage_name'], self.config.main['account_type'])
         
 
         # 设置UniverseSelection模块
         self.universe_selector = MyUniverseSelectionModel(self, self.config.universe_selection)
         self.SetUniverseSelection(self.universe_selector)
-        self.Schedule.On(self.DateRules.MonthStart(), self.TimeRules.At(9, 10), Action(self.universe_selector.TriggerSelection))
+        # 设置选股调度
+        schedule_frequency = self.config.main['schedule_frequency']
+        schedule_time = self.config.main['schedule_time']
+        date_rule = getattr(self.DateRules, schedule_frequency)()
+        time_rule = self.TimeRules.At(*schedule_time)
+        self.Schedule.On(date_rule, time_rule, Action(self.universe_selector.TriggerSelection))
 
-        # 设置Alpha模块
-        self.SetAlpha(BayesianCointegrationAlphaModel(self, self.config.alpha_model, self.pair_ledger))
+        # # 设置Alpha模块
+        # self.SetAlpha(BayesianCointegrationAlphaModel(self, self.config.alpha_model, self.pair_ledger))
 
-        # 设置PortfolioConstruction模块
-        self.SetPortfolioConstruction(BayesianCointegrationPortfolioConstructionModel(self, self.config.portfolio_construction))
+        # # 设置PortfolioConstruction模块
+        # self.SetPortfolioConstruction(BayesianCointegrationPortfolioConstructionModel(self, self.config.portfolio_construction))
 
-        # 设置风险管理模块
-        ## 组合层面风控
-        self.AddRiskManagement(MaximumDrawdownPercentPortfolio(0.1))  
-        self.AddRiskManagement(MaximumSectorExposureRiskManagementModel(0.3))
-        ## 资产层面风控
-        self.risk_manager = BayesianCointegrationRiskManagementModel(self, self.config.risk_management, self.pair_ledger)
-        self.AddRiskManagement(self.risk_manager)
+        # # 设置RiskManagement模块
+        # ## 组合层面风控
+        # self.AddRiskManagement(MaximumDrawdownPercentPortfolio(self.config.main['portfolio_max_drawdown']))
+        # self.AddRiskManagement(MaximumSectorExposureRiskManagementModel(self.config.main['portfolio_max_sector_exposure']))
+        # ## 资产层面风控
+        # self.risk_manager = BayesianCointegrationRiskManagementModel(self, self.config.risk_management, self.pair_ledger)
+        # self.AddRiskManagement(self.risk_manager)
 
         # # # # 设置Execution模块
         # # # self.SetExecution(MyExecutionModel(self))
