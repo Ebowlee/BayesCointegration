@@ -8,6 +8,24 @@ from QuantConnect.Algorithm.Framework.Risk import MaximumDrawdownPercentPortfoli
 from src.RiskManagement import BayesianCointegrationRiskManagementModel
 # endregion
 
+class PairLedger:
+    """极简配对记账簿"""
+    
+    def __init__(self):
+        self.pairs = {}  # {Symbol: Symbol}
+    
+    def update_pairs(self, pair_list):
+        """更新配对关系"""
+        self.pairs.clear()
+        for symbol1, symbol2 in pair_list:
+            self.pairs[symbol1] = symbol2
+            self.pairs[symbol2] = symbol1
+    
+    def get_paired_symbol(self, symbol):
+        """获取配对股票"""
+        return self.pairs.get(symbol)
+
+
 class StrategyConfig:
     """
     策略参数统一配置类
@@ -57,7 +75,6 @@ class StrategyConfig:
         
         # RiskManagement 配置
         self.risk_management = {
-            'trailing_stop_percent': 0.05,
             'max_drawdown_percent': 0.10
         }
 
@@ -82,6 +99,9 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # 创建统一配置
         self.config = StrategyConfig()
         
+        # 创建配对记账簿实例
+        self.pair_ledger = PairLedger()
+        
         # 设置回测时间段和初始资金
         self.SetStartDate(2024, 6, 20)
         self.SetEndDate(2024, 9, 20)
@@ -98,7 +118,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         self.Schedule.On(self.DateRules.MonthStart(), self.TimeRules.At(9, 10), Action(self.universe_selector.TriggerSelection))
 
         # 设置Alpha模块
-        self.SetAlpha(BayesianCointegrationAlphaModel(self, self.config.alpha_model))
+        self.SetAlpha(BayesianCointegrationAlphaModel(self, self.config.alpha_model, self.pair_ledger))
 
         # 设置PortfolioConstruction模块
         self.SetPortfolioConstruction(BayesianCointegrationPortfolioConstructionModel(self, self.config.portfolio_construction))
@@ -108,7 +128,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         self.AddRiskManagement(MaximumDrawdownPercentPortfolio(0.1))  
         self.AddRiskManagement(MaximumSectorExposureRiskManagementModel(0.3))
         ## 资产层面风控
-        self.risk_manager = BayesianCointegrationRiskManagementModel(self, self.config.risk_management)
+        self.risk_manager = BayesianCointegrationRiskManagementModel(self, self.config.risk_management, self.pair_ledger)
         self.AddRiskManagement(self.risk_manager)
 
         # # # # 设置Execution模块

@@ -22,7 +22,7 @@ class BayesianCointegrationAlphaModel(AlphaModel):
     核心原理: 协整对的残差应平稳且均值为零, 当价格偏离超过阈值时产生交易机会
     """
     
-    def __init__(self, algorithm, config):
+    def __init__(self, algorithm, config, pair_ledger):
         """
         初始化贝叶斯协整Alpha模型
         
@@ -34,9 +34,11 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                    - max_pairs: 最大协整对数量 (默认5)
                    - entry_threshold/exit_threshold: 信号进入/退出阈值
                    - mcmc_*: MCMC采样参数配置
+            pair_ledger: 配对记账簿实例
         """
         super().__init__() 
         self.algorithm = algorithm
+        self.pair_ledger = pair_ledger
         self.is_universe_selection_on = False
         self.symbols = []
 
@@ -113,6 +115,7 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         
         # 选股日执行协整检验和贝叶斯建模
         if self.is_universe_selection_on:
+            
             # 计算实际选股间隔
             actual_interval_days = self.selection_interval_days
             if self.last_selection_date is not None:
@@ -230,6 +233,10 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                 self.algorithm.Debug(f"[AlphaModel] 动态更新: {', '.join(dynamic_update_pairs)}")
             if new_modeling_pairs:
                 self.algorithm.Debug(f"[AlphaModel] 完整建模: {', '.join(new_modeling_pairs)}")
+            
+            # 将成功建模的协整对更新到配对记账簿
+            successful_pairs = [(symbol1, symbol2) for (symbol1, symbol2) in self.posterior_params.keys()]
+            self.pair_ledger.update_pairs(successful_pairs)
             
             self.is_universe_selection_on = False
 
@@ -729,6 +736,8 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                         'update_time': self.algorithm.Time
                     }
                     operation_type = "动态更新" if data_range == 'recent' else "完整建模"
+                    
+                    # 8. 建模成功，后续将在选股结束时统一记录到配对记账簿
                 
                 return posterior_params
                 

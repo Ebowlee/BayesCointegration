@@ -5,104 +5,68 @@ from typing import List
 
 class BayesianCointegrationRiskManagementModel(RiskManagementModel):
     """
-    协整对层面的精细化风险管理
-    1. 协整对最大回撤控制(10%)
-    2. Trailing Stop跟踪(5%)
+    协整对层面的规细化风险管理
+    1. 配对完整性检查 - 防止单边暴露
+    2. 协整关系失效检查 - 清理失效的跨周期持仓
+    3. 协整对最大回撤控制(10%)
     """
     
-    def __init__(self, algorithm: QCAlgorithm, config: dict = None):
+    def __init__(self, algorithm: QCAlgorithm, config: dict = None, pair_ledger = None):
         super().__init__()
         self.algorithm = algorithm
+        self.pair_ledger = pair_ledger
         
         # 从配置读取参数，如果没有配置则使用默认值
         if config is None:
             config = {}
         
-        self.trailing_stop_percent = config.get('trailing_stop_percent', 0.05)  # 5% trailing stop
         self.max_drawdown_percent = config.get('max_drawdown_percent', 0.10)   # 10% 最大回撤
-        
-        # 跟踪每个股票的最高价
-        self.high_water_marks = {}
 
     def manage_risk(self, algorithm: QCAlgorithm, targets: List[PortfolioTarget]) -> List[PortfolioTarget]:
         """
-        主要风险管理入口
+        主要风险管理入口：基于配对记账簿进行风控
         """
-        # 1. 从Insights中获取配对关系
-        pairs_dict = {}  # {symbol: paired_symbol}
-        
-        # 遍历当前活跃的insights
-        for kvp in algorithm.Insights:
-            insight = kvp.Value
-            if insight.Tag and "&" in insight.Tag:
-                # 解析tag: "symbol1&symbol2|alpha|beta|zscore|num_pairs"
-                parts = insight.Tag.split("|")
-                if len(parts) >= 1:
-                    symbol_pair = parts[0].split("&")
-                    if len(symbol_pair) == 2:
-                        # 使用algorithm.Symbol创建symbol对象
-                        symbol1_str = symbol_pair[0]
-                        symbol2_str = symbol_pair[1]
-                        
-                        # 在targets中查找对应的symbol对象
-                        symbol1 = None
-                        symbol2 = None
-                        for target in targets:
-                            if target.symbol.Value == symbol1_str:
-                                symbol1 = target.symbol
-                            elif target.symbol.Value == symbol2_str:
-                                symbol2 = target.symbol
-                        
-                        if symbol1 and symbol2:
-                            pairs_dict[symbol1] = symbol2
-                            pairs_dict[symbol2] = symbol1
-        
-        # 2. 对每个target进行风险检查
-        processed_symbols = set()
         final_targets = []
+        processed_symbols = set()
         
         for target in targets:
             if target.symbol in processed_symbols:
                 continue
                 
-            # 检查是否有配对
-            if target.symbol in pairs_dict:
-                paired_symbol = pairs_dict[target.symbol]
-                # 找到配对的target
+            # 从配对记账簿获取配对信息
+            paired_symbol = self.pair_ledger.get_paired_symbol(target.symbol)
+            
+            if paired_symbol:
+                # 有配对信息
                 paired_target = next((t for t in targets if t.symbol == paired_symbol), None)
                 
                 if paired_target:
-                    # 进行配对风险管理
+                    # 配对完整，进行回撤检查
                     managed_pair = self._manage_pair_risk(algorithm, target, paired_target)
                     final_targets.extend(managed_pair)
                     processed_symbols.add(target.symbol)
                     processed_symbols.add(paired_symbol)
                 else:
-                    # 配对的另一半不在targets中，单独处理
-                    # 这种情况下，可能需要将两个都平仓
-                    self.algorithm.Debug(f"[RiskManagement] 警告: {target.symbol.Value}的配对{paired_symbol.Value}不在targets中")
-                    final_targets.append(target)
+                    # 配对缺失一条腿，执行保护性平仓
+                    self.algorithm.Debug(f"[RiskManagement] 配对缺失: {target.symbol.Value}的配对{paired_symbol.Value}不在targets中，执行保护性平仓")
+                    final_targets.append(PortfolioTarget(target.symbol, 0))
                     processed_symbols.add(target.symbol)
             else:
-                # 没有配对信息，单独处理（可能是单边持仓或其他情况）
-                final_targets.append(target)
+                # 没有配对信息（可能是过期的协整对）
+                if algorithm.Portfolio[target.symbol].Invested:
+                    self.algorithm.Debug(f"[RiskManagement] 发现无配对信息的持仓: {target.symbol.Value}，可能是过期协整对，执行平仓")
+                    final_targets.append(PortfolioTarget(target.symbol, 0))
+                else:
+                    # 非持仓的单边信号，直接忽略
+                    self.algorithm.Debug(f"[RiskManagement] 忽略无配对信息的信号: {target.symbol.Value}")
                 processed_symbols.add(target.symbol)
         
         return final_targets
 
     def _manage_pair_risk(self, algorithm, target1, target2):
         """
-        协整对层面的风险管理
+        协整对层面的风险管理：只检查最大回撤
         """
-        # 更新最高价
-        self._update_high_water_marks(algorithm, target1.symbol)
-        self._update_high_water_marks(algorithm, target2.symbol)
-        
-        # 检查trailing stop
-        if self._check_trailing_stop(algorithm, target1.symbol) or self._check_trailing_stop(algorithm, target2.symbol):
-            self.algorithm.Debug(f"[RiskManagement] Trailing Stop触发清仓: {target1.symbol.Value} - {target2.symbol.Value}")
-            return [PortfolioTarget(target1.symbol, 0), PortfolioTarget(target2.symbol, 0)]
-        
         # 检查最大回撤
         drawdown1 = self._calculate_drawdown(algorithm.Portfolio[target1.symbol])
         drawdown2 = self._calculate_drawdown(algorithm.Portfolio[target2.symbol])
@@ -112,32 +76,6 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
             return [PortfolioTarget(target1.symbol, 0), PortfolioTarget(target2.symbol, 0)]
         
         return [target1, target2]
-
-
-
-    def _update_high_water_marks(self, algorithm, symbol):
-        """
-        更新最高价
-        """
-        if symbol not in self.high_water_marks:
-            self.high_water_marks[symbol] = algorithm.Securities[symbol].Price
-        else:
-            current_price = algorithm.Securities[symbol].Price
-            self.high_water_marks[symbol] = max(self.high_water_marks[symbol], current_price)
-
-    def _check_trailing_stop(self, algorithm, symbol):
-        """
-        检查是否触发trailing stop
-        """
-        if symbol not in self.high_water_marks:
-            return False
-        
-        current_price = algorithm.Securities[symbol].Price
-        high_water = self.high_water_marks[symbol]
-        
-        # 从最高价下跌超过trailing_stop_percent
-        return (high_water - current_price) / high_water > self.trailing_stop_percent
-
 
 
     def _calculate_drawdown(self, holding):
