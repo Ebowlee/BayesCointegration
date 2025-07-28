@@ -4,6 +4,13 @@
 
 ---
 
+## [v2.9.2_alpha-model-replacement@20250128]
+- 删除旧的AlphaModel.py文件
+- 将NewAlphaModel.py重命名为AlphaModel.py
+- 更新类名：NewBayesianCointegrationAlphaModel → BayesianCointegrationAlphaModel
+- 更新main.py的导入，完全替换旧实现
+- 清理相关缓存文件
+
 ## [v2.9.1_signal-generation@20250128]
 - 实现NewAlphaModel的日常信号生成功能
 - 新增SignalGenerator类，负责计算z-score并生成交易信号

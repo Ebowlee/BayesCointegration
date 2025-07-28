@@ -3,8 +3,7 @@ from AlgorithmImports import *
 from src.UniverseSelection import MyUniverseSelectionModel
 from System import Action
 from QuantConnect.Data.Fundamental import MorningstarSectorCode
-from src.NewAlphaModel import NewBayesianCointegrationAlphaModel
-# from src.AlphaModel import BayesianCointegrationAlphaModel
+from src.AlphaModel import BayesianCointegrationAlphaModel
 # from src.PortfolioConstruction import BayesianCointegrationPortfolioConstructionModel
 # from QuantConnect.Algorithm.Framework.Risk import MaximumDrawdownPercentPortfolio, MaximumSectorExposureRiskManagementModel
 # from src.RiskManagement import BayesianCointegrationRiskManagementModel
@@ -155,7 +154,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         self.Schedule.On(date_rule, time_rule, Action(self.universe_selector.TriggerSelection))
 
         # 设置Alpha模块
-        self.SetAlpha(NewBayesianCointegrationAlphaModel(self, self.config.alpha_model, self.pair_ledger, self.config.sector_code_to_name))
+        self.SetAlpha(BayesianCointegrationAlphaModel(self, self.config.alpha_model, self.pair_ledger, self.config.sector_code_to_name))
 
         # # 设置PortfolioConstruction模块
         # self.SetPortfolioConstruction(BayesianCointegrationPortfolioConstructionModel(self, self.config.portfolio_construction))

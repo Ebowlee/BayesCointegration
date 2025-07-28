@@ -1,1016 +1,1026 @@
 # region imports
 from AlgorithmImports import *
-from datetime import timedelta
-import itertools
-from collections import defaultdict
-from statsmodels.tsa.stattools import coint
 import numpy as np
+import pandas as pd
+from typing import Dict, List, Set, Tuple
+from collections import defaultdict
+import itertools
+from statsmodels.tsa.stattools import coint
 import pymc as pm
+from datetime import timedelta
 # endregion
 
-class DataQualityManager:
+
+# =============================================================================
+# 数据处理模块 - DataProcessor
+# =============================================================================
+class DataProcessor:
     """
-    数据质量管理器 - 一次性完整的数据质量检查
-    
-    在数据加载后进行一次性完整检查，后续使用完全信任数据质量
+    数据处理器类
+    封装数据下载、检查、清理和筛选的完整流程
     """
     
-    def __init__(self, algorithm, lookback_period, min_data_completeness_ratio=0.98):
-        self.algorithm = algorithm
-        self.lookback_period = lookback_period
-        self.min_data_completeness_ratio = min_data_completeness_ratio
-        
-        # 有效symbol集合
-        self.valid_symbols = set()
-    
-    def validate_symbols_quality(self, symbols, historical_data_cache):
+    def __init__(self, algorithm, config: dict):
         """
-        一次性完整的数据质量检查
-        
-        检查项目：
-        1. 数据存在性（有close列）
-        2. 数据长度（==252天，98%完整性）  
-        3. 价格合理性（正数，无空值）
+        初始化数据处理器
         
         Args:
-            symbols: 待验证的股票列表
-            historical_data_cache: 历史数据缓存
+            algorithm: QuantConnect算法实例
+            config: 包含数据处理相关配置的字典
+        """
+        self.algorithm = algorithm
+        self.lookback_period = config['lookback_period']
+        self.min_data_completeness_ratio = config['min_data_completeness_ratio']
+        self.max_annual_volatility = config['max_annual_volatility']
+        self.volatility_window_days = config['volatility_window_days']
+    
+    def process(self, symbols: List[Symbol]) -> Dict:
+        """
+        执行完整的数据处理流程
+        
+        处理步骤:
+        1. 下载历史数据
+        2. 数据完整性检查 (98%规则)
+        3. 数据合理性检查 (无负值)
+        4. 空缺填补
+        5. 波动率筛选
+        
+        Args:
+            symbols: 待处理的股票列表
             
         Returns:
-            dict: 包含valid_symbols和invalid_symbols的字典
+            dict: 包含clean_data, valid_symbols和statistics的字典
         """
-        # 重置有效symbol集合
-        self.valid_symbols.clear()
+        # 初始化统计
+        statistics = {
+            'total': len(symbols),
+            'data_missing': 0,
+            'incomplete': 0,
+            'invalid_values': 0,
+            'high_volatility': 0,
+            'final_valid': 0
+        }
         
-        valid_symbols = set()
-        invalid_symbols = set()
+        # 步骤1: 下载历史数据
+        all_histories = self._download_historical_data(symbols)
+        if all_histories is None:
+            return {
+                'clean_data': {},
+                'valid_symbols': [],
+                'statistics': statistics
+            }
+        
+        # 步骤2-5: 处理每个symbol
+        clean_data = {}
+        valid_symbols = []
         
         for symbol in symbols:
+            # 检查数据是否存在
+            if symbol not in all_histories.index.get_level_values(0):
+                statistics['data_missing'] += 1
+                continue
+            
             try:
-                # 1. 数据存在性检查
-                if symbol not in historical_data_cache:
-                    invalid_symbols.add(symbol)
+                symbol_data = all_histories.loc[symbol]
+                
+                # 检查是否有close列
+                if 'close' not in symbol_data.columns:
+                    statistics['data_missing'] += 1
                     continue
                 
-                symbol_data = historical_data_cache[symbol]
-                if symbol_data.empty or 'close' not in symbol_data.columns:
-                    invalid_symbols.add(symbol)
+                # 步骤2: 数据完整性检查
+                if not self._check_data_completeness(symbol_data):
+                    statistics['incomplete'] += 1
                     continue
                 
-                close_prices = symbol_data['close']
-                
-                # 2. 数据长度和完整性检查
-                required_length = int(self.lookback_period * self.min_data_completeness_ratio)
-                if len(close_prices) < required_length:
-                    invalid_symbols.add(symbol)
+                # 步骤3: 数据合理性检查
+                if not self._check_data_validity(symbol_data['close']):
+                    statistics['invalid_values'] += 1
                     continue
                 
-                # 3. 价格合理性检查
-                # 对少量空值进行填充（因为已经满足98%完整性要求）
-                if close_prices.isnull().any():
-                    close_prices = close_prices.fillna(method='pad').fillna(method='bfill')
-                    # 更新缓存中的数据
-                    historical_data_cache[symbol]['close'] = close_prices
+                # 步骤4: 空缺填补
+                symbol_data = self._fill_missing_values(symbol_data)
                 
-                # 检查价格为正数（在填充后检查）
-                if not (close_prices > 0).all():
-                    invalid_symbols.add(symbol)
+                # 步骤5: 波动率检查
+                if not self._check_volatility(symbol_data['close']):
+                    statistics['high_volatility'] += 1
                     continue
                 
                 # 通过所有检查
-                valid_symbols.add(symbol)
+                clean_data[symbol] = symbol_data
+                valid_symbols.append(symbol)
                 
             except Exception as e:
-                self.algorithm.Debug(f"[DataQualityManager] 数据检查异常 {symbol.Value}: {str(e)[:50]}")
-                invalid_symbols.add(symbol)
+                self.algorithm.Debug(f"[DataProcessor] 处理{symbol.Value}时出错: {str(e)[:50]}")
+                statistics['data_missing'] += 1
         
-        # 更新内部状态
-        self.valid_symbols = valid_symbols
+        statistics['final_valid'] = len(valid_symbols)
         
         # 输出统计信息
-        self.algorithm.Debug(
-            f"[DataQualityManager] 数据质量检查: {len(symbols)}只 → "
-            f"有效{len(valid_symbols)}只, 无效{len(invalid_symbols)}只"
-        )
+        self._log_statistics(statistics)
         
         return {
+            'clean_data': clean_data,
             'valid_symbols': valid_symbols,
-            'invalid_symbols': invalid_symbols,
-            'total': len(symbols),
-            'valid_count': len(valid_symbols),
-            'invalid_count': len(invalid_symbols)
+            'statistics': statistics
         }
     
-    def is_valid_symbol(self, symbol):
-        """检查symbol是否有效（已通过所有质量检查）"""
-        return symbol in self.valid_symbols
-
-
-class CointegrationTestManager:
-    """
-    协整检验管理器 - 专门处理协整检验相关逻辑
-    
-    负责协整检验的执行、筛选和管理，简化主模型的复杂度
-    """
-    
-    def __init__(self, algorithm, config, data_quality_manager, historical_data_cache):
-        self.algorithm = algorithm
-        self.data_quality_manager = data_quality_manager
-        self.historical_data_cache = historical_data_cache
+    def _download_historical_data(self, symbols: List[Symbol]):
+        """
+        下载历史数据
         
-        # 协整检验相关配置
+        Args:
+            symbols: 股票列表
+            
+        Returns:
+            DataFrame或None
+        """
+        self.algorithm.Debug(f"[DataProcessor] 开始下载{len(symbols)}只股票的历史数据...")
+        try:
+            return self.algorithm.History(symbols, self.lookback_period, Resolution.Daily)
+        except Exception as e:
+            self.algorithm.Debug(f"[DataProcessor] 历史数据下载失败: {str(e)}")
+            return None
+    
+    def _check_data_completeness(self, data: pd.DataFrame) -> bool:
+        """
+        检查数据完整性
+        
+        Args:
+            data: 股票数据DataFrame
+            
+        Returns:
+            bool: 是否通过完整性检查
+        """
+        required_length = int(self.lookback_period * self.min_data_completeness_ratio)
+        return len(data) >= required_length
+    
+    def _check_data_validity(self, close_prices: pd.Series) -> bool:
+        """
+        检查数据合理性（无负值或零值）
+        
+        Args:
+            close_prices: 收盘价序列
+            
+        Returns:
+            bool: 是否通过合理性检查
+        """
+        return not (close_prices <= 0).any()
+    
+    def _fill_missing_values(self, data: pd.DataFrame) -> pd.DataFrame:
+        """
+        填补空缺值
+        
+        Args:
+            data: 股票数据DataFrame
+            
+        Returns:
+            DataFrame: 填补后的数据
+        """
+        if data['close'].isnull().any():
+            data['close'] = data['close'].fillna(method='pad').fillna(method='bfill')
+        return data
+    
+    def _check_volatility(self, close_prices: pd.Series) -> bool:
+        """
+        检查波动率是否在可接受范围内
+        
+        Args:
+            close_prices: 收盘价序列
+            
+        Returns:
+            bool: 是否通过波动率检查
+        """
+        recent_data = close_prices.tail(self.volatility_window_days)
+        returns = recent_data.pct_change().dropna()
+        
+        daily_volatility = returns.std()
+        annual_volatility = daily_volatility * np.sqrt(252)
+        
+        return annual_volatility <= self.max_annual_volatility
+    
+    def _log_statistics(self, statistics: dict):
+        """输出统计信息"""
+        self.algorithm.Debug(
+            f"[DataProcessor] 数据处理完成: {statistics['total']}只 → {statistics['final_valid']}只 "
+            f"(缺失{statistics['data_missing']}只, "
+            f"不完整{statistics['incomplete']}只, "
+            f"无效值{statistics['invalid_values']}只, "
+            f"高波动{statistics['high_volatility']}只)"
+        )
+
+
+# =============================================================================
+# 协整分析模块 - CointegrationAnalyzer
+# =============================================================================
+class CointegrationAnalyzer:
+    """
+    协整分析器类
+    负责行业分组、配对生成和协整检验
+    """
+    
+    def __init__(self, algorithm, config: dict):
+        """
+        初始化协整分析器
+        
+        Args:
+            algorithm: QuantConnect算法实例
+            config: 包含协整分析相关配置的字典
+        """
+        self.algorithm = algorithm
         self.pvalue_threshold = config['pvalue_threshold']
         self.correlation_threshold = config['correlation_threshold']
-        self.max_symbol_repeats = config['max_symbol_repeats']
-        self.max_pairs = config['max_pairs']
+        self.max_symbol_repeats = config.get('max_symbol_repeats', 1)
+        self.max_pairs = config.get('max_pairs', 5)
     
-    def perform_sector_cointegration_tests(self, sector_to_symbols):
+    def analyze(self, valid_symbols: List[Symbol], clean_data: Dict[Symbol, pd.DataFrame], 
+                sector_code_to_name: Dict) -> Dict:
         """
-        执行行业内协整检验
+        执行完整的协整分析流程
         
         Args:
-            sector_to_symbols: 行业到股票列表的映射
+            valid_symbols: 有效股票列表
+            clean_data: 清洗后的数据
+            sector_code_to_name: 行业代码到名称的映射
             
         Returns:
-            tuple: (industry_cointegrated_pairs, sector_pairs_info)
+            包含协整对和统计信息的字典
         """
-        industry_cointegrated_pairs = {}
-        sector_pairs_info = {}
+        # 初始化统计
+        statistics = {
+            'total_pairs_tested': 0,
+            'cointegrated_pairs_found': 0,
+            'sector_breakdown': {}
+        }
         
-        for sector, symbols in sector_to_symbols.items():
-            # 每个行业内进行组合配对, 逐个进行协整检验
-            pairs = list(itertools.combinations(symbols, 2))
-            intra_industry_pairs = {}
-
-            for pair_tuple in pairs:
-                symbol1, symbol2 = pair_tuple
-                cointegrated_pair = self._test_single_pair(symbol1, symbol2)
-                intra_industry_pairs.update(cointegrated_pair)
+        # 1. 行业分组
+        sector_groups = self._group_by_sector(valid_symbols, sector_code_to_name)
         
-            filtered_intra_industry_pairs = self._filter_cointegrated_pairs(intra_industry_pairs)
+        # 2. 生成配对并进行协整检验
+        all_cointegrated_pairs = []
+        
+        # 对每个行业分别进行协整分析
+        for sector_name, symbols in sector_groups.items():
+            sector_pairs = self._analyze_sector(sector_name, symbols, clean_data)
+            all_cointegrated_pairs.extend(sector_pairs)
             
-            # 记录该行业的协整对信息
-            if filtered_intra_industry_pairs:
-                pair_names = [f"{s1.Value}-{s2.Value}" for (s1, s2) in filtered_intra_industry_pairs.keys()]
-                sector_pairs_info[sector] = {
-                    'count': len(filtered_intra_industry_pairs),
-                    'pairs': pair_names
-                }
-            
-            industry_cointegrated_pairs.update(filtered_intra_industry_pairs)
+            # 更新统计
+            statistics['sector_breakdown'][sector_name] = {
+                'symbols': len(symbols),
+                'pairs_tested': len(list(itertools.combinations(symbols, 2))),
+                'pairs_found': len(sector_pairs)
+            }
+            statistics['total_pairs_tested'] += len(list(itertools.combinations(symbols, 2)))
         
-        return industry_cointegrated_pairs, sector_pairs_info
+        # 3. 筛选配对（限制每个股票出现次数）
+        filtered_pairs = self._filter_pairs(all_cointegrated_pairs)
+        statistics['cointegrated_pairs_found'] = len(filtered_pairs)
+        
+        # 输出统计信息
+        self._log_statistics(statistics)
+        
+        return {
+            'cointegrated_pairs': filtered_pairs,
+            'statistics': statistics
+        }
     
-    def _test_single_pair(self, symbol1, symbol2):
+    def _group_by_sector(self, valid_symbols: List[Symbol], sector_code_to_name: Dict) -> Dict[str, List[Symbol]]:
         """
-        对单个股票对执行协整检验
+        将股票按行业分组
         
         Args:
-            symbol1, symbol2: 待检验的股票对
+            valid_symbols: 有效股票列表
+            sector_code_to_name: 行业映射
             
         Returns:
-            dict: 协整对信息字典
+            {行业名称: [股票列表]}
         """
-        cointegrated_pair = {}
+        sector_to_symbols = defaultdict(list)
         
-        try:
-            # 直接获取预处理的价格数据，无需检查数据质量
-            price1 = self.historical_data_cache[symbol1]['close']
-            price2 = self.historical_data_cache[symbol2]['close']
+        for symbol in valid_symbols:
+            # 获取股票的行业分类信息
+            security = self.algorithm.Securities[symbol]
+            sector_code = security.Fundamentals.AssetClassification.MorningstarSectorCode
+            sector_name = sector_code_to_name.get(sector_code)
             
-            # 3. 相关性预筛选
-            correlation = price1.corr(price2)
-            if abs(correlation) < self.correlation_threshold:
-                return cointegrated_pair
+            if sector_name:
+                sector_to_symbols[sector_name].append(symbol)
+        
+        # 输出分组信息
+        sector_stats = []
+        for sector_name, symbols in sorted(sector_to_symbols.items()):
+            sector_stats.append(f"{sector_name}({len(symbols)})")
+        
+        self.algorithm.Debug(f"[CointegrationAnalyzer] 行业分组: {' '.join(sector_stats)}")
+        
+        return dict(sector_to_symbols)
+    
+    def _analyze_sector(self, sector_name: str, symbols: List[Symbol], clean_data: Dict) -> List[Dict]:
+        """
+        分析单个行业内的协整关系
+        
+        Args:
+            sector_name: 行业名称
+            symbols: 该行业的股票列表
+            clean_data: 清洗后的数据
             
-            # 4. Engle-Granger协整检验
-            score, pvalue, critical_values = coint(price1, price2)
-            is_cointegrated = pvalue < self.pvalue_threshold
-
-            if is_cointegrated:
-                pair_key = (symbol1, symbol2)
-                cointegrated_pair[pair_key] = {
-                    'pvalue': pvalue,
-                    'critical_values': critical_values,
-                    'create_time': self.algorithm.Time
-                }
+        Returns:
+            协整对列表
+        """
+        cointegrated_pairs = []
+        
+        # 生成该行业内所有可能的股票配对组合
+        for symbol1, symbol2 in itertools.combinations(symbols, 2):
+            # 获取价格数据
+            prices1 = clean_data[symbol1]['close']
+            prices2 = clean_data[symbol2]['close']
+            
+            # 执行协整检验
+            try:
+                # Engle-Granger协整检验，检验两个时间序列是否存在长期均衡关系
+                score, pvalue, _ = coint(prices1, prices2)
                 
-        except (KeyError, ValueError, ImportError):
-            return {}
-        except Exception as e:
-            self.algorithm.Debug(f"[CointegrationTest] 检验异常 {symbol1.Value}-{symbol2.Value}: {str(e)[:50]}")
-
-        return cointegrated_pair
+                # 计算皮尔逊相关系数，确保两个股票有足够的相关性
+                correlation = prices1.corr(prices2)
+                
+                # 判断是否同时满足协整性和相关性要求
+                if pvalue < self.pvalue_threshold and correlation > self.correlation_threshold:
+                    cointegrated_pairs.append({
+                        'symbol1': symbol1,
+                        'symbol2': symbol2,
+                        'pvalue': pvalue,
+                        'correlation': correlation,
+                        'sector': sector_name
+                    })
+            except Exception as e:
+                self.algorithm.Debug(
+                    f"[CointegrationAnalyzer] 协整检验失败 {symbol1.Value}-{symbol2.Value}: {str(e)[:50]}"
+                )
+        
+        return cointegrated_pairs
     
-    def _filter_cointegrated_pairs(self, cointegrated_pairs):
+    def _filter_pairs(self, all_pairs: List[Dict]) -> List[Dict]:
         """
-        按质量筛选协整对, 控制投资组合规模
+        筛选配对，限制每个股票的出现次数
         
         Args:
-            cointegrated_pairs: 原始协整对字典
+            all_pairs: 所有通过协整检验的配对
             
         Returns:
-            dict: 筛选后的协整对字典
+            筛选后的配对列表
         """
-        # 按p值排序, 选择最强协整关系的股票对
-        sorted_pairs = sorted(cointegrated_pairs.items(), key=lambda kv: kv[1]['pvalue'])
+        # 按照p-value从小到大排序，优先选择协整性最强的配对
+        sorted_pairs = sorted(all_pairs, key=lambda x: x['pvalue'])
+        
+        # 统计每个股票出现的次数
         symbol_count = defaultdict(int)
-        filtered_pairs = {}
+        filtered_pairs = []
         
-        for keys, values in sorted_pairs:
-            s1, s2 = keys
-            # 避免单一股票在多个配对中重复使用
-            if symbol_count[s1] <= self.max_symbol_repeats and symbol_count[s2] <= self.max_symbol_repeats:
-                filtered_pairs[keys] = values
-                symbol_count[s1] += 1
-                symbol_count[s2] += 1
-            if len(filtered_pairs) >= self.max_pairs:
-                break
+        for pair in sorted_pairs:
+            symbol1 = pair['symbol1']
+            symbol2 = pair['symbol2']
+            
+            # 确保每个股票不会出现在过多的配对中，避免风险集中
+            if (symbol_count[symbol1] < self.max_symbol_repeats and 
+                symbol_count[symbol2] < self.max_symbol_repeats and
+                len(filtered_pairs) < self.max_pairs):
                 
-        return filtered_pairs
-
-
-class BayesianModelingManager:
-    """
-    贝叶斯建模管理器 - 统一管理所有贝叶斯建模相关逻辑
-    
-    负责历史后验管理、建模策略决策、数据准备和PyMC建模执行
-    """
-    
-    def __init__(self, algorithm, config, data_quality_manager, historical_data_cache):
-        self.algorithm = algorithm
-        self.data_quality_manager = data_quality_manager
-        self.historical_data_cache = historical_data_cache
+                filtered_pairs.append(pair)
+                symbol_count[symbol1] += 1
+                symbol_count[symbol2] += 1
         
-        # 配置参数
-        self.lookback_period = config['lookback_period']
+        return filtered_pairs
+    
+    def _log_statistics(self, statistics: dict):
+        """输出统计信息"""
+        self.algorithm.Debug(
+            f"[CointegrationAnalyzer] 协整检验完成: "
+            f"测试{statistics['total_pairs_tested']}对 → "
+            f"发现{statistics['cointegrated_pairs_found']}对"
+        )
+        
+        # 输出各行业详情
+        for sector, stats in statistics['sector_breakdown'].items():
+            if stats['pairs_found'] > 0:
+                self.algorithm.Debug(
+                    f"[CointegrationAnalyzer] {sector}: "
+                    f"{stats['symbols']}只股票, "
+                    f"测试{stats['pairs_tested']}对, "
+                    f"发现{stats['pairs_found']}对"
+                )
+
+
+# =============================================================================
+# 贝叶斯建模模块 - BayesianModeler
+# =============================================================================
+class BayesianModeler:
+    """
+    贝叶斯建模器类
+    使用PyMC进行贝叶斯线性回归建模
+    支持完全建模和动态更新两种模式
+    """
+    
+    def __init__(self, algorithm, config: dict):
+        """
+        初始化贝叶斯建模器
+        
+        Args:
+            algorithm: QuantConnect算法实例
+            config: 包含MCMC相关配置的字典
+        """
+        self.algorithm = algorithm
         self.mcmc_warmup_samples = config['mcmc_warmup_samples']
         self.mcmc_posterior_samples = config['mcmc_posterior_samples']
         self.mcmc_chains = config['mcmc_chains']
-        self.dynamic_update_enabled = config.get('dynamic_update_enabled', True)
-        self.min_data_completeness_ratio = config.get('min_data_completeness_ratio', 0.98)
-        self.prior_coverage_ratio = config.get('prior_coverage_ratio', 0.95)
-        self.min_mcmc_samples = config.get('min_mcmc_samples', 500)
+        self.lookback_period = config['lookback_period']
         
-        # 历史后验存储
+        # 历史后验存储 {(symbol1, symbol2): {...}}
         self.historical_posteriors = {}
     
-    def get_prior_params(self, pair_key):
+    def model_pairs(self, cointegrated_pairs: List[Dict], clean_data: Dict) -> Dict:
         """
-        获取协整对的历史后验参数
-        
-        检查正向和反向键，返回找到的历史后验参数
-        """
-        if not self.dynamic_update_enabled:
-            return None
-            
-        # 检查正向键
-        if pair_key in self.historical_posteriors:
-            return self.historical_posteriors[pair_key]
-        
-        # 检查反向键
-        symbol1, symbol2 = pair_key
-        reverse_key = (symbol2, symbol1)
-        if reverse_key in self.historical_posteriors:
-            return self.historical_posteriors[reverse_key]
-        
-        return None
-    
-    def determine_lookback_days(self, prior_params):
-        """
-        根据历史后验决定回看天数
-        
-        如果有历史后验且间隔合理，使用间隔天数
-        否则使用完整回看期（252天）
-        """
-        if prior_params is None:
-            return self.lookback_period
-        
-        current_time = self.algorithm.Time
-        last_posterior_time = prior_params.get('update_time', current_time)
-        interval_days = (current_time - last_posterior_time).days
-        
-        # 如果间隔超过1年，使用完整回看期
-        if interval_days > 252:
-            return self.lookback_period
-        
-        # 使用实际间隔天数
-        return interval_days
-    
-    def prepare_modeling_data(self, symbol1, symbol2, lookback_days):
-        """
-        统一的建模数据准备方法
-        
-        symbol都已通过数据质量检查，直接使用缓存数据
-        返回：(x_data, y_data)
-        """
-        # 直接提取价格数据，无需检查数据质量
-        price1 = self.historical_data_cache[symbol1]['close'].tail(lookback_days)
-        price2 = self.historical_data_cache[symbol2]['close'].tail(lookback_days)
-        
-        # 转换为对数形式
-        y_data = np.log(price1.values)
-        x_data = np.log(price2.values)
-        
-        return x_data, y_data
-    
-    def _extract_posterior_statistics(self, posterior):
-        """
-        统一的后验统计计算方法
-        
-        集中处理所有后验参数的统计计算，避免重复代码
+        对所有协整对进行贝叶斯建模
         
         Args:
-            posterior: PyMC后验对象
+            cointegrated_pairs: 协整对列表
+            clean_data: 清洗后的数据
             
         Returns:
-            dict: 包含所有统计信息的字典
+            包含建模结果和统计信息的字典
         """
-        # 提取原始样本
-        alpha_samples = posterior['alpha'].values.flatten()
-        beta_samples = posterior['beta'].values.flatten()
-        sigma_samples = posterior['sigmaOfEpsilon'].values.flatten()
-        residuals_samples = posterior['residuals'].values.flatten()
+        modeled_pairs = []
+        statistics = {
+            'total_pairs': len(cointegrated_pairs),
+            'successful': 0,
+            'failed': 0,
+            'full_modeling': 0,
+            'dynamic_update': 0
+        }
+        
+        # 对每个协整对进行建模
+        for pair in cointegrated_pairs:
+            result = self._model_single_pair(pair, clean_data)
+            if result:
+                modeled_pairs.append(result)
+                statistics['successful'] += 1
+                
+                # 更新统计
+                if result['modeling_type'] == 'dynamic':
+                    statistics['dynamic_update'] += 1
+                else:
+                    statistics['full_modeling'] += 1
+            else:
+                statistics['failed'] += 1
+        
+        # 输出统计信息
+        self._log_statistics(statistics)
+        
+        return {
+            'modeled_pairs': modeled_pairs,
+            'statistics': statistics
+        }
+    
+    def _model_single_pair(self, pair: Dict, clean_data: Dict) -> Dict:
+        """
+        处理单个配对的完整流程
+        
+        Args:
+            pair: 协整对信息
+            clean_data: 清洗后的数据
+            
+        Returns:
+            建模结果字典，失败返回None
+        """
+        try:
+            symbol1, symbol2 = pair['symbol1'], pair['symbol2']
+            
+            # 提取价格数据
+            prices1 = clean_data[symbol1]['close'].values
+            prices2 = clean_data[symbol2]['close'].values
+            
+            # 获取历史后验（如果存在）
+            prior_params = self._get_prior_params(symbol1, symbol2)
+            
+            # 执行贝叶斯建模和采样
+            trace = self._build_and_sample_model(prices1, prices2, prior_params)
+            
+            # 构建结果（使用展开操作符避免冗余）
+            result = {
+                **self._extract_posterior_stats(trace),
+                'symbol1': symbol1,
+                'symbol2': symbol2,
+                'sector': pair['sector'],
+                'modeling_type': 'dynamic' if prior_params else 'full',
+                'modeling_time': self.algorithm.Time
+            }
+            
+            # 保存后验用于未来的动态更新
+            self._save_posterior(symbol1, symbol2, result)
+            
+            return result
+            
+        except Exception as e:
+            self.algorithm.Debug(
+                f"[BayesianModeler] 建模失败 {symbol1.Value}-{symbol2.Value}: {str(e)[:50]}"
+            )
+            return None
+    
+    def _get_prior_params(self, symbol1: Symbol, symbol2: Symbol) -> Dict:
+        """
+        获取历史后验参数（如果存在且有效）
+        
+        Args:
+            symbol1, symbol2: 配对的两个股票
+            
+        Returns:
+            历史后验参数字典，如果不存在或过期则返回None
+        """
+        pair_key = (symbol1, symbol2)
+        
+        # 检查是否有历史记录
+        if pair_key not in self.historical_posteriors:
+            return None
+        
+        # 检查时间有效性
+        historical = self.historical_posteriors[pair_key]
+        time_diff = self.algorithm.Time - historical['update_time']
+        
+        # 如果超过lookback期限，视为过期
+        if time_diff.days > self.lookback_period:
+            self.algorithm.Debug(
+                f"[BayesianModeler] 历史后验已过期 {symbol1.Value}-{symbol2.Value} "
+                f"(距今{time_diff.days}天)"
+            )
+            return None
+        
+        return historical
+    
+    def _build_and_sample_model(self, prices1: np.ndarray, prices2: np.ndarray, 
+                                prior_params: Dict = None) -> pm.backends.base.MultiTrace:
+        """
+        构建贝叶斯线性回归模型并执行MCMC采样
+        
+        模型: log(price1) = alpha + beta * log(price2) + epsilon
+        
+        Args:
+            prices1: 股票1的价格数据
+            prices2: 股票2的价格数据
+            prior_params: 历史后验参数（用作先验）
+            
+        Returns:
+            MCMC采样结果
+        """
+        # 对数转换
+        x_data = np.log(prices2)
+        y_data = np.log(prices1)
+        
+        with pm.Model() as model:
+            # 设置先验
+            if prior_params is None:
+                # 完全建模：使用弱信息先验
+                alpha = pm.Normal('alpha', mu=0, sigma=10)
+                beta = pm.Normal('beta', mu=1, sigma=5)
+                sigma = pm.HalfNormal('sigma', sigma=1)
+                
+                # 标准采样参数
+                tune = self.mcmc_warmup_samples
+                draws = self.mcmc_posterior_samples
+            else:
+                # 动态更新：使用历史后验作为先验
+                alpha = pm.Normal('alpha', 
+                                mu=prior_params['alpha_mean'], 
+                                sigma=prior_params['alpha_std'])
+                beta = pm.Normal('beta', 
+                               mu=prior_params['beta_mean'], 
+                               sigma=prior_params['beta_std'])
+                
+                # 对于sigma，使用HalfNormal（简单稳健）
+                sigma = pm.HalfNormal('sigma', sigma=prior_params['sigma_mean'])
+                
+                # 减少采样数量以提高效率
+                tune = self.mcmc_warmup_samples // 2
+                draws = self.mcmc_posterior_samples // 2
+            
+            # 定义线性关系
+            mu = alpha + beta * x_data
+            
+            # 定义似然函数
+            likelihood = pm.Normal('y', mu=mu, sigma=sigma, observed=y_data)
+            
+            # 计算残差（用于后续分析）
+            residuals = pm.Deterministic('residuals', y_data - mu)
+            
+            # 执行MCMC采样
+            trace = pm.sample(
+                draws=draws, 
+                tune=tune, 
+                chains=self.mcmc_chains,
+                return_inferencedata=False,
+                progressbar=False  # 避免在QuantConnect中显示进度条
+            )
+        
+        return trace
+    
+    def _extract_posterior_stats(self, trace) -> Dict:
+        """
+        从MCMC采样结果中提取后验统计量
+        
+        Args:
+            trace: PyMC采样结果
+            
+        Returns:
+            包含所有需要的后验统计量的字典
+        """
+        # 提取样本
+        alpha_samples = trace['alpha'].flatten()
+        beta_samples = trace['beta'].flatten()
+        sigma_samples = trace['sigma'].flatten()
+        residuals_samples = trace['residuals'].mean(axis=1)  # 对每个样本取时间平均
         
         # 计算统计量
         return {
-            # 原始样本（用于历史后验保存）
-            'alpha_samples': alpha_samples,
-            'beta_samples': beta_samples,
-            'sigma_samples': sigma_samples,
-            'residuals_samples': residuals_samples,
-            
-            # 统计量（用于信号生成）
-            'alpha': alpha_samples,
             'alpha_mean': float(alpha_samples.mean()),
-            'beta': beta_samples,
+            'alpha_std': float(alpha_samples.std()),
             'beta_mean': float(beta_samples.mean()),
-            'residuals': residuals_samples,
-            'residuals_mean': float(residuals_samples.mean()),
-            'residuals_std': float(residuals_samples.std())
+            'beta_std': float(beta_samples.std()),
+            'sigma_mean': float(sigma_samples.mean()),
+            'sigma_std': float(sigma_samples.std()),
+            'residual_mean': float(residuals_samples.mean()),
+            'residual_std': float(residuals_samples.std())
         }
     
-    def _process_posterior_results(self, posterior, pair_key):
+    def _save_posterior(self, symbol1: Symbol, symbol2: Symbol, stats: Dict):
         """
-        整合的后验处理方法
-        
-        一次性完成后验参数提取和历史保存，消除功能重复
+        保存后验参数用于未来的动态更新
         
         Args:
-            posterior: PyMC后验对象
-            pair_key: 协整对键值
-            
-        Returns:
-            dict: 处理后的后验参数
+            symbol1, symbol2: 配对的股票
+            stats: 包含后验统计量的字典
         """
-        # 统一提取后验统计
-        posterior_stats = self._extract_posterior_statistics(posterior)
+        pair_key = (symbol1, symbol2)
         
-        # 保存历史后验（用于下次动态更新）
+        # 保存需要的统计量和更新时间
         self.historical_posteriors[pair_key] = {
-            'alpha_samples': posterior_stats['alpha_samples'],
-            'beta_samples': posterior_stats['beta_samples'],
-            'sigma_samples': posterior_stats['sigma_samples'],
+            'alpha_mean': stats['alpha_mean'],
+            'alpha_std': stats['alpha_std'],
+            'beta_mean': stats['beta_mean'],
+            'beta_std': stats['beta_std'],
+            'sigma_mean': stats['sigma_mean'],
+            'sigma_std': stats['sigma_std'],
             'update_time': self.algorithm.Time
         }
-        
-        return posterior_stats
     
-    def _determine_sampling_config(self, prior_params):
-        """
-        采样配置决策方法
-        
-        基于prior_params是否存在来决定采样策略，而非lookback_days
-        
-        Args:
-            prior_params: 历史后验参数
-            
-        Returns:
-            tuple: (draws, tune, is_dynamic_update)
-        """
-        if prior_params is not None:
-            # 动态更新：使用轻量级采样
-            draws = max(self.mcmc_posterior_samples // 2, self.min_mcmc_samples)
-            tune = max(self.mcmc_warmup_samples // 2, self.min_mcmc_samples)
-            is_dynamic_update = True
-        else:
-            # 完整建模：使用标准采样
-            draws = self.mcmc_posterior_samples
-            tune = self.mcmc_warmup_samples
-            is_dynamic_update = False
-        
-        return draws, tune, is_dynamic_update
-    
-    def perform_single_pair_modeling(self, symbol1, symbol2, lookback_days, prior_params=None):
-        """
-        简化的PyMC贝叶斯建模方法
-        
-        Args:
-            symbol1, symbol2: 协整对的两个股票
-            lookback_days: 回看天数（由调用方决定）
-            prior_params: 历史后验参数（可选）
-        
-        Returns:
-            posterior_params: 建模成功的后验参数，失败返回None
-        """
-        try:
-            # 准备建模数据，无需检查数据质量
-            data = self.prepare_modeling_data(symbol1, symbol2, lookback_days)
-            if data is None:
-                return None
-            
-            x_data, y_data = data
-            
-            # 2. 配置先验分布参数
-            if prior_params is not None:
-                # 验证先验参数
-                if (len(prior_params.get('alpha_samples', [])) == 0 or 
-                    len(prior_params.get('beta_samples', [])) == 0 or
-                    len(prior_params.get('sigma_samples', [])) == 0):
-                    return None
-                
-                # 使用历史后验作为先验
-                alpha_mu = float(np.mean(prior_params['alpha_samples']))
-                alpha_sigma = max(float(np.std(prior_params['alpha_samples'])), 0.1)
-                beta_mu = float(np.mean(prior_params['beta_samples']))
-                beta_sigma = max(float(np.std(prior_params['beta_samples'])), 0.1)
-                
-                # 改进的sigma先验设置:使用可配置的覆盖比例
-                sigma_mean = float(np.mean(prior_params['sigma_samples']))
-                sigma_std = float(np.std(prior_params['sigma_samples']))
-                coverage_multiplier = 2 if self.prior_coverage_ratio >= 0.95 else 1.5
-                sigma_sigma = max(sigma_mean + coverage_multiplier*sigma_std, 0.1)
-            else:
-                # 使用无信息先验
-                alpha_mu, alpha_sigma = 0, 10
-                beta_mu, beta_sigma = 0, 10
-                sigma_sigma = 1
-            
-            # 3. 构建PyMC模型并执行采样
-            with pm.Model() as model:
-                # 先验分布
-                alpha = pm.Normal('alpha', mu=alpha_mu, sigma=alpha_sigma)
-                beta = pm.Normal('beta', mu=beta_mu, sigma=beta_sigma)
-                sigmaOfEpsilon = pm.HalfNormal('sigmaOfEpsilon', sigma=sigma_sigma)
-                
-                # 线性关系
-                mu = alpha + beta * x_data
-                
-                # 似然函数
-                likelihood = pm.Normal('y', mu=mu, sigma=sigmaOfEpsilon, observed=y_data)
-                
-                # 残差计算
-                residuals = pm.Deterministic('residuals', y_data - mu)
-                
-                # 决定采样配置(基于prior_params存在性)
-                draws, tune, is_dynamic_update = self._determine_sampling_config(prior_params)
-                
-                trace = pm.sample(draws=draws, tune=tune, 
-                                chains=self.mcmc_chains, cores=1, progressbar=False)
-                
-            
-            # 4. 整合后验处理(提取+保存)
-            pair_key = (symbol1, symbol2)
-            posterior_params = self._process_posterior_results(trace.posterior, pair_key)
-            
-            return posterior_params
-                
-        except ImportError as e:
-            self.algorithm.Debug(f"[BayesianManager] PyMC导入错误: {str(e)[:50]}")
-            return None
-        except (ValueError, RuntimeError) as e:
-            return None
-        except Exception as e:
-            operation_type = "动态更新" if prior_params is not None else "完整建模"
-            self.algorithm.Debug(f"[BayesianManager] {operation_type}失败 {symbol1.Value}-{symbol2.Value}: {str(e)[:50]}")
-            return None
-    
-    def perform_all_pairs_modeling(self, cointegrated_pairs):
-        """
-        对所有协整对执行贝叶斯建模
-        
-        返回包含后验参数和统计信息的字典
-        """
-        posterior_params = {}
-        statistics = {
-            'success_count': 0,
-            'dynamic_update_count': 0,
-            'new_modeling_count': 0,
-            'dynamic_update_pairs': [],
-            'new_modeling_pairs': []
-        }
-        
-        for pair_key, pair_info in cointegrated_pairs.items():
-            symbol1, symbol2 = pair_key
-            
-            # 1. 获取历史后验（如果有）
-            prior_params = self.get_prior_params(pair_key)
-            
-            # 2. 决定回看天数
-            lookback_days = self.determine_lookback_days(prior_params)
-            
-            # 3. 执行建模(建模策略由perform_single_pair_modeling内部决定)
-            posterior_param = self.perform_single_pair_modeling(
-                symbol1, symbol2,
-                lookback_days=lookback_days,
-                prior_params=prior_params
-            )
-            
-            # 4. 更新结果和统计
-            if posterior_param is not None:
-                posterior_params[pair_key] = posterior_param
-                statistics['success_count'] += 1
-                
-                # 判断建模类型(与内部逻辑保持一致)
-                if prior_params is not None:
-                    statistics['dynamic_update_count'] += 1
-                    statistics['dynamic_update_pairs'].append(f"{symbol1.Value}-{symbol2.Value}")
-                else:
-                    statistics['new_modeling_count'] += 1
-                    statistics['new_modeling_pairs'].append(f"{symbol1.Value}-{symbol2.Value}")
-        
-        return {
-            'posterior_params': posterior_params,
-            'statistics': statistics
-        }
+    def _log_statistics(self, statistics: dict):
+        """输出建模统计信息"""
+        self.algorithm.Debug(
+            f"[BayesianModeler] 建模完成: "
+            f"成功{statistics['successful']}对, "
+            f"失败{statistics['failed']}对 "
+            f"(完全建模{statistics['full_modeling']}对, "
+            f"动态更新{statistics['dynamic_update']}对)"
+        )
 
 
-class BayesianCointegrationAlphaModel(AlphaModel):
+# =============================================================================
+# 信号生成模块 - SignalGenerator
+# =============================================================================
+class SignalGenerator:
     """
-    贝叶斯协整Alpha模型
-    
-    该模型使用贝叶斯方法和MCMC采样技术构建配对交易策略, 主要功能包括:
-    1. 通过Engle-Granger检验识别行业内协整股票对
-    2. 使用PyMC进行贝叶斯线性回归, 生成alpha和beta的后验分布
-    3. 基于残差z-score判断价格偏离程度, 生成均值回归交易信号
-    4. 实现波动率筛选和风险控制, 确保交易对的质量
-    
-    核心原理: 协整对的残差应平稳且均值为零, 当价格偏离超过阈值时产生交易机会
+    信号生成器类
+    基于贝叶斯建模结果计算z-score并生成交易信号
     """
     
-    # =========================
-    # 1. 初始化和框架接口方法
-    # =========================
-    
-    def __init__(self, algorithm, config, pair_ledger, sector_code_to_name):
+    def __init__(self, algorithm, config: dict):
         """
-        初始化贝叶斯协整Alpha模型
+        初始化信号生成器
         
         Args:
-            algorithm: QuantConnect算法实例, 提供数据和交易接口
-            config: 配置字典, 包含所有模型参数和阈值设置
-            pair_ledger: 配对记账簿实例
-            sector_code_to_name: 行业代码到名称的映射字典
+            algorithm: QuantConnect算法实例
+            config: 包含信号生成相关配置的字典
         """
-        super().__init__() 
         self.algorithm = algorithm
-        self.pair_ledger = pair_ledger
-        self.is_universe_selection_on = False
-        self.symbols = []
-
-        # 协整检验配置
-        self.pvalue_threshold = config['pvalue_threshold']
-        self.correlation_threshold = config['correlation_threshold']
-        self.max_symbol_repeats = config['max_symbol_repeats']
-        self.max_pairs = config['max_pairs']
-        
-        # 贝叶斯建模配置
-        self.lookback_period = config['lookback_period']
-        self.mcmc_warmup_samples = config['mcmc_warmup_samples']
-        self.mcmc_posterior_samples = config['mcmc_posterior_samples']
-        self.mcmc_chains = config['mcmc_chains']
-        
-        # 信号生成配置
         self.entry_threshold = config['entry_threshold']
         self.exit_threshold = config['exit_threshold']
         self.upper_limit = config['upper_limit']
         self.lower_limit = config['lower_limit']
         self.flat_signal_duration_days = config.get('flat_signal_duration_days', 1)
         self.entry_signal_duration_days = config.get('entry_signal_duration_days', 2)
-        
-        # 波动率筛选配置
-        self.max_annual_volatility = config['max_annual_volatility']
-        self.volatility_window_days = config['volatility_window_days']
-        
-        # 动态更新配置
-        self.selection_interval_days = config.get('selection_interval_days', 30)
-        self.dynamic_update_enabled = config.get('dynamic_update_enabled', True)
-        self.min_beta_threshold = config.get('min_beta_threshold', 0.2)
-        self.max_beta_threshold = config.get('max_beta_threshold', 3.0)
-        
-        # 数据质量配置
-        self.min_data_completeness_ratio = config.get('min_data_completeness_ratio', 0.95)
-        self.prior_coverage_ratio = config.get('prior_coverage_ratio', 0.95)
-        self.min_mcmc_samples = config.get('min_mcmc_samples', 500)
-        
-        # 历史数据缓存
-        self.historical_data_cache = {}
-        
-        # 数据质量管理器
-        self.data_quality_manager = DataQualityManager(algorithm, self.lookback_period, self.min_data_completeness_ratio)
-        
-        # 协整检验管理器
-        self.cointegration_manager = None  # 在数据加载后初始化
-        
-        # 贝叶斯建模管理器
-        self.bayesian_manager = None  # 在数据加载后初始化
-        
-        # 选股日期跟踪
-        self.last_selection_date = None
-        
-        # 使用从main.py传入的行业映射
-        self.sector_code_to_name = sector_code_to_name
-
-        self.algorithm.Debug(f"[AlphaModel] 初始化完成 (最大{self.max_pairs}对, 波动率<{self.max_annual_volatility:.0%})")
-
     
-    def Update(self, algorithm: QCAlgorithm, data: Slice) -> List[Insight]:
+    def generate_signals(self, modeled_pairs: List[Dict], data) -> List:
         """
-        Alpha模型核心更新方法, 分阶段执行协整检验和信号生成
+        为所有建模配对生成交易信号
         
-        该方法分为两个清晰的阶段:
-        1. 选股日: 进行批量协整检验和贝叶斯建模 (月度执行)
-        2. 交易日: 计算z-score并生成交易信号 (每日执行)
-        """
-        if not self.symbols or len(self.symbols) < 2:
-            self.algorithm.Debug("[AlphaModel] 当前未接受到足够数量的选股")
-            return []
-        
-        # 阶段1: 选股日处理
-        if self.is_universe_selection_on:
-            self._process_selection_day()
+        Args:
+            modeled_pairs: 建模结果列表
+            data: 当前市场数据
             
-        # 阶段2: 每日信号生成
-        return self._generate_daily_signals(data)
+        Returns:
+            Insight列表
+        """
+        insights = []
+        
+        for pair in modeled_pairs:
+            # 计算当前z-score
+            pair_with_zscore = self._calculate_zscore(pair, data)
+            if pair_with_zscore is None:
+                continue
+            
+            # 生成信号
+            pair_insights = self._generate_pair_signals(pair_with_zscore)
+            insights.extend(pair_insights)
+        
+        # 输出统计
+        if insights:
+            self.algorithm.Debug(
+                f"[SignalGenerator] 生成信号: {len(insights)}个 "
+                f"(建仓{sum(1 for i in insights if i.Direction != InsightDirection.Flat)}个, "
+                f"平仓{sum(1 for i in insights if i.Direction == InsightDirection.Flat)}个)"
+            )
+        
+        return insights
+    
+    def _calculate_zscore(self, pair: Dict, data) -> Dict:
+        """
+        计算配对的当前z-score
+        
+        Args:
+            pair: 包含建模参数的配对信息
+            data: 当前市场数据
+            
+        Returns:
+            添加了z-score的配对信息
+        """
+        symbol1 = pair['symbol1']
+        symbol2 = pair['symbol2']
+        
+        # 获取当前价格
+        if not (data.ContainsKey(symbol1) and data.ContainsKey(symbol2)):
+            return None
+        
+        if not (data[symbol1] and data[symbol2]):
+            return None
+        
+        current_price1 = float(data[symbol1].Close)
+        current_price2 = float(data[symbol2].Close)
+        
+        # 使用对数价格计算
+        log_price1 = np.log(current_price1)
+        log_price2 = np.log(current_price2)
+        
+        # 提取贝叶斯参数
+        alpha_mean = pair['alpha_mean']
+        beta_mean = pair['beta_mean']
+        residual_mean = pair['residual_mean']
+        residual_std = pair['residual_std']
+        
+        # 计算期望价格和残差
+        expected_log_price1 = alpha_mean + beta_mean * log_price2
+        residual = log_price1 - expected_log_price1 - residual_mean
+        
+        # 计算z-score
+        if residual_std > 0:
+            zscore = residual / residual_std
+        else:
+            zscore = 0
+        
+        # 更新配对信息
+        pair['zscore'] = zscore
+        pair['current_price1'] = current_price1
+        pair['current_price2'] = current_price2
+        
+        return pair
+    
+    def _generate_pair_signals(self, pair: Dict) -> List:
+        """
+        基于z-score为单个配对生成信号
+        
+        Args:
+            pair: 包含z-score的配对信息
+            
+        Returns:
+            Insight列表
+        """
+        insights = []
+        
+        symbol1 = pair['symbol1']
+        symbol2 = pair['symbol2']
+        zscore = pair['zscore']
+        
+        # 构建标签信息
+        tag = f"{symbol1.Value}&{symbol2.Value}|{pair['alpha_mean']:.4f}|{pair['beta_mean']:.4f}|{zscore:.2f}|1"
+        
+        # 风险检查 - 极端偏离时立即平仓
+        if abs(zscore) > self.upper_limit:
+            self.algorithm.Debug(
+                f"[SignalGenerator] 风险警告! {symbol1.Value}-{symbol2.Value} "
+                f"z-score={zscore:.2f} 超过上限±{self.upper_limit}, 生成平仓信号"
+            )
+            # 生成平仓信号
+            insights.append(Insight.Price(
+                symbol1, 
+                timedelta(days=self.flat_signal_duration_days),
+                InsightDirection.Flat,
+                None, None, None,
+                None,
+                tag
+            ))
+            insights.append(Insight.Price(
+                symbol2,
+                timedelta(days=self.flat_signal_duration_days),
+                InsightDirection.Flat,
+                None, None, None,
+                None,
+                tag
+            ))
+            return insights
+        
+        # 正常信号生成
+        if abs(zscore) > self.entry_threshold:
+            # 建仓信号
+            if zscore > self.entry_threshold:
+                # z > 1.65: 股票1高估，做空1做多2
+                direction1 = InsightDirection.Down
+                direction2 = InsightDirection.Up
+            else:
+                # z < -1.65: 股票1低估，做多1做空2
+                direction1 = InsightDirection.Up
+                direction2 = InsightDirection.Down
+            
+            insights.append(Insight.Price(
+                symbol1,
+                timedelta(days=self.entry_signal_duration_days),
+                direction1,
+                None, None, None,
+                None,
+                tag
+            ))
+            insights.append(Insight.Price(
+                symbol2,
+                timedelta(days=self.entry_signal_duration_days),
+                direction2,
+                None, None, None,
+                None,
+                tag
+            ))
+            
+            self.algorithm.Debug(
+                f"[SignalGenerator] 建仓信号: {symbol1.Value}({direction1.name}) - "
+                f"{symbol2.Value}({direction2.name}), z-score={zscore:.2f}"
+            )
+            
+        elif abs(zscore) < self.exit_threshold:
+            # 平仓信号
+            insights.append(Insight.Price(
+                symbol1,
+                timedelta(days=self.flat_signal_duration_days),
+                InsightDirection.Flat,
+                None, None, None,
+                None,
+                tag
+            ))
+            insights.append(Insight.Price(
+                symbol2,
+                timedelta(days=self.flat_signal_duration_days),
+                InsightDirection.Flat,
+                None, None, None,
+                None,
+                tag
+            ))
+            
+            self.algorithm.Debug(
+                f"[SignalGenerator] 平仓信号: {symbol1.Value}-{symbol2.Value}, z-score={zscore:.2f}"
+            )
+        
+        return insights
 
+
+# =============================================================================
+# 主Alpha模型 - BayesianCointegrationAlphaModel
+# =============================================================================
+class BayesianCointegrationAlphaModel(AlphaModel):
+    """
+    贝叶斯协整Alpha模型
+    
+    清晰的数据处理流程和结构化的实现
+    """
+    
+    def __init__(self, algorithm, config: dict, pair_ledger, sector_code_to_name: dict):
+        """
+        初始化Alpha模型
+        
+        Args:
+            algorithm: QuantConnect算法实例
+            config: 配置字典
+            pair_ledger: 配对记账簿实例
+            sector_code_to_name: 行业代码到名称的映射
+        """
+        super().__init__()
+        self.algorithm = algorithm
+        self.config = config
+        self.pair_ledger = pair_ledger
+        self.sector_code_to_name = sector_code_to_name
+        
+        # 状态管理
+        self.is_selection_day = False
+        self.symbols = []
+        
+        # 数据存储
+        self.clean_data = {}  # 处理后的干净数据
+        self.valid_symbols = []  # 通过所有筛选的股票
+        self.cointegrated_pairs = []  # 协整对结果
+        self.modeled_pairs = []  # 贝叶斯建模结果
+        
+        # 创建数据处理器
+        self.data_processor = DataProcessor(self.algorithm, self.config)
+        
+        # 创建协整分析器
+        self.cointegration_analyzer = CointegrationAnalyzer(self.algorithm, self.config)
+        
+        # 创建贝叶斯建模器
+        self.bayesian_modeler = BayesianModeler(self.algorithm, self.config)
+        
+        # 创建信号生成器
+        self.signal_generator = SignalGenerator(self.algorithm, self.config)
+        
+        self.algorithm.Debug(f"[NewAlphaModel] 初始化完成")
     
     def OnSecuritiesChanged(self, algorithm: QCAlgorithm, changes: SecurityChanges):
         """
-        证券变更事件回调, 同步更新内部股票池
-        
-        当UniverseSelection模块更新股票池时, 框架自动调用此方法.
-        设置选股标志位触发下次Update时的协整检验流程.
+        处理证券变更事件
+        步骤1: 解析选股结果
         """
-        self.is_universe_selection_on = True
-
+        self.is_selection_day = True
+        
+        # 添加新股票
         for added_security in changes.AddedSecurities:
             symbol = added_security.Symbol
             if symbol and symbol not in self.symbols:
                 self.symbols.append(symbol)
-    
+        
+        # 移除旧股票
         for removed_security in changes.RemovedSecurities:
             symbol = removed_security.Symbol
             if symbol and symbol in self.symbols:
                 self.symbols.remove(symbol)
-
+        
+        self.algorithm.Debug(f"[NewAlphaModel] 股票池更新: {len(self.symbols)}只")
     
-    # ===========================
-    # 2. 选股日处理流程 (按执行顺序)
-    # ===========================
-    
-    def _process_selection_day(self):
+    def Update(self, algorithm: QCAlgorithm, data: Slice) -> List[Insight]:
         """
-        选股日处理: 执行协整检验和贝叶斯建模
-        
-        主要流程:
-        1. 计算选股间隔并更新动态参数
-        2. 批量加载历史数据
-        3. 波动率筛选
-        4. 行业内协整检验
-        5. 贝叶斯建模
-        6. 更新配对记账簿
+        主更新方法
         """
-        # 1. 计算实际选股间隔
-        actual_interval_days = self.selection_interval_days
-        if self.last_selection_date is not None:
-            actual_interval_days = (self.algorithm.Time - self.last_selection_date).days
-            self.algorithm.Debug(f"[AlphaModel] 实际选股间隔: {actual_interval_days}天 (上次: {self.last_selection_date.strftime('%Y-%m-%d')})")
+        if not self.symbols or len(self.symbols) < 2:
+            return []
         
-        # 初始化选股日状态
-        self.industry_cointegrated_pairs = {}
-        self.posterior_params = {}
-        self.last_selection_date = self.algorithm.Time
-        
-        # 2. 数据准备阶段
-        self._load_and_validate_historical_data(self.symbols)
-        
-        # 3. 波动率筛选
-        volatility_filtered_symbols = self._filter_by_volatility(self.symbols)
-        
-        # 4. 行业分组
-        sector_to_symbols = self._group_symbols_by_industry(volatility_filtered_symbols)
-        
-        # 5. 初始化协整检验管理器(在数据加载后)
-        if self.cointegration_manager is None:
-            self.cointegration_manager = CointegrationTestManager(
-                self.algorithm, 
-                {
-                    'pvalue_threshold': self.pvalue_threshold,
-                    'correlation_threshold': self.correlation_threshold,
-                    'max_symbol_repeats': self.max_symbol_repeats,
-                    'max_pairs': self.max_pairs
-                },
-                self.data_quality_manager,
-                self.historical_data_cache
-            )
-        
-        # 6. 初始化贝叶斯建模管理器(在数据加载后)
-        if self.bayesian_manager is None:
-            self.bayesian_manager = BayesianModelingManager(
-                self.algorithm,
-                {
-                    'lookback_period': self.lookback_period,
-                    'mcmc_warmup_samples': self.mcmc_warmup_samples,
-                    'mcmc_posterior_samples': self.mcmc_posterior_samples,
-                    'mcmc_chains': self.mcmc_chains,
-                    'dynamic_update_enabled': self.dynamic_update_enabled,
-                    'min_data_completeness_ratio': self.min_data_completeness_ratio,
-                    'prior_coverage_ratio': self.prior_coverage_ratio,
-                    'min_mcmc_samples': self.min_mcmc_samples
-                },
-                self.data_quality_manager,
-                self.historical_data_cache
-            )
-        
-        # 7. 协整检验阶段
-        self._perform_cointegration_tests(sector_to_symbols)
-        
-        # 8. 贝叶斯建模阶段
-        self._perform_bayesian_modeling()
-        
-        # 9. 更新配对记账簿
-        successful_pairs = [(symbol1, symbol2) for (symbol1, symbol2) in self.posterior_params.keys()]
-        self.pair_ledger.update_pairs(successful_pairs)
-        
-        # 重置选股标志
-        self.is_universe_selection_on = False
-
-    
-    def _load_and_validate_historical_data(self, symbols: list[Symbol]):
-        """
-        加载历史数据并进行一次性完整质量检查
-        """
-        try:
-            # 一次性获取所有股票的历史数据
-            all_histories = self.algorithm.History(symbols, self.lookback_period, Resolution.Daily)
-            self.historical_data_cache = {}
+        if self.is_selection_day:
+            # 使用数据处理器处理数据
+            data_result = self.data_processor.process(self.symbols)
             
-            # 数据预处理: 填充缺失值并建立缓存
-            for symbol in symbols:
-                if symbol in all_histories.index.get_level_values(0):
-                    symbol_data = all_histories.loc[symbol]
-                    # 处理缺失值
-                    close_prices = symbol_data['close'].fillna(method='pad').fillna(method='bfill')
-                    symbol_data['close'] = close_prices
-                    self.historical_data_cache[symbol] = symbol_data
+            # 保存处理结果
+            self.clean_data = data_result['clean_data']
+            self.valid_symbols = data_result['valid_symbols']
             
-            # 使用数据质量管理器进行一次性完整验证
-            quality_result = self.data_quality_manager.validate_symbols_quality(symbols, self.historical_data_cache)
-            
-            # 清理包含无效symbol的协整对
-            if quality_result['invalid_symbols']:
-                self._cleanup_invalid_cointegrated_pairs(quality_result['invalid_symbols'])
-                        
-        except Exception as e:
-            self.algorithm.Debug(f"[AlphaModel] 数据加载异常: {str(e)[:50]}")
-            self.historical_data_cache = {}
-    
-    def _cleanup_invalid_cointegrated_pairs(self, invalid_symbols):
-        """
-        从协整对集合中移除包含无效symbol的配对
-        
-        Args:
-            invalid_symbols: 数据质量不合格的symbol集合
-        """
-        if not hasattr(self, 'industry_cointegrated_pairs') or not self.industry_cointegrated_pairs:
-            return
-        
-        pairs_to_remove = []
-        for pair_key in self.industry_cointegrated_pairs:
-            symbol1, symbol2 = pair_key
-            if symbol1 in invalid_symbols or symbol2 in invalid_symbols:
-                pairs_to_remove.append(pair_key)
-        
-        # 执行清理
-        for pair_key in pairs_to_remove:
-            del self.industry_cointegrated_pairs[pair_key]
-        
-        if pairs_to_remove:
+            # 输出处理结果
             self.algorithm.Debug(
-                f"[AlphaModel] 协整对清理: 移除{len(pairs_to_remove)}对 "
-                f"(包含无效symbol: {len(invalid_symbols)}只)"
+                f"[NewAlphaModel] 数据处理完成: "
+                f"有效股票{len(self.valid_symbols)}只"
             )
-
-    
-    def _filter_by_volatility(self, symbols: list[Symbol]) -> list[Symbol]:
-        """
-        基于年化波动率进行股票筛选
-        
-        只处理已通过数据质量检查的symbol，无需重复验证数据质量
-        """
-        filtered_symbols = []
-        volatility_failed = 0
-        
-        # 只处理有效的symbols
-        valid_symbols = [s for s in symbols if self.data_quality_manager.is_valid_symbol(s)]
-        
-        for symbol in valid_symbols:
-            # 直接使用缓存数据进行波动率计算，无需检查
-            price_data = self.historical_data_cache[symbol]['close']
-            recent_data = price_data.tail(self.volatility_window_days)
-            returns = recent_data.pct_change().dropna()
             
-            daily_volatility = returns.std()
-            annual_volatility = daily_volatility * np.sqrt(252)
+            # 协整分析
+            if len(self.valid_symbols) >= 2:
+                cointegration_result = self.cointegration_analyzer.analyze(
+                    self.valid_symbols, 
+                    self.clean_data, 
+                    self.sector_code_to_name
+                )
+                
+                # 保存协整对结果
+                self.cointegrated_pairs = cointegration_result['cointegrated_pairs']
+                
+                self.algorithm.Debug(
+                    f"[NewAlphaModel] 协整分析完成: "
+                    f"发现{len(self.cointegrated_pairs)}对协整关系"
+                )
+                
+                # 贝叶斯建模
+                if len(self.cointegrated_pairs) > 0:
+                    modeling_result = self.bayesian_modeler.model_pairs(
+                        self.cointegrated_pairs,
+                        self.clean_data
+                    )
+                    
+                    # 保存建模结果
+                    self.modeled_pairs = modeling_result['modeled_pairs']
+                    
+                    self.algorithm.Debug(
+                        f"[NewAlphaModel] 贝叶斯建模完成: "
+                        f"成功建模{len(self.modeled_pairs)}对"
+                    )
             
-            if annual_volatility <= self.max_annual_volatility:
-                filtered_symbols.append(symbol)
-            else:
-                volatility_failed += 1
+            self.is_selection_day = False
         
-        # 筛选统计输出
-        invalid_count = len(symbols) - len(valid_symbols)
-        self.algorithm.Debug(
-            f"[AlphaModel] 波动率筛选: 候选{len(valid_symbols)}只 → 通过{len(filtered_symbols)}只 "
-            f"(波动率过滤{volatility_failed}只, 数据无效{invalid_count}只)"
-        )
-            
-        return filtered_symbols
-
-    
-    def _group_symbols_by_industry(self, symbols: list[Symbol]) -> dict:
-        """
-        按行业分组股票, 为同行业配对做准备
+        # 日常信号生成
+        if self.modeled_pairs:
+            return self.signal_generator.generate_signals(self.modeled_pairs, data)
         
-        协整关系在同行业内更为稳定, 跨行业配对容易受到行业轮动影响.
-        支持8个主要Morningstar行业分类.
-        """
-        sector_to_symbols = defaultdict(list)
-        
-        # 分类symbols到对应行业
-        for symbol in symbols:
-            security = self.algorithm.Securities[symbol]
-            sector = security.Fundamentals.AssetClassification.MorningstarSectorCode
-            sector_name = self.sector_code_to_name.get(sector)
-            if sector_name:
-                sector_to_symbols[sector_name].append(symbol)
-        
-        return sector_to_symbols
-
-    
-    def _perform_cointegration_tests(self, sector_to_symbols):
-        """
-        执行行业内协整检验
-        """
-        # 使用协整检验管理器执行检验
-        self.industry_cointegrated_pairs, sector_pairs_info = self.cointegration_manager.perform_sector_cointegration_tests(sector_to_symbols)
-
-        # 输出行业协整对汇总
-        if sector_pairs_info:
-            summary_parts = []
-            for sector, info in sector_pairs_info.items():
-                summary_parts.append(f"{sector}({info['count']})")
-            
-            self.algorithm.Debug(f"[AlphaModel] 行业协整对: {' '.join(summary_parts)}")
-
-    
-    def _perform_bayesian_modeling(self):
-        """
-        对所有协整对执行贝叶斯建模
-        
-        使用BayesianModelingManager统一管理建模过程
-        """
-        # 执行建模
-        results = self.bayesian_manager.perform_all_pairs_modeling(
-            self.industry_cointegrated_pairs
-        )
-        
-        # 更新后验参数
-        self.posterior_params = results['posterior_params']
-        
-        # 输出统计信息
-        stats = results['statistics']
-        self.algorithm.Debug(
-            f"[AlphaModel] 建模统计: 动态更新{stats['dynamic_update_count']}对, "
-            f"完整建模{stats['new_modeling_count']}对, 总成功{stats['success_count']}对"
-        )
-        
-        # 按建模方式分类显示协整对
-        if stats['dynamic_update_pairs']:
-            self.algorithm.Debug(f"[AlphaModel] 动态更新: {', '.join(stats['dynamic_update_pairs'])}")
-        if stats['new_modeling_pairs']:
-            self.algorithm.Debug(f"[AlphaModel] 完整建模: {', '.join(stats['new_modeling_pairs'])}")
-    
-    
-    # ============================
-    # 3. 每日信号生成流程
-    # ============================
-    
-    def _generate_daily_signals(self, data: Slice) -> List[Insight]:
-        """
-        每日信号生成: 基于现有协整对计算z-score并生成交易信号
-        """
-        insights = []
-        
-        # 遍历所有成功建模的协整对, 计算当前价格偏离并生成交易信号
-        for pair_key in self.posterior_params.keys():
-            symbol1, symbol2 = pair_key
-            posterior_param = self.posterior_params[pair_key]
-            posterior_param_with_zscore = self._calculate_residual_zscore(symbol1, symbol2, data, posterior_param)
-            signal = self._generate_signals_for_pair(symbol1, symbol2, posterior_param_with_zscore)
-            insights.extend(signal)
-        
-        return insights
-
-    
-    def _calculate_residual_zscore(self, symbol1, symbol2, data: Slice, posteriorParamSet):
-        """
-        计算当前价格相对于协整关系的偏离程度
-        
-        使用贝叶斯模型的后验参数计算当前时点的残差, 并标准化为z-score.
-        z-score反映价格偏离协整均衡的程度, 是交易信号生成的核心指标.
-        """
-        if not (data.ContainsKey(symbol1) and data[symbol1] is not None and data.ContainsKey(symbol2) and data[symbol2] is not None):
-            return None
-        
-        current_price1 = np.log(data[symbol1].Close)
-        current_price2 = np.log(data[symbol2].Close)
-        
-        alpha_mean = posteriorParamSet['alpha_mean']
-        beta_mean = posteriorParamSet['beta_mean']  
-        epsilon_mean = posteriorParamSet['residuals_mean']
-        epsilon_std = posteriorParamSet['residuals_std']
-        
-        # 使用历史均值作基准调整, 避免z-score过大
-        residual = current_price1 - (alpha_mean + beta_mean * current_price2) - epsilon_mean
-
-        if epsilon_std != 0:   
-            zscore = residual / epsilon_std
-        else:
-            zscore = 0
-        posteriorParamSet['zscore'] = zscore
-
-        return posteriorParamSet
-
-    
-    def _generate_signals_for_pair(self, symbol1, symbol2, posteriorParamSet):
-        """
-        基于z-score生成配对交易信号
-        
-        根据价格偏离程度生成不同类型的交易信号:
-        - 入场信号: z-score超过入场阈值时, 做空高估股票, 做多低估股票
-        - 出场信号: z-score回归到退出阈值时, 平仓获利
-        - 止损信号: z-score超过风险上限时, 强制平仓止损
-        """
-        if posteriorParamSet is None:
-            return []
-        
-        z = posteriorParamSet['zscore']
-        
-        # 根据z分数确定信号类型和方向
-        signal_config = self._get_signal_configuration(z)
-        if signal_config is None:
-            # 观望阶段: 不发射任何信号
-            return []
-        
-        insight1_direction, insight2_direction, trend = signal_config
-        
-        # 根据信号类型设置不同的有效期
-        if insight1_direction == InsightDirection.Flat:
-            # 平仓信号
-            duration = timedelta(days=self.flat_signal_duration_days)
-        else:
-            # 建仓信号
-            duration = timedelta(days=self.entry_signal_duration_days)
-        
-        # 直接生成信号,不做任何拦截或验证
-        tag = f"{symbol1.Value}&{symbol2.Value}|{posteriorParamSet['alpha_mean']:.4f}|{posteriorParamSet['beta_mean']:.4f}|{z:.2f}|{len(self.industry_cointegrated_pairs)}"
-        
-        insight1 = Insight.Price(symbol1, duration, insight1_direction, tag=tag)
-        insight2 = Insight.Price(symbol2, duration, insight2_direction, tag=tag)
-        signals = [insight1, insight2]
-        
-        return Insight.group(signals)
-
-    
-    def _get_signal_configuration(self, z):
-        """
-        将z-score映射到具体的交易信号配置
-        
-        信号区间划分:
-        - [entry_threshold, upper_limit]: 做空symbol1, 做多symbol2
-        - [lower_limit, -entry_threshold]: 做多symbol1, 做空symbol2  
-        - (-exit_threshold, exit_threshold): 平仓回归信号
-        - 超出upper/lower_limit: 止损平仓
-        - 其他区间: 观望等待
-        """
-        if self.entry_threshold <= z <= self.upper_limit:
-            return (InsightDirection.Down, InsightDirection.Up, "卖 | 买")
-        elif self.lower_limit <= z <= -self.entry_threshold:
-            return (InsightDirection.Up, InsightDirection.Down, "买 | 卖")
-        elif -self.exit_threshold < z < self.exit_threshold:
-            return (InsightDirection.Flat, InsightDirection.Flat, "回归")
-        elif z > self.upper_limit or z < self.lower_limit:
-            return (InsightDirection.Flat, InsightDirection.Flat, "失效")
-        else:
-            return None
+        return []
