@@ -2,7 +2,9 @@
 from AlgorithmImports import *
 from src.UniverseSelection import MyUniverseSelectionModel
 from System import Action
-from src.AlphaModel import BayesianCointegrationAlphaModel
+from QuantConnect.Data.Fundamental import MorningstarSectorCode
+from src.NewAlphaModel import NewBayesianCointegrationAlphaModel
+# from src.AlphaModel import BayesianCointegrationAlphaModel
 # from src.PortfolioConstruction import BayesianCointegrationPortfolioConstructionModel
 # from QuantConnect.Algorithm.Framework.Risk import MaximumDrawdownPercentPortfolio, MaximumSectorExposureRiskManagementModel
 # from src.RiskManagement import BayesianCointegrationRiskManagementModel
@@ -79,7 +81,6 @@ class StrategyConfig:
             'max_beta_threshold': 3.0,       # Beta最大阈值，过滤极大beta的协整对
             'flat_signal_duration_days': 1,  # 平仓信号有效期（天）
             'entry_signal_duration_days': 2, # 建仓信号有效期（天）
-            # 数据质量配置
             'min_data_completeness_ratio': 0.98,  # 数据完整性最低要求(98%)
             'prior_coverage_ratio': 0.95,          # 先验分布覆盖比例(95%)
             'min_mcmc_samples': 500,               # MCMC采样最少样本数
@@ -97,7 +98,6 @@ class StrategyConfig:
         }
         
         # 行业映射配置 (共享给UniverseSelection和AlphaModel使用)
-        from QuantConnect.Data.Fundamental import MorningstarSectorCode
         self.sector_code_to_name = {
             MorningstarSectorCode.Technology: "Technology",
             MorningstarSectorCode.Healthcare: "Healthcare",
@@ -155,7 +155,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         self.Schedule.On(date_rule, time_rule, Action(self.universe_selector.TriggerSelection))
 
         # 设置Alpha模块
-        self.SetAlpha(BayesianCointegrationAlphaModel(self, self.config.alpha_model, self.pair_ledger, self.config.sector_code_to_name))
+        self.SetAlpha(NewBayesianCointegrationAlphaModel(self, self.config.alpha_model, self.pair_ledger, self.config.sector_code_to_name))
 
         # # 设置PortfolioConstruction模块
         # self.SetPortfolioConstruction(BayesianCointegrationPortfolioConstructionModel(self, self.config.portfolio_construction))

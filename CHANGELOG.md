@@ -4,6 +4,15 @@
 
 ---
 
+## [v2.9.0_alpha-model-refactor@20250128]
+- 完成AlphaModel代码结构优化，创建NewAlphaModel.py
+- 实现模块化设计：DataProcessor、CointegrationAnalyzer、BayesianModeler三个独立类
+- 将sector_code_to_name映射移至main.py的StrategyConfig中，实现配置集中管理
+- 实现双模式贝叶斯建模：完全建模（新配对）和动态更新（历史配对）
+- 改进数据处理流程：完整性检查→合理性检查→空缺填补→波动率筛选
+- 支持历史后验管理，提高MCMC采样效率
+- 集成新Alpha模型到main.py中
+
 ## [v2.8.4_sector-mapping-centralization@20250724]
 - 将行业映射(sector_code_to_name)移到main.py的StrategyConfig中统一管理
 - UniverseSelection和AlphaModel现在共享同一份行业映射配置
