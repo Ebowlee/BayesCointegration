@@ -4,6 +4,12 @@
 
 ---
 
+## [v2.9.1_signal-generation@20250128]
+- 实现NewAlphaModel的日常信号生成功能
+- 新增SignalGenerator类，负责计算z-score并生成交易信号
+- 实现风险控制：当z-score超过±3.0时立即生成平仓信号
+- 完成Alpha模型从选股到信号生成的完整功能闭环
+
 ## [v2.9.0_alpha-model-refactor@20250128]
 ### 工作内容
 - 完成 AlphaModel 代码结构的全面优化，解决原有代码"比较乱，冗余很多"的问题

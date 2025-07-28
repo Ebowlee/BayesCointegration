@@ -7,6 +7,7 @@ from collections import defaultdict
 import itertools
 from statsmodels.tsa.stattools import coint
 import pymc as pm
+from datetime import timedelta
 # endregion
 
 
@@ -681,6 +682,219 @@ class BayesianModeler:
 
 
 # =============================================================================
+# 信号生成模块 - SignalGenerator
+# =============================================================================
+class SignalGenerator:
+    """
+    信号生成器类
+    基于贝叶斯建模结果计算z-score并生成交易信号
+    """
+    
+    def __init__(self, algorithm, config: dict):
+        """
+        初始化信号生成器
+        
+        Args:
+            algorithm: QuantConnect算法实例
+            config: 包含信号生成相关配置的字典
+        """
+        self.algorithm = algorithm
+        self.entry_threshold = config['entry_threshold']
+        self.exit_threshold = config['exit_threshold']
+        self.upper_limit = config['upper_limit']
+        self.lower_limit = config['lower_limit']
+        self.flat_signal_duration_days = config.get('flat_signal_duration_days', 1)
+        self.entry_signal_duration_days = config.get('entry_signal_duration_days', 2)
+    
+    def generate_signals(self, modeled_pairs: List[Dict], data) -> List:
+        """
+        为所有建模配对生成交易信号
+        
+        Args:
+            modeled_pairs: 建模结果列表
+            data: 当前市场数据
+            
+        Returns:
+            Insight列表
+        """
+        insights = []
+        
+        for pair in modeled_pairs:
+            # 计算当前z-score
+            pair_with_zscore = self._calculate_zscore(pair, data)
+            if pair_with_zscore is None:
+                continue
+            
+            # 生成信号
+            pair_insights = self._generate_pair_signals(pair_with_zscore)
+            insights.extend(pair_insights)
+        
+        # 输出统计
+        if insights:
+            self.algorithm.Debug(
+                f"[SignalGenerator] 生成信号: {len(insights)}个 "
+                f"(建仓{sum(1 for i in insights if i.Direction != InsightDirection.Flat)}个, "
+                f"平仓{sum(1 for i in insights if i.Direction == InsightDirection.Flat)}个)"
+            )
+        
+        return insights
+    
+    def _calculate_zscore(self, pair: Dict, data) -> Dict:
+        """
+        计算配对的当前z-score
+        
+        Args:
+            pair: 包含建模参数的配对信息
+            data: 当前市场数据
+            
+        Returns:
+            添加了z-score的配对信息
+        """
+        symbol1 = pair['symbol1']
+        symbol2 = pair['symbol2']
+        
+        # 获取当前价格
+        if not (data.ContainsKey(symbol1) and data.ContainsKey(symbol2)):
+            return None
+        
+        if not (data[symbol1] and data[symbol2]):
+            return None
+        
+        current_price1 = float(data[symbol1].Close)
+        current_price2 = float(data[symbol2].Close)
+        
+        # 使用对数价格计算
+        log_price1 = np.log(current_price1)
+        log_price2 = np.log(current_price2)
+        
+        # 提取贝叶斯参数
+        alpha_mean = pair['alpha_mean']
+        beta_mean = pair['beta_mean']
+        residual_mean = pair['residual_mean']
+        residual_std = pair['residual_std']
+        
+        # 计算期望价格和残差
+        expected_log_price1 = alpha_mean + beta_mean * log_price2
+        residual = log_price1 - expected_log_price1 - residual_mean
+        
+        # 计算z-score
+        if residual_std > 0:
+            zscore = residual / residual_std
+        else:
+            zscore = 0
+        
+        # 更新配对信息
+        pair['zscore'] = zscore
+        pair['current_price1'] = current_price1
+        pair['current_price2'] = current_price2
+        
+        return pair
+    
+    def _generate_pair_signals(self, pair: Dict) -> List:
+        """
+        基于z-score为单个配对生成信号
+        
+        Args:
+            pair: 包含z-score的配对信息
+            
+        Returns:
+            Insight列表
+        """
+        insights = []
+        
+        symbol1 = pair['symbol1']
+        symbol2 = pair['symbol2']
+        zscore = pair['zscore']
+        
+        # 构建标签信息
+        tag = f"{symbol1.Value}&{symbol2.Value}|{pair['alpha_mean']:.4f}|{pair['beta_mean']:.4f}|{zscore:.2f}|1"
+        
+        # 风险检查 - 极端偏离时立即平仓
+        if abs(zscore) > self.upper_limit:
+            self.algorithm.Debug(
+                f"[SignalGenerator] 风险警告! {symbol1.Value}-{symbol2.Value} "
+                f"z-score={zscore:.2f} 超过上限±{self.upper_limit}, 生成平仓信号"
+            )
+            # 生成平仓信号
+            insights.append(Insight.Price(
+                symbol1, 
+                timedelta(days=self.flat_signal_duration_days),
+                InsightDirection.Flat,
+                None, None, None,
+                None,
+                tag
+            ))
+            insights.append(Insight.Price(
+                symbol2,
+                timedelta(days=self.flat_signal_duration_days),
+                InsightDirection.Flat,
+                None, None, None,
+                None,
+                tag
+            ))
+            return insights
+        
+        # 正常信号生成
+        if abs(zscore) > self.entry_threshold:
+            # 建仓信号
+            if zscore > self.entry_threshold:
+                # z > 1.65: 股票1高估，做空1做多2
+                direction1 = InsightDirection.Down
+                direction2 = InsightDirection.Up
+            else:
+                # z < -1.65: 股票1低估，做多1做空2
+                direction1 = InsightDirection.Up
+                direction2 = InsightDirection.Down
+            
+            insights.append(Insight.Price(
+                symbol1,
+                timedelta(days=self.entry_signal_duration_days),
+                direction1,
+                None, None, None,
+                None,
+                tag
+            ))
+            insights.append(Insight.Price(
+                symbol2,
+                timedelta(days=self.entry_signal_duration_days),
+                direction2,
+                None, None, None,
+                None,
+                tag
+            ))
+            
+            self.algorithm.Debug(
+                f"[SignalGenerator] 建仓信号: {symbol1.Value}({direction1.name}) - "
+                f"{symbol2.Value}({direction2.name}), z-score={zscore:.2f}"
+            )
+            
+        elif abs(zscore) < self.exit_threshold:
+            # 平仓信号
+            insights.append(Insight.Price(
+                symbol1,
+                timedelta(days=self.flat_signal_duration_days),
+                InsightDirection.Flat,
+                None, None, None,
+                None,
+                tag
+            ))
+            insights.append(Insight.Price(
+                symbol2,
+                timedelta(days=self.flat_signal_duration_days),
+                InsightDirection.Flat,
+                None, None, None,
+                None,
+                tag
+            ))
+            
+            self.algorithm.Debug(
+                f"[SignalGenerator] 平仓信号: {symbol1.Value}-{symbol2.Value}, z-score={zscore:.2f}"
+            )
+        
+        return insights
+
+
+# =============================================================================
 # 主Alpha模型 - NewBayesianCointegrationAlphaModel
 # =============================================================================
 class NewBayesianCointegrationAlphaModel(AlphaModel):
@@ -724,6 +938,9 @@ class NewBayesianCointegrationAlphaModel(AlphaModel):
         
         # 创建贝叶斯建模器
         self.bayesian_modeler = BayesianModeler(self.algorithm, self.config)
+        
+        # 创建信号生成器
+        self.signal_generator = SignalGenerator(self.algorithm, self.config)
         
         self.algorithm.Debug(f"[NewAlphaModel] 初始化完成")
     
@@ -802,5 +1019,8 @@ class NewBayesianCointegrationAlphaModel(AlphaModel):
             
             self.is_selection_day = False
         
-        # TODO: 日常信号生成
+        # 日常信号生成
+        if self.modeled_pairs:
+            return self.signal_generator.generate_signals(self.modeled_pairs, data)
+        
         return []
