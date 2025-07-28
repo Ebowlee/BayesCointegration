@@ -5,13 +5,53 @@
 ---
 
 ## [v2.9.0_alpha-model-refactor@20250128]
-- 完成AlphaModel代码结构优化，创建NewAlphaModel.py
-- 实现模块化设计：DataProcessor、CointegrationAnalyzer、BayesianModeler三个独立类
-- 将sector_code_to_name映射移至main.py的StrategyConfig中，实现配置集中管理
-- 实现双模式贝叶斯建模：完全建模（新配对）和动态更新（历史配对）
-- 改进数据处理流程：完整性检查→合理性检查→空缺填补→波动率筛选
-- 支持历史后验管理，提高MCMC采样效率
-- 集成新Alpha模型到main.py中
+### 工作内容
+- 完成 AlphaModel 代码结构的全面优化，解决原有代码"比较乱，冗余很多"的问题
+- 创建全新的 NewAlphaModel.py，实现清晰的模块化架构设计
+- 实现双模式贝叶斯建模系统，支持新配对的完全建模和历史配对的动态更新
+- 将行业映射配置从 AlphaModel 移至 main.py，实现配置的集中管理
+- 建立完善的数据质量管理流程，确保协整分析的统计有效性
+
+### 技术细节
+- **新增文件**：`src/NewAlphaModel.py` (806行)，包含四个核心类
+  - `DataProcessor`: 数据处理器，封装数据下载、质量检查、清理和筛选流程
+  - `CointegrationAnalyzer`: 协整分析器，负责行业分组、配对生成和协整检验
+  - `BayesianModeler`: 贝叶斯建模器，实现 PyMC 建模和历史后验管理
+  - `NewBayesianCointegrationAlphaModel`: 主 Alpha 模型，整合上述三个模块
+- **配置迁移**：
+  - 将 `sector_code_to_name` 映射从各模块移至 `main.py` 的 `StrategyConfig`
+  - 删除 AlphaModel 和 UniverseSelection 中的重复行业映射定义
+- **数据处理流程优化**：
+  - 完整性检查：要求至少 98% 的数据（252天中至少247天）
+  - 合理性检查：过滤价格为负值或零的数据
+  - 空缺填补：使用 forward fill + backward fill 策略
+  - 波动率筛选：过滤年化波动率超过 45% 的股票
+- **贝叶斯建模创新**：
+  - 完全建模模式：使用弱信息先验（alpha~N(0,10), beta~N(1,5), sigma~HalfNormal(1)）
+  - 动态更新模式：使用历史后验作为先验，采样数减半（tune和draws各减50%）
+  - 历史后验管理：自动保存和检索配对的后验参数，支持跨选股周期传递
+- **模块集成**：
+  - 更新 `main.py` 导入新的 Alpha 模型：`from src.NewAlphaModel import NewBayesianCointegrationAlphaModel`
+  - 启用新 Alpha 模型：`self.SetAlpha(NewBayesianCointegrationAlphaModel(...))`
+
+### 架构影响
+- **代码质量大幅提升**：从原有的单一大类拆分为职责明确的多个小类，符合单一职责原则
+- **可维护性增强**：每个类专注于特定功能，代码逻辑更清晰，便于后续维护和扩展
+- **性能优化潜力**：动态更新模式减少 50% 的 MCMC 采样量，提高建模效率
+- **配置管理统一**：所有模块共享同一份行业映射配置，消除了配置不一致的风险
+- **扩展性提升**：模块化设计使得添加新的数据处理步骤或建模方法变得简单
+- **日志系统完善**：每个模块都有独立的日志前缀，便于调试和监控
+
+### 遗留问题
+- 原有的 `src/AlphaModel.py` 文件仍然存在，需要在确认新模型稳定后移除
+- 日常信号生成功能尚未实现（代码中标记为 TODO）
+- PortfolioConstruction 和 RiskManagement 模块仍被注释，需要后续启用
+
+### 下一步计划
+- 实现 NewAlphaModel 的日常信号生成功能，基于建模结果计算 z-score 并生成交易信号
+- 在新 Alpha 模型稳定运行后，删除旧的 AlphaModel.py 文件
+- 启用并适配 PortfolioConstruction 模块，确保与新 Alpha 模型的兼容性
+- 进行全面的回测验证，评估重构后的性能和稳定性改进
 
 ## [v2.8.4_sector-mapping-centralization@20250724]
 - 将行业映射(sector_code_to_name)移到main.py的StrategyConfig中统一管理
