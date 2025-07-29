@@ -6,61 +6,47 @@ from collections import defaultdict
 class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel):
     """
     贝叶斯协整投资组合构建模型:
-    - 从 AlphaModel 获取 insights.
-    - 解析 Insight Tag 获取配对信息 (symbol2, beta).
-    - 为每个 Insight (代表一个配对操作) 生成独立的 PortfolioTarget 对.
-      - Down: [PortfolioTarget(symbol1, -1), PortfolioTarget(symbol2, beta)]
-      - Up:   [PortfolioTarget(symbol1, 1), PortfolioTarget(symbol2, -beta)]
-      - Flat: [PortfolioTarget(symbol1, 0), PortfolioTarget(symbol2, 0)]
-    - 不在模型内部聚合单个资产的权重,保留每个配对的独立目标.
-    - 返回所有生成的 PortfolioTarget 对象的扁平列表.
+    - 从 AlphaModel 获取按 GroupId 分组的 insights
+    - 解析 Insight Tag 获取 beta 参数
+    - 根据信号方向生成配对的 PortfolioTarget:
+      - Up: symbol1做多, symbol2做空
+      - Down: symbol1做空, symbol2做多
+      - Flat: 平仓两只股票
+    - 实现资金管理: 最多8对配对, 5%现金缓冲
+    - 通过 PairLedger 跟踪配对状态
     """
-    def __init__(self, algorithm, config):
+    def __init__(self, algorithm, config, pair_ledger):
         super().__init__() 
         self.algorithm = algorithm
+        self.pair_ledger = pair_ledger
         self.margin_rate = config.get('margin_rate', 0.5)
         self.pair_reentry_cooldown_days = config.get('pair_reentry_cooldown_days', 7)
+        self.max_pairs = config.get('max_pairs', 8)
+        self.cash_buffer = config.get('cash_buffer', 0.05)
         self.pair_cooling_history = {}  # {(symbol1, symbol2): last_flat_datetime}
-        self.algorithm.Debug(f"[PortfolioConstruction] 初始化完成 (保证金率: {self.margin_rate}, 冷却期: {self.pair_reentry_cooldown_days}天)")
-
-
-
+        self.algorithm.Debug(f"[PortfolioConstruction] 初始化完成 (保证金率: {self.margin_rate}, 冷却期: {self.pair_reentry_cooldown_days}天, 最大配对数: {self.max_pairs}, 现金缓冲: {self.cash_buffer*100}%)")
     def create_targets(self, algorithm, insights):
         targets = []
         
-        # 统计计数器
-        stats = {
-            'total_groups': 0,
-            'valid_signals': 0,
-            'ignored_signals': 0,
-            'converted_signals': 0,
-            'error_signals': 0
-        }
-
         # 按 GroupId 分组
         grouped_insights = defaultdict(list)
         for insight in insights:
             if insight.GroupId is not None:
                 grouped_insights[insight.GroupId].append(insight)
         
-        stats['total_groups'] = len(grouped_insights)
-        
         # 遍历每组 Insight
         for group_id, group in grouped_insights.items():
-            pair_targets = self._process_signal_pair(group, stats)
+            pair_targets = self._process_signal_pair(group)
             targets.extend(pair_targets)
         
-        # No longer output statistics to reduce log volume
         return targets
 
 
-    def _process_signal_pair(self, group, stats):
+    def _process_signal_pair(self, group):
         """
         处理一对信号,返回有效的PortfolioTarget列表
         """
         if len(group) != 2:
-            self.algorithm.Debug(f"[PC] 接收到 {len(group)} 个信号, 预期应为2, 跳过")
-            stats['error_signals'] += 1
             return []
             
         insight1, insight2 = group
@@ -71,10 +57,8 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         try:
             tag_parts = insight1.Tag.split('|')
             beta_mean = float(tag_parts[2])
-            num = int(tag_parts[4])
         except Exception as e:
-            self.algorithm.Debug(f"[PC] 无法解析Tag: {insight1.Tag}, 错误: {e}")
-            stats['error_signals'] += 1
+            self.algorithm.Debug(f"[PC] Tag解析失败 - Tag: {insight1.Tag}, 预期格式: 'symbol1&symbol2|alpha|beta|zscore', 错误: {e}")
             return []
 
         # 获取当前持仓状态并验证信号
@@ -83,36 +67,13 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
 
         if validated_direction is None:
             # 无效信号,忽略
-            stats['ignored_signals'] += 1
             return []
 
-        # 检查信号是否被转换
-        if original_direction != validated_direction:
-            self.algorithm.Debug(f"[PC] 信号转换: {symbol1.Value}-{symbol2.Value} [{self._direction_to_str(original_direction)}→{self._direction_to_str(validated_direction)}]")
-            stats['converted_signals'] += 1
-        else:
-            stats['valid_signals'] += 1
-
         # 生成PortfolioTarget
-        targets = self._BuildPairTargets(symbol1, symbol2, validated_direction, beta_mean, num)
+        targets = self._BuildPairTargets(symbol1, symbol2, validated_direction, beta_mean)
         
         return targets
-
-
-    def _direction_to_str(self, direction):
-        """将InsightDirection转换为可读字符串"""
-        if direction == InsightDirection.Up:
-            return "买|卖"
-        elif direction == InsightDirection.Down:
-            return "卖|买"
-        elif direction == InsightDirection.Flat:
-            return "平仓"
-        else:
-            return "未知"
-
-
-
-    def _BuildPairTargets(self, symbol1, symbol2, direction, beta, num):
+    def _BuildPairTargets(self, symbol1, symbol2, direction, beta):
         """
         按照新的资金分配算法构建目标持仓
         
@@ -120,23 +81,22 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         即: symbol1 = y(因变量), symbol2 = x(自变量)
         
         资金分配目标:
-        1. 实现100%资金利用率
+        1. 考虑现金缓冲后的资金利用率
         2. 保持Beta中性风险对冲
         """
-        capital_per_pair = 1.0 / num
+        # 计算每对可用资金 = (总资金 - 缓冲) / 最大配对数
+        available_capital = 1.0 - self.cash_buffer
+        capital_per_pair = available_capital / self.max_pairs
         beta_abs = abs(beta)
         m = self.margin_rate
         
-        # Beta筛选:只在合理范围内的beta值才建仓
-        if beta_abs < 0.2 or beta_abs > 3.0:
-            self.algorithm.Debug(f"[PC] Beta超出范围, 跳过: {symbol1.Value}-{symbol2.Value}, beta={beta:.3f}")
-            return []
-
         # 平仓信号
         if direction == InsightDirection.Flat:
             self.algorithm.Debug(f"[PC]: [{symbol1.Value}, {symbol2.Value}] | [FLAT, FLAT]")
             # 记录平仓时间用于冷却期计算
             self._record_cooling_history(symbol1, symbol2)
+            # 更新配对状态为非活跃
+            self.pair_ledger.set_pair_status(symbol1, symbol2, False)
             return [PortfolioTarget.Percent(self.algorithm, symbol1, 0), PortfolioTarget.Percent(self.algorithm, symbol2, 0)]
 
         # 建仓信号:根据协整关系和保证金机制计算权重
@@ -150,7 +110,14 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
             symbol1_weight = y_fund                    # y做多:权重 = 资金
             symbol2_weight = -x_fund / m              # x做空:权重 = 资金/保证金率
             
+            # 验证权重分配
+            total_allocation = abs(symbol1_weight) + abs(symbol2_weight * m)
+            if abs(total_allocation - capital_per_pair) > 0.01:
+                self.algorithm.Debug(f"[PC] 权重分配异常: 总分配={total_allocation:.4f}, 预期={capital_per_pair:.4f}")
+            
             self.algorithm.Debug(f"[PC]: [{symbol1.Value}, {symbol2.Value}] | [BUY, SELL] | [{symbol1_weight:.4f}, {symbol2_weight:.4f}] | beta={beta:.3f}")
+            # 更新配对状态为活跃
+            self.pair_ledger.set_pair_status(symbol1, symbol2, True)
             return [PortfolioTarget.Percent(self.algorithm, symbol1, symbol1_weight), 
                    PortfolioTarget.Percent(self.algorithm, symbol2, symbol2_weight)] 
         
@@ -164,16 +131,20 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
             symbol1_weight = -y_fund / m              # y做空:权重 = 资金/保证金率
             symbol2_weight = x_fund                   # x做多:权重 = 资金
             
+            # 验证权重分配
+            total_allocation = abs(symbol1_weight * m) + abs(symbol2_weight)
+            if abs(total_allocation - capital_per_pair) > 0.01:
+                self.algorithm.Debug(f"[PC] 权重分配异常: 总分配={total_allocation:.4f}, 预期={capital_per_pair:.4f}")
+            
             self.algorithm.Debug(f"[PC]: [{symbol1.Value}, {symbol2.Value}] | [SELL, BUY] | [{symbol1_weight:.4f}, {symbol2_weight:.4f}] | beta={beta:.3f}")
+            # 更新配对状态为活跃
+            self.pair_ledger.set_pair_status(symbol1, symbol2, True)
             return [PortfolioTarget.Percent(self.algorithm, symbol1, symbol1_weight), 
                    PortfolioTarget.Percent(self.algorithm, symbol2, symbol2_weight)] 
         
         else:
             self.algorithm.Debug(f"[PC]: 无法做空,跳过配对 [{symbol1.Value}, {symbol2.Value}]")
             return []
-
-
-
     def _get_pair_position_status(self, symbol1: Symbol, symbol2: Symbol):
         """
         获取配对的当前持仓状态
@@ -186,21 +157,33 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         """
         portfolio = self.algorithm.Portfolio
         
-        # 检查两个股票是否都有持仓
-        if not (portfolio[symbol1].Invested and portfolio[symbol2].Invested):
-            return None  # 未持仓或部分持仓
+        # 获取持仓状态
+        s1_invested = portfolio[symbol1].Invested
+        s2_invested = portfolio[symbol2].Invested
         
-        # 根据持仓数量判断配对方向
-        s1_quantity = portfolio[symbol1].Quantity
-        s2_quantity = portfolio[symbol2].Quantity
-        
-        if s1_quantity > 0 and s2_quantity < 0:
-            return InsightDirection.Up  # 多symbol1,空symbol2
-        elif s1_quantity < 0 and s2_quantity > 0:
-            return InsightDirection.Down  # 空symbol1,多symbol2
-        else:
-            # 异常状态:同向持仓或其他情况
+        # 如果两只股票都没有持仓，返回None
+        if not s1_invested and not s2_invested:
             return None
+        
+        # 获取持仓数量
+        s1_quantity = portfolio[symbol1].Quantity if s1_invested else 0
+        s2_quantity = portfolio[symbol2].Quantity if s2_invested else 0
+        
+        # 判断配对方向（即使只有部分成交也能识别）
+        if s1_quantity > 0 and s2_quantity <= 0:
+            # 多symbol1，空symbol2（或准备空）
+            if s2_quantity < 0 or (s2_quantity == 0 and s1_invested):
+                return InsightDirection.Up
+        elif s1_quantity < 0 and s2_quantity >= 0:
+            # 空symbol1，多symbol2（或准备多）
+            if s2_quantity > 0 or (s2_quantity == 0 and s1_invested):
+                return InsightDirection.Down
+        elif s1_quantity != 0 and s2_quantity != 0 and (s1_quantity > 0) == (s2_quantity > 0):
+            # 异常状态：同向持仓
+            self.algorithm.Debug(f"[PC] 警告：检测到异常同向持仓 - {symbol1.Value}: {s1_quantity}, {symbol2.Value}: {s2_quantity}")
+            return None
+        
+        return None
 
 
     def _validate_signal(self, current_position, signal_direction, symbol1, symbol2):
@@ -226,7 +209,9 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         
         # 建仓信号
         if current_position is None:
-            # 未持仓,可以建仓
+            # 未持仓，检查是否达到最大配对数
+            if self.pair_ledger.get_active_pairs_count() >= self.max_pairs:
+                return None  # 已达到最大配对数，忽略新建仓信号
             return signal_direction
         elif current_position == signal_direction:
             # 同方向,忽略重复信号
@@ -255,7 +240,6 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
                 last_flat_time = self.pair_cooling_history[pair_key]
                 time_diff = self.algorithm.Time - last_flat_time
                 if time_diff.days < self.pair_reentry_cooldown_days:
-                    self.algorithm.Debug(f"[PC] 冷却期内,忽略建仓: {symbol1.Value}-{symbol2.Value} (剩余{self.pair_reentry_cooldown_days - time_diff.days}天)")
                     return True
         
         return False
@@ -267,23 +251,16 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         Args:
             symbol1, symbol2: 配对股票
         """
-        pair_key = (symbol1, symbol2)
-        self.pair_cooling_history[pair_key] = self.algorithm.Time
-        self.algorithm.Debug(f"[PC] 记录冷却历史: {symbol1.Value}-{symbol2.Value} 平仓于 {self.algorithm.Time.strftime('%Y-%m-%d')}")
-
-
+        # 记录双向配对以防止反向建仓绕过冷却期
+        self.pair_cooling_history[(symbol1, symbol2)] = self.algorithm.Time
+        self.pair_cooling_history[(symbol2, symbol1)] = self.algorithm.Time
     
-
-
-    # 检查是否可以做空(回测环境所有股票都可以做空,实盘时需要检测)
     def can_short(self, symbol: Symbol) -> bool:
-        # security = self.algorithm.Securities[symbol]
-        # shortable = security.ShortableProvider.ShortableQuantity(symbol, self.algorithm.Time)
-        # return shortable is not None and shortable > 0
-        return True
-
-
-
-
-
-
+        """
+        检查是否可以做空(回测环境所有股票都可以做空,实盘时需要检测)
+        """
+        if self.algorithm.LiveMode:
+            security = self.algorithm.Securities[symbol]
+            shortable = security.ShortableProvider.ShortableQuantity(symbol, self.algorithm.Time)
+            return shortable is not None and shortable > 0
+        return True  # 回测环境默认可做空

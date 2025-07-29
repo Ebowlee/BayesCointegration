@@ -4,27 +4,95 @@ from src.UniverseSelection import MyUniverseSelectionModel
 from System import Action
 from QuantConnect.Data.Fundamental import MorningstarSectorCode
 from src.AlphaModel import BayesianCointegrationAlphaModel
-# from src.PortfolioConstruction import BayesianCointegrationPortfolioConstructionModel
+from src.PortfolioConstruction import BayesianCointegrationPortfolioConstructionModel
 # from QuantConnect.Algorithm.Framework.Risk import MaximumDrawdownPercentPortfolio, MaximumSectorExposureRiskManagementModel
 # from src.RiskManagement import BayesianCointegrationRiskManagementModel
 # endregion
 
+class PairInfo:
+    """简化版配对信息类"""
+    
+    def __init__(self, symbol1: Symbol, symbol2: Symbol):
+        self.symbol1 = symbol1
+        self.symbol2 = symbol2
+        self.is_active = False
+
+
 class PairLedger:
-    """极简配对记账簿"""
+    """简化版配对记账簿"""
     
     def __init__(self):
-        self.pairs = {}  # {Symbol: Symbol}
+        # 所有配对信息 {(symbol1, symbol2): PairInfo}
+        self.all_pairs = {}
+        
+        # 活跃配对集合（有持仓的配对）
+        self.active_pairs = set()
+        
+        # 配对双向映射 {Symbol: Symbol} - 保留原有功能
+        self.symbol_map = {}
     
-    def update_pairs(self, pair_list):
-        """更新配对关系"""
-        self.pairs.clear()
-        for symbol1, symbol2 in pair_list:
-            self.pairs[symbol1] = symbol2
-            self.pairs[symbol2] = symbol1
+    def update_pairs_from_selection(self, new_pairs: List[Tuple[Symbol, Symbol]]):
+        """
+        处理新一轮选股结果
+        
+        Args:
+            new_pairs: 新选出的配对列表，每个元素为 (symbol1, symbol2)
+        """
+        # 记录本轮选股中的配对
+        current_round_pairs = set()
+        
+        # 处理新配对
+        for symbol1, symbol2 in new_pairs:
+            # 确保symbol1 < symbol2（按字符串排序）以避免重复
+            if symbol1.Value > symbol2.Value:
+                symbol1, symbol2 = symbol2, symbol1
+            
+            pair_key = (symbol1, symbol2)
+            current_round_pairs.add(pair_key)
+            
+            if pair_key not in self.all_pairs:
+                # 添加新配对
+                self.all_pairs[pair_key] = PairInfo(symbol1, symbol2)
+        
+        # 清理休眠且不在本轮选股中的配对
+        pairs_to_remove = []
+        for pair_key, pair_info in self.all_pairs.items():
+            if not pair_info.is_active and pair_key not in current_round_pairs:
+                pairs_to_remove.append(pair_key)
+        
+        for pair_key in pairs_to_remove:
+            del self.all_pairs[pair_key]
+        
+        # 更新symbol映射
+        self.symbol_map.clear()
+        for (symbol1, symbol2) in self.all_pairs.keys():
+            self.symbol_map[symbol1] = symbol2
+            self.symbol_map[symbol2] = symbol1
     
-    def get_paired_symbol(self, symbol):
-        """获取配对股票"""
-        return self.pairs.get(symbol)
+    def set_pair_status(self, symbol1: Symbol, symbol2: Symbol, is_active: bool):
+        """设置配对状态"""
+        pair_key = self._get_pair_key(symbol1, symbol2)
+        if pair_key in self.all_pairs:
+            self.all_pairs[pair_key].is_active = is_active
+            if is_active:
+                self.active_pairs.add(pair_key)
+            else:
+                self.active_pairs.discard(pair_key)
+    
+    def get_active_pairs_count(self) -> int:
+        """返回活跃配对数量"""
+        return len(self.active_pairs)
+    
+    def get_paired_symbol(self, symbol: Symbol) -> Symbol:
+        """获取配对股票（保留原有功能）"""
+        return self.symbol_map.get(symbol)
+    
+    def _get_pair_key(self, symbol1: Symbol, symbol2: Symbol) -> tuple:
+        """获取标准化的配对键"""
+        if symbol1.Value > symbol2.Value:
+            return (symbol2, symbol1)
+        return (symbol1, symbol2)
+    
 
 
 class StrategyConfig:
@@ -88,7 +156,9 @@ class StrategyConfig:
         # PortfolioConstruction 配置
         self.portfolio_construction = {
             'margin_rate': 1.0,
-            'pair_reentry_cooldown_days': 7
+            'pair_reentry_cooldown_days': 7,
+            'max_pairs': 8,  # 最大持仓配对数
+            'cash_buffer': 0.05  # 5%现金缓冲
         }
         
         # RiskManagement 配置
@@ -156,8 +226,8 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # 设置Alpha模块
         self.SetAlpha(BayesianCointegrationAlphaModel(self, self.config.alpha_model, self.pair_ledger, self.config.sector_code_to_name))
 
-        # # 设置PortfolioConstruction模块
-        # self.SetPortfolioConstruction(BayesianCointegrationPortfolioConstructionModel(self, self.config.portfolio_construction))
+        # 设置PortfolioConstruction模块
+        self.SetPortfolioConstruction(BayesianCointegrationPortfolioConstructionModel(self, self.config.portfolio_construction, self.pair_ledger))
 
         # # 设置RiskManagement模块
         # ## 组合层面风控

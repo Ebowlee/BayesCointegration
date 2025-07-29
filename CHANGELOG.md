@@ -4,6 +4,46 @@
 
 ---
 
+## [v2.9.3_position-duration-diagnosis@20250730]
+### 工作内容
+- 诊断并分析持仓时间过短问题，通过回测日志定位根本原因
+- 大幅简化PairLedger实现，从复杂跟踪到最小功能集
+- 清理冗余日志输出，保留关键交易和诊断信息
+- 添加z-score计算诊断日志，收集残差标准差数据
+
+### 技术细节
+- **PairLedger极简化**：仅保留5个核心方法
+  - `update_pairs_from_selection`: 更新本轮选股配对
+  - `set_pair_status`: 设置配对活跃状态
+  - `get_active_pairs_count`: 获取活跃配对数
+  - `get_paired_symbol`: 查询配对关系
+  - `_get_pair_key`: 标准化配对键
+- **日志优化**：
+  - 删除AlphaModel中6个冗余日志输出
+  - 简化协整统计输出格式
+  - 添加诊断日志：`[AlphaModel.Signal] {pair}: z-score={zscore:.3f}, residual_std={residual_std:.4f}`
+- **PortfolioConstruction清理**：
+  - 删除_update_active_pairs函数
+  - 移除stats收集相关代码
+  - 修复set_pair_inactive调用错误
+
+### 问题发现
+- **residual_std异常偏小**：所有配对的残差标准差在0.02-0.04范围，导致z-score过度敏感
+- **z-score剧烈波动**：CTAS-TT一天内从0.768跳到3.379，频繁触发风险限制
+- **计算逻辑正确**：确认z-score计算公式和residual_mean减法处理符合理论
+- **与v2.8.3对比**：计算方法未变，但数值结果差异显著
+
+### 架构影响
+- 代码复杂度大幅降低：PairLedger从数百行简化至不到100行
+- 提升可维护性：消除过度工程化设计，专注核心功能
+- 诊断能力增强：新增日志帮助定位数值异常问题
+
+### 下一步计划
+- 调查residual_std为何如此之小（正常应在0.05-0.15范围）
+- 考虑实施z-score平滑机制减少短期波动影响
+- 评估是否需要调整风险阈值或添加最小residual_std限制
+- 验证MCMC采样质量和收敛性
+
 ## [v2.9.2_alpha-model-replacement@20250128]
 - 删除旧的AlphaModel.py文件
 - 将NewAlphaModel.py重命名为AlphaModel.py

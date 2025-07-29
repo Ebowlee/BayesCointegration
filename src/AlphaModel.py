@@ -111,7 +111,7 @@ class DataProcessor:
                 valid_symbols.append(symbol)
                 
             except Exception as e:
-                self.algorithm.Debug(f"[DataProcessor] 处理{symbol.Value}时出错: {str(e)[:50]}")
+                self.algorithm.Debug(f"[AlphaModel.Data] 处理{symbol.Value}时出错: {str(e)[:50]}")
                 statistics['data_missing'] += 1
         
         statistics['final_valid'] = len(valid_symbols)
@@ -135,11 +135,10 @@ class DataProcessor:
         Returns:
             DataFrame或None
         """
-        self.algorithm.Debug(f"[DataProcessor] 开始下载{len(symbols)}只股票的历史数据...")
         try:
             return self.algorithm.History(symbols, self.lookback_period, Resolution.Daily)
         except Exception as e:
-            self.algorithm.Debug(f"[DataProcessor] 历史数据下载失败: {str(e)}")
+            self.algorithm.Debug(f"[AlphaModel.Data] 历史数据下载失败: {str(e)}")
             return None
     
     def _check_data_completeness(self, data: pd.DataFrame) -> bool:
@@ -202,7 +201,7 @@ class DataProcessor:
     def _log_statistics(self, statistics: dict):
         """输出统计信息"""
         self.algorithm.Debug(
-            f"[DataProcessor] 数据处理完成: {statistics['total']}只 → {statistics['final_valid']}只 "
+            f"[AlphaModel.Data] 数据处理完成: {statistics['total']}只 → {statistics['final_valid']}只 "
             f"(缺失{statistics['data_missing']}只, "
             f"不完整{statistics['incomplete']}只, "
             f"无效值{statistics['invalid_values']}只, "
@@ -307,12 +306,6 @@ class CointegrationAnalyzer:
                 sector_to_symbols[sector_name].append(symbol)
         
         # 输出分组信息
-        sector_stats = []
-        for sector_name, symbols in sorted(sector_to_symbols.items()):
-            sector_stats.append(f"{sector_name}({len(symbols)})")
-        
-        self.algorithm.Debug(f"[CointegrationAnalyzer] 行业分组: {' '.join(sector_stats)}")
-        
         return dict(sector_to_symbols)
     
     def _analyze_sector(self, sector_name: str, symbols: List[Symbol], clean_data: Dict) -> List[Dict]:
@@ -354,7 +347,7 @@ class CointegrationAnalyzer:
                     })
             except Exception as e:
                 self.algorithm.Debug(
-                    f"[CointegrationAnalyzer] 协整检验失败 {symbol1.Value}-{symbol2.Value}: {str(e)[:50]}"
+                    f"[AlphaModel.Coint] 协整检验失败 {symbol1.Value}-{symbol2.Value}: {str(e)[:50]}"
                 )
         
         return cointegrated_pairs
@@ -393,21 +386,17 @@ class CointegrationAnalyzer:
     
     def _log_statistics(self, statistics: dict):
         """输出统计信息"""
-        self.algorithm.Debug(
-            f"[CointegrationAnalyzer] 协整检验完成: "
-            f"测试{statistics['total_pairs_tested']}对 → "
-            f"发现{statistics['cointegrated_pairs_found']}对"
-        )
-        
-        # 输出各行业详情
+        # 只输出有发现配对的行业
+        sector_summary = []
         for sector, stats in statistics['sector_breakdown'].items():
             if stats['pairs_found'] > 0:
-                self.algorithm.Debug(
-                    f"[CointegrationAnalyzer] {sector}: "
-                    f"{stats['symbols']}只股票, "
-                    f"测试{stats['pairs_tested']}对, "
-                    f"发现{stats['pairs_found']}对"
-                )
+                sector_summary.append(f"{sector}({stats['pairs_found']})")
+        
+        # 输出简洁的统计信息
+        if sector_summary:
+            self.algorithm.Debug(
+                f"[AlphaModel.Coint] {' '.join(sector_summary)} - 筛选后{statistics['cointegrated_pairs_found']}对"
+            )
 
 
 # =============================================================================
@@ -521,7 +510,7 @@ class BayesianModeler:
             
         except Exception as e:
             self.algorithm.Debug(
-                f"[BayesianModeler] 建模失败 {symbol1.Value}-{symbol2.Value}: {str(e)[:50]}"
+                f"[AlphaModel.Bayesian] 建模失败 {symbol1.Value}-{symbol2.Value}: {str(e)[:50]}"
             )
             return None
     
@@ -548,7 +537,7 @@ class BayesianModeler:
         # 如果超过lookback期限，视为过期
         if time_diff.days > self.lookback_period:
             self.algorithm.Debug(
-                f"[BayesianModeler] 历史后验已过期 {symbol1.Value}-{symbol2.Value} "
+                f"[AlphaModel.Bayesian] 历史后验已过期 {symbol1.Value}-{symbol2.Value} "
                 f"(距今{time_diff.days}天)"
             )
             return None
@@ -635,7 +624,7 @@ class BayesianModeler:
         alpha_samples = trace['alpha'].flatten()
         beta_samples = trace['beta'].flatten()
         sigma_samples = trace['sigma'].flatten()
-        residuals_samples = trace['residuals'].mean(axis=1)  # 对每个样本取时间平均
+        residuals_samples = trace['residuals'].flatten()  # 展平所有残差值
         
         # 计算统计量
         return {
@@ -673,7 +662,7 @@ class BayesianModeler:
     def _log_statistics(self, statistics: dict):
         """输出建模统计信息"""
         self.algorithm.Debug(
-            f"[BayesianModeler] 建模完成: "
+            f"[AlphaModel.Bayesian] 建模完成: "
             f"成功{statistics['successful']}对, "
             f"失败{statistics['failed']}对 "
             f"(完全建模{statistics['full_modeling']}对, "
@@ -729,14 +718,6 @@ class SignalGenerator:
             pair_insights = self._generate_pair_signals(pair_with_zscore)
             insights.extend(pair_insights)
         
-        # 输出统计
-        if insights:
-            self.algorithm.Debug(
-                f"[SignalGenerator] 生成信号: {len(insights)}个 "
-                f"(建仓{sum(1 for i in insights if i.Direction != InsightDirection.Flat)}个, "
-                f"平仓{sum(1 for i in insights if i.Direction == InsightDirection.Flat)}个)"
-            )
-        
         return insights
     
     def _calculate_zscore(self, pair: Dict, data) -> Dict:
@@ -788,6 +769,12 @@ class SignalGenerator:
         pair['current_price1'] = current_price1
         pair['current_price2'] = current_price2
         
+        # 调试日志
+        self.algorithm.Debug(
+            f"[AlphaModel.Signal] {symbol1.Value}-{symbol2.Value}: "
+            f"z-score={zscore:.3f}, residual_std={residual_std:.4f}"
+        )
+        
         return pair
     
     def _generate_pair_signals(self, pair: Dict) -> List:
@@ -807,31 +794,30 @@ class SignalGenerator:
         zscore = pair['zscore']
         
         # 构建标签信息
-        tag = f"{symbol1.Value}&{symbol2.Value}|{pair['alpha_mean']:.4f}|{pair['beta_mean']:.4f}|{zscore:.2f}|1"
+        tag = f"{symbol1.Value}&{symbol2.Value}|{pair['alpha_mean']:.4f}|{pair['beta_mean']:.4f}|{zscore:.2f}"
         
         # 风险检查 - 极端偏离时立即平仓
         if abs(zscore) > self.upper_limit:
-            self.algorithm.Debug(
-                f"[SignalGenerator] 风险警告! {symbol1.Value}-{symbol2.Value} "
-                f"z-score={zscore:.2f} 超过上限±{self.upper_limit}, 生成平仓信号"
-            )
             # 生成平仓信号
-            insights.append(Insight.Price(
-                symbol1, 
-                timedelta(days=self.flat_signal_duration_days),
-                InsightDirection.Flat,
-                None, None, None,
-                None,
-                tag
-            ))
-            insights.append(Insight.Price(
-                symbol2,
-                timedelta(days=self.flat_signal_duration_days),
-                InsightDirection.Flat,
-                None, None, None,
-                None,
-                tag
-            ))
+            pair_insights = Insight.Group(
+                Insight.Price(
+                    symbol1, 
+                    timedelta(days=self.flat_signal_duration_days),
+                    InsightDirection.Flat,
+                    None, None, None,
+                    None,
+                    tag
+                ),
+                Insight.Price(
+                    symbol2,
+                    timedelta(days=self.flat_signal_duration_days),
+                    InsightDirection.Flat,
+                    None, None, None,
+                    None,
+                    tag
+                )
+            )
+            insights.extend(pair_insights)
             return insights
         
         # 正常信号生成
@@ -846,50 +832,47 @@ class SignalGenerator:
                 direction1 = InsightDirection.Up
                 direction2 = InsightDirection.Down
             
-            insights.append(Insight.Price(
-                symbol1,
-                timedelta(days=self.entry_signal_duration_days),
-                direction1,
-                None, None, None,
-                None,
-                tag
-            ))
-            insights.append(Insight.Price(
-                symbol2,
-                timedelta(days=self.entry_signal_duration_days),
-                direction2,
-                None, None, None,
-                None,
-                tag
-            ))
-            
-            self.algorithm.Debug(
-                f"[SignalGenerator] 建仓信号: {symbol1.Value}({direction1.name}) - "
-                f"{symbol2.Value}({direction2.name}), z-score={zscore:.2f}"
+            pair_insights = Insight.Group(
+                Insight.Price(
+                    symbol1,
+                    timedelta(days=self.entry_signal_duration_days),
+                    direction1,
+                    None, None, None,
+                    None,
+                    tag
+                ),
+                Insight.Price(
+                    symbol2,
+                    timedelta(days=self.entry_signal_duration_days),
+                    direction2,
+                    None, None, None,
+                    None,
+                    tag
+                )
             )
+            insights.extend(pair_insights)
             
         elif abs(zscore) < self.exit_threshold:
             # 平仓信号
-            insights.append(Insight.Price(
-                symbol1,
-                timedelta(days=self.flat_signal_duration_days),
-                InsightDirection.Flat,
-                None, None, None,
-                None,
-                tag
-            ))
-            insights.append(Insight.Price(
-                symbol2,
-                timedelta(days=self.flat_signal_duration_days),
-                InsightDirection.Flat,
-                None, None, None,
-                None,
-                tag
-            ))
-            
-            self.algorithm.Debug(
-                f"[SignalGenerator] 平仓信号: {symbol1.Value}-{symbol2.Value}, z-score={zscore:.2f}"
+            pair_insights = Insight.Group(
+                Insight.Price(
+                    symbol1,
+                    timedelta(days=self.flat_signal_duration_days),
+                    InsightDirection.Flat,
+                    None, None, None,
+                    None,
+                    tag
+                ),
+                Insight.Price(
+                    symbol2,
+                    timedelta(days=self.flat_signal_duration_days),
+                    InsightDirection.Flat,
+                    None, None, None,
+                    None,
+                    tag
+                )
             )
+            insights.extend(pair_insights)
         
         return insights
 
@@ -942,7 +925,7 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         # 创建信号生成器
         self.signal_generator = SignalGenerator(self.algorithm, self.config)
         
-        self.algorithm.Debug(f"[NewAlphaModel] 初始化完成")
+        self.algorithm.Debug(f"[AlphaModel] 初始化完成")
     
     def OnSecuritiesChanged(self, algorithm: QCAlgorithm, changes: SecurityChanges):
         """
@@ -963,7 +946,6 @@ class BayesianCointegrationAlphaModel(AlphaModel):
             if symbol and symbol in self.symbols:
                 self.symbols.remove(symbol)
         
-        self.algorithm.Debug(f"[NewAlphaModel] 股票池更新: {len(self.symbols)}只")
     
     def Update(self, algorithm: QCAlgorithm, data: Slice) -> List[Insight]:
         """
@@ -980,12 +962,6 @@ class BayesianCointegrationAlphaModel(AlphaModel):
             self.clean_data = data_result['clean_data']
             self.valid_symbols = data_result['valid_symbols']
             
-            # 输出处理结果
-            self.algorithm.Debug(
-                f"[NewAlphaModel] 数据处理完成: "
-                f"有效股票{len(self.valid_symbols)}只"
-            )
-            
             # 协整分析
             if len(self.valid_symbols) >= 2:
                 cointegration_result = self.cointegration_analyzer.analyze(
@@ -997,10 +973,9 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                 # 保存协整对结果
                 self.cointegrated_pairs = cointegration_result['cointegrated_pairs']
                 
-                self.algorithm.Debug(
-                    f"[NewAlphaModel] 协整分析完成: "
-                    f"发现{len(self.cointegrated_pairs)}对协整关系"
-                )
+                # 更新配对记账簿
+                pairs_list = [(pair['symbol1'], pair['symbol2']) for pair in self.cointegrated_pairs]
+                self.pair_ledger.update_pairs_from_selection(pairs_list)
                 
                 # 贝叶斯建模
                 if len(self.cointegrated_pairs) > 0:
@@ -1012,10 +987,6 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                     # 保存建模结果
                     self.modeled_pairs = modeling_result['modeled_pairs']
                     
-                    self.algorithm.Debug(
-                        f"[NewAlphaModel] 贝叶斯建模完成: "
-                        f"成功建模{len(self.modeled_pairs)}对"
-                    )
             
             self.is_selection_day = False
         
