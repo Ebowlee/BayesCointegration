@@ -4,6 +4,20 @@
 
 ---
 
+## [v2.9.9_optimize-ema-thresholds@20250730]
+### 工作内容
+- 基于回测结果优化EMA参数和阈值设置
+- 移除upper_limit限制
+
+### 技术细节
+- **EMA优化**：
+  - alpha: 0.3 → 0.8（更快响应，2天内衰减到5%）
+  - 减少历史权重过高的问题
+- **阈值调整**：
+  - exit_threshold: 0.2 → 0.3（覆盖23.6%数据）
+  - 避免持仓时间过长
+- **移除upper_limit**：让趋势充分发展，风控交给RiskManagement
+
 ## [v2.9.8_ema-smoothing-thresholds@20250730]
 ### 工作内容
 - 实施EMA平滑减少z-score虚假跳变

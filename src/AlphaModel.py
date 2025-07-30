@@ -621,14 +621,14 @@ class SignalGenerator:
         self.algorithm = algorithm
         self.entry_threshold = config['entry_threshold']
         self.exit_threshold = config['exit_threshold']
-        self.upper_limit = config['upper_limit']
+        # self.upper_limit = config['upper_limit']  # 移除，交给风险管理模块
         self.lower_limit = config['lower_limit']
         self.flat_signal_duration_days = config.get('flat_signal_duration_days', 1)
         self.entry_signal_duration_days = config.get('entry_signal_duration_days', 2)
         
         # 添加EMA相关参数
         self.zscore_ema = {}  # 存储每个配对的EMA值
-        self.ema_alpha = 0.3  # EMA平滑系数（30%当前值，70%历史值）
+        self.ema_alpha = 0.8  # EMA平滑系数（80%当前值，20%历史值）
     
     def generate_signals(self, modeled_pairs: List[Dict], data) -> List:
         """
@@ -716,13 +716,13 @@ class SignalGenerator:
         # 构建标签
         tag = f"{symbol1.Value}&{symbol2.Value}|{pair['alpha_mean']:.4f}|{pair['beta_mean']:.4f}|{zscore:.2f}"
         
-        # 风险检查 - 极端偏离
-        if abs(zscore) > self.upper_limit:
-            return list(self._create_insight_group(
-                symbol1, symbol2, 
-                InsightDirection.Flat, InsightDirection.Flat,
-                self.flat_signal_duration_days, tag
-            ))
+        # 风险检查 - 极端偏离（已移除，交给风险管理模块处理）
+        # if abs(zscore) > self.upper_limit:
+        #     return list(self._create_insight_group(
+        #         symbol1, symbol2, 
+        #         InsightDirection.Flat, InsightDirection.Flat,
+        #         self.flat_signal_duration_days, tag
+        #     ))
         
         # 建仓信号
         if abs(zscore) > self.entry_threshold:

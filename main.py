@@ -130,8 +130,8 @@ class StrategyConfig:
             'mcmc_posterior_samples': 1000,
             'mcmc_chains': 2,
             'entry_threshold': 1.2,  # \u4ece1.65\u6539\u4e3a1.2
-            'exit_threshold': 0.2,   # \u4ece0.3\u6539\u4e3a0.2
-            'upper_limit': 3.0,
+            'exit_threshold': 0.3,   # \u6062\u590d\u52300.3\uff08\u8986\u76d623.6%\u6570\u636e\uff09
+            # 'upper_limit': 3.0,  # \u79fb\u9664\uff0c\u4ea4\u7ed9\u98ce\u9669\u7ba1\u7406\u6a21\u5757\u5904\u7406
             'lower_limit': -3.0,
             'max_annual_volatility': 0.45,
             'volatility_window_days': 63,
