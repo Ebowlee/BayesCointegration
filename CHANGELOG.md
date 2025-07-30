@@ -4,6 +4,15 @@
 
 ---
 
+## [v2.9.7_expand-sigma-prior@20250730]
+### 工作内容
+- 扩大sigma先验分布，进一步解决residual_std偏小问题
+
+### 技术细节
+- 将sigma先验从`HalfNormal(sigma=2.5)`扩大到`HalfNormal(sigma=5.0)`
+- 期望值从约2.0提高到约4.0（翻倍）
+- 配合v2.9.6的实际残差计算，预期显著提高residual_std
+
 ## [v2.9.6_residual-std-actual-calc@20250730]
 ### 工作内容
 - 根本性修复residual_std计算方式，解决z-score过度敏感问题

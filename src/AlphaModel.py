@@ -522,7 +522,7 @@ class BayesianModeler:
             return {
                 'alpha': pm.Normal('alpha', mu=0, sigma=10),
                 'beta': pm.Normal('beta', mu=1, sigma=5),
-                'sigma': pm.HalfNormal('sigma', sigma=2.5),
+                'sigma': pm.HalfNormal('sigma', sigma=5.0),
                 'tune': self.mcmc_warmup_samples,
                 'draws': self.mcmc_posterior_samples
             }
