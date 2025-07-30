@@ -4,6 +4,43 @@
 
 ---
 
+## [v2.10.0_risk-management-enhancement@20250730]
+### 工作内容
+- 使用quantconnect-code-simplifier重构RiskManagement模块，提升代码质量和可维护性
+- 新增持仓时间限制功能，超过60天自动平仓避免长期风险敞口
+- 延长配对冷却期至14天，降低频繁开平仓的交易成本
+- 清理诊断日志，移除z-score和leverage调试输出提升信噪比
+
+### 技术细节
+- **RiskManagement重构**：
+  - 使用专门的代码优化agent，代码从129行优化至156行
+  - 提取6个辅助方法：`_is_holding_expired`, `_create_liquidation_targets`等
+  - 添加类型提示和日志常量，提升代码规范性
+  - 简化`manage_risk`方法的嵌套逻辑，提高可读性
+- **持仓时间限制**：
+  - 新增`max_holding_days: 60`配置参数
+  - 在PairLedger中记录`entry_time`跟踪建仓时间
+  - 超期持仓自动生成平仓信号，避免趋势反转风险
+- **冷却期优化**：
+  - `pair_reentry_cooldown_days: 7 → 14`天
+  - 有效减少摇摆交易，提升策略稳定性
+- **日志清理**：
+  - 删除AlphaModel中的z-score原始值日志
+  - 移除leverage调试日志
+  - 保留关键交易和风控日志
+
+### 架构影响
+- 建立更完善的风控体系：多层次风险控制机制协同工作
+- 提升代码质量：通过专业工具优化，代码结构更清晰
+- 确认系统配置：明确max_pairs=4为全市场总配对数限制
+- 验证杠杆实现：InteractiveBrokers保证金账户正确配置2x杠杆
+
+### 下一步计划
+- 基于增强的风控功能进行全面回测
+- 监控持仓时间分布，评估60天限制的效果
+- 考虑实施动态风控阈值，根据市场状况调整参数
+- 进一步优化其他模块的代码结构
+
 ## [v2.9.11_portfolio-construction-optimization@20250730]
 ### 工作内容
 - 重构PortfolioConstruction.py，消除代码重复
