@@ -566,13 +566,6 @@ class BayesianModeler:
         # 移除最小值限制，使用实际计算的标准差
         stats['residual_std'] = float(np.std(actual_residuals))
         
-        # 添加诊断日志
-        self.algorithm.Debug(
-            f"[AlphaModel.Bayesian] Residual计算: "
-            f"实际std={stats['residual_std']:.4f}, "
-            f"sigma均值={stats['sigma_mean']:.4f}"
-        )
-        
         return stats
     
     def _save_posterior(self, symbol1: Symbol, symbol2: Symbol, stats: Dict):
@@ -687,7 +680,7 @@ class SignalGenerator:
         
         self.algorithm.Debug(
             f"[AlphaModel.Signal] {symbol1.Value}-{symbol2.Value}: "
-            f"z-score={smoothed_zscore:.3f} (raw={raw_zscore:.3f}), "
+            f"z-score={smoothed_zscore:.3f}, "
             f"residual_std={pair['residual_std']:.4f}"
         )
         
