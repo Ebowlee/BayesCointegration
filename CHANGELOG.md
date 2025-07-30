@@ -4,6 +4,40 @@
 
 ---
 
+## [v2.9.5_residual-std-enhancement@20250730]
+### 工作内容
+- 进一步优化residual_std计算，解决标准差仍然偏小的问题
+- 增强贝叶斯模型诊断能力，添加详细的数据变异性日志
+- 优化数据处理流程，减少对原始数据变异性的影响
+- 添加residual_std最小值保护机制，避免z-score过度敏感
+
+### 技术细节
+- **增强诊断日志**：
+  - 记录原始价格和对数价格的标准差
+  - 计算并记录实际残差的标准差
+  - 显示MCMC采样得到的sigma分布范围
+- **调整Sigma先验**：
+  - 完全建模：从`HalfNormal(sigma=1)`增大到`HalfNormal(sigma=2.5)`
+  - 动态更新：使用`max(prior_params['sigma_mean'] * 1.5, 1.0)`确保足够的灵活性
+- **优化数据填充**：
+  - 使用线性插值`interpolate(method='linear')`替代`fillna(method='pad')`
+  - 保持数据的自然变异性，减少人为平滑
+- **添加保护机制**：
+  - 在`_extract_posterior_stats`中设置`residual_std`最小值为0.05
+  - 防止过小的标准差导致z-score剧烈波动
+
+### 问题影响
+- **修复前**：residual_std仍在0.02-0.04范围，z-score过度敏感
+- **预期修复后**：
+  - residual_std恢复到0.05-0.15的正常范围
+  - z-score波动更加稳定
+  - 持仓时间延长至预期的10-30天
+
+### 下一步计划
+- 运行回测验证修复效果
+- 监控诊断日志，分析数据变异性来源
+- 根据实际效果进一步调整sigma先验或最小值阈值
+
 ## [v2.9.4_residual-std-fix@20250730]
 ### 工作内容
 - 深入调查residual_std异常偏小的根本原因

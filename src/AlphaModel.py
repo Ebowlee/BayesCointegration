@@ -177,6 +177,9 @@ class DataProcessor:
             DataFrame: 填补后的数据
         """
         if data['close'].isnull().any():
+            # 优先使用线性插值，保持数据的自然变异性
+            data['close'] = data['close'].interpolate(method='linear', limit_direction='both')
+            # 对于边缘的缺失值，使用前向/后向填充
             data['close'] = data['close'].fillna(method='pad').fillna(method='bfill')
         return data
     
@@ -563,13 +566,24 @@ class BayesianModeler:
         x_data = np.log(prices2)
         y_data = np.log(prices1)
         
+        # 诊断日志：记录数据的标准差
+        raw_price1_std = np.std(prices1)
+        raw_price2_std = np.std(prices2)
+        log_price1_std = np.std(y_data)
+        log_price2_std = np.std(x_data)
+        
+        self.algorithm.Debug(
+            f"[AlphaModel.Bayesian.Diagnostic] 原始价格std: P1={raw_price1_std:.4f}, P2={raw_price2_std:.4f} | "
+            f"对数价格std: logP1={log_price1_std:.4f}, logP2={log_price2_std:.4f}"
+        )
+        
         with pm.Model() as model:
             # 设置先验
             if prior_params is None:
                 # 完全建模：使用弱信息先验
                 alpha = pm.Normal('alpha', mu=0, sigma=10)
                 beta = pm.Normal('beta', mu=1, sigma=5)
-                sigma = pm.HalfNormal('sigma', sigma=1)
+                sigma = pm.HalfNormal('sigma', sigma=2.5)  # 增大先验以适应对数价格的残差变异性
                 
                 # 标准采样参数
                 tune = self.mcmc_warmup_samples
@@ -583,8 +597,8 @@ class BayesianModeler:
                                mu=prior_params['beta_mean'], 
                                sigma=prior_params['beta_std'])
                 
-                # 对于sigma，使用HalfNormal（简单稳健）
-                sigma = pm.HalfNormal('sigma', sigma=prior_params['sigma_mean'])
+                # 对于sigma，使用HalfNormal，适当放大以允许更多变异
+                sigma = pm.HalfNormal('sigma', sigma=max(prior_params['sigma_mean'] * 1.5, 1.0))
                 
                 # 减少采样数量以提高效率
                 tune = self.mcmc_warmup_samples // 2
@@ -607,6 +621,18 @@ class BayesianModeler:
                 return_inferencedata=False,
                 progressbar=False  # 避免在QuantConnect中显示进度条
             )
+        
+        # 诊断日志：计算实际残差的标准差
+        alpha_post = trace['alpha'].mean()
+        beta_post = trace['beta'].mean()
+        sigma_post = trace['sigma'].mean()
+        actual_residuals = y_data - (alpha_post + beta_post * x_data)
+        actual_residual_std = np.std(actual_residuals)
+        
+        self.algorithm.Debug(
+            f"[AlphaModel.Bayesian.Diagnostic] 实际残差std={actual_residual_std:.4f} | "
+            f"MCMC sigma均值={sigma_post:.4f} | sigma分布: min={trace['sigma'].min():.4f}, max={trace['sigma'].max():.4f}"
+        )
         
         return trace
     
@@ -635,7 +661,8 @@ class BayesianModeler:
             'sigma_mean': float(sigma_samples.mean()),
             'sigma_std': float(sigma_samples.std()),
             'residual_mean': float(residuals_samples.mean()),
-            'residual_std': float(sigma_samples.mean())  # 使用sigma而不是residuals.std()
+            # 使用sigma并设置最小值保护，避免z-score过度敏感
+            'residual_std': max(float(sigma_samples.mean()), 0.05)
         }
     
     def _save_posterior(self, symbol1: Symbol, symbol2: Symbol, stats: Dict):
