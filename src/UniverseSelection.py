@@ -1,188 +1,174 @@
 # region imports
 from AlgorithmImports import *
 from QuantConnect.Algorithm.Framework.Selection import FineFundamentalUniverseSelectionModel
+from typing import List, Dict, Tuple
+from collections import defaultdict
 # endregion
 
 class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
     """
-    贝异斯协整选股模型 - 负责选取具有协整关系的资产对
+    贝叶斯协整选股模型 - 负责选取具有协整关系的资产对
     """
     def __init__(self, algorithm, config, sector_code_to_name, sector_name_to_code):
         self.algorithm = algorithm
-        self.selection_on = False 
-        
-        # 强制使用集中配置
-        self.max_stocks_per_sector = config['max_stocks_per_sector']
-        self.min_price = config['min_price']
-        self.min_volume = config['min_volume']
-        self.min_days_since_ipo = config['min_days_since_ipo']
-        self.max_pe = config['max_pe']
-        self.min_roe = config['min_roe']
-        self.max_debt_ratio = config['max_debt_ratio']
-        self.max_leverage_ratio = config['max_leverage_ratio']
-
-        self.last_fine_selected_symbols = []                            
-        self.fine_selection_count = 0
-        
-        # 使用从main.py传入的行业映射
+        self.config = config
         self.sector_code_to_name = sector_code_to_name
         self.sector_name_to_code = sector_name_to_code
-
-        algorithm.Debug(f"[UniverseSelection] 初始化完成")
-
-        # 初始化父类并传递自定义的粗选和精选方法
+        
+        # 状态管理
+        self.selection_on = False
+        self.last_fine_selected_symbols = []
+        self.fine_selection_count = 0
+        
+        algorithm.Debug("[UniverseSelection] 初始化完成")
         super().__init__(self._select_coarse, self._select_fine)
 
-
-
     def TriggerSelection(self):
-        """
-        外部调用的触发接口: 用于在 main.py 中通过 Schedule.On 控制
-        """
+        """外部调用的触发接口"""
         self.selection_on = True
 
-
-
     def _select_coarse(self, coarse: List[CoarseFundamental]) -> List[Symbol]:
-        """
-        粗选阶段, 负责从所有股票中筛选出符合条件的股票, 轻量级的筛选方法
-        """
-        # 只在选股日进行实际筛选
+        """粗选阶段：基础筛选"""
+        if not self.selection_on:
+            return self.last_fine_selected_symbols
+        
+        # 基础条件筛选
+        return [
+            x.Symbol for x in coarse 
+            if all([
+                x.HasFundamentalData,
+                x.Price > self.config['min_price'],
+                x.DollarVolume > self.config['min_volume'],
+                x.SecurityReference.IPODate is not None,
+                (self.algorithm.Time - x.SecurityReference.IPODate).days > self.config['min_days_since_ipo']
+            ])
+        ]
+
+    def _select_fine(self, fine: List[FineFundamental]) -> List[Symbol]:
+        """精选阶段：行业和财务筛选"""
         if not self.selection_on:
             return self.last_fine_selected_symbols
             
-        # 基础筛选
-        filtered = [x for x in coarse if x.HasFundamentalData and 
-                   x.Price > self.min_price and 
-                   x.DollarVolume > self.min_volume]
+        # 重置选股标志
+        self.selection_on = False 
+        self.fine_selection_count += 1
+        self.algorithm.Debug(f"===== 第【{self.fine_selection_count}】次选股 =====")
         
-        # IPO时间筛选
-        ipo_filtered = [x for x in filtered if x.SecurityReference.IPODate is not None and 
-                       (self.algorithm.Time - x.SecurityReference.IPODate).days > self.min_days_since_ipo]
+        # 按行业分组并选取
+        sector_candidates = self._group_by_sector(fine)
         
-        coarse_selected = [x.Symbol for x in ipo_filtered]
+        # 应用财务筛选
+        filtered_stocks, filter_stats = self._apply_financial_filters(sector_candidates)
         
-        return coarse_selected
+        # 更新状态
+        self.last_fine_selected_symbols = [x.Symbol for x in filtered_stocks]
+        
+        # 输出统计日志
+        self._log_selection_results(sector_candidates, filtered_stocks, filter_stats)
+        
+        return self.last_fine_selected_symbols
 
-
-
-    def _select_fine(self, fine: List[FineFundamental]) -> List[Symbol]:
-        """
-        细选阶段, 主要是依据行业和财报信息
-        """
-        if self.selection_on:
-            self.selection_on = False 
-            self.fine_selection_count += 1
-            self.algorithm.Debug(f"=====================================第【{self.fine_selection_count}】次选股=====================================")
-
-            sector_candidates = {}
-            all_sectors_selected_fine = []
-            sector_distribution = {}  # 提前初始化行业分布统计
-
-            # 用循环筛选每个行业
-            for name, code in self.sector_name_to_code.items():
-                candidates = [x for x in fine if x.AssetClassification.MorningstarSectorCode == code]
-                selected = self._num_of_candidates(candidates)
-                if selected:  # 只记录有候选股的行业
-                    sector_candidates[name] = selected
-
-            # 把每个行业的股票合并到一起
-            for selected_fine_list in sector_candidates.values():
-                all_sectors_selected_fine.extend(selected_fine_list)
-
-            fine_after_financial_filters = []
-            financial_failed = 0
-            pe_failed = 0
-            roe_failed = 0 
-            debt_failed = 0
-            leverage_failed = 0
-            data_missing = 0
+    def _group_by_sector(self, fine: List[FineFundamental]) -> List[FineFundamental]:
+        """按行业分组并选取每个行业的前N只股票"""
+        all_selected = []
+        
+        for sector_name, sector_code in self.sector_name_to_code.items():
+            # 筛选该行业的股票
+            sector_stocks = [x for x in fine if x.AssetClassification.MorningstarSectorCode == sector_code]
             
-            for x in all_sectors_selected_fine:
-                try:
-                    if x.ValuationRatios is not None and x.OperationRatios is not None:
-                        pe_ratio = x.ValuationRatios.PERatio
-                        roe_ratio = x.OperationRatios.ROE.Value
-                        debt_to_assets_ratio = x.OperationRatios.DebtToAssets.Value
-                        leverage_ratio = x.OperationRatios.FinancialLeverage.Value
+            # 选取市值最大的前N只
+            selected = self._select_top_by_market_cap(sector_stocks, self.config['max_stocks_per_sector'])
+            all_selected.extend(selected)
+            
+        return all_selected
 
-                        passes_pe = pe_ratio is not None and pe_ratio < self.max_pe
-                        passes_roe = roe_ratio is not None and roe_ratio > self.min_roe
-                        passes_debt_to_assets = debt_to_assets_ratio is not None and debt_to_assets_ratio < self.max_debt_ratio
-                        passes_leverage_ratio = leverage_ratio is not None and leverage_ratio < self.max_leverage_ratio
-                        
-                        if passes_pe and passes_roe and passes_debt_to_assets and passes_leverage_ratio:
-                            fine_after_financial_filters.append(x)
-                            # 同步更新行业分布
-                            sector_name = self.sector_code_to_name.get(x.AssetClassification.MorningstarSectorCode)
-                            if sector_name:
-                                sector_distribution[sector_name] = sector_distribution.get(sector_name, 0) + 1
-                        else:
-                            financial_failed += 1
-                            # 记录具体失败原因
-                            if not passes_pe:
-                                pe_failed += 1
-                            if not passes_roe:
-                                roe_failed += 1
-                            if not passes_debt_to_assets:
-                                debt_failed += 1
-                            if not passes_leverage_ratio:
-                                leverage_failed += 1
-                    else:
-                        financial_failed += 1
-                        data_missing += 1
-                except Exception as e:
-                    self.algorithm.Debug(f"[UniverseSelection] 财务数据异常 {x.Symbol}: {str(e)[:50]}")
-                    financial_failed += 1
-                    data_missing += 1
+    def _select_top_by_market_cap(self, stocks: List[FineFundamental], n: int) -> List[FineFundamental]:
+        """选取市值最大的前N只股票"""
+        valid_stocks = [x for x in stocks if x.MarketCap is not None and x.MarketCap > 0]
+        return sorted(valid_stocks, key=lambda x: x.MarketCap, reverse=True)[:n]
 
-            final_selected_symbols = [x.Symbol for x in fine_after_financial_filters]
-            self.last_fine_selected_symbols = final_selected_symbols
+    def _apply_financial_filters(self, stocks: List[FineFundamental]) -> Tuple[List[FineFundamental], Dict[str, int]]:
+        """应用财务筛选条件"""
+        filtered_stocks = []
+        
+        # 初始化统计计数器
+        stats = defaultdict(int, total=len(stocks), passed=0)
+        
+        for stock in stocks:
+            passed, fail_reasons = self._check_financial_criteria(stock)
             
+            if passed:
+                filtered_stocks.append(stock)
+                stats['passed'] += 1
+            else:
+                # 更新失败统计
+                for reason in fail_reasons:
+                    stats[reason] += 1
+        
+        return filtered_stocks, stats
+
+    def _check_financial_criteria(self, stock: FineFundamental) -> Tuple[bool, List[str]]:
+        """检查单只股票的财务指标"""
+        fail_reasons = []
+        
+        try:
+            # 检查数据完整性
+            if stock.ValuationRatios is None or stock.OperationRatios is None:
+                return False, ['data_missing']
             
-            # 选股结果统计日志
-            total_candidates = len(all_sectors_selected_fine)
-            self.algorithm.Debug(f"[UniverseSelection] 财务筛选: 候选{total_candidates}只 → 通过{len(final_selected_symbols)}只 (过滤{financial_failed}只)")
+            # 定义筛选条件
+            criteria = {
+                'pe_failed': (stock.ValuationRatios.PERatio, lambda x: x is not None and x < self.config['max_pe']),
+                'roe_failed': (stock.OperationRatios.ROE.Value, lambda x: x is not None and x > self.config['min_roe']),
+                'debt_failed': (stock.OperationRatios.DebtToAssets.Value, lambda x: x is not None and x < self.config['max_debt_ratio']),
+                'leverage_failed': (stock.OperationRatios.FinancialLeverage.Value, lambda x: x is not None and x < self.config['max_leverage_ratio'])
+            }
             
-            # 财务筛选详细统计
-            if financial_failed > 0:
-                financial_details = []
-                if pe_failed > 0:
-                    financial_details.append(f"PE({pe_failed})")
-                if roe_failed > 0:
-                    financial_details.append(f"ROE({roe_failed})")
-                if debt_failed > 0:
-                    financial_details.append(f"债务({debt_failed})")
-                if leverage_failed > 0:
-                    financial_details.append(f"杠杆({leverage_failed})")
-                if data_missing > 0:
-                    financial_details.append(f"缺失({data_missing})")
-                
-                if financial_details:
-                    self.algorithm.Debug(f"[UniverseSelection] 财务过滤明细: {' '.join(financial_details)}")
+            # 检查每个条件
+            for reason, (value, condition) in criteria.items():
+                if not condition(value):
+                    fail_reasons.append(reason)
             
-            # 行业分布统计
+            return len(fail_reasons) == 0, fail_reasons
+            
+        except Exception as e:
+            self.algorithm.Debug(f"[UniverseSelection] 财务数据异常 {stock.Symbol}: {str(e)[:50]}")
+            return False, ['data_missing']
+
+    def _log_selection_results(self, candidates: List[FineFundamental], filtered: List[FineFundamental], stats: Dict[str, int]):
+        """输出选股结果日志"""
+        # 基础统计
+        self.algorithm.Debug(f"[UniverseSelection] 财务筛选: 候选{stats['total']}只 → 通过{stats['passed']}只 (过滤{stats['total'] - stats['passed']}只)")
+        
+        # 财务筛选明细
+        failed_details = []
+        reason_map = {
+            'pe_failed': 'PE',
+            'roe_failed': 'ROE',
+            'debt_failed': '债务',
+            'leverage_failed': '杠杆',
+            'data_missing': '缺失'
+        }
+        
+        for reason, label in reason_map.items():
+            if stats[reason] > 0:
+                failed_details.append(f"{label}({stats[reason]})")
+        
+        if failed_details:
+            self.algorithm.Debug(f"[UniverseSelection] 财务过滤明细: {' '.join(failed_details)}")
+        
+        # 行业分布统计
+        sector_distribution = defaultdict(int)
+        for stock in filtered:
+            sector_name = self.sector_code_to_name.get(stock.AssetClassification.MorningstarSectorCode)
+            if sector_name:
+                sector_distribution[sector_name] += 1
+        
+        if sector_distribution:
             sector_stats = " ".join([f"{name}({count})" for name, count in sorted(sector_distribution.items())])
             self.algorithm.Debug(f"[UniverseSelection] 行业分布: {sector_stats}")
-            
-            self.algorithm.Debug(f"[UniverseSelection] 选股完成: 共{len(final_selected_symbols)}只股票, 前5样本: {[x.Value for x in final_selected_symbols[:5]]}")
-            return final_selected_symbols
-        else:
-            return self.last_fine_selected_symbols
-
-
-
-    def _num_of_candidates(self, sectorCandidates):
-        """
-        根据行业筛选出符合条件的股票, 按市值降序排列
-        """
-        # 返回市值最高的前 max_stocks_per_sector 个股票
-        filtered = [x for x in sectorCandidates if x.MarketCap is not None and x.MarketCap > 0]
-        sorted_candidates = sorted(filtered, key=lambda x: x.MarketCap, reverse=True)
-        return sorted_candidates[:self.max_stocks_per_sector]
- 
-
-
-
-
-
+        
+        # 最终结果
+        final_symbols = [x.Symbol for x in filtered]
+        sample = [x.Value for x in final_symbols[:5]]
+        self.algorithm.Debug(f"[UniverseSelection] 选股完成: 共{len(final_symbols)}只股票, 前5样本: {sample}")

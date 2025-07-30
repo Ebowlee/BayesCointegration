@@ -4,6 +4,24 @@
 
 ---
 
+## [v2.9.6_residual-std-actual-calc@20250730]
+### 工作内容
+- 根本性修复residual_std计算方式，解决z-score过度敏感问题
+- 使用实际残差计算标准差，替代sigma参数均值
+- 移除0.05的硬编码最小值限制
+- 简化AlphaModel.py代码结构
+
+### 技术细节
+- **改进residual_std计算**：
+  - 使用后验均值参数(alpha, beta)计算拟合值
+  - 计算实际残差：y_data - fitted_values
+  - 使用实际残差的标准差作为residual_std
+- **代码简化**（减少36行）：
+  - 移除_build_and_sample_model中的诊断日志
+  - 优化_group_by_sector使用defaultdict
+  - 简化OnSecuritiesChanged使用列表推导式
+- **添加诊断日志**：对比实际std和sigma均值
+
 ## [v2.9.5_residual-std-enhancement@20250730]
 ### 工作内容
 - 进一步优化residual_std计算，解决标准差仍然偏小的问题

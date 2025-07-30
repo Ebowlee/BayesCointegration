@@ -11,7 +11,8 @@
       "mcp__context7__get-library-docs",
       "Bash(cp:*)",
       "Bash(ls:*)",
-      "Bash(mv:*)"
+      "Bash(mv:*)",
+      "Bash(git clean:*)"
     ],
     "deny": []
   }

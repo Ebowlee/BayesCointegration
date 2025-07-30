@@ -38,34 +38,27 @@ class PairLedger:
         Args:
             new_pairs: 新选出的配对列表，每个元素为 (symbol1, symbol2)
         """
-        # 记录本轮选股中的配对
         current_round_pairs = set()
         
-        # 处理新配对
+        # 标准化并处理新配对
         for symbol1, symbol2 in new_pairs:
-            # 确保symbol1 < symbol2（按字符串排序）以避免重复
-            if symbol1.Value > symbol2.Value:
-                symbol1, symbol2 = symbol2, symbol1
-            
-            pair_key = (symbol1, symbol2)
+            pair_key = self._get_pair_key(symbol1, symbol2)
             current_round_pairs.add(pair_key)
             
             if pair_key not in self.all_pairs:
-                # 添加新配对
-                self.all_pairs[pair_key] = PairInfo(symbol1, symbol2)
+                self.all_pairs[pair_key] = PairInfo(*pair_key)
         
-        # 清理休眠且不在本轮选股中的配对
-        pairs_to_remove = []
-        for pair_key, pair_info in self.all_pairs.items():
-            if not pair_info.is_active and pair_key not in current_round_pairs:
-                pairs_to_remove.append(pair_key)
+        # 清理休眠配对（使用字典推导式）
+        self.all_pairs = {k: v for k, v in self.all_pairs.items() 
+                          if v.is_active or k in current_round_pairs}
         
-        for pair_key in pairs_to_remove:
-            del self.all_pairs[pair_key]
-        
-        # 更新symbol映射
+        # 重建 symbol映射
+        self._rebuild_symbol_map()
+    
+    def _rebuild_symbol_map(self):
+        """重建双向映射"""
         self.symbol_map.clear()
-        for (symbol1, symbol2) in self.all_pairs.keys():
+        for symbol1, symbol2 in self.all_pairs.keys():
             self.symbol_map[symbol1] = symbol2
             self.symbol_map[symbol2] = symbol1
     
@@ -142,15 +135,9 @@ class StrategyConfig:
             'lower_limit': -3.0,
             'max_annual_volatility': 0.45,
             'volatility_window_days': 63,
-            'selection_interval_days': 30,  # 选股间隔天数，用于动态贝叶斯更新
-            'dynamic_update_enabled': True,  # 是否启用动态贝叶斯更新
-            'min_beta_threshold': 0.2,       # Beta最小阈值，过滤极小beta的协整对
-            'max_beta_threshold': 3.0,       # Beta最大阈值，过滤极大beta的协整对
             'flat_signal_duration_days': 1,  # 平仓信号有效期（天）
             'entry_signal_duration_days': 2, # 建仓信号有效期（天）
             'min_data_completeness_ratio': 0.98,  # 数据完整性最低要求(98%)
-            'prior_coverage_ratio': 0.95,          # 先验分布覆盖比例(95%)
-            'min_mcmc_samples': 500,               # MCMC采样最少样本数
         }
         
         # PortfolioConstruction 配置
@@ -166,7 +153,7 @@ class StrategyConfig:
             'max_drawdown_percent': 0.10
         }
         
-        # 行业映射配置 (共享给UniverseSelection和AlphaModel使用)
+        # 行业映射配置
         self.sector_code_to_name = {
             MorningstarSectorCode.Technology: "Technology",
             MorningstarSectorCode.Healthcare: "Healthcare",
@@ -197,38 +184,50 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         """
         初始化算法、设置参数、注册事件处理程序
         """
-        # 创建统一配置
+        # 初始化配置和记账簿
         self.config = StrategyConfig()
-        
-        # 创建配对记账簿实例
         self.pair_ledger = PairLedger()
         
-        # 设置回测时间段和初始资金
+        # 设置基本参数
+        self._setup_basic_parameters()
+        
+        # 设置框架模块
+        self._setup_framework_modules()
+    
+    def _setup_basic_parameters(self):
+        """设置基本参数"""
+        # 时间和资金
         self.SetStartDate(*self.config.main['start_date'])
         self.SetEndDate(*self.config.main['end_date'])
         self.SetCash(self.config.main['cash'])
         
-        # 设置分辨率和账户类型
+        # 分辨率和账户
         self.UniverseSettings.Resolution = self.config.main['resolution']
         self.SetBrokerageModel(self.config.main['brokerage_name'], self.config.main['account_type'])
-        
-
-        # 设置UniverseSelection模块
-        self.universe_selector = MyUniverseSelectionModel(self, self.config.universe_selection, self.config.sector_code_to_name, self.config.sector_name_to_code)
+    
+    def _setup_framework_modules(self):
+        """设置算法框架模块"""
+        # UniverseSelection
+        self.universe_selector = MyUniverseSelectionModel(
+            self, self.config.universe_selection, 
+            self.config.sector_code_to_name, self.config.sector_name_to_code
+        )
         self.SetUniverseSelection(self.universe_selector)
-        # 设置选股调度
-        schedule_frequency = self.config.main['schedule_frequency']
-        schedule_time = self.config.main['schedule_time']
-        date_rule = getattr(self.DateRules, schedule_frequency)()
-        time_rule = self.TimeRules.At(*schedule_time)
-        self.Schedule.On(date_rule, time_rule, Action(self.universe_selector.TriggerSelection))
-
-        # 设置Alpha模块
-        self.SetAlpha(BayesianCointegrationAlphaModel(self, self.config.alpha_model, self.pair_ledger, self.config.sector_code_to_name))
-
-        # 设置PortfolioConstruction模块
-        self.SetPortfolioConstruction(BayesianCointegrationPortfolioConstructionModel(self, self.config.portfolio_construction, self.pair_ledger))
-
+        
+        # 调度
+        self._setup_schedule()
+        
+        # Alpha模块
+        self.SetAlpha(BayesianCointegrationAlphaModel(
+            self, self.config.alpha_model, self.pair_ledger, self.config.sector_code_to_name
+        ))
+        
+        # PortfolioConstruction模块
+        self.SetPortfolioConstruction(BayesianCointegrationPortfolioConstructionModel(
+            self, self.config.portfolio_construction, self.pair_ledger
+        ))
+        
+        # 保留注释的风险管理模块，便于后续启用
         # # 设置RiskManagement模块
         # ## 组合层面风控
         # self.AddRiskManagement(MaximumDrawdownPercentPortfolio(self.config.main['portfolio_max_drawdown']))
@@ -243,5 +242,8 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # # # 记录初始化完成
         # # self.Debug(f"[Initialize] 完成, 起始日期: {self.StartDate}")
     
-
-       
+    def _setup_schedule(self):
+        """设置调度"""
+        date_rule = getattr(self.DateRules, self.config.main['schedule_frequency'])()
+        time_rule = self.TimeRules.At(*self.config.main['schedule_time'])
+        self.Schedule.On(date_rule, time_rule, Action(self.universe_selector.TriggerSelection))
