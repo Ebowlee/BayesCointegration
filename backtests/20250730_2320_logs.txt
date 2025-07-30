@@ -1,0 +1,321 @@
+2024-06-20 00:00:00 Launching analysis for f24e6b55ba76506f634750e2cee15781 with LEAN Engine v2.5.0.0.17226
+2024-06-20 00:00:00 [UniverseSelection] 初始化完成
+2024-06-20 00:00:00 [AlphaModel] 初始化完成
+2024-06-20 00:00:00 [PortfolioConstruction] 初始化完成 (保证金率: 1.0, 冷却期: 14天, 最大配对数: 8, 现金缓冲: 5.0%)
+2024-06-20 00:00:00 ==================================================
+2024-06-20 00:00:00 [账户信息] 检查杠杆设置:
+2024-06-20 00:00:00   - 初始资金: $100,000.00
+2024-06-20 00:00:00   - 账户类型: 0
+2024-06-20 00:00:00   - 券商模型: 1
+2024-06-20 00:00:00 ==================================================
+2024-06-20 00:00:00 Accurate daily end-times now enabled by default. See more at https://qnt.co/3YHaWHL. To disable it and use legacy daily bars set self.settings.daily_precise_end_time = False.
+2024-07-02 00:00:00 ===== 第【1】次选股 =====
+2024-07-02 00:00:00 [UniverseSelection] 财务筛选: 候选164只 → 通过83只 (过滤81只)
+2024-07-02 00:00:00 [UniverseSelection] 财务过滤明细: PE(37) ROE(24) 债务(22) 杠杆(42)
+2024-07-02 00:00:00 [UniverseSelection] 行业分布: CommunicationServices(8) ConsumerCyclical(11) ConsumerDefensive(8) Energy(8) Healthcare(18) Industrials(18) Technology(10) Utilities(2)
+2024-07-02 00:00:00 [UniverseSelection] 选股完成: 共83只股票, 前5样本: ['MSFT', 'CRM', 'QCOM', 'AMAT', 'CSCO']
+2024-07-02 16:00:00 ==================================================
+2024-07-02 16:00:00 [账户杠杆] 实时信息:
+2024-07-02 16:00:00   - 账户净值: $100,000.00
+2024-07-02 16:00:00   - 现金余额: $100,000.00
+2024-07-02 16:00:00   - 持仓价值: $0.00
+2024-07-02 16:00:00   - 理论购买力: $200,000.00 (现金×2)
+2024-07-02 16:00:00   - 可用杠杆: 2.00x
+2024-07-02 16:00:00   - 已用保证金: $0.00
+2024-07-02 16:00:00   - 未实现盈亏: $0.00
+2024-07-02 16:00:00 ==================================================
+2024-07-02 16:00:00 [AlphaModel.Data] 数据处理: 83→81只 (high_volatility(2))
+2024-07-02 16:00:00 [AlphaModel.Coint] Technology(1) Industrials(4) CommunicationServices(1) - 筛选后4对
+2024-07-02 16:00:00 [AlphaModel.Bayesian] 建模完成: 成功4对, 失败0对 (完全建模4对, 动态更新0对)
+2024-07-02 16:00:00 [AlphaModel.Signal] T-TMUS: z-score=0.070, residual_std=0.0262
+2024-07-02 16:00:00 [AlphaModel.Signal] PH-URI: z-score=-0.540, residual_std=0.0253
+2024-07-02 16:00:00 [AlphaModel.Signal] CTAS-TT: z-score=0.760, residual_std=0.0241
+2024-07-02 16:00:00 [AlphaModel.Signal] CAT-EMR: z-score=-0.997, residual_std=0.0402
+2024-07-03 13:00:00 [AlphaModel.Signal] T-TMUS: z-score=0.116, residual_std=0.0262
+2024-07-03 13:00:00 [AlphaModel.Signal] PH-URI: z-score=-0.655, residual_std=0.0253
+2024-07-03 13:00:00 [AlphaModel.Signal] CTAS-TT: z-score=0.242, residual_std=0.0241
+2024-07-03 13:00:00 [AlphaModel.Signal] CAT-EMR: z-score=-0.901, residual_std=0.0402
+2024-07-05 16:00:00 [AlphaModel.Signal] T-TMUS: z-score=0.131, residual_std=0.0262
+2024-07-05 16:00:00 [AlphaModel.Signal] PH-URI: z-score=-0.421, residual_std=0.0253
+2024-07-05 16:00:00 [AlphaModel.Signal] CTAS-TT: z-score=0.537, residual_std=0.0241
+2024-07-05 16:00:00 [AlphaModel.Signal] CAT-EMR: z-score=-0.992, residual_std=0.0402
+2024-07-08 16:00:00 [AlphaModel.Signal] T-TMUS: z-score=0.212, residual_std=0.0262
+2024-07-08 16:00:00 [AlphaModel.Signal] PH-URI: z-score=-0.294, residual_std=0.0253
+2024-07-08 16:00:00 [AlphaModel.Signal] CTAS-TT: z-score=0.441, residual_std=0.0241
+2024-07-08 16:00:00 [AlphaModel.Signal] CAT-EMR: z-score=-1.101, residual_std=0.0402
+2024-07-09 16:00:00 [AlphaModel.Signal] T-TMUS: z-score=0.233, residual_std=0.0262
+2024-07-09 16:00:00 [AlphaModel.Signal] PH-URI: z-score=0.085, residual_std=0.0253
+2024-07-09 16:00:00 [AlphaModel.Signal] CTAS-TT: z-score=0.419, residual_std=0.0241
+2024-07-09 16:00:00 [AlphaModel.Signal] CAT-EMR: z-score=-1.205, residual_std=0.0402
+2024-07-09 16:00:00 [PC]: [CAT, EMR] | [BUY, SELL] | [0.0702, -0.0485] | beta=1.446
+2024-07-09 16:00:00 Warning: all market orders sent using daily data, or market orders sent after hours are automatically converted into MarketOnOpen orders.
+2024-07-10 16:00:00 [AlphaModel.Signal] T-TMUS: z-score=0.322, residual_std=0.0262
+2024-07-10 16:00:00 [AlphaModel.Signal] PH-URI: z-score=0.414, residual_std=0.0253
+2024-07-10 16:00:00 [AlphaModel.Signal] CTAS-TT: z-score=0.155, residual_std=0.0241
+2024-07-10 16:00:00 [AlphaModel.Signal] CAT-EMR: z-score=-1.576, residual_std=0.0402
+2024-07-11 16:00:00 [AlphaModel.Signal] T-TMUS: z-score=0.867, residual_std=0.0262
+2024-07-11 16:00:00 [AlphaModel.Signal] PH-URI: z-score=0.049, residual_std=0.0253
+2024-07-11 16:00:00 [AlphaModel.Signal] CTAS-TT: z-score=-0.136, residual_std=0.0241
+2024-07-11 16:00:00 [AlphaModel.Signal] CAT-EMR: z-score=-2.166, residual_std=0.0402
+2024-07-12 16:00:00 [AlphaModel.Signal] T-TMUS: z-score=0.747, residual_std=0.0262
+2024-07-12 16:00:00 [AlphaModel.Signal] PH-URI: z-score=0.105, residual_std=0.0253
+2024-07-12 16:00:00 [AlphaModel.Signal] CTAS-TT: z-score=0.126, residual_std=0.0241
+2024-07-12 16:00:00 [AlphaModel.Signal] CAT-EMR: z-score=-2.129, residual_std=0.0402
+2024-07-15 16:00:00 [AlphaModel.Signal] T-TMUS: z-score=-0.017, residual_std=0.0262
+2024-07-15 16:00:00 [AlphaModel.Signal] PH-URI: z-score=-0.397, residual_std=0.0253
+2024-07-15 16:00:00 [AlphaModel.Signal] CTAS-TT: z-score=0.042, residual_std=0.0241
+2024-07-15 16:00:00 [AlphaModel.Signal] CAT-EMR: z-score=-2.118, residual_std=0.0402
+2024-07-16 16:00:00 [AlphaModel.Signal] T-TMUS: z-score=0.021, residual_std=0.0262
+2024-07-16 16:00:00 [AlphaModel.Signal] PH-URI: z-score=-0.253, residual_std=0.0253
+2024-07-16 16:00:00 [AlphaModel.Signal] CTAS-TT: z-score=0.169, residual_std=0.0241
+2024-07-16 16:00:00 [AlphaModel.Signal] CAT-EMR: z-score=-1.746, residual_std=0.0402
+2024-07-17 16:00:00 [AlphaModel.Signal] T-TMUS: z-score=0.400, residual_std=0.0262
+2024-07-17 16:00:00 [AlphaModel.Signal] PH-URI: z-score=-0.225, residual_std=0.0253
+2024-07-17 16:00:00 [AlphaModel.Signal] CTAS-TT: z-score=0.645, residual_std=0.0241
+2024-07-17 16:00:00 [AlphaModel.Signal] CAT-EMR: z-score=-1.675, residual_std=0.0402
+2024-07-18 16:00:00 [AlphaModel.Signal] T-TMUS: z-score=0.709, residual_std=0.0262
+2024-07-18 16:00:00 [AlphaModel.Signal] PH-URI: z-score=-0.960, residual_std=0.0253
+2024-07-18 16:00:00 [AlphaModel.Signal] CTAS-TT: z-score=2.837, residual_std=0.0241
+2024-07-18 16:00:00 [AlphaModel.Signal] CAT-EMR: z-score=-1.340, residual_std=0.0402
+2024-07-18 16:00:00 [PC]: [CTAS, TT] | [SELL, BUY] | [-0.0477, 0.0710] | beta=0.672
+2024-07-19 16:00:00 [AlphaModel.Signal] T-TMUS: z-score=0.757, residual_std=0.0262
+2024-07-19 16:00:00 [AlphaModel.Signal] PH-URI: z-score=-0.973, residual_std=0.0253
+2024-07-19 16:00:00 [AlphaModel.Signal] CTAS-TT: z-score=3.272, residual_std=0.0241
+2024-07-19 16:00:00 [AlphaModel.Signal] CAT-EMR: z-score=-1.535, residual_std=0.0402
+2024-07-22 16:00:00 [AlphaModel.Signal] T-TMUS: z-score=0.696, residual_std=0.0262
+2024-07-22 16:00:00 [AlphaModel.Signal] PH-URI: z-score=-1.160, residual_std=0.0253
+2024-07-22 16:00:00 [AlphaModel.Signal] CTAS-TT: z-score=3.479, residual_std=0.0241
+2024-07-22 16:00:00 [AlphaModel.Signal] CAT-EMR: z-score=-2.009, residual_std=0.0402
+2024-07-23 16:00:00 [AlphaModel.Signal] T-TMUS: z-score=0.263, residual_std=0.0262
+2024-07-23 16:00:00 [AlphaModel.Signal] PH-URI: z-score=-1.395, residual_std=0.0253
+2024-07-23 16:00:00 [AlphaModel.Signal] CTAS-TT: z-score=2.313, residual_std=0.0241
+2024-07-23 16:00:00 [AlphaModel.Signal] CAT-EMR: z-score=-2.265, residual_std=0.0402
+2024-07-23 16:00:00 [PC]: [PH, URI] | [BUY, SELL] | [0.0497, -0.0691] | beta=0.719
+2024-07-24 16:00:00 [AlphaModel.Signal] T-TMUS: z-score=1.670, residual_std=0.0262
+2024-07-24 16:00:00 [AlphaModel.Signal] PH-URI: z-score=-1.878, residual_std=0.0253
+2024-07-24 16:00:00 [AlphaModel.Signal] CTAS-TT: z-score=2.789, residual_std=0.0241
+2024-07-24 16:00:00 [AlphaModel.Signal] CAT-EMR: z-score=-1.913, residual_std=0.0402
+2024-07-24 16:00:00 [PC]: [T, TMUS] | [SELL, BUY] | [-0.0611, 0.0577] | beta=1.059
+2024-07-25 16:00:00 [AlphaModel.Signal] T-TMUS: z-score=2.321, residual_std=0.0262
+2024-07-25 16:00:00 [AlphaModel.Signal] PH-URI: z-score=-2.229, residual_std=0.0253
+2024-07-25 16:00:00 [AlphaModel.Signal] CTAS-TT: z-score=3.641, residual_std=0.0241
+2024-07-25 16:00:00 [AlphaModel.Signal] CAT-EMR: z-score=-1.488, residual_std=0.0402
+2024-07-26 16:00:00 [AlphaModel.Signal] T-TMUS: z-score=2.092, residual_std=0.0262
+2024-07-26 16:00:00 [AlphaModel.Signal] PH-URI: z-score=-1.692, residual_std=0.0253
+2024-07-26 16:00:00 [AlphaModel.Signal] CTAS-TT: z-score=3.586, residual_std=0.0241
+2024-07-26 16:00:00 [AlphaModel.Signal] CAT-EMR: z-score=-1.608, residual_std=0.0402
+2024-07-29 16:00:00 [AlphaModel.Signal] T-TMUS: z-score=1.622, residual_std=0.0262
+2024-07-29 16:00:00 [AlphaModel.Signal] PH-URI: z-score=-1.709, residual_std=0.0253
+2024-07-29 16:00:00 [AlphaModel.Signal] CTAS-TT: z-score=3.582, residual_std=0.0241
+2024-07-29 16:00:00 [AlphaModel.Signal] CAT-EMR: z-score=-2.208, residual_std=0.0402
+2024-07-30 16:00:00 [AlphaModel.Signal] T-TMUS: z-score=1.935, residual_std=0.0262
+2024-07-30 16:00:00 [AlphaModel.Signal] PH-URI: z-score=-1.320, residual_std=0.0253
+2024-07-30 16:00:00 [AlphaModel.Signal] CTAS-TT: z-score=3.841, residual_std=0.0241
+2024-07-30 16:00:00 [AlphaModel.Signal] CAT-EMR: z-score=-1.974, residual_std=0.0402
+2024-07-31 16:00:00 [AlphaModel.Signal] T-TMUS: z-score=1.169, residual_std=0.0262
+2024-07-31 16:00:00 [AlphaModel.Signal] PH-URI: z-score=-1.286, residual_std=0.0253
+2024-07-31 16:00:00 [AlphaModel.Signal] CTAS-TT: z-score=3.430, residual_std=0.0241
+2024-07-31 16:00:00 [AlphaModel.Signal] CAT-EMR: z-score=-2.016, residual_std=0.0402
+2024-08-01 16:00:00 [AlphaModel.Signal] T-TMUS: z-score=0.547, residual_std=0.0262
+2024-08-01 16:00:00 [AlphaModel.Signal] PH-URI: z-score=-1.563, residual_std=0.0253
+2024-08-01 16:00:00 [AlphaModel.Signal] CTAS-TT: z-score=3.323, residual_std=0.0241
+2024-08-01 16:00:00 [AlphaModel.Signal] CAT-EMR: z-score=-1.882, residual_std=0.0402
+2024-08-02 00:00:00 ===== 第【2】次选股 =====
+2024-08-02 00:00:00 [UniverseSelection] 财务筛选: 候选187只 → 通过109只 (过滤78只)
+2024-08-02 00:00:00 [UniverseSelection] 财务过滤明细: PE(37) ROE(20) 债务(19) 杠杆(39)
+2024-08-02 00:00:00 [UniverseSelection] 行业分布: CommunicationServices(9) ConsumerCyclical(12) ConsumerDefensive(12) Energy(16) Healthcare(17) Industrials(21) Technology(13) Utilities(9)
+2024-08-02 00:00:00 [UniverseSelection] 选股完成: 共109只股票, 前5样本: ['MSFT', 'CRM', 'ADBE', 'ACN', 'QCOM']
+2024-08-02 16:00:00 [AlphaModel.Data] 数据处理: 109→99只 (high_volatility(10))
+2024-08-02 16:00:00 [AlphaModel.Coint] Industrials(4) CommunicationServices(1) Energy(1) - 筛选后4对
+2024-08-02 16:00:00 [AlphaModel.Bayesian] 建模完成: 成功4对, 失败0对 (完全建模3对, 动态更新1对)
+2024-08-02 16:00:00 [AlphaModel.Signal] T-TMUS: z-score=-0.172, residual_std=0.0246
+2024-08-02 16:00:00 [AlphaModel.Signal] PH-WM: z-score=-0.821, residual_std=0.0371
+2024-08-02 16:00:00 [AlphaModel.Signal] AME-PCAR: z-score=-2.093, residual_std=0.0255
+2024-08-02 16:00:00 [AlphaModel.Signal] OXY-HES: z-score=0.325, residual_std=0.0250
+2024-08-02 16:00:00 [PC]: [T, TMUS] | [FLAT, FLAT]
+2024-08-02 16:00:00 Warning: Portfolio rebalance result ignored as it resulted in a single share trade recommendation which can generate high fees. To disable minimum order size checks please set Settings.MinimumOrderMarginPortfolioPercentage = 0.
+2024-08-02 16:00:00 [PC]: [AME, PCAR] | [BUY, SELL] | [0.0386, -0.0801] | beta=0.482
+2024-08-05 16:00:00 [AlphaModel.Signal] T-TMUS: z-score=-0.741, residual_std=0.0246
+2024-08-05 16:00:00 [AlphaModel.Signal] PH-WM: z-score=-0.632, residual_std=0.0371
+2024-08-05 16:00:00 [AlphaModel.Signal] AME-PCAR: z-score=-1.302, residual_std=0.0255
+2024-08-05 16:00:00 [AlphaModel.Signal] OXY-HES: z-score=0.556, residual_std=0.0250
+2024-08-06 16:00:00 [AlphaModel.Signal] T-TMUS: z-score=-0.969, residual_std=0.0246
+2024-08-06 16:00:00 [AlphaModel.Signal] PH-WM: z-score=-0.284, residual_std=0.0371
+2024-08-06 16:00:00 [AlphaModel.Signal] AME-PCAR: z-score=-0.741, residual_std=0.0255
+2024-08-06 16:00:00 [AlphaModel.Signal] OXY-HES: z-score=0.811, residual_std=0.0250
+2024-08-06 16:00:00 [PC]: [PH, WM] | [FLAT, FLAT]
+2024-08-07 00:00:00 [RiskManagement] 配对缺失: URI的配对PH不在targets中，执行保护性平仓
+2024-08-07 16:00:00 [AlphaModel.Signal] T-TMUS: z-score=-1.012, residual_std=0.0246
+2024-08-07 16:00:00 [AlphaModel.Signal] PH-WM: z-score=-0.639, residual_std=0.0371
+2024-08-07 16:00:00 [AlphaModel.Signal] AME-PCAR: z-score=-0.554, residual_std=0.0255
+2024-08-07 16:00:00 [AlphaModel.Signal] OXY-HES: z-score=0.912, residual_std=0.0250
+2024-08-07 16:00:00 [RiskManagement] 配对缺失: URI的配对PH不在targets中，执行保护性平仓
+2024-08-08 16:00:00 [AlphaModel.Signal] T-TMUS: z-score=-1.314, residual_std=0.0246
+2024-08-08 16:00:00 [AlphaModel.Signal] PH-WM: z-score=1.392, residual_std=0.0371
+2024-08-08 16:00:00 [AlphaModel.Signal] AME-PCAR: z-score=-0.383, residual_std=0.0255
+2024-08-08 16:00:00 [AlphaModel.Signal] OXY-HES: z-score=1.759, residual_std=0.0250
+2024-08-08 16:00:00 [PC]: [OXY, HES] | [SELL, BUY] | [-0.0571, 0.0617] | beta=0.925
+2024-08-08 16:00:00 [RiskManagement] 配对缺失: URI的配对PH不在targets中，执行保护性平仓
+2024-08-09 16:00:00 [AlphaModel.Signal] T-TMUS: z-score=-1.346, residual_std=0.0246
+2024-08-09 16:00:00 [AlphaModel.Signal] PH-WM: z-score=1.936, residual_std=0.0371
+2024-08-09 16:00:00 [AlphaModel.Signal] AME-PCAR: z-score=-0.149, residual_std=0.0255
+2024-08-09 16:00:00 [AlphaModel.Signal] OXY-HES: z-score=1.653, residual_std=0.0250
+2024-08-09 16:00:00 [PC]: [AME, PCAR] | [FLAT, FLAT]
+2024-08-12 16:00:00 [AlphaModel.Signal] T-TMUS: z-score=-1.569, residual_std=0.0246
+2024-08-12 16:00:00 [AlphaModel.Signal] PH-WM: z-score=2.211, residual_std=0.0371
+2024-08-12 16:00:00 [AlphaModel.Signal] AME-PCAR: z-score=0.252, residual_std=0.0255
+2024-08-12 16:00:00 [AlphaModel.Signal] OXY-HES: z-score=1.809, residual_std=0.0250
+2024-08-13 16:00:00 [AlphaModel.Signal] T-TMUS: z-score=-1.531, residual_std=0.0246
+2024-08-13 16:00:00 [AlphaModel.Signal] PH-WM: z-score=2.316, residual_std=0.0371
+2024-08-13 16:00:00 [AlphaModel.Signal] AME-PCAR: z-score=0.356, residual_std=0.0255
+2024-08-13 16:00:00 [AlphaModel.Signal] OXY-HES: z-score=1.229, residual_std=0.0250
+2024-08-14 16:00:00 [AlphaModel.Signal] T-TMUS: z-score=-1.579, residual_std=0.0246
+2024-08-14 16:00:00 [AlphaModel.Signal] PH-WM: z-score=2.320, residual_std=0.0371
+2024-08-14 16:00:00 [AlphaModel.Signal] AME-PCAR: z-score=0.247, residual_std=0.0255
+2024-08-14 16:00:00 [AlphaModel.Signal] OXY-HES: z-score=0.789, residual_std=0.0250
+2024-08-15 16:00:00 [AlphaModel.Signal] T-TMUS: z-score=-2.142, residual_std=0.0246
+2024-08-15 16:00:00 [AlphaModel.Signal] PH-WM: z-score=2.717, residual_std=0.0371
+2024-08-15 16:00:00 [AlphaModel.Signal] AME-PCAR: z-score=0.287, residual_std=0.0255
+2024-08-15 16:00:00 [AlphaModel.Signal] OXY-HES: z-score=0.705, residual_std=0.0250
+2024-08-16 16:00:00 [AlphaModel.Signal] T-TMUS: z-score=-2.148, residual_std=0.0246
+2024-08-16 16:00:00 [AlphaModel.Signal] PH-WM: z-score=2.693, residual_std=0.0371
+2024-08-16 16:00:00 [AlphaModel.Signal] AME-PCAR: z-score=0.182, residual_std=0.0255
+2024-08-16 16:00:00 [AlphaModel.Signal] OXY-HES: z-score=0.523, residual_std=0.0250
+2024-08-16 16:00:00 [PC]: [T, TMUS] | [BUY, SELL] | [0.0613, -0.0575] | beta=1.066
+2024-08-16 16:00:00 [RiskManagement] 配对缺失: URI的配对PH不在targets中，执行保护性平仓
+2024-08-19 16:00:00 [AlphaModel.Signal] T-TMUS: z-score=-2.111, residual_std=0.0246
+2024-08-19 16:00:00 [AlphaModel.Signal] PH-WM: z-score=2.669, residual_std=0.0371
+2024-08-19 16:00:00 [AlphaModel.Signal] AME-PCAR: z-score=0.413, residual_std=0.0255
+2024-08-19 16:00:00 [AlphaModel.Signal] OXY-HES: z-score=0.022, residual_std=0.0250
+2024-08-19 16:00:00 [PC]: [OXY, HES] | [FLAT, FLAT]
+2024-08-19 16:00:00 [RiskManagement] 配对缺失: URI的配对PH不在targets中，执行保护性平仓
+2024-08-20 16:00:00 [AlphaModel.Signal] T-TMUS: z-score=-1.847, residual_std=0.0246
+2024-08-20 16:00:00 [AlphaModel.Signal] PH-WM: z-score=2.340, residual_std=0.0371
+2024-08-20 16:00:00 [AlphaModel.Signal] AME-PCAR: z-score=0.539, residual_std=0.0255
+2024-08-20 16:00:00 [AlphaModel.Signal] OXY-HES: z-score=-0.299, residual_std=0.0250
+2024-08-20 16:00:00 [PC]: [PH, WM] | [SELL, BUY] | [-0.0614, 0.0573] | beta=1.072
+2024-08-21 16:00:00 [AlphaModel.Signal] T-TMUS: z-score=-1.585, residual_std=0.0246
+2024-08-21 16:00:00 [AlphaModel.Signal] PH-WM: z-score=2.268, residual_std=0.0371
+2024-08-21 16:00:00 [AlphaModel.Signal] AME-PCAR: z-score=0.708, residual_std=0.0255
+2024-08-21 16:00:00 [AlphaModel.Signal] OXY-HES: z-score=-0.521, residual_std=0.0250
+2024-08-22 16:00:00 [AlphaModel.Signal] T-TMUS: z-score=-1.731, residual_std=0.0246
+2024-08-22 16:00:00 [AlphaModel.Signal] PH-WM: z-score=2.222, residual_std=0.0371
+2024-08-22 16:00:00 [AlphaModel.Signal] AME-PCAR: z-score=0.732, residual_std=0.0255
+2024-08-22 16:00:00 [AlphaModel.Signal] OXY-HES: z-score=-0.472, residual_std=0.0250
+2024-08-23 16:00:00 [AlphaModel.Signal] T-TMUS: z-score=-1.788, residual_std=0.0246
+2024-08-23 16:00:00 [AlphaModel.Signal] PH-WM: z-score=2.466, residual_std=0.0371
+2024-08-23 16:00:00 [AlphaModel.Signal] AME-PCAR: z-score=0.959, residual_std=0.0255
+2024-08-23 16:00:00 [AlphaModel.Signal] OXY-HES: z-score=-0.261, residual_std=0.0250
+2024-08-26 16:00:00 [AlphaModel.Signal] T-TMUS: z-score=-2.071, residual_std=0.0246
+2024-08-26 16:00:00 [AlphaModel.Signal] PH-WM: z-score=2.549, residual_std=0.0371
+2024-08-26 16:00:00 [AlphaModel.Signal] AME-PCAR: z-score=1.271, residual_std=0.0255
+2024-08-26 16:00:00 [AlphaModel.Signal] OXY-HES: z-score=-0.171, residual_std=0.0250
+2024-08-26 16:00:00 [PC]: [AME, PCAR] | [SELL, BUY] | [-0.0386, 0.0801] | beta=0.482
+2024-08-27 16:00:00 [AlphaModel.Signal] T-TMUS: z-score=-2.927, residual_std=0.0246
+2024-08-27 16:00:00 [AlphaModel.Signal] PH-WM: z-score=2.481, residual_std=0.0371
+2024-08-27 16:00:00 [AlphaModel.Signal] AME-PCAR: z-score=1.509, residual_std=0.0255
+2024-08-27 16:00:00 [AlphaModel.Signal] OXY-HES: z-score=-0.272, residual_std=0.0250
+2024-08-28 16:00:00 [AlphaModel.Signal] T-TMUS: z-score=-2.370, residual_std=0.0246
+2024-08-28 16:00:00 [AlphaModel.Signal] PH-WM: z-score=2.439, residual_std=0.0371
+2024-08-28 16:00:00 [AlphaModel.Signal] AME-PCAR: z-score=1.643, residual_std=0.0255
+2024-08-28 16:00:00 [AlphaModel.Signal] OXY-HES: z-score=-0.171, residual_std=0.0250
+2024-08-29 16:00:00 [AlphaModel.Signal] T-TMUS: z-score=-2.111, residual_std=0.0246
+2024-08-29 16:00:00 [AlphaModel.Signal] PH-WM: z-score=2.485, residual_std=0.0371
+2024-08-29 16:00:00 [AlphaModel.Signal] AME-PCAR: z-score=1.797, residual_std=0.0255
+2024-08-29 16:00:00 [AlphaModel.Signal] OXY-HES: z-score=-0.204, residual_std=0.0250
+2024-08-30 16:00:00 [AlphaModel.Signal] T-TMUS: z-score=-1.722, residual_std=0.0246
+2024-08-30 16:00:00 [AlphaModel.Signal] PH-WM: z-score=2.583, residual_std=0.0371
+2024-08-30 16:00:00 [AlphaModel.Signal] AME-PCAR: z-score=1.893, residual_std=0.0255
+2024-08-30 16:00:00 [AlphaModel.Signal] OXY-HES: z-score=-0.327, residual_std=0.0250
+2024-09-03 16:00:00 [AlphaModel.Signal] T-TMUS: z-score=-1.087, residual_std=0.0246
+2024-09-03 16:00:00 [AlphaModel.Signal] PH-WM: z-score=1.980, residual_std=0.0371
+2024-09-03 16:00:00 [AlphaModel.Signal] AME-PCAR: z-score=1.200, residual_std=0.0255
+2024-09-03 16:00:00 [AlphaModel.Signal] OXY-HES: z-score=-0.425, residual_std=0.0250
+2024-09-04 00:00:00 ===== 第【3】次选股 =====
+2024-09-04 00:00:00 [UniverseSelection] 财务筛选: 候选178只 → 通过106只 (过滤72只)
+2024-09-04 00:00:00 [UniverseSelection] 财务过滤明细: PE(35) ROE(16) 债务(19) 杠杆(38)
+2024-09-04 00:00:00 [UniverseSelection] 行业分布: CommunicationServices(10) ConsumerCyclical(14) ConsumerDefensive(13) Energy(14) Healthcare(18) Industrials(19) Technology(12) Utilities(6)
+2024-09-04 00:00:00 [UniverseSelection] 选股完成: 共106只股票, 前5样本: ['MSFT', 'CRM', 'ACN', 'CSCO', 'TXN']
+2024-09-04 00:00:00 [AlphaModel.Data] 数据处理: 106→96只 (high_volatility(10))
+2024-09-04 00:00:00 [AlphaModel.Coint] ConsumerCyclical(3) Healthcare(2) Industrials(1) CommunicationServices(2) - 筛选后4对
+2024-09-04 00:00:00 [AlphaModel.Bayesian] 建模完成: 成功4对, 失败0对 (完全建模3对, 动态更新1对)
+2024-09-04 16:00:00 [AlphaModel.Signal] T-TMUS: z-score=-0.277, residual_std=0.0257
+2024-09-04 16:00:00 [AlphaModel.Signal] AMZN-DECK: z-score=-0.467, residual_std=0.0462
+2024-09-04 16:00:00 [AlphaModel.Signal] META-NFLX: z-score=-0.374, residual_std=0.0622
+2024-09-04 16:00:00 [AlphaModel.Signal] ELV-DHR: z-score=0.950, residual_std=0.0300
+2024-09-04 16:00:00 [PC]: [T, TMUS] | [FLAT, FLAT]
+2024-09-05 16:00:00 [AlphaModel.Signal] T-TMUS: z-score=0.257, residual_std=0.0257
+2024-09-05 16:00:00 [AlphaModel.Signal] AMZN-DECK: z-score=0.154, residual_std=0.0462
+2024-09-05 16:00:00 [AlphaModel.Signal] META-NFLX: z-score=-0.348, residual_std=0.0622
+2024-09-05 16:00:00 [AlphaModel.Signal] ELV-DHR: z-score=0.794, residual_std=0.0300
+2024-09-06 16:00:00 [AlphaModel.Signal] T-TMUS: z-score=1.542, residual_std=0.0257
+2024-09-06 16:00:00 [AlphaModel.Signal] AMZN-DECK: z-score=-0.155, residual_std=0.0462
+2024-09-06 16:00:00 [AlphaModel.Signal] META-NFLX: z-score=-0.412, residual_std=0.0622
+2024-09-06 16:00:00 [AlphaModel.Signal] ELV-DHR: z-score=0.545, residual_std=0.0300
+2024-09-09 00:00:00 [RiskManagement] 持仓超期清仓: CAT-EMR (已持有61天)
+2024-09-09 16:00:00 [AlphaModel.Signal] T-TMUS: z-score=2.173, residual_std=0.0257
+2024-09-09 16:00:00 [AlphaModel.Signal] AMZN-DECK: z-score=-0.185, residual_std=0.0462
+2024-09-09 16:00:00 [AlphaModel.Signal] META-NFLX: z-score=-0.500, residual_std=0.0622
+2024-09-09 16:00:00 [AlphaModel.Signal] ELV-DHR: z-score=0.149, residual_std=0.0300
+2024-09-09 16:00:00 [RiskManagement] 持仓超期清仓: CAT-EMR (已持有62天)
+2024-09-10 16:00:00 [AlphaModel.Signal] T-TMUS: z-score=2.416, residual_std=0.0257
+2024-09-10 16:00:00 [AlphaModel.Signal] AMZN-DECK: z-score=0.249, residual_std=0.0462
+2024-09-10 16:00:00 [AlphaModel.Signal] META-NFLX: z-score=-0.482, residual_std=0.0622
+2024-09-10 16:00:00 [AlphaModel.Signal] ELV-DHR: z-score=0.073, residual_std=0.0300
+2024-09-10 16:00:00 [RiskManagement] 持仓超期清仓: CAT-EMR (已持有63天)
+2024-09-11 16:00:00 [AlphaModel.Signal] T-TMUS: z-score=1.753, residual_std=0.0257
+2024-09-11 16:00:00 [AlphaModel.Signal] AMZN-DECK: z-score=0.613, residual_std=0.0462
+2024-09-11 16:00:00 [AlphaModel.Signal] META-NFLX: z-score=-0.454, residual_std=0.0622
+2024-09-11 16:00:00 [AlphaModel.Signal] ELV-DHR: z-score=0.190, residual_std=0.0300
+2024-09-11 16:00:00 [RiskManagement] 持仓超期清仓: CAT-EMR (已持有64天)
+2024-09-12 16:00:00 [AlphaModel.Signal] T-TMUS: z-score=1.199, residual_std=0.0257
+2024-09-12 16:00:00 [AlphaModel.Signal] AMZN-DECK: z-score=0.815, residual_std=0.0462
+2024-09-12 16:00:00 [AlphaModel.Signal] META-NFLX: z-score=-0.209, residual_std=0.0622
+2024-09-12 16:00:00 [AlphaModel.Signal] ELV-DHR: z-score=0.303, residual_std=0.0300
+2024-09-12 16:00:00 [RiskManagement] 持仓超期清仓: CAT-EMR (已持有65天)
+2024-09-13 16:00:00 [AlphaModel.Signal] T-TMUS: z-score=1.071, residual_std=0.0257
+2024-09-13 16:00:00 [AlphaModel.Signal] AMZN-DECK: z-score=0.645, residual_std=0.0462
+2024-09-13 16:00:00 [AlphaModel.Signal] META-NFLX: z-score=-0.380, residual_std=0.0622
+2024-09-13 16:00:00 [AlphaModel.Signal] ELV-DHR: z-score=0.459, residual_std=0.0300
+2024-09-13 16:00:00 [RiskManagement] 持仓超期清仓: CAT-EMR (已持有66天)
+2024-09-16 00:00:00 [RiskManagement] 持仓超期清仓: CAT-EMR (已持有68天)
+2024-09-16 16:00:00 [AlphaModel.Signal] T-TMUS: z-score=1.469, residual_std=0.0257
+2024-09-16 16:00:00 [AlphaModel.Signal] AMZN-DECK: z-score=0.435, residual_std=0.0462
+2024-09-16 16:00:00 [AlphaModel.Signal] META-NFLX: z-score=-0.181, residual_std=0.0622
+2024-09-16 16:00:00 [AlphaModel.Signal] ELV-DHR: z-score=0.509, residual_std=0.0300
+2024-09-16 16:00:00 [RiskManagement] 持仓超期清仓: CAT-EMR (已持有69天)
+2024-09-17 16:00:00 [AlphaModel.Signal] T-TMUS: z-score=1.361, residual_std=0.0257
+2024-09-17 16:00:00 [AlphaModel.Signal] AMZN-DECK: z-score=0.650, residual_std=0.0462
+2024-09-17 16:00:00 [AlphaModel.Signal] META-NFLX: z-score=-0.264, residual_std=0.0622
+2024-09-17 16:00:00 [AlphaModel.Signal] ELV-DHR: z-score=0.253, residual_std=0.0300
+2024-09-17 16:00:00 [RiskManagement] 持仓超期清仓: CAT-EMR (已持有70天)
+2024-09-17 16:00:00 [RiskManagement] 持仓超期清仓: TT-CTAS (已持有61天)
+2024-09-18 00:00:00 [RiskManagement] 持仓超期清仓: CAT-EMR (已持有70天)
+2024-09-18 00:00:00 [RiskManagement] 持仓超期清仓: TT-CTAS (已持有61天)
+2024-09-18 16:00:00 [AlphaModel.Signal] T-TMUS: z-score=2.252, residual_std=0.0257
+2024-09-18 16:00:00 [AlphaModel.Signal] AMZN-DECK: z-score=0.522, residual_std=0.0462
+2024-09-18 16:00:00 [AlphaModel.Signal] META-NFLX: z-score=0.069, residual_std=0.0622
+2024-09-18 16:00:00 [AlphaModel.Signal] ELV-DHR: z-score=0.038, residual_std=0.0300
+2024-09-18 16:00:00 [PC]: [T, TMUS] | [SELL, BUY] | [-0.0608, 0.0579] | beta=1.050
+2024-09-18 16:00:00 [RiskManagement] 持仓超期清仓: CAT-EMR (已持有71天)
+2024-09-18 16:00:00 [RiskManagement] 持仓超期清仓: TT-CTAS (已持有62天)
+2024-09-19 00:00:00 [RiskManagement] 持仓超期清仓: CAT-EMR (已持有71天)
+2024-09-19 00:00:00 [RiskManagement] 配对缺失: TT的配对CTAS不在targets中，执行保护性平仓
+2024-09-19 16:00:00 [AlphaModel.Signal] T-TMUS: z-score=1.409, residual_std=0.0257
+2024-09-19 16:00:00 [AlphaModel.Signal] AMZN-DECK: z-score=1.127, residual_std=0.0462
+2024-09-19 16:00:00 [AlphaModel.Signal] META-NFLX: z-score=0.370, residual_std=0.0622
+2024-09-19 16:00:00 [AlphaModel.Signal] ELV-DHR: z-score=-0.357, residual_std=0.0300
+2024-09-19 16:00:00 [RiskManagement] 持仓超期清仓: CAT-EMR (已持有72天)
+2024-09-19 16:00:00 [RiskManagement] 配对缺失: TT的配对CTAS不在targets中，执行保护性平仓
+2024-09-19 16:00:00 [RiskManagement] 配对回撤触发清仓: URI(10.35%) - PH(7.22%)
+2024-09-20 00:00:00 [RiskManagement] 持仓超期清仓: CAT-EMR (已持有72天)
+2024-09-20 00:00:00 [RiskManagement] 配对缺失: TT的配对CTAS不在targets中，执行保护性平仓
+2024-09-20 00:00:00 [RiskManagement] 配对回撤触发清仓: URI(10.35%) - PH(7.22%)
+2024-09-20 16:00:00 [AlphaModel.Signal] T-TMUS: z-score=1.534, residual_std=0.0257
+2024-09-20 16:00:00 [AlphaModel.Signal] AMZN-DECK: z-score=1.492, residual_std=0.0462
+2024-09-20 16:00:00 [AlphaModel.Signal] META-NFLX: z-score=0.543, residual_std=0.0622
+2024-09-20 16:00:00 [AlphaModel.Signal] ELV-DHR: z-score=-0.110, residual_std=0.0300
+2024-09-20 16:00:00 [PC]: [AMZN, DECK] | [SELL, BUY] | [-0.0420, 0.0767] | beta=0.548
+2024-09-20 16:00:00 [RiskManagement] 持仓超期清仓: CAT-EMR (已持有73天)
+2024-09-20 16:00:00 [RiskManagement] 配对缺失: TT的配对CTAS不在targets中，执行保护性平仓
+2024-09-21 00:00:00 Algorithm Id:(f24e6b55ba76506f634750e2cee15781) completed in 133.60 seconds at 1k data points per second. Processing total of 96,653 data points.

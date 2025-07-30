@@ -678,11 +678,7 @@ class SignalGenerator:
             'current_price2': current_price2
         })
         
-        self.algorithm.Debug(
-            f"[AlphaModel.Signal] {symbol1.Value}-{symbol2.Value}: "
-            f"z-score={smoothed_zscore:.3f}, "
-            f"residual_std={pair['residual_std']:.4f}"
-        )
+        # z-score日志已移除，减少日志噪音
         
         return pair
     

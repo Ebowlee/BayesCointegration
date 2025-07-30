@@ -5,8 +5,8 @@ from System import Action
 from QuantConnect.Data.Fundamental import MorningstarSectorCode
 from src.AlphaModel import BayesianCointegrationAlphaModel
 from src.PortfolioConstruction import BayesianCointegrationPortfolioConstructionModel
-# from QuantConnect.Algorithm.Framework.Risk import MaximumDrawdownPercentPortfolio, MaximumSectorExposureRiskManagementModel
-# from src.RiskManagement import BayesianCointegrationRiskManagementModel
+from QuantConnect.Algorithm.Framework.Risk import MaximumDrawdownPercentPortfolio, MaximumSectorExposureRiskManagementModel
+from src.RiskManagement import BayesianCointegrationRiskManagementModel
 # endregion
 
 class PairInfo:
@@ -16,12 +16,13 @@ class PairInfo:
         self.symbol1 = symbol1
         self.symbol2 = symbol2
         self.is_active = False
+        self.entry_time = None  # 记录建仓时间
 
 
 class PairLedger:
     """简化版配对记账簿"""
     
-    def __init__(self):
+    def __init__(self, algorithm=None):
         # 所有配对信息 {(symbol1, symbol2): PairInfo}
         self.all_pairs = {}
         
@@ -30,6 +31,9 @@ class PairLedger:
         
         # 配对双向映射 {Symbol: Symbol} - 保留原有功能
         self.symbol_map = {}
+        
+        # 算法引用（用于获取当前时间）
+        self.algorithm = algorithm
     
     def update_pairs_from_selection(self, new_pairs: List[Tuple[Symbol, Symbol]]):
         """
@@ -69,8 +73,13 @@ class PairLedger:
             self.all_pairs[pair_key].is_active = is_active
             if is_active:
                 self.active_pairs.add(pair_key)
+                # 记录建仓时间
+                if self.algorithm and self.all_pairs[pair_key].entry_time is None:
+                    self.all_pairs[pair_key].entry_time = self.algorithm.Time
             else:
                 self.active_pairs.discard(pair_key)
+                # 清空建仓时间
+                self.all_pairs[pair_key].entry_time = None
     
     def get_active_pairs_count(self) -> int:
         """返回活跃配对数量"""
@@ -79,6 +88,11 @@ class PairLedger:
     def get_paired_symbol(self, symbol: Symbol) -> Symbol:
         """获取配对股票（保留原有功能）"""
         return self.symbol_map.get(symbol)
+    
+    def get_pair_info(self, symbol1: Symbol, symbol2: Symbol) -> PairInfo:
+        """获取配对信息"""
+        pair_key = self._get_pair_key(symbol1, symbol2)
+        return self.all_pairs.get(pair_key)
     
     def _get_pair_key(self, symbol1: Symbol, symbol2: Symbol) -> tuple:
         """获取标准化的配对键"""
@@ -143,14 +157,15 @@ class StrategyConfig:
         # PortfolioConstruction 配置
         self.portfolio_construction = {
             'margin_rate': 1.0,
-            'pair_reentry_cooldown_days': 7,
+            'pair_reentry_cooldown_days': 14,  # 冷却期从7天改为14天
             'max_pairs': 8,  # 最大持仓配对数
             'cash_buffer': 0.05  # 5%现金缓冲
         }
         
         # RiskManagement 配置
         self.risk_management = {
-            'max_drawdown_percent': 0.10
+            'max_drawdown_percent': 0.10,
+            'max_holding_days': 60  # 最大持仓天数
         }
         
         # 行业映射配置
@@ -186,7 +201,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         """
         # 初始化配置和记账簿
         self.config = StrategyConfig()
-        self.pair_ledger = PairLedger()
+        self.pair_ledger = PairLedger(self)
         
         # 设置基本参数
         self._setup_basic_parameters()
@@ -227,20 +242,14 @@ class BayesianCointegrationStrategy(QCAlgorithm):
             self, self.config.portfolio_construction, self.pair_ledger
         ))
         
-        # 保留注释的风险管理模块，便于后续启用
-        # # 设置RiskManagement模块
-        # ## 组合层面风控
-        # self.AddRiskManagement(MaximumDrawdownPercentPortfolio(self.config.main['portfolio_max_drawdown']))
-        # self.AddRiskManagement(MaximumSectorExposureRiskManagementModel(self.config.main['portfolio_max_sector_exposure']))
-        # ## 资产层面风控
-        # self.risk_manager = BayesianCointegrationRiskManagementModel(self, self.config.risk_management, self.pair_ledger)
-        # self.AddRiskManagement(self.risk_manager)
+        # 设置RiskManagement模块
+        self.AddRiskManagement(MaximumDrawdownPercentPortfolio(self.config.main['portfolio_max_drawdown']))
+        self.AddRiskManagement(MaximumSectorExposureRiskManagementModel(self.config.main['portfolio_max_sector_exposure']))
+        self.risk_manager = BayesianCointegrationRiskManagementModel(self, self.config.risk_management, self.pair_ledger)
+        self.AddRiskManagement(self.risk_manager)
 
         # # # # 设置Execution模块
         # # # self.SetExecution(MyExecutionModel(self))
-        
-        # # # 记录初始化完成
-        # # self.Debug(f"[Initialize] 完成, 起始日期: {self.StartDate}")
     
     def _setup_schedule(self):
         """设置调度"""
