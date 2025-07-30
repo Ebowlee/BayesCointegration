@@ -625,6 +625,10 @@ class SignalGenerator:
         self.lower_limit = config['lower_limit']
         self.flat_signal_duration_days = config.get('flat_signal_duration_days', 1)
         self.entry_signal_duration_days = config.get('entry_signal_duration_days', 2)
+        
+        # 添加EMA相关参数
+        self.zscore_ema = {}  # 存储每个配对的EMA值
+        self.ema_alpha = 0.3  # EMA平滑系数（30%当前值，70%历史值）
     
     def generate_signals(self, modeled_pairs: List[Dict], data) -> List:
         """
@@ -641,7 +645,7 @@ class SignalGenerator:
     
     def _calculate_zscore(self, pair: Dict, data) -> Dict:
         """
-        计算配对的当前z-score
+        计算配对的当前z-score（添加EMA平滑）
         """
         symbol1, symbol2 = pair['symbol1'], pair['symbol2']
         
@@ -652,25 +656,39 @@ class SignalGenerator:
         current_price1 = float(data[symbol1].Close)
         current_price2 = float(data[symbol2].Close)
         
-        # 计算z-score
+        # 计算原始z-score
         log_price1 = np.log(current_price1)
         log_price2 = np.log(current_price2)
         
         expected = pair['alpha_mean'] + pair['beta_mean'] * log_price2
         residual = log_price1 - expected - pair['residual_mean']
         
-        zscore = residual / pair['residual_std'] if pair['residual_std'] > 0 else 0
+        raw_zscore = residual / pair['residual_std'] if pair['residual_std'] > 0 else 0
+        
+        # EMA平滑处理
+        pair_key = (symbol1, symbol2)
+        if pair_key not in self.zscore_ema:
+            # 首次计算，直接使用原始值
+            smoothed_zscore = raw_zscore
+        else:
+            # 应用EMA平滑
+            smoothed_zscore = self.ema_alpha * raw_zscore + (1 - self.ema_alpha) * self.zscore_ema[pair_key]
+        
+        # 更新EMA存储
+        self.zscore_ema[pair_key] = smoothed_zscore
         
         # 更新配对信息
         pair.update({
-            'zscore': zscore,
+            'zscore': smoothed_zscore,  # 使用平滑后的值
+            'raw_zscore': raw_zscore,   # 保留原始值供参考
             'current_price1': current_price1,
             'current_price2': current_price2
         })
         
         self.algorithm.Debug(
             f"[AlphaModel.Signal] {symbol1.Value}-{symbol2.Value}: "
-            f"z-score={zscore:.3f}, residual_std={pair['residual_std']:.4f}"
+            f"z-score={smoothed_zscore:.3f} (raw={raw_zscore:.3f}), "
+            f"residual_std={pair['residual_std']:.4f}"
         )
         
         return pair

@@ -129,8 +129,8 @@ class StrategyConfig:
             'mcmc_warmup_samples': 1000,
             'mcmc_posterior_samples': 1000,
             'mcmc_chains': 2,
-            'entry_threshold': 1.65,
-            'exit_threshold': 0.3,
+            'entry_threshold': 1.2,  # \u4ece1.65\u6539\u4e3a1.2
+            'exit_threshold': 0.2,   # \u4ece0.3\u6539\u4e3a0.2
             'upper_limit': 3.0,
             'lower_limit': -3.0,
             'max_annual_volatility': 0.45,
