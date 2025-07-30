@@ -635,7 +635,7 @@ class BayesianModeler:
             'sigma_mean': float(sigma_samples.mean()),
             'sigma_std': float(sigma_samples.std()),
             'residual_mean': float(residuals_samples.mean()),
-            'residual_std': float(residuals_samples.std())
+            'residual_std': float(sigma_samples.mean())  # 使用sigma而不是residuals.std()
         }
     
     def _save_posterior(self, symbol1: Symbol, symbol2: Symbol, stats: Dict):

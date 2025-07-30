@@ -4,6 +4,34 @@
 
 ---
 
+## [v2.9.4_residual-std-fix@20250730]
+### 工作内容
+- 深入调查residual_std异常偏小的根本原因
+- 发现并修复贝叶斯模型中残差标准差的计算错误
+- 使用模型估计的sigma参数替代错误的flatten计算方法
+
+### 技术细节
+- **问题根源**：原代码使用`trace['residuals'].flatten().std()`计算
+  - 错误地混合了MCMC采样不确定性(2000个样本)和时间序列变异性(252天)
+  - 导致标准差被严重低估(0.02-0.04 vs 正常0.05-0.15)
+- **修复方案**：改用`trace['sigma'].mean()`
+  - sigma是模型直接估计的残差标准差
+  - 已经考虑了参数不确定性和数据拟合
+  - 理论上最准确的方法
+- **代码修改**：AlphaModel._extract_posterior_stats第638行
+  - 从：`'residual_std': float(residuals_samples.std())`
+  - 改为：`'residual_std': float(sigma_samples.mean())`
+
+### 问题影响
+- **修复前**：z-score过度敏感，一天内可能从0.8跳到3.4
+- **预期修复后**：z-score恢复正常敏感度，持仓时间延长至10-30天
+- **根本解决**：消除了导致频繁交易的数值计算错误
+
+### 下一步计划
+- API恢复后运行回测验证修复效果
+- 确认residual_std值恢复到正常范围
+- 监控持仓时间是否达到预期水平
+
 ## [v2.9.3_position-duration-diagnosis@20250730]
 ### 工作内容
 - 诊断并分析持仓时间过短问题，通过回测日志定位根本原因
