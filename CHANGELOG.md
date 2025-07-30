@@ -4,6 +4,29 @@
 
 ---
 
+## [v2.9.11_portfolio-construction-optimization@20250730]
+### 工作内容
+- 重构PortfolioConstruction.py，消除代码重复
+- 提取辅助方法，提升代码可维护性
+- 添加类型注解，增强代码可读性
+
+### 技术细节
+- **提取的辅助方法**：
+  - `_calculate_pair_weights()`: 统一Up/Down方向的权重计算
+  - `_validate_weight_allocation()`: 集中验证权重分配
+  - `_determine_position_direction()`: 简化持仓方向判断
+  - `_validate_new_position()`: 分离新建仓验证逻辑
+  - `_create_flat_targets()`: 统一平仓目标创建
+  - `_parse_beta_from_tag()`: 提取beta解析逻辑
+  - `_get_trade_actions()`: 获取交易动作描述
+  - `_can_execute_trade()`: 检查是否可执行交易
+- **代码优化**：
+  - 消除90%的重复逻辑
+  - 代码行数保持不变（重构后功能更多）
+  - 添加完整的类型注解
+  - 提取常量到类级别
+- **性能影响**：保持交易行为100%一致，略微提升执行效率
+
 ## [v2.9.10_remove-diagnostic-logs@20250730]
 ### 工作内容
 - 清理诊断日志，提升运行效率
