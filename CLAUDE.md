@@ -14,12 +14,27 @@ The strategy follows QuantConnect's **Algorithm Framework** with modular design:
 - **UniverseSelection**: Multi-stage fundamental screening with sector-based selection (30 stocks per sector)
 - **AlphaModel**: Core Bayesian cointegration engine using PyMC for MCMC sampling
 - **PortfolioConstruction**: Beta-neutral position sizing with margin considerations
-- **RiskManagement**: Multi-layered risk controls (currently disabled)
+- **RiskManagement**: Multi-layered risk controls (max 4 pairs globally, 60-day holding limit)
 - **Execution**: Atomic pair execution (currently unused)
 
-Key architectural principle: **Intra-industry pairing only** - securities are paired within the same Morningstar sector, not across the entire universe.
+Key architectural principles:
+- **Intra-industry pairing only** - securities are paired within the same Morningstar sector
+- **Global pair limit** - maximum 4 active pairs across entire portfolio
+- **Leverage** - 2x through InteractiveBrokers margin account
 
 ## Development Commands
+
+### Local Development
+```bash
+# Run backtest locally using LEAN CLI
+lean backtest BayesCointegration
+
+# Deploy to QuantConnect cloud
+lean cloud push BayesCointegration
+
+# View backtest results
+lean report
+```
 
 ### Version Control
 ```bash
@@ -32,9 +47,11 @@ git commit -m "v2.4.8_strategy-optimize@20250720"
 ```
 
 ### Strategy Configuration
-- **Backtest period**: Modify dates in `main.py` Initialize() method
-- **Parameters**: All thresholds are currently hard-coded in module `__init__` methods
+- **StrategyConfig class**: Located in `main.py`, centralizes all strategy parameters
+- **Backtest period**: Modify `SetStartDate()` and `SetEndDate()` in `main.py` Initialize()
+- **Module parameters**: Currently hard-coded in each module's `__init__` method
 - **Scheduling**: Monthly universe reselection on first trading day at 9:10 AM
+- **Account settings**: `SetBrokerageModel(BrokerageName.InteractiveBrokersBrokerage)` for 2x leverage
 
 ## Critical Implementation Details
 
@@ -60,11 +77,13 @@ git commit -m "v2.4.8_strategy-optimize@20250720"
 1. UniverseSelection → AlphaModel: `changes.AddedSecurities/RemovedSecurities`
 2. AlphaModel → PortfolioConstruction: `Insight.Tag` contains `"symbol1&symbol2|alpha|beta|zscore|num_pairs"`
 3. Scheduling: `Schedule.On()` triggers universe reselection monthly
+4. PairLedger: Central state management for pair lifecycle and holding periods
 
 ### State Management
-- Each module maintains independent state (`self.symbols`, `self.posterior_params`)
-- Reference passing: `self.algorithm.universe_selector.last_fine_selected_symbols`
-- Lifecycle separation: Selection periods vs. daily operations
+- **PairLedger**: Tracks all pairs, active status, and entry times for holding period limits
+- **Module states**: Each maintains independent state (`self.symbols`, `self.posterior_params`)
+- **Reference passing**: `self.algorithm.universe_selector.last_fine_selected_symbols`
+- **Lifecycle separation**: Selection periods vs. daily operations
 
 ## Key Dependencies
 
@@ -116,9 +135,14 @@ default_config = {
 - **Selective processing**: Skip failed cointegration tests early
 - **Memory management**: Clear outdated references during universe reselection
 
+## Recent Optimization History
+
+- **Code simplification tools**: Used `quantconnect-code-simplifier` agent for RiskManagement and PortfolioConstruction modules
+- **Performance improvements**: Cleaned diagnostic logs (z-score, leverage) to reduce noise
+- **Architecture enhancements**: Extended holding period limits and pair cooldown periods
+
 ## Files to Avoid Modifying
 
-- **config.json**: QuantConnect cloud configuration
+- **config.json**: QuantConnect cloud configuration (contains cloud-id and org-id)
 - **backtests/**: Historical backtest results and logs
-- **QA/**: Technical documentation and reference materials
 - **.gitignore**: Properly configured for Python/QuantConnect projects
