@@ -124,13 +124,15 @@ class StrategyConfig:
         # UniverseSelection 配置
         self.universe_selection = {
             'max_stocks_per_sector': 30,
-            'min_price': 15,
-            'min_volume': 2.5e8,
-            'min_days_since_ipo': 1095,
-            'max_pe': 50,
-            'min_roe': 0.05,
-            'max_debt_ratio': 0.6,
-            'max_leverage_ratio': 5
+            'min_price': 10,                  # 降低至10美元，支持中小盘
+            'min_volume': 1e7,                # 改为成交量：1000万股
+            'min_days_since_ipo': 1095,       # 保持3年
+            'max_pe': 50,                     # 已放宽至50，容纳成长股
+            'min_roe': 0,                     # 放宽至0，容纳转型期公司
+            'max_debt_ratio': 0.8,            # 放宽至80%
+            'max_leverage_ratio': 8,          # 放宽至8倍
+            'max_volatility': 0.6,            # 新增：最大年化波动率60%
+            'volatility_lookback_days': 252   # 新增：波动率计算天数
         }
         
         # AlphaModel 配置
