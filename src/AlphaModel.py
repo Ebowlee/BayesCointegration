@@ -467,26 +467,30 @@ class CointegrationAnalyzer:
     
     def _log_statistics(self, statistics: dict):
         """输出统计信息"""
-        # 只输出有发现配对的行业
-        sector_summary = []
-        for sector, stats in statistics['sector_breakdown'].items():
-            if stats['pairs_found'] > 0:
-                sector_summary.append(f"{sector}({stats['pairs_found']})")
-        
-        # 输出简洁的统计信息
-        if sector_summary:
-            self.algorithm.Debug(f"[AlphaModel.Coint] {' '.join(sector_summary)} - 筛选后{statistics['cointegrated_pairs_found']}对")
-        
         # 输出选中配对的质量分数信息
         if hasattr(self, 'cointegrated_pairs') and self.cointegrated_pairs:
             scores = [p.get('quality_score', 0) for p in self.cointegrated_pairs if 'quality_score' in p]
             if scores:
                 self.algorithm.Debug(
-                    f"[AlphaModel.Coint] 配对质量分数: "
+                    f"[AlphaModel.Coint] 合计筛选{len(self.cointegrated_pairs)}对: "
                     f"平均{np.mean(scores):.3f}, "
                     f"最高{max(scores):.3f}, "
                     f"最低{min(scores):.3f}"
                 )
+            
+            # 按行业分组输出具体配对详情
+            sector_pairs = defaultdict(list)
+            for pair in self.cointegrated_pairs:
+                sector = pair.get('sector', 'Unknown')
+                symbol1 = pair['symbol1'].Value
+                symbol2 = pair['symbol2'].Value
+                quality_score = pair.get('quality_score', 0)
+                sector_pairs[sector].append(f"({symbol1},{symbol2})/{quality_score:.3f}")
+            
+            # 输出每个行业的配对详情
+            for sector, pairs in sorted(sector_pairs.items()):
+                pairs_str = ", ".join(pairs)
+                self.algorithm.Debug(f"[AlphaModel.Coint] {sector}: {pairs_str}")
 
 
 # =============================================================================
