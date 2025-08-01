@@ -29,7 +29,7 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         self.pair_reentry_cooldown_days = config.get('pair_reentry_cooldown_days', 7)
         self.max_pairs = config.get('max_pairs', 8)
         self.cash_buffer = config.get('cash_buffer', 0.05)
-        self.pair_cooling_history = {}  # {(symbol1, symbol2): last_flat_datetime}
+        # 冷却期管理已移至PairLedger
         
         # 预计算常用值
         self.available_capital = 1.0 - self.cash_buffer
@@ -112,11 +112,10 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         
         symbol1_weight, symbol2_weight = weights
         
-        # 记录日志并更新状态
+        # 记录日志（不再更新状态，由CustomRiskManager在订单成交后更新）
         action = "BUY, SELL" if direction == InsightDirection.Up else "SELL, BUY"
         self.algorithm.Debug(f"[PC]: [{symbol1.Value}, {symbol2.Value}] | [{action}] | "
                            f"[{symbol1_weight:.4f}, {symbol2_weight:.4f}] | beta={beta:.3f}")
-        self.pair_ledger.set_pair_status(symbol1, symbol2, True)
         
         return [
             PortfolioTarget.Percent(self.algorithm, symbol1, symbol1_weight),
@@ -126,8 +125,7 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
     def _handle_flat_signal(self, symbol1: Symbol, symbol2: Symbol) -> List[PortfolioTarget]:
         """处理平仓信号"""
         self.algorithm.Debug(f"[PC]: [{symbol1.Value}, {symbol2.Value}] | [FLAT, FLAT]")
-        self._record_cooling_period(symbol1, symbol2)
-        self.pair_ledger.set_pair_status(symbol1, symbol2, False)
+        # 不再需要记录冷却期，因为PairLedger会在订单成交后自动记录last_exit_time
         return [
             PortfolioTarget.Percent(self.algorithm, symbol1, 0),
             PortfolioTarget.Percent(self.algorithm, symbol2, 0)
@@ -194,6 +192,14 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
                         signal_direction: InsightDirection, 
                         symbol1: Symbol, symbol2: Symbol) -> Optional[InsightDirection]:
         """验证信号有效性"""
+        # 获取配对信息
+        pair_info = self.pair_ledger.get_pair_info(symbol1, symbol2)
+        
+        # 检查风控状态
+        if pair_info and pair_info.risk_triggered:
+            self.algorithm.Debug(f"[PC] 跳过配对{symbol1.Value}-{symbol2.Value}，已触发{pair_info.risk_type}风控")
+            return None
+        
         # 平仓信号：必须有持仓
         if signal_direction == InsightDirection.Flat:
             return signal_direction if current_position is not None else None
@@ -214,37 +220,18 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
     
     def _can_open_new_position(self, symbol1: Symbol, symbol2: Symbol) -> bool:
         """检查是否可以开新仓"""
-        # 检查冷却期
-        if self._is_in_cooling_period(symbol1, symbol2):
+        # 使用PairLedger的统一检查方法
+        if not self.pair_ledger.is_tradeable(symbol1, symbol2, self.pair_reentry_cooldown_days):
             return False
         
         # 检查最大配对数
         if self.pair_ledger.get_active_pairs_count() >= self.max_pairs:
+            self.algorithm.Debug(f"[PC] 已达最大配对数限制 {self.max_pairs}")
             return False
         
         return True
     
-    def _is_in_cooling_period(self, symbol1: Symbol, symbol2: Symbol) -> bool:
-        """检查配对是否在冷却期内"""
-        # 创建标准化的配对键（按字母顺序排序）
-        pair_key = self._get_normalized_pair_key(symbol1, symbol2)
-        
-        if pair_key not in self.pair_cooling_history:
-            return False
-            
-        last_flat_time = self.pair_cooling_history[pair_key]
-        days_since_flat = (self.algorithm.Time - last_flat_time).days
-        
-        return days_since_flat < self.pair_reentry_cooldown_days
-    
-    def _record_cooling_period(self, symbol1: Symbol, symbol2: Symbol):
-        """记录配对的平仓时间"""
-        pair_key = self._get_normalized_pair_key(symbol1, symbol2)
-        self.pair_cooling_history[pair_key] = self.algorithm.Time
-    
-    def _get_normalized_pair_key(self, symbol1: Symbol, symbol2: Symbol) -> Tuple[Symbol, Symbol]:
-        """获取标准化的配对键（避免重复记录）"""
-        return (symbol1, symbol2) if symbol1.Value < symbol2.Value else (symbol2, symbol1)
+    # 冷却期检查已移至PairLedger.is_tradeable方法中
     
     def _log_cannot_short(self, symbol1: Symbol, symbol2: Symbol):
         """记录无法做空的日志"""

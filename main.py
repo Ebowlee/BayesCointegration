@@ -4,101 +4,12 @@ from src.UniverseSelection import MyUniverseSelectionModel
 from System import Action
 from QuantConnect.Data.Fundamental import MorningstarSectorCode
 from src.AlphaModel import BayesianCointegrationAlphaModel
-# from src.PortfolioConstruction import BayesianCointegrationPortfolioConstructionModel
+from src.PairLedger import PairLedger
+from src.PortfolioConstruction import BayesianCointegrationPortfolioConstructionModel
+from src.CustomRiskManager import CustomRiskManager
 # from QuantConnect.Algorithm.Framework.Risk import MaximumDrawdownPercentPortfolio, MaximumSectorExposureRiskManagementModel
 # from src.RiskManagement import BayesianCointegrationRiskManagementModel
 # endregion
-
-class PairInfo:
-    """简化版配对信息类"""
-    
-    def __init__(self, symbol1: Symbol, symbol2: Symbol):
-        self.symbol1 = symbol1
-        self.symbol2 = symbol2
-        self.is_active = False
-        self.entry_time = None  # 记录建仓时间
-
-
-class PairLedger:
-    """简化版配对记账簿"""
-    
-    def __init__(self, algorithm=None):
-        # 所有配对信息 {(symbol1, symbol2): PairInfo}
-        self.all_pairs = {}
-        
-        # 活跃配对集合（有持仓的配对）
-        self.active_pairs = set()
-        
-        # 配对双向映射 {Symbol: Symbol} - 保留原有功能
-        self.symbol_map = {}
-        
-        # 算法引用（用于获取当前时间）
-        self.algorithm = algorithm
-    
-    def update_pairs_from_selection(self, new_pairs: List[Tuple[Symbol, Symbol]]):
-        """
-        处理新一轮选股结果
-        
-        Args:
-            new_pairs: 新选出的配对列表，每个元素为 (symbol1, symbol2)
-        """
-        current_round_pairs = set()
-        
-        # 标准化并处理新配对
-        for symbol1, symbol2 in new_pairs:
-            pair_key = self._get_pair_key(symbol1, symbol2)
-            current_round_pairs.add(pair_key)
-            
-            if pair_key not in self.all_pairs:
-                self.all_pairs[pair_key] = PairInfo(*pair_key)
-        
-        # 清理休眠配对（使用字典推导式）
-        self.all_pairs = {k: v for k, v in self.all_pairs.items() 
-                          if v.is_active or k in current_round_pairs}
-        
-        # 重建 symbol映射
-        self._rebuild_symbol_map()
-    
-    def _rebuild_symbol_map(self):
-        """重建双向映射"""
-        self.symbol_map.clear()
-        for symbol1, symbol2 in self.all_pairs.keys():
-            self.symbol_map[symbol1] = symbol2
-            self.symbol_map[symbol2] = symbol1
-    
-    def set_pair_status(self, symbol1: Symbol, symbol2: Symbol, is_active: bool):
-        """设置配对状态"""
-        pair_key = self._get_pair_key(symbol1, symbol2)
-        if pair_key in self.all_pairs:
-            self.all_pairs[pair_key].is_active = is_active
-            if is_active:
-                self.active_pairs.add(pair_key)
-                # 记录建仓时间
-                if self.algorithm and self.all_pairs[pair_key].entry_time is None:
-                    self.all_pairs[pair_key].entry_time = self.algorithm.Time
-            else:
-                self.active_pairs.discard(pair_key)
-                # 清空建仓时间
-                self.all_pairs[pair_key].entry_time = None
-    
-    def get_active_pairs_count(self) -> int:
-        """返回活跃配对数量"""
-        return len(self.active_pairs)
-    
-    def get_paired_symbol(self, symbol: Symbol) -> Symbol:
-        """获取配对股票（保留原有功能）"""
-        return self.symbol_map.get(symbol)
-    
-    def get_pair_info(self, symbol1: Symbol, symbol2: Symbol) -> PairInfo:
-        """获取配对信息"""
-        pair_key = self._get_pair_key(symbol1, symbol2)
-        return self.all_pairs.get(pair_key)
-    
-    def _get_pair_key(self, symbol1: Symbol, symbol2: Symbol) -> tuple:
-        """获取标准化的配对键"""
-        if symbol1.Value > symbol2.Value:
-            return (symbol2, symbol1)
-        return (symbol1, symbol2)
     
 
 
@@ -238,10 +149,17 @@ class BayesianCointegrationStrategy(QCAlgorithm):
             self, self.config.alpha_model, self.pair_ledger, self.config.sector_code_to_name
         ))
         
-        # # PortfolioConstruction模块
-        # self.SetPortfolioConstruction(BayesianCointegrationPortfolioConstructionModel(
-        #     self, self.config.portfolio_construction, self.pair_ledger
-        # ))
+        # PortfolioConstruction模块
+        self.SetPortfolioConstruction(BayesianCointegrationPortfolioConstructionModel(
+            self, self.config.portfolio_construction, self.pair_ledger
+        ))
+        
+        # 创建自定义风控管理器
+        self.custom_risk_manager = CustomRiskManager(
+            self, 
+            self.config.risk_management, 
+            self.pair_ledger
+        )
         
         # # 设置RiskManagement模块
         # self.AddRiskManagement(MaximumDrawdownPercentPortfolio(self.config.main['portfolio_max_drawdown']))
@@ -257,3 +175,23 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         date_rule = getattr(self.DateRules, self.config.main['schedule_frequency'])()
         time_rule = self.TimeRules.At(*self.config.main['schedule_time'])
         self.Schedule.On(date_rule, time_rule, Action(self.universe_selector.TriggerSelection))
+    
+    def OnData(self, data):
+        """
+        每日数据更新时的处理
+        
+        主要用于转发给自定义风控进行每日检查
+        """
+        # 转发给自定义风控管理器
+        if hasattr(self, 'custom_risk_manager'):
+            self.custom_risk_manager.on_data(data)
+    
+    def OnOrderEvent(self, order_event):
+        """
+        订单事件处理
+        
+        主要用于更新PairLedger的持仓状态
+        """
+        # 转发给自定义风控管理器
+        if hasattr(self, 'custom_risk_manager'):
+            self.custom_risk_manager.on_order_event(order_event)

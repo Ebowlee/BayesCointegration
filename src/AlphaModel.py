@@ -1180,7 +1180,7 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                 
                 # 更新配对记账簿（供其他模块使用）
                 pairs_list = [(pair['symbol1'], pair['symbol2']) for pair in self.cointegrated_pairs]
-                self.pair_ledger.update_pairs_from_selection(pairs_list)
+                self.pair_ledger.update_from_selection(pairs_list)
                 
                 # 步骤3: 贝叶斯建模 - 估计配对参数
                 if len(self.cointegrated_pairs) > 0:
