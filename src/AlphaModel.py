@@ -16,8 +16,30 @@ from datetime import timedelta
 # =============================================================================
 class DataProcessor:
     """
-    数据处理器类
-    封装数据下载、检查、清理和筛选的完整流程
+    数据处理器类 - 负责历史数据的获取和预处理
+    
+    该类是AlphaModel的第一道防线，确保后续分析基于高质量的数据。
+    主要职责包括数据下载、完整性检查和异常值处理。
+    
+    处理流程:
+    1. 数据下载: 获取lookback_period天的历史OHLCV数据
+    2. 完整性检查: 要求至少98%的数据点存在
+    3. 合理性检查: 剔除价格为负或零的异常数据
+    4. 缺失值填补: 使用线性插值和前向/后向填充
+    
+    配置参数:
+    - lookback_period: 历史数据回望天数（默认252天）
+    - min_data_completeness_ratio: 最低数据完整性要求（默认0.98）
+    
+    使用示例:
+        processor = DataProcessor(algorithm, config)
+        result = processor.process(symbols)
+        clean_data = result['clean_data']  # 清洗后的数据
+        valid_symbols = result['valid_symbols']  # 通过筛选的股票
+    
+    注意事项:
+    - 数据下载可能因网络或API限制失败，需要容错处理
+    - 填补方法的顺序很重要：先插值，后填充
     """
     
     def __init__(self, algorithm, config: dict):
@@ -31,8 +53,6 @@ class DataProcessor:
         self.algorithm = algorithm
         self.lookback_period = config['lookback_period']
         self.min_data_completeness_ratio = config['min_data_completeness_ratio']
-        self.max_annual_volatility = config['max_annual_volatility']
-        self.volatility_window_days = config['volatility_window_days']
     
     def process(self, symbols: List[Symbol]) -> Dict:
         """
@@ -43,7 +63,6 @@ class DataProcessor:
         2. 数据完整性检查 (98%规则)
         3. 数据合理性检查 (无负值)
         4. 空缺填补
-        5. 波动率筛选
         
         Args:
             symbols: 待处理的股票列表
@@ -99,11 +118,6 @@ class DataProcessor:
             # 填补缺失值
             symbol_data = self._fill_missing_values(symbol_data)
             
-            # 波动率检查
-            if not self._check_volatility(symbol_data['close']):
-                statistics['high_volatility'] += 1
-                return None
-            
             return symbol_data
             
         except Exception as e:
@@ -155,18 +169,6 @@ class DataProcessor:
                             .fillna(method='bfill'))
         return data
     
-    def _check_volatility(self, close_prices: pd.Series) -> bool:
-        """
-        检查波动率是否在可接受范围内
-        """
-        recent_data = close_prices.tail(self.volatility_window_days)
-        returns = recent_data.pct_change().dropna()
-        
-        daily_volatility = returns.std()
-        annual_volatility = daily_volatility * np.sqrt(252)
-        
-        return annual_volatility <= self.max_annual_volatility
-    
     def _log_statistics(self, stats: dict):
         """
         输出统计信息
@@ -187,8 +189,39 @@ class DataProcessor:
 # =============================================================================
 class CointegrationAnalyzer:
     """
-    协整分析器类
-    负责行业分组、配对生成和协整检验
+    协整分析器类 - 识别具有长期均衡关系的股票配对
+    
+    该类实现了配对交易的核心逻辑：寻找价格走势存在稳定关系的股票对。
+    通过Engle-Granger协整检验和综合质量评分系统，筛选出最优配对。
+    
+    核心功能:
+    1. 行业内配对: 只在相同行业内寻找配对，确保业务相关性
+    2. 协整检验: 使用Engle-Granger两步法检验长期均衡关系
+    3. 综合评分: 结合统计显著性、相关性和流动性进行评分
+    4. 智能筛选: 限制每只股票出现次数，确保分散化
+    
+    配对质量评分系统:
+    - 统计显著性 (40%): 1 - pvalue，协整关系的统计可靠性
+    - 相关性 (30%): 价格序列的相关系数，确保配对有意义
+    - 流动性匹配 (30%): 成交额比率，确保交易可执行性
+    
+    配置参数:
+    - pvalue_threshold: 协整检验p值阈值（默认0.025）
+    - correlation_threshold: 最低相关系数要求（默认0.5）
+    - max_symbol_repeats: 每只股票最多出现次数（默认1）
+    - max_pairs: 最多选择配对数量（默认5）
+    
+    工作流程:
+    1. 按Morningstar行业分组
+    2. 生成行业内所有可能的配对组合
+    3. 执行协整检验和流动性计算
+    4. 计算综合质量分数
+    5. 按分数排序并筛选最优配对
+    
+    注意事项:
+    - 协整关系可能随时间变化，需要定期更新
+    - 行业内配对降低了系统性风险
+    - 流动性匹配避免了执行风险
     """
     
     def __init__(self, algorithm, config: dict):
@@ -204,6 +237,14 @@ class CointegrationAnalyzer:
         self.correlation_threshold = config['correlation_threshold']
         self.max_symbol_repeats = config.get('max_symbol_repeats', 1)
         self.max_pairs = config.get('max_pairs', 5)
+        
+        # 配对质量评分权重配置
+        # 权重设计理念：统计显著性是基础，相关性确保配对合理，流动性保证可执行
+        self.quality_weights = {
+            'statistical': 0.4,  # 统计显著性权重（1-pvalue）- 协整关系的统计可靠性
+            'correlation': 0.3,  # 相关性权重 - 确保价格走势相似而非随机
+            'liquidity': 0.3     # 流动性匹配权重 - 避免流动性差异导致的执行风险
+        }
     
     def analyze(self, valid_symbols: List[Symbol], clean_data: Dict[Symbol, pd.DataFrame], 
                 sector_code_to_name: Dict) -> Dict:
@@ -249,6 +290,9 @@ class CointegrationAnalyzer:
         filtered_pairs = self._filter_pairs(all_cointegrated_pairs)
         statistics['cointegrated_pairs_found'] = len(filtered_pairs)
         
+        # 保存筛选后的配对，供日志输出使用
+        self.cointegrated_pairs = filtered_pairs
+        
         # 输出统计信息
         self._log_statistics(statistics)
         
@@ -264,6 +308,7 @@ class CointegrationAnalyzer:
         result = defaultdict(list)
         for symbol in valid_symbols:
             security = self.algorithm.Securities[symbol]
+            # 从基本面数据获取Morningstar行业分类
             sector_code = security.Fundamentals.AssetClassification.MorningstarSectorCode
             sector_name = sector_code_to_name.get(sector_code)
             
@@ -279,13 +324,15 @@ class CointegrationAnalyzer:
         cointegrated_pairs = []
         
         # 生成该行业内所有可能的股票配对组合
+        # 使用itertools.combinations确保不重复且不自配对
         for symbol1, symbol2 in itertools.combinations(symbols, 2):
             prices1 = clean_data[symbol1]['close']
             prices2 = clean_data[symbol2]['close']
             
-            # 测试配对协整性
+            # 测试配对协整性（传递完整数据用于流动性计算）
             pair_result = self._test_pair_cointegration(
-                symbol1, symbol2, prices1, prices2, sector_name
+                symbol1, symbol2, prices1, prices2, sector_name,
+                clean_data[symbol1], clean_data[symbol2]  # 传递完整DataFrame用于流动性计算
             )
             if pair_result:
                 cointegrated_pairs.append(pair_result)
@@ -294,43 +341,122 @@ class CointegrationAnalyzer:
     
     def _test_pair_cointegration(self, symbol1: Symbol, symbol2: Symbol, 
                                 prices1: pd.Series, prices2: pd.Series, 
-                                sector_name: str) -> Dict:
+                                sector_name: str, data1: pd.DataFrame = None, 
+                                data2: pd.DataFrame = None) -> Dict:
         """
-        测试单个配对的协整性
+        测试单个配对的协整性并计算流动性匹配
+        
+        Args:
+            symbol1, symbol2: 股票代码
+            prices1, prices2: 收盘价序列（用于协整检验）
+            sector_name: 行业名称
+            data1, data2: 完整的DataFrame（包含volume等，用于流动性计算）
         """
         try:
             # Engle-Granger协整检验
+            # 返回值：test statistic, p-value, critical values
             score, pvalue, _ = coint(prices1, prices2)
             
-            # 计算相关系数
+            # 计算Pearson相关系数，衡量价格序列的线性相关程度
             correlation = prices1.corr(prices2)
             
             # 检查是否满足条件
+            # p值小于阈值表示拒绝"无协整关系"的原假设
+            # 相关系数大于阈值确保配对有实际意义
             if pvalue < self.pvalue_threshold and correlation > self.correlation_threshold:
+                # 计算流动性匹配分数
+                liquidity_match = 0.5  # 默认值
+                if data1 is not None and data2 is not None:
+                    liquidity_match = self._calculate_liquidity_match(data1, data2)
+                
                 return {
                     'symbol1': symbol1,
                     'symbol2': symbol2,
                     'pvalue': pvalue,
                     'correlation': correlation,
-                    'sector': sector_name
+                    'sector': sector_name,
+                    'liquidity_match': liquidity_match  # 新增字段
                 }
         except Exception as e:
             self.algorithm.Debug(f"[AlphaModel.Coint] 协整检验失败 {symbol1.Value}-{symbol2.Value}: {str(e)[:50]}")
         return None
     
+    def _calculate_liquidity_match(self, data1: pd.DataFrame, data2: pd.DataFrame) -> float:
+        """
+        计算两只股票的流动性匹配度
+        使用与协整检验相同的252天数据
+        
+        Args:
+            data1, data2: 包含volume和close列的DataFrame
+            
+        Returns:
+            float: 流动性匹配分数（0到1之间）
+        """
+        try:
+            # 计算252天平均日成交额
+            avg_dollar_volume1 = (data1['volume'] * data1['close']).mean()
+            avg_dollar_volume2 = (data2['volume'] * data2['close']).mean()
+            
+            # 避免除零错误
+            if avg_dollar_volume1 == 0 or avg_dollar_volume2 == 0:
+                return 0
+            
+            # 成交额比率（0到1之间）
+            # 比率越接近1，表示两只股票的流动性越匹配
+            volume_ratio = min(avg_dollar_volume1, avg_dollar_volume2) / max(avg_dollar_volume1, avg_dollar_volume2)
+            
+            return float(volume_ratio)
+            
+        except Exception as e:
+            self.algorithm.Debug(f"[AlphaModel.Coint] 流动性计算失败: {str(e)[:50]}")
+            return 0.5  # 返回中性值
+    
+    def _calculate_pair_quality_score(self, pair: Dict) -> float:
+        """
+        计算配对的综合质量分数
+        
+        Args:
+            pair: 包含pvalue, correlation, liquidity_match的配对信息字典
+            
+        Returns:
+            float: 综合质量分数（0到1之间）
+        """
+        # 各项分数归一化到0-1
+        statistical_score = 1 - pair['pvalue']  # pvalue越小，统计显著性越高
+        correlation_score = pair['correlation']  # 已经在0-1之间
+        liquidity_score = pair.get('liquidity_match', 0.5)  # 如果没有流动性数据，使用中性值
+        
+        # 加权综合
+        quality_score = (
+            self.quality_weights['statistical'] * statistical_score +
+            self.quality_weights['correlation'] * correlation_score +
+            self.quality_weights['liquidity'] * liquidity_score
+        )
+        
+        return float(quality_score)
+    
     def _filter_pairs(self, all_pairs: List[Dict]) -> List[Dict]:
         """
-        筛选配对，限制每个股票的出现次数
+        使用综合评分系统筛选配对
         """
-        sorted_pairs = sorted(all_pairs, key=lambda x: x['pvalue'])
+        # 为每个配对计算综合质量分数
+        for pair in all_pairs:
+            pair['quality_score'] = self._calculate_pair_quality_score(pair)
+        
+        # 按质量分数降序排序（替代原来的pvalue排序）
+        sorted_pairs = sorted(all_pairs, key=lambda x: x['quality_score'], reverse=True)
+        
+        # 保持原有的筛选逻辑：限制每个股票的出现次数
         symbol_count = defaultdict(int)
         filtered_pairs = []
         
         for pair in sorted_pairs:
+            # 达到最大配对数量限制
             if len(filtered_pairs) >= self.max_pairs:
                 break
                 
             symbol1, symbol2 = pair['symbol1'], pair['symbol2']
+            # 检查两只股票是否都未达到最大出现次数
             if (symbol_count[symbol1] < self.max_symbol_repeats and 
                 symbol_count[symbol2] < self.max_symbol_repeats):
                 filtered_pairs.append(pair)
@@ -350,6 +476,17 @@ class CointegrationAnalyzer:
         # 输出简洁的统计信息
         if sector_summary:
             self.algorithm.Debug(f"[AlphaModel.Coint] {' '.join(sector_summary)} - 筛选后{statistics['cointegrated_pairs_found']}对")
+        
+        # 输出选中配对的质量分数信息
+        if hasattr(self, 'cointegrated_pairs') and self.cointegrated_pairs:
+            scores = [p.get('quality_score', 0) for p in self.cointegrated_pairs if 'quality_score' in p]
+            if scores:
+                self.algorithm.Debug(
+                    f"[AlphaModel.Coint] 配对质量分数: "
+                    f"平均{np.mean(scores):.3f}, "
+                    f"最高{max(scores):.3f}, "
+                    f"最低{min(scores):.3f}"
+                )
 
 
 # =============================================================================
@@ -357,9 +494,44 @@ class CointegrationAnalyzer:
 # =============================================================================
 class BayesianModeler:
     """
-    贝叶斯建模器类
-    使用PyMC进行贝叶斯线性回归建模
-    支持完全建模和动态更新两种模式
+    贝叶斯建模器类 - 使用MCMC方法估计配对交易参数
+    
+    该类实现了贝叶斯统计框架下的配对关系建模，通过MCMC采样获得
+    参数的完整后验分布，提供比传统OLS更丰富的不确定性量化。
+    
+    核心模型:
+    log(price1) = alpha + beta * log(price2) + epsilon
+    其中:
+    - alpha: 截距项，反映两只股票的基础价差
+    - beta: 斜率项，反映价格敏感度（对冲比率）
+    - epsilon: 误差项，假设服从正态分布N(0, sigma²)
+    
+    建模特性:
+    1. 完全建模: 首次发现配对时，使用无信息先验
+    2. 动态更新: 重复配对时，使用历史后验作为先验
+    3. 不确定性量化: 提供参数的均值和标准差
+    4. 自适应采样: 根据建模类型调整采样参数
+    
+    MCMC配置:
+    - mcmc_warmup_samples: 预热采样数（默认1000）
+    - mcmc_posterior_samples: 后验采样数（默认1000）
+    - mcmc_chains: 马尔可夫链数量（默认2）
+    - lookback_period: 历史数据有效期（默认252天）
+    
+    先验设置:
+    - 完全建模: alpha~N(0,10), beta~N(1,5), sigma~HalfNormal(5)
+    - 动态更新: 使用历史后验参数，采样数减半
+    
+    优势:
+    - 参数不确定性的完整刻画
+    - 自然的贝叶斯更新机制
+    - 对异常值的鲁棒性
+    - 小样本下的稳定性
+    
+    注意事项:
+    - MCMC采样计算密集，需要平衡精度和速度
+    - 先验选择会影响结果，特别是小样本情况
+    - 动态更新避免了参数的剧烈跳动
     """
     
     def __init__(self, algorithm, config: dict):
@@ -377,6 +549,7 @@ class BayesianModeler:
         self.lookback_period = config['lookback_period']
         
         # 历史后验存储 {(symbol1, symbol2): {...}}
+        # 用于实现贝叶斯动态更新：今天的后验成为明天的先验
         self.historical_posteriors = {}
     
     def model_pairs(self, cointegrated_pairs: List[Dict], clean_data: Dict) -> Dict:
@@ -421,6 +594,7 @@ class BayesianModeler:
             prices2 = clean_data[symbol2]['close'].values
             
             # 获取历史后验（如果存在）
+            # 实现动态贝叶斯更新：使用上次的后验作为本次的先验
             prior_params = self._get_prior_params(symbol1, symbol2)
             
             # 执行贝叶斯建模和采样
@@ -469,21 +643,41 @@ class BayesianModeler:
         """
         构建贝叶斯线性回归模型并执行MCMC采样
         
-        模型: log(price1) = alpha + beta * log(price2) + epsilon
+        核心模型: log(price1) = alpha + beta * log(price2) + epsilon
+        
+        该方法是贝叶斯建模的核心，通过MCMC采样获得参数的完整后验分布。
+        使用对数价格确保模型的线性假设更合理，并避免异方差问题。
         
         Args:
-            prices1: 股票1的价格数据
-            prices2: 股票2的价格数据
-            prior_params: 历史后验参数（用作先验）
+            prices1: 股票1的价格数据（原始价格）
+            prices2: 股票2的价格数据（原始价格）
+            prior_params: 历史后验参数字典，包含:
+                - alpha_mean, alpha_std: 截距项的先验
+                - beta_mean, beta_std: 斜率项的先验
+                - sigma_mean: 误差项标准差的先验
+                如果为None，使用无信息先验
             
         Returns:
-            (MCMC采样结果, x_data, y_data)
+            Tuple[MultiTrace, ndarray, ndarray]:
+                - trace: MCMC采样结果，包含所有参数的后验样本
+                - x_data: 对数转换后的自变量（log(price2)）
+                - y_data: 对数转换后的因变量（log(price1)）
+        
+        模型细节:
+            - alpha: 截距项，反映两股票的基础价差
+            - beta: 斜率项，即对冲比率，beta=0.8表示1份股票1对冲0.8份股票2
+            - sigma: 残差标准差，反映模型拟合的不确定性
+            - residuals: 模型残差，用于计算z-score
+        
+        采样策略:
+            - 完全建模: 1000次预热 + 1000次采样
+            - 动态更新: 500次预热 + 500次采样（利用好的先验）
         """
-        # 对数转换
+        # 对数转换 - 确保线性假设合理性并稳定方差
         x_data = np.log(prices2)
         y_data = np.log(prices1)
         
-        
+        # 使用PyMC上下文管理器构建贝叶斯模型
         with pm.Model() as model:
             # 设置先验和采样参数
             priors = self._setup_priors(prior_params)
@@ -494,19 +688,23 @@ class BayesianModeler:
             draws = priors['draws']
             
             # 定义线性关系
+            # mu = E[log(price1) | log(price2)] = alpha + beta * log(price2)
             mu = alpha + beta * x_data
             
             # 定义似然函数
+            # 假设残差服从正态分布：log(price1) ~ Normal(mu, sigma)
             likelihood = pm.Normal('y', mu=mu, sigma=sigma, observed=y_data)
             
             # 计算残差（用于后续分析）
+            # 残差 = 实际值 - 预测值，用于计算z-score
             residuals = pm.Deterministic('residuals', y_data - mu)
             
             # 执行MCMC采样
+            # NUTS采样器会自动调整步长，高效探索后验分布
             trace = pm.sample(
-                draws=draws, 
-                tune=tune, 
-                chains=self.mcmc_chains,
+                draws=draws,      # 后验采样数
+                tune=tune,        # 预热采样数（用于调整采样器）
+                chains=self.mcmc_chains,  # 并行马尔可夫链数量
                 return_inferencedata=False,
                 progressbar=False  # 避免在QuantConnect中显示进度条
             )
@@ -519,20 +717,22 @@ class BayesianModeler:
         设置模型先验
         """
         if prior_params is None:
+            # 无信息先验（首次建模）
             return {
-                'alpha': pm.Normal('alpha', mu=0, sigma=10),
-                'beta': pm.Normal('beta', mu=1, sigma=5),
-                'sigma': pm.HalfNormal('sigma', sigma=5.0),
-                'tune': self.mcmc_warmup_samples,
-                'draws': self.mcmc_posterior_samples
+                'alpha': pm.Normal('alpha', mu=0, sigma=10),      # 截距项：中心在0，较大不确定性
+                'beta': pm.Normal('beta', mu=1, sigma=5),         # 斜率项：中心在1（等权重），中等不确定性
+                'sigma': pm.HalfNormal('sigma', sigma=5.0),       # 误差项：半正态分布确保非负
+                'tune': self.mcmc_warmup_samples,                 # 完整的预热采样
+                'draws': self.mcmc_posterior_samples              # 完整的后验采样
             }
         else:
+            # 信息先验（动态更新）- 使用历史后验作为先验
             return {
                 'alpha': pm.Normal('alpha', mu=prior_params['alpha_mean'], sigma=prior_params['alpha_std']),
                 'beta': pm.Normal('beta', mu=prior_params['beta_mean'], sigma=prior_params['beta_std']),
-                'sigma': pm.HalfNormal('sigma', sigma=max(prior_params['sigma_mean'] * 1.5, 1.0)),
-                'tune': self.mcmc_warmup_samples // 2,
-                'draws': self.mcmc_posterior_samples // 2
+                'sigma': pm.HalfNormal('sigma', sigma=max(prior_params['sigma_mean'] * 1.5, 1.0)),  # 稍微放宽不确定性
+                'tune': self.mcmc_warmup_samples // 2,            # 减少预热次数（因为有好的初始值）
+                'draws': self.mcmc_posterior_samples // 2         # 减少采样次数（收敛更快）
             }
     
     def _extract_posterior_stats(self, trace, x_data, y_data) -> Dict:
@@ -557,13 +757,14 @@ class BayesianModeler:
         stats.update({f"{key}_std": float(val.std()) for key, val in samples.items() if key in ['alpha', 'beta', 'sigma']})
         stats['residual_mean'] = float(samples['residuals'].mean())
         
-        # 方法2：使用后验均值参数计算实际残差的标准差
+        # 使用后验均值参数计算实际残差的标准差
+        # 这比使用MCMC采样的残差更稳定
         alpha_mean = stats['alpha_mean']
         beta_mean = stats['beta_mean']
-        fitted_values = alpha_mean + beta_mean * x_data
-        actual_residuals = y_data - fitted_values
+        fitted_values = alpha_mean + beta_mean * x_data  # 预测值
+        actual_residuals = y_data - fitted_values        # 实际残差
         
-        # 移除最小值限制，使用实际计算的标准差
+        # 使用实际计算的标准差（用于z-score计算）
         stats['residual_std'] = float(np.std(actual_residuals))
         
         return stats
@@ -599,8 +800,45 @@ class BayesianModeler:
 # =============================================================================
 class SignalGenerator:
     """
-    信号生成器类
-    基于贝叶斯建模结果计算z-score并生成交易信号
+    信号生成器类 - 将统计模型转化为可执行的交易信号
+    
+    该类负责实时计算配对的偏离程度(z-score)，并根据阈值生成
+    具体的交易方向。使用EMA平滑减少信号噪音，提高稳定性。
+    
+    Z-Score计算原理:
+    1. 计算当前价格关系的残差
+    2. 标准化为z-score: (残差 - 均值) / 标准差
+    3. EMA平滑: 80%当前值 + 20%历史值
+    4. 解释: z>0表示股票1相对高估，z<0表示相对低估
+    
+    信号生成逻辑:
+    - 建仓: |z-score| > entry_threshold (1.2)
+      * z > 1.2: 做空股票1，做多股票2
+      * z < -1.2: 做多股票1，做空股票2
+    - 平仓: |z-score| < exit_threshold (0.3)
+      * 价格关系回归均值，平仓获利
+    
+    配置参数:
+    - entry_threshold: 建仓阈值（默认1.2，约88%置信区间外）
+    - exit_threshold: 平仓阈值（默认0.3，约23%置信区间内）
+    - lower_limit: 极端偏离下限（默认-3.0）
+    - flat_signal_duration_days: 平仓信号持续天数（默认1）
+    - entry_signal_duration_days: 建仓信号持续天数（默认2）
+    
+    EMA平滑:
+    - ema_alpha: 平滑系数（默认0.8）
+    - 目的: 减少短期波动造成的频繁交易
+    - 效果: 信号更稳定，但反应稍有延迟
+    
+    Insight生成:
+    - 使用Insight.Group确保配对同时执行
+    - Tag包含关键参数便于追踪
+    - Duration控制信号有效期
+    
+    注意事项:
+    - 阈值选择需要平衡信号频率和质量
+    - EMA平滑会造成信号延迟
+    - 极端z-score可能预示模型失效
     """
     
     def __init__(self, algorithm, config: dict):
@@ -614,14 +852,16 @@ class SignalGenerator:
         self.algorithm = algorithm
         self.entry_threshold = config['entry_threshold']
         self.exit_threshold = config['exit_threshold']
-        # self.upper_limit = config['upper_limit']  # 移除，交给风险管理模块
+        self.upper_limit = config['upper_limit']  # 极端偏离上限
         self.lower_limit = config['lower_limit']
         self.flat_signal_duration_days = config.get('flat_signal_duration_days', 1)
         self.entry_signal_duration_days = config.get('entry_signal_duration_days', 2)
         
         # 添加EMA相关参数
         self.zscore_ema = {}  # 存储每个配对的EMA值
-        self.ema_alpha = 0.8  # EMA平滑系数（80%当前值，20%历史值）
+        # EMA平滑系数：0.8表示80%权重给当前值，20%给历史值
+        # 较高的alpha值使信号对新数据更敏感，较低则更平滑
+        self.ema_alpha = 0.8
     
     def generate_signals(self, modeled_pairs: List[Dict], data) -> List:
         """
@@ -638,7 +878,37 @@ class SignalGenerator:
     
     def _calculate_zscore(self, pair: Dict, data) -> Dict:
         """
-        计算配对的当前z-score（添加EMA平滑）
+        计算配对的当前z-score并应用EMA平滑
+        
+        Z-score衡量当前价格关系偏离历史均值的程度，是触发交易的核心指标。
+        使用EMA平滑可以减少短期噪音，避免频繁交易。
+        
+        Args:
+            pair: 配对信息字典，包含:
+                - symbol1, symbol2: 股票代码
+                - alpha_mean, beta_mean: 贝叶斯模型参数
+                - residual_mean, residual_std: 残差统计量
+            data: 当前市场数据（Slice对象）
+            
+        Returns:
+            Dict: 更新后的配对信息，新增:
+                - zscore: EMA平滑后的z-score
+                - raw_zscore: 原始z-score（未平滑）
+                - current_price1/2: 当前价格
+            返回None如果数据不可用
+            
+        计算步骤:
+            1. 获取当前价格并对数转换
+            2. 使用模型参数计算期望值: E[log(P1)] = alpha + beta * log(P2)
+            3. 计算残差: residual = log(P1) - E[log(P1)] - residual_mean
+            4. 标准化: z-score = residual / residual_std
+            5. EMA平滑: smoothed = 0.8 * current + 0.2 * previous
+        
+        交易含义:
+            - z-score > 0: 股票1相对高估，应做空1做多2
+            - z-score < 0: 股票1相对低估，应做多1做空2
+            - |z-score| > 1.2: 偏离显著，触发建仓
+            - |z-score| < 0.3: 回归均值，触发平仓
         """
         symbol1, symbol2 = pair['symbol1'], pair['symbol2']
         
@@ -653,9 +923,12 @@ class SignalGenerator:
         log_price1 = np.log(current_price1)
         log_price2 = np.log(current_price2)
         
+        # 基于贝叶斯模型计算期望价格关系
         expected = pair['alpha_mean'] + pair['beta_mean'] * log_price2
+        # 计算去均值的残差
         residual = log_price1 - expected - pair['residual_mean']
         
+        # 标准化得到z-score（避免除零）
         raw_zscore = residual / pair['residual_std'] if pair['residual_std'] > 0 else 0
         
         # EMA平滑处理
@@ -664,10 +937,11 @@ class SignalGenerator:
             # 首次计算，直接使用原始值
             smoothed_zscore = raw_zscore
         else:
-            # 应用EMA平滑
+            # 应用EMA平滑公式：EMA(t) = α * X(t) + (1-α) * EMA(t-1)
+            # 这样可以减少短期噪音，避免频繁交易
             smoothed_zscore = self.ema_alpha * raw_zscore + (1 - self.ema_alpha) * self.zscore_ema[pair_key]
         
-        # 更新EMA存储
+        # 更新EMA存储，供下次使用
         self.zscore_ema[pair_key] = smoothed_zscore
         
         # 更新配对信息
@@ -702,23 +976,26 @@ class SignalGenerator:
         symbol1, symbol2 = pair['symbol1'], pair['symbol2']
         zscore = pair['zscore']
         
-        # 构建标签
+        # 构建标签 - 包含关键信息便于追踪和调试
+        # 格式：symbol1&symbol2|alpha|beta|zscore
         tag = f"{symbol1.Value}&{symbol2.Value}|{pair['alpha_mean']:.4f}|{pair['beta_mean']:.4f}|{zscore:.2f}"
         
-        # 风险检查 - 极端偏离（已移除，交给风险管理模块处理）
-        # if abs(zscore) > self.upper_limit:
-        #     return list(self._create_insight_group(
-        #         symbol1, symbol2, 
-        #         InsightDirection.Flat, InsightDirection.Flat,
-        #         self.flat_signal_duration_days, tag
-        #     ))
+        # 风险检查 - 极端偏离
+        if abs(zscore) > self.upper_limit:
+            return list(self._create_insight_group(
+                symbol1, symbol2, 
+                InsightDirection.Flat, InsightDirection.Flat,
+                self.flat_signal_duration_days, tag
+            ))
         
-        # 建仓信号
+        # 建仓信号 - 价格偏离超过阈值
         if abs(zscore) > self.entry_threshold:
             # 根据z-score方向确定交易方向
             if zscore > 0:
+                # z>0: 股票1相对高估，做空1做多2
                 direction1, direction2 = InsightDirection.Down, InsightDirection.Up
             else:
+                # z<0: 股票1相对低估，做多1做空2
                 direction1, direction2 = InsightDirection.Up, InsightDirection.Down
                 
             return list(self._create_insight_group(
@@ -726,7 +1003,7 @@ class SignalGenerator:
                 self.entry_signal_duration_days, tag
             ))
         
-        # 平仓信号
+        # 平仓信号 - 价格回归均值
         if abs(zscore) < self.exit_threshold:
             return list(self._create_insight_group(
                 symbol1, symbol2,
@@ -742,9 +1019,73 @@ class SignalGenerator:
 # =============================================================================
 class BayesianCointegrationAlphaModel(AlphaModel):
     """
-    贝叶斯协整Alpha模型
+    贝叶斯协整Alpha模型 - 配对交易策略的核心决策引擎
     
-    清晰的数据处理流程和结构化的实现
+    该模型是整个配对交易系统的大脑，负责从原始市场数据到交易信号的
+    完整处理流程。采用模块化设计，将复杂的策略分解为独立的功能模块。
+    
+    整体架构:
+    ┌─────────────┐     ┌──────────────────┐     ┌─────────────────┐
+    │DataProcessor│ --> │CointegrationAnaly│ --> │BayesianModeler  │
+    └─────────────┘     └──────────────────┘     └─────────────────┘
+           |                     |                         |
+           v                     v                         v
+      清洗后数据            协整配对列表              模型参数
+           |                     |                         |
+           └─────────────────────┴─────────────────────────┘
+                                 |
+                                 v
+                        ┌──────────────────┐
+                        │ SignalGenerator  │
+                        └──────────────────┘
+                                 |
+                                 v
+                            交易信号(Insights)
+    
+    工作流程:
+    1. 月度选股触发 (OnSecuritiesChanged)
+       - 接收UniverseSelection筛选的股票
+       - 标记为选股日，准备完整分析
+    
+    2. 数据处理 (DataProcessor)
+       - 下载252天历史数据
+       - 数据清洗和验证
+       - 输出高质量数据集
+    
+    3. 协整分析 (CointegrationAnalyzer)
+       - 行业内配对生成
+       - Engle-Granger协整检验
+       - 综合质量评分和筛选
+    
+    4. 贝叶斯建模 (BayesianModeler)
+       - MCMC参数估计
+       - 动态贝叶斯更新
+       - 不确定性量化
+    
+    5. 日常信号生成 (SignalGenerator)
+       - 实时z-score计算
+       - EMA平滑处理
+       - 阈值触发交易信号
+    
+    与其他模块的交互:
+    - UniverseSelection: 提供候选股票列表
+    - PortfolioConstruction: 接收Insights构建持仓
+    - RiskManagement: 信号可能被风险规则修改
+    - Execution: 最终执行交易指令
+    
+    配置要求:
+    必须提供完整的config字典，包含所有子模块的参数配置。
+    详见各子模块的配置参数说明。
+    
+    性能优化:
+    - 月度批量处理，减少计算频率
+    - 数据缓存避免重复下载
+    - 向量化计算提升效率
+    
+    注意事项:
+    - 选股日会进行大量计算，可能影响性能
+    - 贝叶斯建模是计算瓶颈，已优化采样参数
+    - 所有模块都有独立的错误处理
     """
     
     def __init__(self, algorithm, config: dict, pair_ledger, sector_code_to_name: dict):
@@ -764,14 +1105,14 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         self.sector_code_to_name = sector_code_to_name
         
         # 状态管理
-        self.is_selection_day = False
-        self.symbols = []
+        self.is_selection_day = False  # 标记是否为选股触发日
+        self.symbols = []              # 当前跟踪的股票列表
         
         # 数据存储
-        self.clean_data = {}  # 处理后的干净数据
-        self.valid_symbols = []  # 通过所有筛选的股票
-        self.cointegrated_pairs = []  # 协整对结果
-        self.modeled_pairs = []  # 贝叶斯建模结果
+        self.clean_data = {}           # 处理后的干净数据 {Symbol: DataFrame}
+        self.valid_symbols = []        # 通过所有筛选的股票列表
+        self.cointegrated_pairs = []   # 协整对结果列表
+        self.modeled_pairs = []        # 贝叶斯建模结果列表
         
         # 创建数据处理器
         self.data_processor = DataProcessor(self.algorithm, self.config)
@@ -794,13 +1135,13 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         """
         self.is_selection_day = True
         
-        # 添加新股票（使用列表推导式）
+        # 添加新股票（避免重复）
         self.symbols.extend([
             s.Symbol for s in changes.AddedSecurities 
             if s.Symbol and s.Symbol not in self.symbols
         ])
         
-        # 移除旧股票（使用列表推导式）
+        # 移除旧股票（保持列表更新）
         self.symbols = [
             s for s in self.symbols 
             if s not in [r.Symbol for r in changes.RemovedSecurities]
@@ -815,14 +1156,14 @@ class BayesianCointegrationAlphaModel(AlphaModel):
             return []
         
         if self.is_selection_day:
-            # 使用数据处理器处理数据
+            # 步骤1: 使用数据处理器处理数据
             data_result = self.data_processor.process(self.symbols)
             
             # 保存处理结果
             self.clean_data = data_result['clean_data']
             self.valid_symbols = data_result['valid_symbols']
             
-            # 协整分析
+            # 步骤2: 协整分析 - 寻找具有长期均衡关系的配对
             if len(self.valid_symbols) >= 2:
                 cointegration_result = self.cointegration_analyzer.analyze(
                     self.valid_symbols, 
@@ -833,11 +1174,11 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                 # 保存协整对结果
                 self.cointegrated_pairs = cointegration_result['cointegrated_pairs']
                 
-                # 更新配对记账簿
+                # 更新配对记账簿（供其他模块使用）
                 pairs_list = [(pair['symbol1'], pair['symbol2']) for pair in self.cointegrated_pairs]
                 self.pair_ledger.update_pairs_from_selection(pairs_list)
                 
-                # 贝叶斯建模
+                # 步骤3: 贝叶斯建模 - 估计配对参数
                 if len(self.cointegrated_pairs) > 0:
                     modeling_result = self.bayesian_modeler.model_pairs(
                         self.cointegrated_pairs,
@@ -847,10 +1188,10 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                     # 保存建模结果
                     self.modeled_pairs = modeling_result['modeled_pairs']
                     
-            
+            # 重置选股标志
             self.is_selection_day = False
         
-        # 日常信号生成
+        # 步骤4: 日常信号生成 - 基于实时价格生成交易信号
         if self.modeled_pairs:
             return self.signal_generator.generate_signals(self.modeled_pairs, data)
         
