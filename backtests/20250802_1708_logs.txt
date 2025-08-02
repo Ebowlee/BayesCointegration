@@ -1,0 +1,457 @@
+2024-06-20 00:00:00 Launching analysis for 0a8b22bad7c4d82772232ac45f0fe65d with LEAN Engine v2.5.0.0.17233
+2024-06-20 00:00:00 [UniverseSelection] 初始化完成
+2024-06-20 00:00:00 [AlphaModel] 初始化完成
+2024-06-20 00:00:00 [PortfolioConstruction] 初始化完成 (保证金率: 1.0, 冷却期: 14天, 单对仓位: 5.0%-10.0%, 现金缓冲: 5.0%)
+2024-06-20 00:00:00 Accurate daily end-times now enabled by default. See more at https://qnt.co/3YHaWHL. To disable it and use legacy daily bars set self.settings.daily_precise_end_time = False.
+2024-07-02 00:00:00 ===== 第【1】次选股 =====
+2024-07-02 00:00:00 [UniverseSelection] 筛选流程: 初始124只 → 财务筛选65只 → 波动率筛选63只 → 最终选择54只
+2024-07-02 00:00:00 [UniverseSelection] 财务过滤明细: PE(20) ROE(26) 债务(2) 杠杆(23)
+2024-07-02 00:00:00 [UniverseSelection] 波动率过滤: 高波动2只, 数据缺失0只
+2024-07-02 00:00:00 [UniverseSelection] 行业分布: ConsumerCyclical(11只,波动率37.4%) Energy(10只,波动率24.9%) Technology(9只,波动率30.3%) ConsumerDefensive(7只,波动率17.3%) CommunicationServices(6只,波动率26.7%) Healthcare(5只,波动率25.0%) Industrials(3只,波动率27.3%) Utilities(3只,波动率23.7%)
+2024-07-02 00:00:00 [UniverseSelection] 选股完成: 共54只股票, 前5样本: ['CSCO(18.7%)', 'MSFT(20.2%)', 'AAPL(22.0%)', 'QCOM(31.3%)', 'MCHP(31.8%)']
+2024-07-02 16:00:00 [AlphaModel.Data] 数据处理: 54→54只 ()
+2024-07-02 16:00:00 [AlphaModel.Coint] 合计筛选3对: 平均0.774, 最高0.892, 最低0.700
+2024-07-02 16:00:00 [AlphaModel.Coint] ConsumerCyclical: (F,GM)/0.892, (AMZN,CMG)/0.700
+2024-07-02 16:00:00 [AlphaModel.Coint] Technology: (MCHP,QCOM)/0.729
+2024-07-02 16:00:00 [PairLedger] 本轮新发现[F-GM, MCHP-QCOM, AMZN-CMG], 总计管理3对
+2024-07-02 16:00:00 [AlphaModel.Bayesian] 建模完成: 成功3对, 失败0对 (完全建模3对, 动态更新0对)
+2024-07-02 16:00:00 [AlphaModel] 生成信号: 跟踪3对配对
+2024-07-02 16:00:00 [SignalGen] F-GM: z-score=-0.054 (raw=-0.054)
+2024-07-02 16:00:00 [SignalGen] MCHP-QCOM: z-score=-0.280 (raw=-0.280)
+2024-07-02 16:00:00 [SignalGen] AMZN-CMG: z-score=2.150 (raw=2.150)
+2024-07-02 16:00:00 [AlphaModel] 生成6个Insights
+2024-07-02 16:00:00 [PC] 收到6个Insights
+2024-07-03 00:00:00 [AlphaModel] 生成信号: 跟踪3对配对
+2024-07-03 13:00:00 [SignalGen] F-GM: z-score=-0.026 (raw=-0.019)
+2024-07-03 13:00:00 [SignalGen] MCHP-QCOM: z-score=-0.080 (raw=-0.031)
+2024-07-03 13:00:00 [SignalGen] AMZN-CMG: z-score=1.853 (raw=1.779)
+2024-07-03 13:00:00 [AlphaModel] 生成6个Insights
+2024-07-03 13:00:00 [PC] 收到6个Insights
+2024-07-05 00:00:00 [AlphaModel] 生成信号: 跟踪3对配对
+2024-07-05 16:00:00 [SignalGen] F-GM: z-score=-0.030 (raw=-0.031)
+2024-07-05 16:00:00 [SignalGen] MCHP-QCOM: z-score=-0.359 (raw=-0.428)
+2024-07-05 16:00:00 [SignalGen] AMZN-CMG: z-score=1.779 (raw=1.760)
+2024-07-05 16:00:00 [AlphaModel] 生成4个Insights
+2024-07-05 16:00:00 [PC] 收到4个Insights
+2024-07-08 16:00:00 [AlphaModel] 生成信号: 跟踪3对配对
+2024-07-08 16:00:00 [SignalGen] F-GM: z-score=0.115 (raw=0.152)
+2024-07-08 16:00:00 [SignalGen] MCHP-QCOM: z-score=-0.253 (raw=-0.226)
+2024-07-08 16:00:00 [SignalGen] AMZN-CMG: z-score=2.449 (raw=2.617)
+2024-07-08 16:00:00 [AlphaModel] 生成6个Insights
+2024-07-08 16:00:00 [PC] 收到6个Insights
+2024-07-09 00:00:00 [AlphaModel] 生成信号: 跟踪3对配对
+2024-07-09 16:00:00 [SignalGen] F-GM: z-score=0.094 (raw=0.089)
+2024-07-09 16:00:00 [SignalGen] MCHP-QCOM: z-score=-0.388 (raw=-0.421)
+2024-07-09 16:00:00 [SignalGen] AMZN-CMG: z-score=3.086 (raw=3.245)
+2024-07-09 16:00:00 [AlphaModel] 生成4个Insights
+2024-07-09 16:00:00 [PC] 收到4个Insights
+2024-07-10 00:00:00 [AlphaModel] 生成信号: 跟踪3对配对
+2024-07-10 16:00:00 [SignalGen] F-GM: z-score=0.343 (raw=0.405)
+2024-07-10 16:00:00 [SignalGen] MCHP-QCOM: z-score=0.224 (raw=0.377)
+2024-07-10 16:00:00 [SignalGen] AMZN-CMG: z-score=3.058 (raw=3.051)
+2024-07-10 16:00:00 [AlphaModel] 生成4个Insights
+2024-07-10 16:00:00 [PC] 收到4个Insights
+2024-07-11 16:00:00 [AlphaModel] 生成信号: 跟踪3对配对
+2024-07-11 16:00:00 [SignalGen] F-GM: z-score=0.539 (raw=0.587)
+2024-07-11 16:00:00 [SignalGen] MCHP-QCOM: z-score=-0.166 (raw=-0.263)
+2024-07-11 16:00:00 [SignalGen] AMZN-CMG: z-score=2.733 (raw=2.651)
+2024-07-11 16:00:00 [AlphaModel] 生成4个Insights
+2024-07-11 16:00:00 [PC] 收到4个Insights
+2024-07-12 16:00:00 [AlphaModel] 生成信号: 跟踪3对配对
+2024-07-12 16:00:00 [SignalGen] F-GM: z-score=1.016 (raw=1.135)
+2024-07-12 16:00:00 [SignalGen] MCHP-QCOM: z-score=-0.207 (raw=-0.218)
+2024-07-12 16:00:00 [SignalGen] AMZN-CMG: z-score=2.577 (raw=2.539)
+2024-07-12 16:00:00 [AlphaModel] 生成6个Insights
+2024-07-12 16:00:00 [PC] 收到6个Insights
+2024-07-15 16:00:00 [AlphaModel] 生成信号: 跟踪3对配对
+2024-07-15 16:00:00 [SignalGen] F-GM: z-score=1.273 (raw=1.338)
+2024-07-15 16:00:00 [SignalGen] MCHP-QCOM: z-score=-0.451 (raw=-0.512)
+2024-07-15 16:00:00 [SignalGen] AMZN-CMG: z-score=2.605 (raw=2.612)
+2024-07-15 16:00:00 [AlphaModel] 生成4个Insights
+2024-07-15 16:00:00 [PC] 收到4个Insights
+2024-07-16 16:00:00 [AlphaModel] 生成信号: 跟踪3对配对
+2024-07-16 16:00:00 [SignalGen] F-GM: z-score=1.426 (raw=1.465)
+2024-07-16 16:00:00 [SignalGen] MCHP-QCOM: z-score=-0.023 (raw=0.084)
+2024-07-16 16:00:00 [SignalGen] AMZN-CMG: z-score=2.375 (raw=2.317)
+2024-07-16 16:00:00 [AlphaModel] 生成6个Insights
+2024-07-16 16:00:00 [PC] 收到6个Insights
+2024-07-17 16:00:00 [AlphaModel] 生成信号: 跟踪3对配对
+2024-07-17 16:00:00 [SignalGen] F-GM: z-score=1.528 (raw=1.554)
+2024-07-17 16:00:00 [SignalGen] MCHP-QCOM: z-score=-0.119 (raw=-0.143)
+2024-07-17 16:00:00 [SignalGen] AMZN-CMG: z-score=2.389 (raw=2.392)
+2024-07-17 16:00:00 [AlphaModel] 生成6个Insights
+2024-07-17 16:00:00 [PC] 收到6个Insights
+2024-07-18 16:00:00 [AlphaModel] 生成信号: 跟踪3对配对
+2024-07-18 16:00:00 [SignalGen] F-GM: z-score=1.643 (raw=1.672)
+2024-07-18 16:00:00 [SignalGen] MCHP-QCOM: z-score=-0.134 (raw=-0.138)
+2024-07-18 16:00:00 [SignalGen] AMZN-CMG: z-score=2.422 (raw=2.431)
+2024-07-18 16:00:00 [AlphaModel] 生成6个Insights
+2024-07-18 16:00:00 [PC] 收到6个Insights
+2024-07-19 00:00:00 [AlphaModel] 生成信号: 跟踪3对配对
+2024-07-19 16:00:00 [SignalGen] F-GM: z-score=1.278 (raw=1.187)
+2024-07-19 16:00:00 [SignalGen] MCHP-QCOM: z-score=-0.537 (raw=-0.638)
+2024-07-19 16:00:00 [SignalGen] AMZN-CMG: z-score=2.304 (raw=2.275)
+2024-07-19 16:00:00 [AlphaModel] 生成4个Insights
+2024-07-19 16:00:00 [PC] 收到4个Insights
+2024-07-22 00:00:00 [AlphaModel] 生成信号: 跟踪3对配对
+2024-07-22 16:00:00 [SignalGen] F-GM: z-score=1.185 (raw=1.161)
+2024-07-22 16:00:00 [SignalGen] MCHP-QCOM: z-score=-0.002 (raw=0.131)
+2024-07-22 16:00:00 [SignalGen] AMZN-CMG: z-score=2.219 (raw=2.198)
+2024-07-22 16:00:00 [AlphaModel] 生成6个Insights
+2024-07-22 16:00:00 [PC] 收到6个Insights
+2024-07-23 16:00:00 [AlphaModel] 生成信号: 跟踪3对配对
+2024-07-23 16:00:00 [SignalGen] F-GM: z-score=1.253 (raw=1.271)
+2024-07-23 16:00:00 [SignalGen] MCHP-QCOM: z-score=-0.509 (raw=-0.636)
+2024-07-23 16:00:00 [SignalGen] AMZN-CMG: z-score=2.913 (raw=3.086)
+2024-07-23 16:00:00 [AlphaModel] 生成4个Insights
+2024-07-23 16:00:00 [PC] 收到4个Insights
+2024-07-24 16:00:00 [AlphaModel] 生成信号: 跟踪3对配对
+2024-07-24 16:00:00 [SignalGen] F-GM: z-score=1.094 (raw=1.054)
+2024-07-24 16:00:00 [SignalGen] MCHP-QCOM: z-score=-0.916 (raw=-1.018)
+2024-07-24 16:00:00 [SignalGen] AMZN-CMG: z-score=2.627 (raw=2.555)
+2024-07-24 16:00:00 [AlphaModel] 生成4个Insights
+2024-07-24 16:00:00 [PC] 收到4个Insights
+2024-07-25 16:00:00 [AlphaModel] 生成信号: 跟踪3对配对
+2024-07-25 16:00:00 [SignalGen] F-GM: z-score=-1.447 (raw=-2.082)
+2024-07-25 16:00:00 [SignalGen] MCHP-QCOM: z-score=-1.157 (raw=-1.217)
+2024-07-25 16:00:00 [SignalGen] AMZN-CMG: z-score=2.723 (raw=2.748)
+2024-07-25 16:00:00 [AlphaModel] 生成6个Insights
+2024-07-25 16:00:00 [PC] 收到6个Insights
+2024-07-26 00:00:00 [AlphaModel] 生成信号: 跟踪3对配对
+2024-07-26 16:00:00 [SignalGen] F-GM: z-score=-1.916 (raw=-2.034)
+2024-07-26 16:00:00 [SignalGen] MCHP-QCOM: z-score=-0.965 (raw=-0.917)
+2024-07-26 16:00:00 [SignalGen] AMZN-CMG: z-score=3.332 (raw=3.484)
+2024-07-26 16:00:00 [AlphaModel] 生成4个Insights
+2024-07-26 16:00:00 [PC] 收到4个Insights
+2024-07-29 16:00:00 [AlphaModel] 生成信号: 跟踪3对配对
+2024-07-29 16:00:00 [SignalGen] F-GM: z-score=-2.238 (raw=-2.318)
+2024-07-29 16:00:00 [SignalGen] MCHP-QCOM: z-score=-0.662 (raw=-0.586)
+2024-07-29 16:00:00 [SignalGen] AMZN-CMG: z-score=3.210 (raw=3.180)
+2024-07-29 16:00:00 [AlphaModel] 生成4个Insights
+2024-07-29 16:00:00 [PC] 收到4个Insights
+2024-07-30 00:00:00 [AlphaModel] 生成信号: 跟踪3对配对
+2024-07-30 16:00:00 [SignalGen] F-GM: z-score=-2.527 (raw=-2.599)
+2024-07-30 16:00:00 [SignalGen] MCHP-QCOM: z-score=-0.557 (raw=-0.530)
+2024-07-30 16:00:00 [SignalGen] AMZN-CMG: z-score=2.571 (raw=2.411)
+2024-07-30 16:00:00 [AlphaModel] 生成4个Insights
+2024-07-30 16:00:00 [PC] 收到4个Insights
+2024-07-31 00:00:00 [AlphaModel] 生成信号: 跟踪3对配对
+2024-07-31 16:00:00 [SignalGen] F-GM: z-score=-2.621 (raw=-2.645)
+2024-07-31 16:00:00 [SignalGen] MCHP-QCOM: z-score=-0.480 (raw=-0.461)
+2024-07-31 16:00:00 [SignalGen] AMZN-CMG: z-score=2.575 (raw=2.576)
+2024-07-31 16:00:00 [AlphaModel] 生成4个Insights
+2024-07-31 16:00:00 [PC] 收到4个Insights
+2024-08-01 00:00:00 [AlphaModel] 生成信号: 跟踪3对配对
+2024-08-01 16:00:00 [SignalGen] F-GM: z-score=-2.686 (raw=-2.703)
+2024-08-01 16:00:00 [SignalGen] MCHP-QCOM: z-score=-0.879 (raw=-0.979)
+2024-08-01 16:00:00 [SignalGen] AMZN-CMG: z-score=2.475 (raw=2.450)
+2024-08-01 16:00:00 [AlphaModel] 生成4个Insights
+2024-08-01 16:00:00 [PC] 收到4个Insights
+2024-08-02 00:00:00 ===== 第【2】次选股 =====
+2024-08-02 00:00:00 [UniverseSelection] 筛选流程: 初始206只 → 财务筛选114只 → 波动率筛选111只 → 最终选择95只
+2024-08-02 00:00:00 [UniverseSelection] 财务过滤明细: PE(27) ROE(40) 债务(5) 杠杆(38)
+2024-08-02 00:00:00 [UniverseSelection] 波动率过滤: 高波动3只, 数据缺失0只
+2024-08-02 00:00:00 [UniverseSelection] 行业分布: Technology(20只,波动率33.3%) Energy(20只,波动率22.5%) ConsumerCyclical(14只,波动率34.7%) Healthcare(10只,波动率28.7%) Industrials(9只,波动率30.8%) ConsumerDefensive(8只,波动率20.2%) CommunicationServices(7只,波动率25.5%) Utilities(7只,波动率21.9%)
+2024-08-02 00:00:00 [UniverseSelection] 选股完成: 共95只股票, 前5样本: ['CSCO(18.6%)', 'MSFT(19.6%)', 'CTSH(20.7%)', 'APH(21.8%)', 'AAPL(22.7%)']
+2024-08-02 16:00:00 [AlphaModel.Data] 数据处理: 95→95只 ()
+2024-08-02 16:00:00 [AlphaModel.Coint] 合计筛选5对: 平均0.904, 最高0.957, 最低0.869
+2024-08-02 16:00:00 [AlphaModel.Coint] ConsumerDefensive: (PG,WMT)/0.925
+2024-08-02 16:00:00 [AlphaModel.Coint] Energy: (PR,CNQ)/0.887, (ET,EPD)/0.884
+2024-08-02 16:00:00 [AlphaModel.Coint] Industrials: (ETN,VRT)/0.957
+2024-08-02 16:00:00 [AlphaModel.Coint] Technology: (HPE,GLW)/0.869
+2024-08-02 16:00:00 [PairLedger] 本轮新发现[ETN-VRT, PG-WMT, CNQ-PR, EPD-ET, GLW-HPE], 总计管理8对
+2024-08-02 16:00:00 [AlphaModel.Bayesian] 建模完成: 成功5对, 失败0对 (完全建模5对, 动态更新0对)
+2024-08-02 16:00:00 [AlphaModel] 生成信号: 跟踪5对配对
+2024-08-02 16:00:00 [SignalGen] ETN-VRT: z-score=-0.461 (raw=-0.461)
+2024-08-02 16:00:00 [SignalGen] PG-WMT: z-score=0.666 (raw=0.666)
+2024-08-02 16:00:00 [SignalGen] PR-CNQ: z-score=-1.024 (raw=-1.024)
+2024-08-02 16:00:00 [SignalGen] ET-EPD: z-score=0.032 (raw=0.032)
+2024-08-02 16:00:00 [SignalGen] HPE-GLW: z-score=-1.273 (raw=-1.273)
+2024-08-02 16:00:00 [AlphaModel] 生成6个Insights
+2024-08-02 16:00:00 [PC] 收到6个Insights
+2024-08-05 00:00:00 [AlphaModel] 生成信号: 跟踪5对配对
+2024-08-05 16:00:00 [SignalGen] ETN-VRT: z-score=-0.783 (raw=-0.863)
+2024-08-05 16:00:00 [SignalGen] PG-WMT: z-score=0.466 (raw=0.416)
+2024-08-05 16:00:00 [SignalGen] PR-CNQ: z-score=-1.244 (raw=-1.299)
+2024-08-05 16:00:00 [SignalGen] ET-EPD: z-score=0.099 (raw=0.115)
+2024-08-05 16:00:00 [SignalGen] HPE-GLW: z-score=-1.550 (raw=-1.619)
+2024-08-05 16:00:00 [AlphaModel] 生成6个Insights
+2024-08-05 16:00:00 [PC] 收到6个Insights
+2024-08-06 00:00:00 [AlphaModel] 生成信号: 跟踪5对配对
+2024-08-06 16:00:00 [SignalGen] ETN-VRT: z-score=-0.644 (raw=-0.609)
+2024-08-06 16:00:00 [SignalGen] PG-WMT: z-score=0.386 (raw=0.366)
+2024-08-06 16:00:00 [SignalGen] PR-CNQ: z-score=-1.147 (raw=-1.123)
+2024-08-06 16:00:00 [SignalGen] ET-EPD: z-score=-0.688 (raw=-0.885)
+2024-08-06 16:00:00 [SignalGen] HPE-GLW: z-score=-1.848 (raw=-1.923)
+2024-08-06 16:00:00 [AlphaModel] 生成4个Insights
+2024-08-06 16:00:00 [PC] 收到4个Insights
+2024-08-07 00:00:00 [AlphaModel] 生成信号: 跟踪5对配对
+2024-08-07 16:00:00 [SignalGen] ETN-VRT: z-score=-0.256 (raw=-0.159)
+2024-08-07 16:00:00 [SignalGen] PG-WMT: z-score=0.990 (raw=1.142)
+2024-08-07 16:00:00 [SignalGen] PR-CNQ: z-score=-1.049 (raw=-1.024)
+2024-08-07 16:00:00 [SignalGen] ET-EPD: z-score=-1.250 (raw=-1.391)
+2024-08-07 16:00:00 [SignalGen] HPE-GLW: z-score=-2.247 (raw=-2.347)
+2024-08-07 16:00:00 [AlphaModel] 生成8个Insights
+2024-08-07 16:00:00 [PC] 收到8个Insights
+2024-08-08 16:00:00 [AlphaModel] 生成信号: 跟踪5对配对
+2024-08-08 16:00:00 [SignalGen] ETN-VRT: z-score=0.036 (raw=0.109)
+2024-08-08 16:00:00 [SignalGen] PG-WMT: z-score=1.099 (raw=1.126)
+2024-08-08 16:00:00 [SignalGen] PR-CNQ: z-score=-0.784 (raw=-0.718)
+2024-08-08 16:00:00 [SignalGen] ET-EPD: z-score=-1.237 (raw=-1.233)
+2024-08-08 16:00:00 [SignalGen] HPE-GLW: z-score=-1.993 (raw=-1.929)
+2024-08-08 16:00:00 [AlphaModel] 生成8个Insights
+2024-08-08 16:00:00 [PC] 收到8个Insights
+2024-08-09 00:00:00 [AlphaModel] 生成信号: 跟踪5对配对
+2024-08-09 16:00:00 [SignalGen] ETN-VRT: z-score=0.390 (raw=0.479)
+2024-08-09 16:00:00 [SignalGen] PG-WMT: z-score=0.978 (raw=0.947)
+2024-08-09 16:00:00 [SignalGen] PR-CNQ: z-score=-0.897 (raw=-0.925)
+2024-08-09 16:00:00 [SignalGen] ET-EPD: z-score=-0.619 (raw=-0.465)
+2024-08-09 16:00:00 [SignalGen] HPE-GLW: z-score=-1.877 (raw=-1.847)
+2024-08-09 16:00:00 [AlphaModel] 生成2个Insights
+2024-08-09 16:00:00 [PC] 收到2个Insights
+2024-08-12 00:00:00 [AlphaModel] 生成信号: 跟踪5对配对
+2024-08-12 16:00:00 [SignalGen] ETN-VRT: z-score=-0.063 (raw=-0.176)
+2024-08-12 16:00:00 [SignalGen] PG-WMT: z-score=-0.027 (raw=-0.279)
+2024-08-12 16:00:00 [SignalGen] PR-CNQ: z-score=-1.045 (raw=-1.082)
+2024-08-12 16:00:00 [SignalGen] ET-EPD: z-score=0.306 (raw=0.538)
+2024-08-12 16:00:00 [SignalGen] HPE-GLW: z-score=-2.195 (raw=-2.274)
+2024-08-12 16:00:00 [AlphaModel] 生成8个Insights
+2024-08-12 16:00:00 [PC] 收到8个Insights
+2024-08-13 16:00:00 [AlphaModel] 生成信号: 跟踪5对配对
+2024-08-13 16:00:00 [SignalGen] ETN-VRT: z-score=-0.078 (raw=-0.082)
+2024-08-13 16:00:00 [SignalGen] PG-WMT: z-score=0.018 (raw=0.029)
+2024-08-13 16:00:00 [SignalGen] PR-CNQ: z-score=-1.506 (raw=-1.621)
+2024-08-13 16:00:00 [SignalGen] ET-EPD: z-score=0.379 (raw=0.397)
+2024-08-13 16:00:00 [SignalGen] HPE-GLW: z-score=-1.851 (raw=-1.765)
+2024-08-13 16:00:00 [AlphaModel] 生成8个Insights
+2024-08-13 16:00:00 [PC] 收到8个Insights
+2024-08-14 16:00:00 [AlphaModel] 生成信号: 跟踪5对配对
+2024-08-14 16:00:00 [SignalGen] ETN-VRT: z-score=-0.431 (raw=-0.519)
+2024-08-14 16:00:00 [SignalGen] PG-WMT: z-score=0.216 (raw=0.265)
+2024-08-14 16:00:00 [SignalGen] PR-CNQ: z-score=-1.835 (raw=-1.918)
+2024-08-14 16:00:00 [SignalGen] ET-EPD: z-score=0.018 (raw=-0.072)
+2024-08-14 16:00:00 [SignalGen] HPE-GLW: z-score=-1.756 (raw=-1.732)
+2024-08-14 16:00:00 [AlphaModel] 生成8个Insights
+2024-08-14 16:00:00 [PC] 收到8个Insights
+2024-08-15 00:00:00 [AlphaModel] 生成信号: 跟踪5对配对
+2024-08-15 16:00:00 [SignalGen] ETN-VRT: z-score=-0.560 (raw=-0.593)
+2024-08-15 16:00:00 [SignalGen] PG-WMT: z-score=-1.026 (raw=-1.337)
+2024-08-15 16:00:00 [SignalGen] PR-CNQ: z-score=-1.736 (raw=-1.711)
+2024-08-15 16:00:00 [SignalGen] ET-EPD: z-score=-0.262 (raw=-0.332)
+2024-08-15 16:00:00 [SignalGen] HPE-GLW: z-score=-1.099 (raw=-0.935)
+2024-08-15 16:00:00 [AlphaModel] 生成8个Insights
+2024-08-15 16:00:00 [PC] 收到8个Insights
+2024-08-16 00:00:00 [AlphaModel] 生成信号: 跟踪5对配对
+2024-08-16 16:00:00 [SignalGen] ETN-VRT: z-score=-0.554 (raw=-0.553)
+2024-08-16 16:00:00 [SignalGen] PG-WMT: z-score=-1.393 (raw=-1.485)
+2024-08-16 16:00:00 [SignalGen] PR-CNQ: z-score=-1.856 (raw=-1.886)
+2024-08-16 16:00:00 [SignalGen] ET-EPD: z-score=0.044 (raw=0.121)
+2024-08-16 16:00:00 [SignalGen] HPE-GLW: z-score=-1.025 (raw=-1.007)
+2024-08-16 16:00:00 [AlphaModel] 生成8个Insights
+2024-08-16 16:00:00 [PC] 收到8个Insights
+2024-08-19 00:00:00 [AlphaModel] 生成信号: 跟踪5对配对
+2024-08-19 16:00:00 [SignalGen] ETN-VRT: z-score=-0.440 (raw=-0.412)
+2024-08-19 16:00:00 [SignalGen] PG-WMT: z-score=-1.417 (raw=-1.422)
+2024-08-19 16:00:00 [SignalGen] PR-CNQ: z-score=-1.978 (raw=-2.009)
+2024-08-19 16:00:00 [SignalGen] ET-EPD: z-score=-0.409 (raw=-0.523)
+2024-08-19 16:00:00 [SignalGen] HPE-GLW: z-score=-0.941 (raw=-0.920)
+2024-08-19 16:00:00 [AlphaModel] 生成4个Insights
+2024-08-19 16:00:00 [PC] 收到4个Insights
+2024-08-20 00:00:00 [AlphaModel] 生成信号: 跟踪5对配对
+2024-08-20 16:00:00 [SignalGen] ETN-VRT: z-score=-0.123 (raw=-0.044)
+2024-08-20 16:00:00 [SignalGen] PG-WMT: z-score=-1.190 (raw=-1.134)
+2024-08-20 16:00:00 [SignalGen] PR-CNQ: z-score=-1.910 (raw=-1.893)
+2024-08-20 16:00:00 [SignalGen] ET-EPD: z-score=-0.411 (raw=-0.411)
+2024-08-20 16:00:00 [SignalGen] HPE-GLW: z-score=-1.040 (raw=-1.064)
+2024-08-20 16:00:00 [AlphaModel] 生成8个Insights
+2024-08-20 16:00:00 [PC] 收到8个Insights
+2024-08-21 16:00:00 [AlphaModel] 生成信号: 跟踪5对配对
+2024-08-21 16:00:00 [SignalGen] ETN-VRT: z-score=0.004 (raw=0.036)
+2024-08-21 16:00:00 [SignalGen] PG-WMT: z-score=-1.358 (raw=-1.400)
+2024-08-21 16:00:00 [SignalGen] PR-CNQ: z-score=-2.001 (raw=-2.024)
+2024-08-21 16:00:00 [SignalGen] ET-EPD: z-score=-0.246 (raw=-0.205)
+2024-08-21 16:00:00 [SignalGen] HPE-GLW: z-score=-1.285 (raw=-1.347)
+2024-08-21 16:00:00 [AlphaModel] 生成10个Insights
+2024-08-21 16:00:00 [PC] 收到10个Insights
+2024-08-22 00:00:00 [AlphaModel] 生成信号: 跟踪5对配对
+2024-08-22 16:00:00 [SignalGen] ETN-VRT: z-score=0.047 (raw=0.058)
+2024-08-22 16:00:00 [SignalGen] PG-WMT: z-score=-1.471 (raw=-1.499)
+2024-08-22 16:00:00 [SignalGen] PR-CNQ: z-score=-2.126 (raw=-2.157)
+2024-08-22 16:00:00 [SignalGen] ET-EPD: z-score=-0.534 (raw=-0.606)
+2024-08-22 16:00:00 [SignalGen] HPE-GLW: z-score=-1.235 (raw=-1.222)
+2024-08-22 16:00:00 [AlphaModel] 生成8个Insights
+2024-08-22 16:00:00 [PC] 收到8个Insights
+2024-08-23 16:00:00 [AlphaModel] 生成信号: 跟踪5对配对
+2024-08-23 16:00:00 [SignalGen] ETN-VRT: z-score=-0.021 (raw=-0.038)
+2024-08-23 16:00:00 [SignalGen] PG-WMT: z-score=-1.728 (raw=-1.792)
+2024-08-23 16:00:00 [SignalGen] PR-CNQ: z-score=-2.064 (raw=-2.048)
+2024-08-23 16:00:00 [SignalGen] ET-EPD: z-score=-0.553 (raw=-0.557)
+2024-08-23 16:00:00 [SignalGen] HPE-GLW: z-score=-1.035 (raw=-0.985)
+2024-08-23 16:00:00 [AlphaModel] 生成8个Insights
+2024-08-23 16:00:00 [PC] 收到8个Insights
+2024-08-26 16:00:00 [AlphaModel] 生成信号: 跟踪5对配对
+2024-08-26 16:00:00 [SignalGen] ETN-VRT: z-score=-0.221 (raw=-0.271)
+2024-08-26 16:00:00 [SignalGen] PG-WMT: z-score=-1.605 (raw=-1.574)
+2024-08-26 16:00:00 [SignalGen] PR-CNQ: z-score=-2.559 (raw=-2.682)
+2024-08-26 16:00:00 [SignalGen] ET-EPD: z-score=-0.831 (raw=-0.900)
+2024-08-26 16:00:00 [SignalGen] HPE-GLW: z-score=-1.082 (raw=-1.093)
+2024-08-26 16:00:00 [AlphaModel] 生成8个Insights
+2024-08-26 16:00:00 [PC] 收到8个Insights
+2024-08-27 00:00:00 [AlphaModel] 生成信号: 跟踪5对配对
+2024-08-27 16:00:00 [SignalGen] ETN-VRT: z-score=-0.660 (raw=-0.769)
+2024-08-27 16:00:00 [SignalGen] PG-WMT: z-score=-1.835 (raw=-1.893)
+2024-08-27 16:00:00 [SignalGen] PR-CNQ: z-score=-2.711 (raw=-2.749)
+2024-08-27 16:00:00 [SignalGen] ET-EPD: z-score=-0.909 (raw=-0.928)
+2024-08-27 16:00:00 [SignalGen] HPE-GLW: z-score=-1.221 (raw=-1.256)
+2024-08-27 16:00:00 [AlphaModel] 生成6个Insights
+2024-08-27 16:00:00 [PC] 收到6个Insights
+2024-08-28 16:00:00 [AlphaModel] 生成信号: 跟踪5对配对
+2024-08-28 16:00:00 [SignalGen] ETN-VRT: z-score=-1.001 (raw=-1.087)
+2024-08-28 16:00:00 [SignalGen] PG-WMT: z-score=-1.910 (raw=-1.929)
+2024-08-28 16:00:00 [SignalGen] PR-CNQ: z-score=-2.691 (raw=-2.686)
+2024-08-28 16:00:00 [SignalGen] ET-EPD: z-score=-0.835 (raw=-0.816)
+2024-08-28 16:00:00 [SignalGen] HPE-GLW: z-score=-1.282 (raw=-1.297)
+2024-08-28 16:00:00 [AlphaModel] 生成8个Insights
+2024-08-28 16:00:00 [PC] 收到8个Insights
+2024-08-29 16:00:00 [AlphaModel] 生成信号: 跟踪5对配对
+2024-08-29 16:00:00 [SignalGen] ETN-VRT: z-score=-0.345 (raw=-0.180)
+2024-08-29 16:00:00 [SignalGen] PG-WMT: z-score=-1.797 (raw=-1.768)
+2024-08-29 16:00:00 [SignalGen] PR-CNQ: z-score=-2.588 (raw=-2.563)
+2024-08-29 16:00:00 [SignalGen] ET-EPD: z-score=-0.937 (raw=-0.963)
+2024-08-29 16:00:00 [SignalGen] HPE-GLW: z-score=-1.444 (raw=-1.485)
+2024-08-29 16:00:00 [AlphaModel] 生成6个Insights
+2024-08-29 16:00:00 [PC] 收到6个Insights
+2024-08-30 00:00:00 [AlphaModel] 生成信号: 跟踪5对配对
+2024-08-30 16:00:00 [SignalGen] ETN-VRT: z-score=-0.183 (raw=-0.142)
+2024-08-30 16:00:00 [SignalGen] PG-WMT: z-score=-1.642 (raw=-1.604)
+2024-08-30 16:00:00 [SignalGen] PR-CNQ: z-score=-2.410 (raw=-2.365)
+2024-08-30 16:00:00 [SignalGen] ET-EPD: z-score=-0.834 (raw=-0.808)
+2024-08-30 16:00:00 [SignalGen] HPE-GLW: z-score=-0.997 (raw=-0.885)
+2024-08-30 16:00:00 [AlphaModel] 生成6个Insights
+2024-08-30 16:00:00 [PC] 收到6个Insights
+2024-09-03 00:00:00 [AlphaModel] 生成信号: 跟踪5对配对
+2024-09-03 16:00:00 [SignalGen] ETN-VRT: z-score=-0.427 (raw=-0.488)
+2024-09-03 16:00:00 [SignalGen] PG-WMT: z-score=-0.977 (raw=-0.810)
+2024-09-03 16:00:00 [SignalGen] PR-CNQ: z-score=-2.093 (raw=-2.014)
+2024-09-03 16:00:00 [SignalGen] ET-EPD: z-score=-0.597 (raw=-0.538)
+2024-09-03 16:00:00 [SignalGen] HPE-GLW: z-score=-0.873 (raw=-0.842)
+2024-09-03 16:00:00 [AlphaModel] 生成2个Insights
+2024-09-03 16:00:00 [PC] 收到2个Insights
+2024-09-04 00:00:00 ===== 第【3】次选股 =====
+2024-09-04 00:00:00 [UniverseSelection] 筛选流程: 初始166只 → 财务筛选103只 → 波动率筛选97只 → 最终选择86只
+2024-09-04 00:00:00 [UniverseSelection] 财务过滤明细: PE(13) ROE(30) 债务(3) 杠杆(26)
+2024-09-04 00:00:00 [UniverseSelection] 波动率过滤: 高波动6只, 数据缺失0只
+2024-09-04 00:00:00 [UniverseSelection] 行业分布: Technology(20只,波动率36.2%) Energy(15只,波动率24.9%) ConsumerCyclical(13只,波动率36.9%) ConsumerDefensive(11只,波动率21.2%) Healthcare(8只,波动率29.5%) CommunicationServices(7只,波动率26.4%) Industrials(7只,波动率32.0%) Utilities(5只,波动率22.3%)
+2024-09-04 00:00:00 [UniverseSelection] 选股完成: 共86只股票, 前5样本: ['MSFT(20.0%)', 'CSCO(20.1%)', 'AAPL(22.6%)', 'APH(24.4%)', 'TXN(25.5%)']
+2024-09-04 00:00:00 [AlphaModel.Data] 数据处理: 86→86只 ()
+2024-09-04 00:00:00 [AlphaModel.Coint] 合计筛选5对: 平均0.895, 最高0.942, 最低0.818
+2024-09-04 00:00:00 [AlphaModel.Coint] ConsumerCyclical: (KSS,STLA)/0.909, (KSS,M)/0.882
+2024-09-04 00:00:00 [AlphaModel.Coint] ConsumerDefensive: (PG,WMT)/0.926
+2024-09-04 00:00:00 [AlphaModel.Coint] Industrials: (DAL,UAL)/0.942, (UAL,VRT)/0.818
+2024-09-04 00:00:00 [PairLedger] 本轮新发现[DAL-UAL, KSS-STLA, KSS-M, UAL-VRT], 总计管理12对
+2024-09-04 00:00:00 [AlphaModel.Bayesian] 建模完成: 成功5对, 失败0对 (完全建模4对, 动态更新1对)
+2024-09-04 00:00:00 [AlphaModel] 生成信号: 跟踪5对配对
+2024-09-04 16:00:00 [SignalGen] DAL-UAL: z-score=0.262 (raw=0.262)
+2024-09-04 16:00:00 [SignalGen] PG-WMT: z-score=-0.401 (raw=-0.257)
+2024-09-04 16:00:00 [SignalGen] KSS-STLA: z-score=0.449 (raw=0.449)
+2024-09-04 16:00:00 [SignalGen] KSS-M: z-score=-0.963 (raw=-0.963)
+2024-09-04 16:00:00 [SignalGen] UAL-VRT: z-score=-0.496 (raw=-0.496)
+2024-09-04 16:00:00 [AlphaModel] 生成2个Insights
+2024-09-04 16:00:00 [PC] 收到2个Insights
+2024-09-05 00:00:00 [AlphaModel] 生成信号: 跟踪5对配对
+2024-09-05 16:00:00 [SignalGen] DAL-UAL: z-score=-0.170 (raw=-0.278)
+2024-09-05 16:00:00 [SignalGen] PG-WMT: z-score=-0.312 (raw=-0.290)
+2024-09-05 16:00:00 [SignalGen] KSS-STLA: z-score=0.497 (raw=0.509)
+2024-09-05 16:00:00 [SignalGen] KSS-M: z-score=-0.901 (raw=-0.886)
+2024-09-05 16:00:00 [SignalGen] UAL-VRT: z-score=-0.280 (raw=-0.226)
+2024-09-05 16:00:00 [AlphaModel] 生成4个Insights
+2024-09-05 16:00:00 [PC] 收到4个Insights
+2024-09-06 00:00:00 [AlphaModel] 生成信号: 跟踪5对配对
+2024-09-06 16:00:00 [SignalGen] DAL-UAL: z-score=-0.638 (raw=-0.755)
+2024-09-06 16:00:00 [SignalGen] PG-WMT: z-score=-0.200 (raw=-0.172)
+2024-09-06 16:00:00 [SignalGen] KSS-STLA: z-score=0.347 (raw=0.310)
+2024-09-06 16:00:00 [SignalGen] KSS-M: z-score=-1.097 (raw=-1.146)
+2024-09-06 16:00:00 [SignalGen] UAL-VRT: z-score=0.073 (raw=0.161)
+2024-09-06 16:00:00 [AlphaModel] 生成6个Insights
+2024-09-06 16:00:00 [PC] 收到6个Insights
+2024-09-09 00:00:00 [AlphaModel] 生成信号: 跟踪5对配对
+2024-09-09 16:00:00 [SignalGen] DAL-UAL: z-score=-1.124 (raw=-1.245)
+2024-09-09 16:00:00 [SignalGen] PG-WMT: z-score=-0.233 (raw=-0.242)
+2024-09-09 16:00:00 [SignalGen] KSS-STLA: z-score=0.279 (raw=0.261)
+2024-09-09 16:00:00 [SignalGen] KSS-M: z-score=-1.130 (raw=-1.139)
+2024-09-09 16:00:00 [SignalGen] UAL-VRT: z-score=0.650 (raw=0.794)
+2024-09-09 16:00:00 [AlphaModel] 生成8个Insights
+2024-09-09 16:00:00 [PC] 收到8个Insights
+2024-09-10 00:00:00 [AlphaModel] 生成信号: 跟踪5对配对
+2024-09-10 16:00:00 [SignalGen] DAL-UAL: z-score=-1.204 (raw=-1.224)
+2024-09-10 16:00:00 [SignalGen] PG-WMT: z-score=-0.211 (raw=-0.206)
+2024-09-10 16:00:00 [SignalGen] KSS-STLA: z-score=0.425 (raw=0.462)
+2024-09-10 16:00:00 [SignalGen] KSS-M: z-score=-1.082 (raw=-1.070)
+2024-09-10 16:00:00 [SignalGen] UAL-VRT: z-score=0.664 (raw=0.668)
+2024-09-10 16:00:00 [AlphaModel] 生成6个Insights
+2024-09-10 16:00:00 [PC] 收到6个Insights
+2024-09-11 00:00:00 [AlphaModel] 生成信号: 跟踪5对配对
+2024-09-11 16:00:00 [SignalGen] DAL-UAL: z-score=-0.932 (raw=-0.864)
+2024-09-11 16:00:00 [SignalGen] PG-WMT: z-score=-0.991 (raw=-1.187)
+2024-09-11 16:00:00 [SignalGen] KSS-STLA: z-score=0.274 (raw=0.237)
+2024-09-11 16:00:00 [SignalGen] KSS-M: z-score=-1.298 (raw=-1.352)
+2024-09-11 16:00:00 [SignalGen] UAL-VRT: z-score=0.470 (raw=0.422)
+2024-09-11 16:00:00 [AlphaModel] 生成4个Insights
+2024-09-11 16:00:00 [PC] 收到4个Insights
+2024-09-12 00:00:00 [AlphaModel] 生成信号: 跟踪5对配对
+2024-09-12 16:00:00 [SignalGen] DAL-UAL: z-score=-1.288 (raw=-1.377)
+2024-09-12 16:00:00 [SignalGen] PG-WMT: z-score=-1.412 (raw=-1.517)
+2024-09-12 16:00:00 [SignalGen] KSS-STLA: z-score=0.519 (raw=0.580)
+2024-09-12 16:00:00 [SignalGen] KSS-M: z-score=-1.171 (raw=-1.140)
+2024-09-12 16:00:00 [SignalGen] UAL-VRT: z-score=0.556 (raw=0.577)
+2024-09-12 16:00:00 [AlphaModel] 生成6个Insights
+2024-09-12 16:00:00 [PC] 收到6个Insights
+2024-09-13 00:00:00 [AlphaModel] 生成信号: 跟踪5对配对
+2024-09-13 16:00:00 [SignalGen] DAL-UAL: z-score=-1.243 (raw=-1.231)
+2024-09-13 16:00:00 [SignalGen] PG-WMT: z-score=-1.568 (raw=-1.607)
+2024-09-13 16:00:00 [SignalGen] KSS-STLA: z-score=0.671 (raw=0.709)
+2024-09-13 16:00:00 [SignalGen] KSS-M: z-score=-1.139 (raw=-1.131)
+2024-09-13 16:00:00 [SignalGen] UAL-VRT: z-score=0.718 (raw=0.758)
+2024-09-13 16:00:00 [AlphaModel] 生成6个Insights
+2024-09-13 16:00:00 [PC] 收到6个Insights
+2024-09-16 00:00:00 [AlphaModel] 生成信号: 跟踪5对配对
+2024-09-16 16:00:00 [SignalGen] DAL-UAL: z-score=-1.560 (raw=-1.639)
+2024-09-16 16:00:00 [SignalGen] PG-WMT: z-score=-0.955 (raw=-0.802)
+2024-09-16 16:00:00 [SignalGen] KSS-STLA: z-score=0.238 (raw=0.130)
+2024-09-16 16:00:00 [SignalGen] KSS-M: z-score=-1.523 (raw=-1.619)
+2024-09-16 16:00:00 [SignalGen] UAL-VRT: z-score=0.943 (raw=0.999)
+2024-09-16 16:00:00 [AlphaModel] 生成6个Insights
+2024-09-16 16:00:00 [PC] 收到6个Insights
+2024-09-17 00:00:00 [AlphaModel] 生成信号: 跟踪5对配对
+2024-09-17 16:00:00 [SignalGen] DAL-UAL: z-score=-1.596 (raw=-1.605)
+2024-09-17 16:00:00 [SignalGen] PG-WMT: z-score=-0.693 (raw=-0.627)
+2024-09-17 16:00:00 [SignalGen] KSS-STLA: z-score=0.097 (raw=0.062)
+2024-09-17 16:00:00 [SignalGen] KSS-M: z-score=-1.705 (raw=-1.750)
+2024-09-17 16:00:00 [SignalGen] UAL-VRT: z-score=1.236 (raw=1.309)
+2024-09-17 16:00:00 [AlphaModel] 生成8个Insights
+2024-09-17 16:00:00 [PC] 收到8个Insights
+2024-09-18 00:00:00 [AlphaModel] 生成信号: 跟踪5对配对
+2024-09-18 16:00:00 [SignalGen] DAL-UAL: z-score=-1.628 (raw=-1.636)
+2024-09-18 16:00:00 [SignalGen] PG-WMT: z-score=-1.128 (raw=-1.237)
+2024-09-18 16:00:00 [SignalGen] KSS-STLA: z-score=0.156 (raw=0.170)
+2024-09-18 16:00:00 [SignalGen] KSS-M: z-score=-1.642 (raw=-1.627)
+2024-09-18 16:00:00 [SignalGen] UAL-VRT: z-score=1.347 (raw=1.375)
+2024-09-18 16:00:00 [AlphaModel] 生成10个Insights
+2024-09-18 16:00:00 [PC] 收到10个Insights
+2024-09-19 00:00:00 [AlphaModel] 生成信号: 跟踪5对配对
+2024-09-19 16:00:00 [SignalGen] DAL-UAL: z-score=-1.448 (raw=-1.402)
+2024-09-19 16:00:00 [SignalGen] PG-WMT: z-score=-1.492 (raw=-1.583)
+2024-09-19 16:00:00 [SignalGen] KSS-STLA: z-score=-0.099 (raw=-0.163)
+2024-09-19 16:00:00 [SignalGen] KSS-M: z-score=-1.856 (raw=-1.910)
+2024-09-19 16:00:00 [SignalGen] UAL-VRT: z-score=1.181 (raw=1.140)
+2024-09-19 16:00:00 [AlphaModel] 生成10个Insights
+2024-09-19 16:00:00 [PC] 收到10个Insights
+2024-09-20 16:00:00 [AlphaModel] 生成信号: 跟踪5对配对
+2024-09-20 16:00:00 [SignalGen] DAL-UAL: z-score=-1.337 (raw=-1.310)
+2024-09-20 16:00:00 [SignalGen] PG-WMT: z-score=-1.247 (raw=-1.186)
+2024-09-20 16:00:00 [SignalGen] KSS-STLA: z-score=0.042 (raw=0.077)
+2024-09-20 16:00:00 [SignalGen] KSS-M: z-score=-1.862 (raw=-1.863)
+2024-09-20 16:00:00 [SignalGen] UAL-VRT: z-score=1.003 (raw=0.958)
+2024-09-20 16:00:00 [AlphaModel] 生成10个Insights
+2024-09-20 16:00:00 [PC] 收到10个Insights
+2024-09-21 00:00:00 Algorithm Id:(0a8b22bad7c4d82772232ac45f0fe65d) completed in 140.08 seconds at 1k data points per second. Processing total of 149,075 data points.

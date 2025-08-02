@@ -110,6 +110,12 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         for insight in insights:
             if insight.GroupId is not None:
                 grouped_insights[insight.GroupId].append(insight)
+            else:
+                # 调试：输出没有GroupId的Insight
+                self.algorithm.Debug(f"[PC] 警告: Insight没有GroupId - Symbol: {insight.Symbol.Value}, Direction: {insight.Direction}")
+        
+        # 调试：输出分组结果
+        self.algorithm.Debug(f"[PC] GroupId分组结果: {len(grouped_insights)}组")
         
         # 收集所有建仓信号
         new_position_signals = []

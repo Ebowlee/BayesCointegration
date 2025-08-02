@@ -877,7 +877,19 @@ class SignalGenerator:
         for pair in modeled_pairs:
             pair_with_zscore = self._calculate_zscore(pair, data)
             if pair_with_zscore:
-                insights.extend(self._generate_pair_signals(pair_with_zscore))
+                pair_insights = self._generate_pair_signals(pair_with_zscore)
+                # Insight.Group可能返回特殊对象，需要正确处理
+                if pair_insights:
+                    # 如果是可迭代对象，使用extend；否则尝试其他方式
+                    try:
+                        insights.extend(pair_insights)
+                    except TypeError:
+                        # 如果extend失败，可能是单个对象或特殊类型
+                        if hasattr(pair_insights, '__iter__'):
+                            for insight in pair_insights:
+                                insights.append(insight)
+                        else:
+                            insights.append(pair_insights)
         
         return insights
     
@@ -964,9 +976,11 @@ class SignalGenerator:
     
     def _create_insight_group(self, symbol1: Symbol, symbol2: Symbol, 
                              direction1: InsightDirection, direction2: InsightDirection,
-                             duration_days: int, tag: str) -> List:
+                             duration_days: int, tag: str):
         """
         创建配对的Insight组
+        
+        注意：返回Insight.Group()的原始结果，不要用list()包装
         """
         return Insight.Group(
             Insight.Price(symbol1, timedelta(days=duration_days), direction1, 
@@ -989,11 +1003,11 @@ class SignalGenerator:
         
         # 风险检查 - 极端偏离
         if abs(zscore) > self.upper_limit:
-            return list(self._create_insight_group(
+            return self._create_insight_group(
                 symbol1, symbol2, 
                 InsightDirection.Flat, InsightDirection.Flat,
                 self.flat_signal_duration_days, tag
-            ))
+            )
         
         # 建仓信号 - 价格偏离超过阈值
         if abs(zscore) > self.entry_threshold:
@@ -1005,18 +1019,18 @@ class SignalGenerator:
                 # z<0: 股票1相对低估，做多1做空2
                 direction1, direction2 = InsightDirection.Up, InsightDirection.Down
                 
-            return list(self._create_insight_group(
+            return self._create_insight_group(
                 symbol1, symbol2, direction1, direction2,
                 self.entry_signal_duration_days, tag
-            ))
+            )
         
         # 平仓信号 - 价格回归均值
         if abs(zscore) < self.exit_threshold:
-            return list(self._create_insight_group(
+            return self._create_insight_group(
                 symbol1, symbol2,
                 InsightDirection.Flat, InsightDirection.Flat,
                 self.flat_signal_duration_days, tag
-            ))
+            )
         
         return []
 
