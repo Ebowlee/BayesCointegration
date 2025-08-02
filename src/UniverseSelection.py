@@ -371,13 +371,7 @@ class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
             selected = sorted_stocks[:max_per_sector]
             all_selected.extend(selected)
             
-            # 记录每个行业的选择情况
-            if selected:
-                sector_name = self.sector_code_to_name.get(sector_code, "Unknown")
-                self.algorithm.Debug(
-                    f"[UniverseSelection] {sector_name}行业: "
-                    f"候选{len(sector_stocks)}只 → 选择{len(selected)}只"
-                )
+            # 行业选股详情已在最后的行业分布中统一输出，避免重复日志
         
         return all_selected
 

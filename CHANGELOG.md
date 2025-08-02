@@ -4,6 +4,30 @@
 
 ---
 
+## [v2.14.1_quality-score-optimization@20250802]
+### 工作内容
+- 优化quality_score使用机制，复用AlphaModel的综合评分系统
+- 修正信号Tag格式，确保quality_score正确传递
+- 避免在PC模块重复计算质量分数
+
+### 技术细节
+- **AlphaModel质量评分系统**：
+  - 统计显著性(40%)：基于协整检验p-value
+  - 相关性(30%)：Pearson相关系数
+  - 流动性匹配(30%)：成交额比率
+  - 综合评分范围：0-1之间
+- **信号传递优化**：
+  - Tag格式更新：'symbol1&symbol2|alpha|beta|zscore|quality_score'
+  - 贝叶斯建模器传递quality_score到信号生成器
+  - PC模块直接解析使用，无需重新计算
+
+### 影响分析
+- 质量评分更准确：使用综合多维度评分，而非简单z-score
+- 系统一致性提升：全流程使用统一的质量评分
+- 计算效率提高：避免重复计算，复用已有结果
+
+---
+
 ## [v2.14.0_dynamic-capital-allocation@20250802]
 ### 工作内容
 - 实现PortfolioConstruction模块动态资金管理

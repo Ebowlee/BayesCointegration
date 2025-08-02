@@ -6,8 +6,8 @@ from QuantConnect.Data.Fundamental import MorningstarSectorCode
 from src.AlphaModel import BayesianCointegrationAlphaModel
 from src.PairLedger import PairLedger
 from src.PortfolioConstruction import BayesianCointegrationPortfolioConstructionModel
-from QuantConnect.Algorithm.Framework.Risk import MaximumDrawdownPercentPortfolio, MaximumSectorExposureRiskManagementModel
-from src.RiskManagement import BayesianCointegrationRiskManagementModel
+# from QuantConnect.Algorithm.Framework.Risk import MaximumDrawdownPercentPortfolio, MaximumSectorExposureRiskManagementModel
+# from src.RiskManagement import BayesianCointegrationRiskManagementModel
 # endregion
     
 
@@ -56,7 +56,7 @@ class StrategyConfig:
             'mcmc_warmup_samples': 1000,
             'mcmc_posterior_samples': 1000,
             'mcmc_chains': 2,
-            'entry_threshold': 1.2,  
+            'entry_threshold': 1.0,  # 从1.2降低到1.0，提高信号触发概率
             'exit_threshold': 0.3,  
             'upper_limit': 3.0,  
             'lower_limit': -3.0,
@@ -154,18 +154,18 @@ class BayesianCointegrationStrategy(QCAlgorithm):
             self, self.config.portfolio_construction, self.pair_ledger
         ))
         
-        # 设置RiskManagement模块
-        # 框架的组合级别风控
-        self.AddRiskManagement(MaximumDrawdownPercentPortfolio(self.config.main['portfolio_max_drawdown']))
-        self.AddRiskManagement(MaximumSectorExposureRiskManagementModel(self.config.main['portfolio_max_sector_exposure']))
+        # # 设置RiskManagement模块
+        # # 框架的组合级别风控
+        # self.AddRiskManagement(MaximumDrawdownPercentPortfolio(self.config.main['portfolio_max_drawdown']))
+        # self.AddRiskManagement(MaximumSectorExposureRiskManagementModel(self.config.main['portfolio_max_sector_exposure']))
         
-        # 自定义的配对级别风控
-        self.risk_manager = BayesianCointegrationRiskManagementModel(
-            self, 
-            self.config.risk_management, 
-            self.pair_ledger
-        )
-        self.AddRiskManagement(self.risk_manager)
+        # # 自定义的配对级别风控
+        # self.risk_manager = BayesianCointegrationRiskManagementModel(
+        #     self, 
+        #     self.config.risk_management, 
+        #     self.pair_ledger
+        # )
+        # self.AddRiskManagement(self.risk_manager)
 
         # # # # 设置Execution模块
         # # # self.SetExecution(MyExecutionModel(self))

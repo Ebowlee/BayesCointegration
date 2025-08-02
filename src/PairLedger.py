@@ -190,6 +190,8 @@ class PairLedger:
         
         # 处理新发现的配对
         current_round_pairs = set()
+        new_discovered_pairs = []  # 记录新发现的配对
+        
         for symbol1, symbol2 in new_pairs:
             pair_key = self._get_pair_key(symbol1, symbol2)
             current_round_pairs.add(pair_key)
@@ -197,7 +199,7 @@ class PairLedger:
             # 新配对
             if pair_key not in self.all_pairs:
                 self.all_pairs[pair_key] = PairInfo(*pair_key)
-                self.algorithm.Debug(f"[PairLedger] 发现新配对: {pair_key[0].Value}-{pair_key[1].Value}")
+                new_discovered_pairs.append(f"{pair_key[0].Value}-{pair_key[1].Value}")
             
             # 更新发现状态
             self.all_pairs[pair_key].is_current_round = True
@@ -209,9 +211,26 @@ class PairLedger:
         # 重建symbol映射
         self._rebuild_symbol_map()
         
+        # 构建持续追踪的配对列表（有持仓的配对）
+        tracking_pairs = []
+        for pair_info in self.all_pairs.values():
+            if pair_info.get_position_status(self.algorithm)['has_position']:
+                tracking_pairs.append(f"{pair_info.symbol1.Value}-{pair_info.symbol2.Value}")
+        
+        # 优化日志输出
+        if new_discovered_pairs:
+            new_pairs_str = f"本轮新发现[{', '.join(new_discovered_pairs)}]"
+        else:
+            new_pairs_str = "本轮无新发现"
+            
+        if tracking_pairs:
+            tracking_str = f", 持续追踪[{', '.join(tracking_pairs)}]"
+        else:
+            tracking_str = ""
+            
         self.algorithm.Debug(
-            f"[PairLedger] 本轮发现{len(current_round_pairs)}对，"
-            f"总计跟踪{len(self.all_pairs)}对"
+            f"[PairLedger] {new_pairs_str}{tracking_str}, "
+            f"总计管理{len(self.all_pairs)}对"
         )
     
     def get_risk_control_data(self) -> List[Dict]:

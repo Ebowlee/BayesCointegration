@@ -957,7 +957,8 @@ class SignalGenerator:
             'current_price2': current_price2
         })
         
-        # z-score日志已移除，减少日志噪音
+        # 添加调试日志，监控z-score值
+        self.algorithm.Debug(f"[SignalGen] {symbol1.Value}-{symbol2.Value}: z-score={smoothed_zscore:.3f} (raw={raw_zscore:.3f})")
         
         return pair
     
@@ -1199,6 +1200,10 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         
         # 步骤4: 日常信号生成 - 基于实时价格生成交易信号
         if self.modeled_pairs:
-            return self.signal_generator.generate_signals(self.modeled_pairs, data)
+            self.algorithm.Debug(f"[AlphaModel] 生成信号: 跟踪{len(self.modeled_pairs)}对配对")
+            insights = self.signal_generator.generate_signals(self.modeled_pairs, data)
+            if insights:
+                self.algorithm.Debug(f"[AlphaModel] 生成{len(insights)}个Insights")
+            return insights
         
         return []
