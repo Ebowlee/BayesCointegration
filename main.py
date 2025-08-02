@@ -6,8 +6,7 @@ from QuantConnect.Data.Fundamental import MorningstarSectorCode
 from src.AlphaModel import BayesianCointegrationAlphaModel
 from src.PairLedger import PairLedger
 from src.PortfolioConstruction import BayesianCointegrationPortfolioConstructionModel
-# from QuantConnect.Algorithm.Framework.Risk import MaximumDrawdownPercentPortfolio, MaximumSectorExposureRiskManagementModel
-# from src.RiskManagement import BayesianCointegrationRiskManagementModel
+from src.RiskManagement import BayesianCointegrationRiskManagementModel
 # endregion
     
 
@@ -81,8 +80,9 @@ class StrategyConfig:
         
         # RiskManagement 配置
         self.risk_management = {
-            'max_drawdown_percent': 0.10,
-            'max_holding_days': 60  # 最大持仓天数
+            'max_holding_days': 60,          # 最大持仓天数
+            'max_pair_drawdown': 0.10,       # 配对最大回撤10%
+            'max_single_drawdown': 0.20      # 单边最大回撤20%
         }
         
         # 行业映射配置
@@ -159,18 +159,13 @@ class BayesianCointegrationStrategy(QCAlgorithm):
             self, self.config.portfolio_construction
         ))
         
-        # # 设置RiskManagement模块
-        # # 框架的组合级别风控
-        # self.AddRiskManagement(MaximumDrawdownPercentPortfolio(self.config.main['portfolio_max_drawdown']))
-        # self.AddRiskManagement(MaximumSectorExposureRiskManagementModel(self.config.main['portfolio_max_sector_exposure']))
-        
-        # # 自定义的配对级别风控
-        # self.risk_manager = BayesianCointegrationRiskManagementModel(
-        #     self, 
-        #     self.config.risk_management, 
-        #     self.pair_ledger
-        # )
-        # self.AddRiskManagement(self.risk_manager)
+        # RiskManagement模块
+        self.risk_manager = BayesianCointegrationRiskManagementModel(
+            self, 
+            self.config.risk_management, 
+            self.pair_ledger
+        )
+        self.AddRiskManagement(self.risk_manager)
 
         # # # # 设置Execution模块
         # # # self.SetExecution(MyExecutionModel(self))

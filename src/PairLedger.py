@@ -97,18 +97,19 @@ class PairInfo:
         # 实时判断是否有持仓
         has_position = h1.Invested and h2.Invested
         
-        # 自动管理entry_time和last_exit_time
+        # 简化的时间管理：只在首次发现持仓时记录
         if has_position and not self.entry_time:
-            # 刚建仓
+            # 首次发现有持仓
             self.entry_time = algorithm.Time
+            algorithm.Debug(f"[PairLedger] 首次发现持仓 [{self.symbol1.Value},{self.symbol2.Value}]")
         elif not has_position and self.entry_time:
-            # 刚平仓
-            if self.entry_time:
-                holding_days = (algorithm.Time - self.entry_time).days
-                self.holding_days_total += holding_days
-                self.trade_count += 1
+            # 检测到平仓
+            holding_days = (algorithm.Time - self.entry_time).days
+            self.holding_days_total += holding_days
+            self.trade_count += 1
             self.entry_time = None
             self.last_exit_time = algorithm.Time
+            algorithm.Debug(f"[PairLedger] 检测到平仓 [{self.symbol1.Value},{self.symbol2.Value}], 持仓{holding_days}天")
         
         # 计算整对的持仓价值
         total_value = abs(h1.HoldingsValue) + abs(h2.HoldingsValue)
