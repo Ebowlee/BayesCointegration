@@ -610,6 +610,7 @@ class BayesianModeler:
                 'symbol1': symbol1,
                 'symbol2': symbol2,
                 'sector': pair['sector'],
+                'quality_score': pair.get('quality_score', 0.5),  # 传递quality_score
                 'modeling_type': 'dynamic' if prior_params else 'full',
                 'modeling_time': self.algorithm.Time
             }
@@ -981,8 +982,9 @@ class SignalGenerator:
         zscore = pair['zscore']
         
         # 构建标签 - 包含关键信息便于追踪和调试
-        # 格式：symbol1&symbol2|alpha|beta|zscore
-        tag = f"{symbol1.Value}&{symbol2.Value}|{pair['alpha_mean']:.4f}|{pair['beta_mean']:.4f}|{zscore:.2f}"
+        # 格式：symbol1&symbol2|alpha|beta|zscore|quality_score
+        quality_score = pair.get('quality_score', 0.5)  # 默认0.5如果没有
+        tag = f"{symbol1.Value}&{symbol2.Value}|{pair['alpha_mean']:.4f}|{pair['beta_mean']:.4f}|{zscore:.2f}|{quality_score:.3f}"
         
         # 风险检查 - 极端偏离
         if abs(zscore) > self.upper_limit:

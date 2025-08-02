@@ -4,6 +4,38 @@
 
 ---
 
+## [v2.14.0_dynamic-capital-allocation@20250802]
+### 工作内容
+- 实现PortfolioConstruction模块动态资金管理
+- 移除固定最大配对数限制，改用基于可用资金的动态分配
+- 整合框架RiskManagementModel，删除自定义风控系统
+- 优化信号质量评估，基于z-score计算quality_score
+
+### 技术细节
+- **动态资金管理**：
+  - 单对仓位范围：5%-10%，根据信号质量动态调整
+  - 基于z-score计算quality_score，优先分配资金给高质量信号
+  - 实时计算可用资金，自动停止分配当资金不足
+  - 移除max_pairs限制，让市场机会和资金可用性决定配对数量
+- **框架集成**：
+  - 删除CustomRiskManager，改用框架的RiskManagementModel
+  - ManageRisk方法每个Resolution步自动调用，确保持续风控
+  - PairLedger使用实时Portfolio查询，无需缓存状态
+  - 移除OnData和OnOrderEvent，完全依赖框架机制
+- **代码优化**：
+  - 新增_parse_tag_params方法解析信号参数和质量
+  - 新增_allocate_capital_and_create_targets实现动态分配
+  - 清理所有risk_triggered相关代码
+  - 更新配置参数支持动态资金管理
+
+### 影响分析
+- 资金利用率提升：不再受固定配对数限制，充分利用可用资金
+- 风险控制改善：框架自动调用风控，更可靠稳定
+- 信号质量优先：高质量信号获得更多资金分配
+- 架构更简洁：删除自定义风控系统，减少代码复杂度
+
+---
+
 ## [v2.13.0_pairledger-risk-control@20250801]
 ### 工作内容
 - 创建独立的PairLedger模块，实现配对状态跨周期管理

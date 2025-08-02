@@ -98,24 +98,21 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
     def _parse_tag_params(self, tag: str) -> Optional[Dict]:
         """从Tag中解析参数
         
-        Tag格式: 'symbol1&symbol2|alpha|beta|zscore|num_pairs'
+        Tag格式: 'symbol1&symbol2|alpha|beta|zscore|quality_score'
         
         Returns:
             Dict: 包含beta和quality_score的字典
         """
         try:
             tag_parts = tag.split(self.TAG_DELIMITER)
-            if len(tag_parts) < 4:
+            if len(tag_parts) < 5:
                 self.algorithm.Debug(f"[PC] Tag格式错误: {tag}")
                 return None
             
             # 解析参数
             beta = float(tag_parts[2])
             zscore = float(tag_parts[3])
-            
-            # 计算质量分数（基于z-score的绝对值）
-            # z-score越大，信号越强
-            quality_score = min(abs(zscore) / 3.0, 1.0)  # 归一化到[0,1]
+            quality_score = float(tag_parts[4])  # 直接使用AlphaModel计算的quality_score
             
             return {
                 'beta': beta,
