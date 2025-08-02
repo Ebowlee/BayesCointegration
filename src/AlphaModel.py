@@ -18,7 +18,7 @@ class DataProcessor:
     """
     数据处理器类 - 负责历史数据的获取和预处理
     
-    该类是AlphaModel的第一道防线，确保后续分析基于高质量的数据。
+    该类是AlphaModel的第一道防线, 确保后续分析基于高质量的数据。
     主要职责包括数据下载、完整性检查和异常值处理。
     
     处理流程:
@@ -28,8 +28,8 @@ class DataProcessor:
     4. 缺失值填补: 使用线性插值和前向/后向填充
     
     配置参数:
-    - lookback_period: 历史数据回望天数（默认252天）
-    - min_data_completeness_ratio: 最低数据完整性要求（默认0.98）
+    - lookback_period: 历史数据回望天数(默认252天)
+    - min_data_completeness_ratio: 最低数据完整性要求(默认0.98)
     
     使用示例:
         processor = DataProcessor(algorithm, config)
@@ -38,8 +38,8 @@ class DataProcessor:
         valid_symbols = result['valid_symbols']  # 通过筛选的股票
     
     注意事项:
-    - 数据下载可能因网络或API限制失败，需要容错处理
-    - 填补方法的顺序很重要：先插值，后填充
+    - 数据下载可能因网络或API限制失败, 需要容错处理
+    - 填补方法的顺序很重要：先插值, 后填充
     """
     
     def __init__(self, algorithm, config: dict):
@@ -99,7 +99,7 @@ class DataProcessor:
     
     def _process_symbol(self, symbol: Symbol, all_histories, statistics: dict):
         """
-        处理单个股票，返回处理后的数据或None
+        处理单个股票, 返回处理后的数据或None
         """
         try:
             # 检查数据存在性
@@ -192,7 +192,7 @@ class CointegrationAnalyzer:
     协整分析器类 - 识别具有长期均衡关系的股票配对
     
     该类实现了配对交易的核心逻辑：寻找价格走势存在稳定关系的股票对。
-    通过Engle-Granger协整检验和综合质量评分系统，筛选出最优配对。
+    通过Engle-Granger协整检验和综合质量评分系统, 筛选出最优配对。
     
     核心功能:
     1. 行业内配对: 只在相同行业内寻找配对，确保业务相关性
@@ -201,15 +201,15 @@ class CointegrationAnalyzer:
     4. 智能筛选: 限制每只股票出现次数，确保分散化
     
     配对质量评分系统:
-    - 统计显著性 (40%): 1 - pvalue，协整关系的统计可靠性
-    - 相关性 (30%): 价格序列的相关系数，确保配对有意义
-    - 流动性匹配 (30%): 成交额比率，确保交易可执行性
+    - 统计显著性 (40%): 1 - pvalue, 协整关系的统计可靠性
+    - 相关性 (20%): 价格序列的相关系数, 确保配对有意义
+    - 流动性匹配 (40%): 成交额比率, 确保交易可执行性
     
     配置参数:
-    - pvalue_threshold: 协整检验p值阈值（默认0.025）
-    - correlation_threshold: 最低相关系数要求（默认0.5）
-    - max_symbol_repeats: 每只股票最多出现次数（默认1）
-    - max_pairs: 最多选择配对数量（默认5）
+    - pvalue_threshold: 协整检验p值阈值(默认0.05)
+    - correlation_threshold: 最低相关系数要求(默认0.7)
+    - max_symbol_repeats: 每只股票最多出现次数(默认3)
+    - max_pairs: 最多选择配对数量(默认20)
     
     工作流程:
     1. 按Morningstar行业分组
@@ -240,11 +240,11 @@ class CointegrationAnalyzer:
         
         # 配对质量评分权重配置
         # 权重设计理念：统计显著性是基础，相关性确保配对合理，流动性保证可执行
-        self.quality_weights = {
+        self.quality_weights = config.get('quality_weights', {
             'statistical': 0.4,  # 统计显著性权重（1-pvalue）- 协整关系的统计可靠性
             'correlation': 0.3,  # 相关性权重 - 确保价格走势相似而非随机
             'liquidity': 0.3     # 流动性匹配权重 - 避免流动性差异导致的执行风险
-        }
+        })
     
     def analyze(self, valid_symbols: List[Symbol], clean_data: Dict[Symbol, pd.DataFrame], 
                 sector_code_to_name: Dict) -> Dict:
@@ -348,9 +348,9 @@ class CointegrationAnalyzer:
         
         Args:
             symbol1, symbol2: 股票代码
-            prices1, prices2: 收盘价序列（用于协整检验）
+            prices1, prices2: 收盘价序列(用于协整检验)
             sector_name: 行业名称
-            data1, data2: 完整的DataFrame（包含volume等，用于流动性计算）
+            data1, data2: 完整的DataFrame(包含volume等, 用于流动性计算)
         """
         try:
             # Engle-Granger协整检验
@@ -390,7 +390,7 @@ class CointegrationAnalyzer:
             data1, data2: 包含volume和close列的DataFrame
             
         Returns:
-            float: 流动性匹配分数（0到1之间）
+            float: 流动性匹配分数(0到1之间)
         """
         try:
             # 计算252天平均日成交额
@@ -419,7 +419,7 @@ class CointegrationAnalyzer:
             pair: 包含pvalue, correlation, liquidity_match的配对信息字典
             
         Returns:
-            float: 综合质量分数（0到1之间）
+            float: 综合质量分数(0到1之间)
         """
         # 各项分数归一化到0-1
         statistical_score = 1 - pair['pvalue']  # pvalue越小，统计显著性越高
@@ -500,15 +500,15 @@ class BayesianModeler:
     """
     贝叶斯建模器类 - 使用MCMC方法估计配对交易参数
     
-    该类实现了贝叶斯统计框架下的配对关系建模，通过MCMC采样获得
-    参数的完整后验分布，提供比传统OLS更丰富的不确定性量化。
+    该类实现了贝叶斯统计框架下的配对关系建模, 通过MCMC采样获得
+    参数的完整后验分布, 提供比传统OLS更丰富的不确定性量化。
     
     核心模型:
     log(price1) = alpha + beta * log(price2) + epsilon
     其中:
-    - alpha: 截距项，反映两只股票的基础价差
-    - beta: 斜率项，反映价格敏感度（对冲比率）
-    - epsilon: 误差项，假设服从正态分布N(0, sigma²)
+    - alpha: 截距项, 反映两只股票的基础价差
+    - beta: 斜率项, 反映价格敏感度(对冲比率)
+    - epsilon: 误差项, 假设服从正态分布N(0, sigma²)
     
     建模特性:
     1. 完全建模: 首次发现配对时，使用无信息先验
@@ -517,10 +517,10 @@ class BayesianModeler:
     4. 自适应采样: 根据建模类型调整采样参数
     
     MCMC配置:
-    - mcmc_warmup_samples: 预热采样数（默认1000）
-    - mcmc_posterior_samples: 后验采样数（默认1000）
-    - mcmc_chains: 马尔可夫链数量（默认2）
-    - lookback_period: 历史数据有效期（默认252天）
+    - mcmc_warmup_samples: 预热采样数(默认1000)
+    - mcmc_posterior_samples: 后验采样数(默认1000)
+    - mcmc_chains: 马尔可夫链数量(默认2)
+    - lookback_period: 历史数据有效期(默认252天)
     
     先验设置:
     - 完全建模: alpha~N(0,10), beta~N(1,5), sigma~HalfNormal(5)
@@ -533,8 +533,8 @@ class BayesianModeler:
     - 小样本下的稳定性
     
     注意事项:
-    - MCMC采样计算密集，需要平衡精度和速度
-    - 先验选择会影响结果，特别是小样本情况
+    - MCMC采样计算密集, 需要平衡精度和速度
+    - 先验选择会影响结果, 特别是小样本情况
     - 动态更新避免了参数的剧烈跳动
     """
     
@@ -588,7 +588,7 @@ class BayesianModeler:
             clean_data: 清洗后的数据
             
         Returns:
-            建模结果字典，失败返回None
+            建模结果字典, 失败返回None
         """
         try:
             symbol1, symbol2 = pair['symbol1'], pair['symbol2']
@@ -650,33 +650,33 @@ class BayesianModeler:
         
         核心模型: log(price1) = alpha + beta * log(price2) + epsilon
         
-        该方法是贝叶斯建模的核心，通过MCMC采样获得参数的完整后验分布。
+        该方法是贝叶斯建模的核心, 通过MCMC采样获得参数的完整后验分布。
         使用对数价格确保模型的线性假设更合理，并避免异方差问题。
         
         Args:
-            prices1: 股票1的价格数据（原始价格）
-            prices2: 股票2的价格数据（原始价格）
-            prior_params: 历史后验参数字典，包含:
+            prices1: 股票1的价格数据(原始价格)
+            prices2: 股票2的价格数据(原始价格)
+            prior_params: 历史后验参数字典, 包含:
                 - alpha_mean, alpha_std: 截距项的先验
                 - beta_mean, beta_std: 斜率项的先验
                 - sigma_mean: 误差项标准差的先验
-                如果为None，使用无信息先验
+                如果为None, 使用无信息先验
             
         Returns:
             Tuple[MultiTrace, ndarray, ndarray]:
-                - trace: MCMC采样结果，包含所有参数的后验样本
-                - x_data: 对数转换后的自变量（log(price2)）
-                - y_data: 对数转换后的因变量（log(price1)）
+                - trace: MCMC采样结果, 包含所有参数的后验样本
+                - x_data: 对数转换后的自变量(log(price2))
+                - y_data: 对数转换后的因变量(log(price1))
         
         模型细节:
             - alpha: 截距项，反映两股票的基础价差
-            - beta: 斜率项，即对冲比率，beta=0.8表示1份股票1对冲0.8份股票2
-            - sigma: 残差标准差，反映模型拟合的不确定性
-            - residuals: 模型残差，用于计算z-score
+            - beta: 斜率项, 即对冲比率, beta=0.8表示1份股票1对冲0.8份股票2
+            - sigma: 残差标准差, 反映模型拟合的不确定性
+            - residuals: 模型残差, 用于计算z-score
         
         采样策略:
             - 完全建模: 1000次预热 + 1000次采样
-            - 动态更新: 500次预热 + 500次采样（利用好的先验）
+            - 动态更新: 500次预热 + 500次采样(利用好的先验)
         """
         # 对数转换 - 确保线性假设合理性并稳定方差
         x_data = np.log(prices2)
@@ -746,8 +746,8 @@ class BayesianModeler:
         
         Args:
             trace: MCMC采样结果
-            x_data: 对数转换后的自变量数据（用于计算实际残差）
-            y_data: 对数转换后的因变量数据（用于计算实际残差）
+            x_data: 对数转换后的自变量数据(用于计算实际残差)
+            y_data: 对数转换后的因变量数据(用于计算实际残差)
         """
         # 提取所有需要的样本
         samples = {
@@ -807,33 +807,33 @@ class SignalGenerator:
     """
     信号生成器类 - 将统计模型转化为可执行的交易信号
     
-    该类负责实时计算配对的偏离程度(z-score)，并根据阈值生成
-    具体的交易方向。使用EMA平滑减少信号噪音，提高稳定性。
+    该类负责实时计算配对的偏离程度(z-score), 并根据阈值生成
+    具体的交易方向。使用EMA平滑减少信号噪音, 提高稳定性。
     
     Z-Score计算原理:
     1. 计算当前价格关系的残差
     2. 标准化为z-score: (残差 - 均值) / 标准差
     3. EMA平滑: 80%当前值 + 20%历史值
-    4. 解释: z>0表示股票1相对高估，z<0表示相对低估
+    4. 解释: z>0表示股票1相对高估, z<0表示相对低估
     
     信号生成逻辑:
     - 建仓: |z-score| > entry_threshold (1.2)
-      * z > 1.2: 做空股票1，做多股票2
-      * z < -1.2: 做多股票1，做空股票2
+      * z > 1.2: 做空股票1, 做多股票2
+      * z < -1.2: 做多股票1, 做空股票2
     - 平仓: |z-score| < exit_threshold (0.3)
-      * 价格关系回归均值，平仓获利
+      * 价格关系回归均值, 平仓获利
     
     配置参数:
-    - entry_threshold: 建仓阈值（默认1.2，约88%置信区间外）
-    - exit_threshold: 平仓阈值（默认0.3，约23%置信区间内）
-    - lower_limit: 极端偏离下限（默认-3.0）
-    - flat_signal_duration_days: 平仓信号持续天数（默认1）
-    - entry_signal_duration_days: 建仓信号持续天数（默认2）
+    - entry_threshold: 建仓阈值(默认1.2, 约88%置信区间外)
+    - exit_threshold: 平仓阈值(默认0.3, 约23%置信区间内)
+    - lower_limit: 极端偏离下限(默认-3.0)
+    - flat_signal_duration_days: 平仓信号持续天数(默认1)
+    - entry_signal_duration_days: 建仓信号持续天数(默认2)
     
     EMA平滑:
-    - ema_alpha: 平滑系数（默认0.8）
+    - ema_alpha: 平滑系数(默认0.8)
     - 目的: 减少短期波动造成的频繁交易
-    - 效果: 信号更稳定，但反应稍有延迟
+    - 效果: 信号更稳定, 但反应稍有延迟
     
     Insight生成:
     - 使用Insight.Group确保配对同时执行
@@ -897,20 +897,20 @@ class SignalGenerator:
         """
         计算配对的当前z-score并应用EMA平滑
         
-        Z-score衡量当前价格关系偏离历史均值的程度，是触发交易的核心指标。
-        使用EMA平滑可以减少短期噪音，避免频繁交易。
+        Z-score衡量当前价格关系偏离历史均值的程度, 是触发交易的核心指标。
+        使用EMA平滑可以减少短期噪音, 避免频繁交易。
         
         Args:
             pair: 配对信息字典，包含:
                 - symbol1, symbol2: 股票代码
                 - alpha_mean, beta_mean: 贝叶斯模型参数
                 - residual_mean, residual_std: 残差统计量
-            data: 当前市场数据（Slice对象）
+            data: 当前市场数据(Slice对象)
             
         Returns:
             Dict: 更新后的配对信息，新增:
                 - zscore: EMA平滑后的z-score
-                - raw_zscore: 原始z-score（未平滑）
+                - raw_zscore: 原始z-score(未平滑)
                 - current_price1/2: 当前价格
             返回None如果数据不可用
             
@@ -922,10 +922,10 @@ class SignalGenerator:
             5. EMA平滑: smoothed = 0.8 * current + 0.2 * previous
         
         交易含义:
-            - z-score > 0: 股票1相对高估，应做空1做多2
-            - z-score < 0: 股票1相对低估，应做多1做空2
-            - |z-score| > 1.2: 偏离显著，触发建仓
-            - |z-score| < 0.3: 回归均值，触发平仓
+            - z-score > 0: 股票1相对高估, 应做空1做多2
+            - z-score < 0: 股票1相对低估, 应做多1做空2
+            - |z-score| > 1.2: 偏离显著, 触发建仓
+            - |z-score| < 0.3: 回归均值, 触发平仓
         """
         symbol1, symbol2 = pair['symbol1'], pair['symbol2']
         
@@ -980,7 +980,7 @@ class SignalGenerator:
         """
         创建配对的Insight组
         
-        注意：返回Insight.Group()的原始结果，不要用list()包装
+        注意: 返回Insight.Group()的原始结果, 不要用list()包装
         """
         return Insight.Group(
             Insight.Price(symbol1, timedelta(days=duration_days), direction1, 
@@ -1095,7 +1095,7 @@ class BayesianCointegrationAlphaModel(AlphaModel):
     - Execution: 最终执行交易指令
     
     配置要求:
-    必须提供完整的config字典，包含所有子模块的参数配置。
+    必须提供完整的config字典, 包含所有子模块的参数配置。
     详见各子模块的配置参数说明。
     
     性能优化:

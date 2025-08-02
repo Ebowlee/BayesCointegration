@@ -15,7 +15,7 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
     核心功能:
     1. 信号解析: 从Insight.Tag中提取交易参数
     2. 持仓验证: 检查当前持仓状态，避免重复建仓
-    3. 动态资金管理: 基于信号质量分配5%-10%的资金
+    3. 动态资金管理: 基于信号质量分配5%-15%的资金
     4. Beta中性对冲: 根据协整关系计算对冲比率
     5. 风险控制: 冷却期管理，做空能力检查
     
@@ -27,7 +27,7 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
     5. 动态分配资金并生成PortfolioTarget
     
     资金管理策略:
-    - 单对仓位: 5%-10% (基于quality_score动态调整)
+    - 单对仓位: 5%-15% (基于quality_score动态调整)
     - 现金缓冲: 5% (应对追加保证金和滑点)
     - 优先级: quality_score高的配对优先分配资金
     - 保证金: 做空需要100%保证金(InteractiveBrokers)
@@ -36,13 +36,12 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
     - Up信号: symbol1做多, symbol2做空 (beta加权)
     - Down信号: symbol1做空, symbol2做多 (beta加权)
     - Flat信号: 两只股票都平仓
-    - 反向信号: 先平仓再反向建仓 (两步执行)
+    - 反向信号: 转为平仓信号 (不做反向建仓)
     
     配置参数:
     - margin_rate: 保证金率 (默认1.0)
-    - pair_reentry_cooldown_days: 平仓后冷却期 (默认14天)
     - min_position_per_pair: 最小仓位 (默认5%)
-    - max_position_per_pair: 最大仓位 (默认10%)
+    - max_position_per_pair: 最大仓位 (默认15%)
     - cash_buffer: 现金缓冲 (默认5%)
     
     与其他模块的交互:
@@ -60,14 +59,12 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
     
     # 常量定义
     TAG_DELIMITER = '|'
-    WEIGHT_TOLERANCE = 0.01
+    WEIGHT_TOLERANCE = 0.01  # 权重验证容差: 允许总资金分配与预期相差1%以内
     
-    def __init__(self, algorithm, config, pair_ledger):
+    def __init__(self, algorithm, config):
         super().__init__() 
         self.algorithm = algorithm
-        self.pair_ledger = pair_ledger
         self.margin_rate = config.get('margin_rate', 0.5)
-        self.pair_reentry_cooldown_days = config.get('pair_reentry_cooldown_days', 7)
         self.cash_buffer = config.get('cash_buffer', 0.05)
         
         # 动态资金管理参数
@@ -75,7 +72,6 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         self.min_position_per_pair = config.get('min_position_per_pair', 0.05)  # 单对最小仓位5%
         
         self.algorithm.Debug(f"[PortfolioConstruction] 初始化完成 (保证金率: {self.margin_rate}, "
-                           f"冷却期: {self.pair_reentry_cooldown_days}天, "
                            f"单对仓位: {self.min_position_per_pair*100}%-{self.max_position_per_pair*100}%, "
                            f"现金缓冲: {self.cash_buffer*100}%)")
                            
@@ -160,6 +156,8 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         if new_position_signals:
             targets.extend(self._allocate_capital_and_create_targets(new_position_signals))
         
+        if targets:
+            self.algorithm.Debug(f"[PC] 生成 {len(targets)} 个 PortfolioTarget")
         return targets
 
     def _parse_tag_params(self, tag: str) -> Optional[Dict]:
@@ -237,18 +235,16 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         """
         targets = []
         
-        # 计算当前已使用资金
-        used_capital = 0
-        for pair_info in self.pair_ledger.all_pairs.values():
-            status = pair_info.get_position_status(self.algorithm)
-            if status['has_position']:
-                # 计算该配对占用的资金（考虑保证金）
-                h1 = self.algorithm.Portfolio[pair_info.symbol1]
-                h2 = self.algorithm.Portfolio[pair_info.symbol2]
-                pair_capital = abs(h1.HoldingsValue) + abs(h2.HoldingsValue) * (self.margin_rate if h2.Quantity < 0 else 1)
-                used_capital += pair_capital / self.algorithm.Portfolio.TotalPortfolioValue
+        # 从框架获取可用资金
+        portfolio = self.algorithm.Portfolio
+        total_value = portfolio.TotalPortfolioValue
         
-        # 计算可用资金
+        # 计算可用资金比例
+        # 使用Portfolio.TotalHoldingsValue来获取已投资金额
+        holdings_value = portfolio.TotalHoldingsValue
+        used_capital = abs(holdings_value) / total_value if total_value > 0 else 0
+        
+        # 可用资金 = 总资金 - 现金缓冲 - 已使用资金
         available_capital = (1.0 - self.cash_buffer) - used_capital
         if available_capital <= 0:
             self.algorithm.Debug(f"[PC] 无可用资金，跳过新建仓")
@@ -465,39 +461,11 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
             # 同方向：忽略
             if current_position == signal_direction:
                 return None
-            # 反方向：转为平仓
+            # 反方向：转为平仓 (不做反向建仓)
             return InsightDirection.Flat
         
-        # 新建仓检查
-        if not self._can_open_new_position(symbol1, symbol2):
-            return None
-            
+        # 新建仓直接返回信号方向
         return signal_direction
-    
-    def _can_open_new_position(self, symbol1: Symbol, symbol2: Symbol) -> bool:
-        """
-        检查是否可以开新仓
-        
-        通过PairLedger的统一接口检查各种交易限制。
-        
-        检查项目:
-        1. 配对是否在本轮被发现
-        2. 是否正在冷却期内
-        3. 是否已有持仓
-        
-        Args:
-            symbol1, symbol2: 配对股票
-            
-        Returns:
-            bool: True表示可以开仓
-        """
-        # 使用PairLedger的统一检查方法
-        if not self.pair_ledger.is_tradeable(symbol1, symbol2, self.pair_reentry_cooldown_days):
-            return False
-        
-        return True
-    
-    # 冷却期检查已移至PairLedger.is_tradeable方法中
     
     def _log_cannot_short(self, symbol1: Symbol, symbol2: Symbol):
         """记录无法做空的日志"""

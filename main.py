@@ -34,10 +34,10 @@ class StrategyConfig:
         # UniverseSelection 配置
         self.universe_selection = {
             'max_stocks_per_sector': 20,
-            'min_price': 10,                                # 降低至10美元，支持中小盘
-            'min_volume': 5e6,                              # 改为成交量：1000万股
+            'min_price': 20,                                # 最低价格20美元，支持中小盘
+            'min_volume': 5e6,                              # 最低成交量：500万股
             'min_days_since_ipo': 1095,                     # 保持3年
-            'max_pe': 80,                                   # 已放宽至50，容纳成长股
+            'max_pe': 100,                                  # 放宽至100，容纳成长股
             'min_roe': 0,                                   # 放宽至0，容纳转型期公司
             'max_debt_ratio': 0.8,                          # 放宽至80%
             'max_leverage_ratio': 8,                        # 放宽至8倍
@@ -50,26 +50,31 @@ class StrategyConfig:
         self.alpha_model = {
             'pvalue_threshold': 0.05,
             'correlation_threshold': 0.7,
-            'max_symbol_repeats': 2,
-            'max_pairs': 5,
+            'max_symbol_repeats': 3,
+            'max_pairs': 20,
             'lookback_period': 252,
             'mcmc_warmup_samples': 1000,
             'mcmc_posterior_samples': 1000,
             'mcmc_chains': 2,
-            'entry_threshold': 1.0,  # 从1.2降低到1.0，提高信号触发概率
+            'entry_threshold': 1.2,                         
             'exit_threshold': 0.3,  
             'upper_limit': 3.0,  
             'lower_limit': -3.0,
             'flat_signal_duration_days': 1,                 # 平仓信号有效期（天）
             'entry_signal_duration_days': 2,                # 建仓信号有效期（天）
             'min_data_completeness_ratio': 0.98,            # 数据完整性最低要求(98%)
+            # 配对质量评分权重
+            'quality_weights': {
+                'statistical': 0.4,  # 统计显著性权重（1-pvalue）
+                'correlation': 0.2,  # 相关性权重
+                'liquidity': 0.4     # 流动性匹配权重
+            }
         }
         
         # PortfolioConstruction 配置
         self.portfolio_construction = {
             'margin_rate': 1.0,
-            'pair_reentry_cooldown_days': 14,               # 冷却期从7天改为14天
-            'max_position_per_pair': 0.10,                  # 单对最大仓位10%
+            'max_position_per_pair': 0.15,                  # 单对最大仓位15%
             'min_position_per_pair': 0.05,                  # 单对最小仓位5%
             'cash_buffer': 0.05                             # 5%现金缓冲
         }
@@ -151,7 +156,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         
         # PortfolioConstruction模块
         self.SetPortfolioConstruction(BayesianCointegrationPortfolioConstructionModel(
-            self, self.config.portfolio_construction, self.pair_ledger
+            self, self.config.portfolio_construction
         ))
         
         # # 设置RiskManagement模块

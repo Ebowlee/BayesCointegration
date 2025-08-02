@@ -169,11 +169,12 @@ class PairLedger:
         """
         self.algorithm = algorithm
         
-        # 所有配对信息 {(symbol1, symbol2): PairInfo}
-        self.all_pairs: Dict[Tuple[Symbol, Symbol], PairInfo] = {}
+        # 所有配对信息 {(symbol1_value, symbol2_value): PairInfo}
+        # 使用Symbol.Value作为键，避免Symbol对象身份比较问题
+        self.all_pairs: Dict[Tuple[str, str], PairInfo] = {}
         
-        # 配对双向映射 {Symbol: Symbol} - 快速查找配对关系
-        self.symbol_map: Dict[Symbol, Symbol] = {}
+        # 配对双向映射 {symbol_value: symbol_value} - 快速查找配对关系
+        self.symbol_map: Dict[str, str] = {}
     
     def update_from_selection(self, new_pairs: List[Tuple[Symbol, Symbol]]):
         """
@@ -198,8 +199,9 @@ class PairLedger:
             
             # 新配对
             if pair_key not in self.all_pairs:
-                self.all_pairs[pair_key] = PairInfo(*pair_key)
-                new_discovered_pairs.append(f"{pair_key[0].Value}-{pair_key[1].Value}")
+                # 传递原始Symbol对象给PairInfo
+                self.all_pairs[pair_key] = PairInfo(symbol1, symbol2)
+                new_discovered_pairs.append(f"{pair_key[0]}-{pair_key[1]}")
             
             # 更新发现状态
             self.all_pairs[pair_key].is_current_round = True
@@ -297,8 +299,10 @@ class PairLedger:
             return False
         
         # 检查1: 必须是本轮发现的
-        if not pair_info.is_current_round:
-            return False
+        # 注释掉此检查，因为选股是每月一次，但信号生成是每天进行
+        # AlphaModel只会对当前管理的配对生成信号，所以这个检查是多余的
+        # if not pair_info.is_current_round:
+        #     return False
         
         # 检查2: 不能已有持仓（实时检查）
         status = pair_info.get_position_status(self.algorithm)
@@ -322,9 +326,10 @@ class PairLedger:
             PairInfo: 配对信息，不存在返回None
         """
         pair_key = self._get_pair_key(symbol1, symbol2)
-        return self.all_pairs.get(pair_key)
+        result = self.all_pairs.get(pair_key)
+        return result
     
-    def get_paired_symbol(self, symbol: Symbol) -> Optional[Symbol]:
+    def get_paired_symbol(self, symbol: Symbol) -> Optional[str]:
         """
         获取配对的另一只股票
         
@@ -334,11 +339,11 @@ class PairLedger:
             symbol: 股票代码
             
         Returns:
-            Symbol: 配对的另一只股票，不存在返回None
+            str: 配对的另一只股票的Value，不存在返回None
         """
-        return self.symbol_map.get(symbol)
+        return self.symbol_map.get(symbol.Value)
     
-    def _get_pair_key(self, symbol1: Symbol, symbol2: Symbol) -> Tuple[Symbol, Symbol]:
+    def _get_pair_key(self, symbol1: Symbol, symbol2: Symbol) -> Tuple[str, str]:
         """
         获取标准化的配对键（按字母顺序）
         
@@ -348,18 +353,19 @@ class PairLedger:
             symbol1, symbol2: 配对的两只股票
             
         Returns:
-            Tuple[Symbol, Symbol]: 标准化的配对键
+            Tuple[str, str]: 标准化的配对键（使用Symbol.Value）
         """
-        if symbol1.Value > symbol2.Value:
-            return (symbol2, symbol1)
-        return (symbol1, symbol2)
+        value1, value2 = symbol1.Value, symbol2.Value
+        if value1 > value2:
+            return (value2, value1)
+        return (value1, value2)
     
     def _rebuild_symbol_map(self):
         """重建双向映射，便于快速查找配对关系"""
         self.symbol_map.clear()
-        for symbol1, symbol2 in self.all_pairs.keys():
-            self.symbol_map[symbol1] = symbol2
-            self.symbol_map[symbol2] = symbol1
+        for value1, value2 in self.all_pairs.keys():
+            self.symbol_map[value1] = value2
+            self.symbol_map[value2] = value1
     
     def get_summary_stats(self) -> Dict:
         """

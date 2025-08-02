@@ -4,6 +4,72 @@
 
 ---
 
+## [v2.15.0_configuration-optimization@20250802]
+### 工作内容
+- 将quality score权重配置化，提升策略灵活性
+- 优化仓位配置和选股参数
+- 清理冗余代码和未使用的配置
+- 同步所有代码注释与最新配置
+
+### 配置更新
+- **选股参数调整**：
+  - min_price: 10 → 20 (提高最低价格要求)
+  - max_pe: 80 → 100 (放宽PE限制)
+- **AlphaModel参数**：
+  - max_symbol_repeats: 2 → 3 (允许每只股票出现3次)
+  - max_pairs: 5 → 20 (增加最大配对数)
+  - entry_threshold: 1.0 → 1.2 (提高建仓门槛)
+  - quality_weights配置化:
+    - statistical: 0.4 (40%)
+    - correlation: 0.3 → 0.2 (降低到20%)
+    - liquidity: 0.3 → 0.4 (提高到40%)
+- **PortfolioConstruction参数**：
+  - min_position_per_pair: 0.10 → 0.05 (恢复5%最小仓位)
+  - 仓位范围: 10%-15% → 5%-15%
+
+### 代码优化
+- **移除冗余功能**：
+  - 删除未使用的pair_reentry_cooldown_days配置
+  - 移除无用的_can_open_new_position方法
+- **注释改进**：
+  - 明确反向信号只做平仓，不做反向建仓
+  - 为WEIGHT_TOLERANCE添加解释(权重验证容差1%)
+  - 更新所有类文档字符串匹配最新配置
+
+### 影响分析
+- 提高了策略配置的灵活性和可维护性
+- 通过配置化quality_weights便于后续优化调整
+- 代码更加简洁，移除了未使用的功能
+- 扩大了策略容量(max_pairs: 5→20)
+
+---
+
+## [v2.14.3_fix-insight-group@20250802]
+### 工作内容
+- 修复Insight.Group使用问题，解决配对交易无法执行的关键bug
+- 添加GroupId诊断功能，便于追踪问题
+- 优化insights处理逻辑
+
+### 技术细节
+- **Insight.Group修复**：
+  - 移除list()包装，保持框架原生返回类型
+  - 让QuantConnect框架自动处理GroupId设置
+  - 修复_generate_pair_signals返回类型声明
+- **诊断增强**：
+  - PC模块输出没有GroupId的Insight警告
+  - 显示GroupId分组结果数量
+  - 帮助快速定位配对关系问题
+- **兼容性处理**：
+  - SignalGenerator增加try-except处理不同返回类型
+  - 确保insights.extend()能正确处理各种情况
+
+### 影响分析
+- 解决了PC模块无法识别配对关系的核心问题
+- 恢复了配对交易信号的正常执行
+- 提高了代码对框架API变化的适应性
+
+---
+
 ## [v2.14.2_diagnostics-and-optimization@20250802]
 ### 工作内容
 - 添加信号生成诊断功能，追踪交易信号缺失原因
