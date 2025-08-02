@@ -6,9 +6,8 @@ from QuantConnect.Data.Fundamental import MorningstarSectorCode
 from src.AlphaModel import BayesianCointegrationAlphaModel
 from src.PairLedger import PairLedger
 from src.PortfolioConstruction import BayesianCointegrationPortfolioConstructionModel
-from src.CustomRiskManager import CustomRiskManager
-# from QuantConnect.Algorithm.Framework.Risk import MaximumDrawdownPercentPortfolio, MaximumSectorExposureRiskManagementModel
-# from src.RiskManagement import BayesianCointegrationRiskManagementModel
+from QuantConnect.Algorithm.Framework.Risk import MaximumDrawdownPercentPortfolio, MaximumSectorExposureRiskManagementModel
+from src.RiskManagement import BayesianCointegrationRiskManagementModel
 # endregion
     
 
@@ -70,7 +69,8 @@ class StrategyConfig:
         self.portfolio_construction = {
             'margin_rate': 1.0,
             'pair_reentry_cooldown_days': 14,               # 冷却期从7天改为14天
-            'max_pairs': 8,                                 # 最大持仓配对数
+            'max_position_per_pair': 0.10,                  # 单对最大仓位10%
+            'min_position_per_pair': 0.05,                  # 单对最小仓位5%
             'cash_buffer': 0.05                             # 5%现金缓冲
         }
         
@@ -154,18 +154,18 @@ class BayesianCointegrationStrategy(QCAlgorithm):
             self, self.config.portfolio_construction, self.pair_ledger
         ))
         
-        # 创建自定义风控管理器
-        self.custom_risk_manager = CustomRiskManager(
+        # 设置RiskManagement模块
+        # 框架的组合级别风控
+        self.AddRiskManagement(MaximumDrawdownPercentPortfolio(self.config.main['portfolio_max_drawdown']))
+        self.AddRiskManagement(MaximumSectorExposureRiskManagementModel(self.config.main['portfolio_max_sector_exposure']))
+        
+        # 自定义的配对级别风控
+        self.risk_manager = BayesianCointegrationRiskManagementModel(
             self, 
             self.config.risk_management, 
             self.pair_ledger
         )
-        
-        # # 设置RiskManagement模块
-        # self.AddRiskManagement(MaximumDrawdownPercentPortfolio(self.config.main['portfolio_max_drawdown']))
-        # self.AddRiskManagement(MaximumSectorExposureRiskManagementModel(self.config.main['portfolio_max_sector_exposure']))
-        # self.risk_manager = BayesianCointegrationRiskManagementModel(self, self.config.risk_management, self.pair_ledger)
-        # self.AddRiskManagement(self.risk_manager)
+        self.AddRiskManagement(self.risk_manager)
 
         # # # # 设置Execution模块
         # # # self.SetExecution(MyExecutionModel(self))
@@ -175,23 +175,3 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         date_rule = getattr(self.DateRules, self.config.main['schedule_frequency'])()
         time_rule = self.TimeRules.At(*self.config.main['schedule_time'])
         self.Schedule.On(date_rule, time_rule, Action(self.universe_selector.TriggerSelection))
-    
-    def OnData(self, data):
-        """
-        每日数据更新时的处理
-        
-        主要用于转发给自定义风控进行每日检查
-        """
-        # 转发给自定义风控管理器
-        if hasattr(self, 'custom_risk_manager'):
-            self.custom_risk_manager.on_data(data)
-    
-    def OnOrderEvent(self, order_event):
-        """
-        订单事件处理
-        
-        主要用于更新PairLedger的持仓状态
-        """
-        # 转发给自定义风控管理器
-        if hasattr(self, 'custom_risk_manager'):
-            self.custom_risk_manager.on_order_event(order_event)

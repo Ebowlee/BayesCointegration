@@ -31,14 +31,9 @@ class PairInfo:
         self.is_current_round = False  # 本轮选股是否发现
         self.discovery_count = 0       # 历史被发现总次数
         
-        # 持仓状态
-        self.has_position = False      # 是否有持仓
+        # 持仓时间跟踪
         self.entry_time = None         # 建仓时间（None表示无持仓）
         self.last_exit_time = None     # 最近平仓时间（用于冷却期）
-        
-        # 风控状态
-        self.risk_triggered = False    # 是否触发风控
-        self.risk_type = None         # 风控类型：TIMEOUT/STOP_LOSS/TAKE_PROFIT
         
         # 跨周期统计
         self.trade_count = 0          # 完整交易次数
@@ -54,8 +49,15 @@ class PairInfo:
         Returns:
             int: 持仓天数，无持仓返回0
         """
-        if not self.has_position or not self.entry_time:
+        if not self.entry_time:
             return 0
+        
+        # 实时检查是否有持仓
+        h1 = algorithm.Portfolio[self.symbol1]
+        h2 = algorithm.Portfolio[self.symbol2]
+        if not (h1.Invested and h2.Invested):
+            return 0
+            
         return (algorithm.Time - self.entry_time).days
     
     def get_idle_days(self, algorithm) -> int:
@@ -68,8 +70,15 @@ class PairInfo:
         Returns:
             int: 空仓天数，有持仓或从未交易返回0
         """
-        if self.has_position or not self.last_exit_time:
+        if not self.last_exit_time:
             return 0
+            
+        # 实时检查是否有持仓
+        h1 = algorithm.Portfolio[self.symbol1]
+        h2 = algorithm.Portfolio[self.symbol2]
+        if h1.Invested and h2.Invested:
+            return 0
+            
         return (algorithm.Time - self.last_exit_time).days
     
     def get_position_status(self, algorithm) -> dict:
@@ -85,11 +94,27 @@ class PairInfo:
         h1 = algorithm.Portfolio[self.symbol1]
         h2 = algorithm.Portfolio[self.symbol2]
         
+        # 实时判断是否有持仓
+        has_position = h1.Invested and h2.Invested
+        
+        # 自动管理entry_time和last_exit_time
+        if has_position and not self.entry_time:
+            # 刚建仓
+            self.entry_time = algorithm.Time
+        elif not has_position and self.entry_time:
+            # 刚平仓
+            if self.entry_time:
+                holding_days = (algorithm.Time - self.entry_time).days
+                self.holding_days_total += holding_days
+                self.trade_count += 1
+            self.entry_time = None
+            self.last_exit_time = algorithm.Time
+        
         # 计算整对的持仓价值
         total_value = abs(h1.HoldingsValue) + abs(h2.HoldingsValue)
         
         return {
-            'has_position': h1.Invested and h2.Invested,
+            'has_position': has_position,
             'holding_days': self.get_holding_days(algorithm),
             
             # 单边信息
@@ -189,66 +214,11 @@ class PairLedger:
             f"总计跟踪{len(self.all_pairs)}对"
         )
     
-    def update_position_status_from_order(self, order_event):
-        """
-        从订单事件更新持仓状态
-        
-        由CustomRiskManager在OnOrderEvent中调用
-        
-        Args:
-            order_event: QuantConnect的订单事件
-        """
-        if order_event.Status != OrderStatus.Filled:
-            return
-        
-        symbol = order_event.Symbol
-        
-        # 查找包含此symbol的所有配对
-        for pair_key, pair_info in self.all_pairs.items():
-            if symbol in pair_key:
-                # 检查配对的两边是否都有持仓
-                h1 = self.algorithm.Portfolio[pair_info.symbol1]
-                h2 = self.algorithm.Portfolio[pair_info.symbol2]
-                
-                was_holding = pair_info.has_position
-                is_holding = h1.Invested and h2.Invested
-                
-                # 状态变化：空仓→持仓
-                if not was_holding and is_holding:
-                    pair_info.has_position = True
-                    pair_info.entry_time = self.algorithm.Time
-                    self.algorithm.Debug(
-                        f"[PairLedger] 配对建仓: {pair_key[0].Value}-{pair_key[1].Value}"
-                    )
-                
-                # 状态变化：持仓→空仓
-                elif was_holding and not is_holding:
-                    # 更新统计
-                    if pair_info.entry_time:
-                        holding_days = (self.algorithm.Time - pair_info.entry_time).days
-                        pair_info.holding_days_total += holding_days
-                        pair_info.trade_count += 1
-                    
-                    # 更新状态
-                    pair_info.has_position = False
-                    pair_info.entry_time = None
-                    pair_info.last_exit_time = self.algorithm.Time
-                    
-                    # 清除风控标记
-                    if pair_info.risk_triggered:
-                        pair_info.risk_triggered = False
-                        pair_info.risk_type = None
-                    
-                    self.algorithm.Debug(
-                        f"[PairLedger] 配对平仓: {pair_key[0].Value}-{pair_key[1].Value}, "
-                        f"持仓{holding_days}天"
-                    )
-    
     def get_risk_control_data(self) -> List[Dict]:
         """
         获取所有配对的风控数据
         
-        供CustomRiskManager进行风控检查
+        供RiskManagementModel进行风控检查
         
         Returns:
             List[Dict]: 所有持仓配对的风控相关数据，按持仓天数降序
@@ -256,10 +226,11 @@ class PairLedger:
         risk_data = []
         
         for pair_info in self.all_pairs.values():
-            if not pair_info.has_position:
-                continue
-            
             status = pair_info.get_position_status(self.algorithm)
+            
+            # 只返回有持仓的配对
+            if not status['has_position']:
+                continue
             
             risk_data.append({
                 'pair': (pair_info.symbol1, pair_info.symbol2),
@@ -282,7 +253,12 @@ class PairLedger:
         Returns:
             int: 有持仓的配对数量
         """
-        return sum(1 for pair in self.all_pairs.values() if pair.has_position)
+        count = 0
+        for pair_info in self.all_pairs.values():
+            status = pair_info.get_position_status(self.algorithm)
+            if status['has_position']:
+                count += 1
+        return count
     
     def is_tradeable(self, symbol1: Symbol, symbol2: Symbol, cooldown_days: int = 0) -> bool:
         """
@@ -305,15 +281,12 @@ class PairLedger:
         if not pair_info.is_current_round:
             return False
         
-        # 检查2: 不能已有持仓
-        if pair_info.has_position:
+        # 检查2: 不能已有持仓（实时检查）
+        status = pair_info.get_position_status(self.algorithm)
+        if status['has_position']:
             return False
         
-        # 检查3: 不能触发风控
-        if pair_info.risk_triggered:
-            return False
-        
-        # 检查4: 冷却期
+        # 检查3: 冷却期
         if cooldown_days > 0 and pair_info.get_idle_days(self.algorithm) < cooldown_days:
             return False
         
@@ -379,8 +352,7 @@ class PairLedger:
         stats = {
             'total_pairs': len(self.all_pairs),
             'current_round_pairs': sum(1 for p in self.all_pairs.values() if p.is_current_round),
-            'active_pairs': sum(1 for p in self.all_pairs.values() if p.has_position),
-            'risk_triggered_pairs': sum(1 for p in self.all_pairs.values() if p.risk_triggered),
+            'active_pairs': self.get_active_pairs_count(),
             'avg_discovery_count': sum(p.discovery_count for p in self.all_pairs.values()) / len(self.all_pairs) if self.all_pairs else 0,
             'avg_trade_count': sum(p.trade_count for p in self.all_pairs.values()) / len(self.all_pairs) if self.all_pairs else 0
         }
