@@ -1,6 +1,7 @@
 # region imports
 from AlgorithmImports import *
 from typing import List, Dict, Tuple, Optional
+from src.OrderTracker import OrderTracker
 # endregion
 
 class BayesianCointegrationRiskManagementModel(RiskManagementModel):
@@ -30,7 +31,7 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
     与其他模块的关系:
     - 输入: PortfolioConstruction的targets
     - 输出: 风险调整后的targets
-    - 查询: PairLedger获取持仓信息
+    - 查询: 直接从Portfolio获取持仓信息
     - 更新: 通过返回的targets触发平仓
     
     设计理念:
@@ -40,21 +41,22 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
     - 透明性: 详细记录所有风控动作
     """
     
-    def __init__(self, algorithm, config: dict, pair_ledger):
+    def __init__(self, algorithm, config: dict, order_tracker: OrderTracker):
         """
         初始化风险管理模型
         
         Args:
             algorithm: QuantConnect算法实例
             config: 风控配置参数
-            pair_ledger: 配对账本实例
+            order_tracker: 订单追踪器实例
         """
         super().__init__()
         self.algorithm = algorithm
-        self.pair_ledger = pair_ledger
+        self.order_tracker = order_tracker
         
         # 风控参数
-        self.max_holding_days = config.get('max_holding_days', 60)
+        self.max_holding_days = config.get('max_holding_days', 30)
+        self.cooldown_days = config.get('cooldown_days', 7)
         self.max_pair_drawdown = config.get('max_pair_drawdown', 0.10)
         self.max_single_drawdown = config.get('max_single_drawdown', 0.20)
         
@@ -110,67 +112,65 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
         # 获取所有活跃持仓配对
         active_pairs = self._get_active_pairs()
         
-        if not active_pairs:
-            return risk_adjusted_targets
-        
         # 检查每个配对的风控条件
         liquidation_pairs = []
         
-        for pair_info in active_pairs:
-            symbol1, symbol2 = pair_info['pair']
-            
-            # 首先检查配对完整性
-            integrity_status = self._check_pair_integrity(symbol1, symbol2)
-            if integrity_status in ["same_direction_error", "single_side_only"]:
-                self.algorithm.Debug(
-                    f"[RiskManagement] 配对异常 [{symbol1.Value},{symbol2.Value}]: {integrity_status}"
-                )
-                liquidation_pairs.append((symbol1, symbol2, f"配对异常:{integrity_status}"))
-                continue
-            
-            # 检查持仓时间
-            holding_days = pair_info['holding_days']
-            if holding_days > self.max_holding_days:
-                self.algorithm.Debug(
-                    f"[RiskManagement] 持仓超时 [{symbol1.Value},{symbol2.Value}]: "
-                    f"{holding_days}天 > {self.max_holding_days}天"
-                )
-                liquidation_pairs.append((symbol1, symbol2, "持仓超时"))
-                self.risk_triggers['holding_timeout'] += 1
-                continue
-            
-            # 计算回撤
-            pair_drawdown = self._calculate_pair_drawdown(symbol1, symbol2)
-            single_drawdowns = self._calculate_single_drawdowns(symbol1, symbol2)
-            
-            # 检查配对整体回撤
-            if pair_drawdown < -self.max_pair_drawdown:
-                self.algorithm.Debug(
-                    f"[RiskManagement] 配对止损 [{symbol1.Value},{symbol2.Value}]: "
-                    f"回撤{pair_drawdown*100:.1f}% < -{self.max_pair_drawdown*100}%"
-                )
-                liquidation_pairs.append((symbol1, symbol2, "配对止损"))
-                self.risk_triggers['pair_stop_loss'] += 1
-                continue
-            
-            # 检查单边回撤
-            for symbol, drawdown in single_drawdowns.items():
-                if drawdown < -self.max_single_drawdown:
+        if active_pairs:
+            for pair_info in active_pairs:
+                symbol1, symbol2 = pair_info['pair']
+                
+                # 首先检查配对完整性
+                integrity_status = self._check_pair_integrity(symbol1, symbol2)
+                if integrity_status in ["same_direction_error", "single_side_only"]:
                     self.algorithm.Debug(
-                        f"[RiskManagement] 单边止损 [{symbol1.Value},{symbol2.Value}]: "
-                        f"{symbol.Value}回撤{drawdown*100:.1f}% < -{self.max_single_drawdown*100}%"
+                        f"[RiskManagement] 配对异常 [{symbol1.Value},{symbol2.Value}]: {integrity_status}"
                     )
-                    liquidation_pairs.append((symbol1, symbol2, f"{symbol.Value}单边止损"))
-                    self.risk_triggers['single_stop_loss'] += 1
-                    break
-            
-            # 记录正常持仓状态（每10天记录一次）
-            if holding_days % 10 == 0 and holding_days > 0:
-                self.algorithm.Debug(
-                    f"[RiskManagement] 配对状态 [{symbol1.Value},{symbol2.Value}]: "
-                    f"持仓{holding_days}天, 配对回撤{pair_drawdown*100:.1f}%, "
-                    f"单边回撤[{single_drawdowns[symbol1]*100:.1f}%, {single_drawdowns[symbol2]*100:.1f}%]"
-                )
+                    liquidation_pairs.append((symbol1, symbol2, f"配对异常:{integrity_status}"))
+                    continue
+                
+                # 检查持仓时间
+                holding_days = pair_info['holding_days']
+                if holding_days > self.max_holding_days:
+                    self.algorithm.Debug(
+                        f"[RiskManagement] 持仓超时 [{symbol1.Value},{symbol2.Value}]: "
+                        f"{holding_days}天 > {self.max_holding_days}天"
+                    )
+                    liquidation_pairs.append((symbol1, symbol2, "持仓超时"))
+                    self.risk_triggers['holding_timeout'] += 1
+                    continue
+                
+                # 计算回撤
+                pair_drawdown = self._calculate_pair_drawdown(symbol1, symbol2)
+                single_drawdowns = self._calculate_single_drawdowns(symbol1, symbol2)
+                
+                # 检查配对整体回撤
+                if pair_drawdown < -self.max_pair_drawdown:
+                    self.algorithm.Debug(
+                        f"[RiskManagement] 配对止损 [{symbol1.Value},{symbol2.Value}]: "
+                        f"回撤{pair_drawdown*100:.1f}% < -{self.max_pair_drawdown*100}%"
+                    )
+                    liquidation_pairs.append((symbol1, symbol2, "配对止损"))
+                    self.risk_triggers['pair_stop_loss'] += 1
+                    continue
+                
+                # 检查单边回撤
+                for symbol, drawdown in single_drawdowns.items():
+                    if drawdown < -self.max_single_drawdown:
+                        self.algorithm.Debug(
+                            f"[RiskManagement] 单边止损 [{symbol1.Value},{symbol2.Value}]: "
+                            f"{symbol.Value}回撤{drawdown*100:.1f}% < -{self.max_single_drawdown*100}%"
+                        )
+                        liquidation_pairs.append((symbol1, symbol2, f"{symbol.Value}单边止损"))
+                        self.risk_triggers['single_stop_loss'] += 1
+                        break
+                
+                # 记录正常持仓状态（每10天记录一次）
+                if holding_days % 10 == 0 and holding_days > 0:
+                    self.algorithm.Debug(
+                        f"[RiskManagement] 配对状态 [{symbol1.Value},{symbol2.Value}]: "
+                        f"持仓{holding_days}天, 配对回撤{pair_drawdown*100:.1f}%, "
+                        f"单边回撤[{single_drawdowns[symbol1]*100:.1f}%, {single_drawdowns[symbol2]*100:.1f}%]"
+                    )
         
         # 生成平仓指令
         if liquidation_pairs:
@@ -182,17 +182,75 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
                 f"生成{len(liquidation_targets)}个平仓指令"
             )
         
+        # 检查异常订单
+        self._check_abnormal_orders()
+        
+        # 过滤冷却期内的新建仓信号
+        risk_adjusted_targets = self._filter_cooldown_targets(risk_adjusted_targets)
+        
         return risk_adjusted_targets
     
     def _get_active_pairs(self) -> List[Dict]:
         """
         获取所有活跃持仓配对
         
+        使用Portfolio识别当前持仓，并通过OrderTracker获取时间信息
+        
         Returns:
-            List[Dict]: 活跃配对信息列表
+            List[Dict]: 活跃配对信息列表，每个元素包含:
+                - 'pair': (symbol1, symbol2)
+                - 'holding_days': 持仓天数
         """
-        # 从PairLedger获取风控数据
-        return self.pair_ledger.get_risk_control_data()
+        active_pairs = []
+        processed_symbols = set()
+        
+        # 遍历所有持仓
+        for symbol, holding in self.algorithm.Portfolio.items():
+            if not holding.Invested or symbol in processed_symbols:
+                continue
+            
+            # 查找配对的另一只股票
+            paired_symbol = self._find_paired_symbol(symbol)
+            if not paired_symbol:
+                continue
+            
+            # 标记已处理
+            processed_symbols.add(symbol)
+            processed_symbols.add(paired_symbol)
+            
+            # 获取持仓时间
+            holding_days = self.order_tracker.get_holding_period(symbol, paired_symbol)
+            if holding_days is None:
+                # 如果OrderTracker没有记录，估算为0天（刚建仓）
+                holding_days = 0
+            
+            active_pairs.append({
+                'pair': (symbol, paired_symbol),
+                'holding_days': holding_days
+            })
+        
+        return active_pairs
+    
+    def _find_paired_symbol(self, symbol: Symbol) -> Optional[Symbol]:
+        """
+        查找与给定股票配对的另一只股票
+        
+        使用 PairRegistry 获取正确的配对关系
+        
+        Args:
+            symbol: 需要查找配对的股票
+            
+        Returns:
+            Optional[Symbol]: 配对的股票，如果没有找到返回None
+        """
+        # 使用 PairRegistry 获取配对信息
+        paired_symbol = self.algorithm.pair_registry.get_paired_symbol(symbol)
+        
+        # 验证配对的股票确实有持仓
+        if paired_symbol and self.algorithm.Portfolio[paired_symbol].Invested:
+            return paired_symbol
+        
+        return None
     
     def _calculate_pair_drawdown(self, symbol1: Symbol, symbol2: Symbol) -> float:
         """
@@ -318,7 +376,7 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
                 return "same_direction_error"
             
             # 暂时不检查比例，因为我们没有beta信息
-            # 未来可以从PairLedger获取beta进行检查
+            # 未来可以从其他地方获取beta进行检查
             
             return "normal"
         
@@ -333,3 +391,76 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
             Dict: 各类风控触发次数统计
         """
         return self.risk_triggers.copy()
+    
+    def _check_abnormal_orders(self):
+        """
+        检查并处理异常订单
+        
+        使用OrderTracker检测异常配对，记录但不主动处理
+        （处理逻辑可根据需要扩展）
+        """
+        abnormal_pairs = self.order_tracker.get_abnormal_pairs()
+        
+        if abnormal_pairs:
+            self.algorithm.Debug(
+                f"[RiskManagement] 检测到{len(abnormal_pairs)}个异常配对"
+            )
+            
+            for symbol1, symbol2 in abnormal_pairs:
+                self.algorithm.Debug(
+                    f"[RiskManagement] 异常配对: [{symbol1.Value},{symbol2.Value}]"
+                )
+    
+    def _filter_cooldown_targets(self, targets: List[PortfolioTarget]) -> List[PortfolioTarget]:
+        """
+        过滤冷却期内的新建仓信号
+        
+        检查每个target，如果是建仓信号且配对在冷却期内，则过滤掉
+        
+        Args:
+            targets: 原始目标列表
+            
+        Returns:
+            List[PortfolioTarget]: 过滤后的目标列表
+        """
+        if not targets:
+            return targets
+        
+        filtered_targets = []
+        processed_symbols = set()
+        
+        for target in targets:
+            symbol = target.Symbol
+            
+            # 如果是平仓信号（权重为0），直接保留
+            if target.Quantity == 0:
+                filtered_targets.append(target)
+                continue
+            
+            # 如果已经有持仓，保留（可能是调仓，虽然策略不应该有）
+            if self.algorithm.Portfolio[symbol].Invested:
+                filtered_targets.append(target)
+                continue
+            
+            # 对于新建仓信号，检查是否在冷却期
+            if symbol in processed_symbols:
+                # 这个股票已经被处理过（作为配对的一部分被过滤）
+                continue
+                
+            # 使用 PairRegistry 查找配对的另一只股票
+            paired_symbol = self.algorithm.pair_registry.get_paired_symbol(symbol)
+            
+            if paired_symbol:
+                # 检查冷却期
+                if self.order_tracker.is_in_cooldown(symbol, paired_symbol, self.cooldown_days):
+                    self.algorithm.Debug(
+                        f"[RiskManagement] 配对在冷却期内，过滤建仓信号: "
+                        f"[{symbol.Value},{paired_symbol.Value}]"
+                    )
+                    processed_symbols.add(symbol)
+                    processed_symbols.add(paired_symbol)
+                    continue
+            
+            filtered_targets.append(target)
+        
+        return filtered_targets

@@ -1,19 +1,17 @@
 # region imports
 from AlgorithmImports import *
-from typing import Dict, List, Tuple, Optional
-from datetime import datetime
+from typing import Dict, List, Tuple
 # endregion
 
 
 class PairInfo:
     """
-    配对信息类 - 跟踪单个配对的状态和历史
+    配对信息类 - 跟踪单个配对的持仓状态
     
     主要功能:
-    1. 跟踪配对的发现状态（本轮是否被选中）
-    2. 跟踪配对的持仓状态（是否有仓位）
-    3. 计算持仓时间用于风控
-    4. 获取实时盈亏信息
+    1. 跟踪配对的持仓状态（是否有仓位）
+    2. 计算持仓时间用于风控
+    3. 获取实时盈亏信息
     """
     
     def __init__(self, symbol1: Symbol, symbol2: Symbol):
@@ -27,17 +25,8 @@ class PairInfo:
         self.symbol1 = symbol1
         self.symbol2 = symbol2
         
-        # 发现状态
-        self.is_current_round = False  # 本轮选股是否发现
-        self.discovery_count = 0       # 历史被发现总次数
-        
         # 持仓时间跟踪
         self.entry_time = None         # 建仓时间（None表示无持仓）
-        self.last_exit_time = None     # 最近平仓时间（用于冷却期）
-        
-        # 跨周期统计
-        self.trade_count = 0          # 完整交易次数
-        self.holding_days_total = 0   # 累计持仓天数
     
     def get_holding_days(self, algorithm) -> int:
         """
@@ -59,27 +48,6 @@ class PairInfo:
             return 0
             
         return (algorithm.Time - self.entry_time).days
-    
-    def get_idle_days(self, algorithm) -> int:
-        """
-        获取空仓天数（用于冷却期判断）
-        
-        Args:
-            algorithm: 主算法实例
-            
-        Returns:
-            int: 空仓天数，有持仓或从未交易返回0
-        """
-        if not self.last_exit_time:
-            return 0
-            
-        # 实时检查是否有持仓
-        h1 = algorithm.Portfolio[self.symbol1]
-        h2 = algorithm.Portfolio[self.symbol2]
-        if h1.Invested and h2.Invested:
-            return 0
-            
-        return (algorithm.Time - self.last_exit_time).days
     
     def get_position_status(self, algorithm) -> dict:
         """
@@ -105,10 +73,7 @@ class PairInfo:
         elif not has_position and self.entry_time:
             # 检测到平仓
             holding_days = (algorithm.Time - self.entry_time).days
-            self.holding_days_total += holding_days
-            self.trade_count += 1
             self.entry_time = None
-            self.last_exit_time = algorithm.Time
             algorithm.Debug(f"[PairLedger] 检测到平仓 [{self.symbol1.Value},{self.symbol2.Value}], 持仓{holding_days}天")
         
         # 计算整对的持仓价值
@@ -138,11 +103,6 @@ class PairInfo:
             'total_pnl': h1.UnrealizedProfit + h2.UnrealizedProfit,
             'total_pnl_percent': (h1.UnrealizedProfit + h2.UnrealizedProfit) / total_value if total_value > 0 else 0
         }
-    
-    @property
-    def avg_holding_days(self) -> float:
-        """平均持仓天数"""
-        return self.holding_days_total / self.trade_count if self.trade_count > 0 else 0
 
 
 class PairLedger:
@@ -173,46 +133,27 @@ class PairLedger:
         # 所有配对信息 {(symbol1_value, symbol2_value): PairInfo}
         # 使用Symbol.Value作为键，避免Symbol对象身份比较问题
         self.all_pairs: Dict[Tuple[str, str], PairInfo] = {}
-        
-        # 配对双向映射 {symbol_value: symbol_value} - 快速查找配对关系
-        self.symbol_map: Dict[str, str] = {}
     
     def update_from_selection(self, new_pairs: List[Tuple[Symbol, Symbol]]):
         """
-        更新本轮选股发现的配对
+        更新配对信息
         
         由AlphaModel在每轮选股后调用
         
         Args:
             new_pairs: 新选出的配对列表，每个元素为 (symbol1, symbol2)
         """
-        # 重置所有配对的当轮发现状态
-        for pair_info in self.all_pairs.values():
-            pair_info.is_current_round = False
-        
         # 处理新发现的配对
-        current_round_pairs = set()
         new_discovered_pairs = []  # 记录新发现的配对
         
         for symbol1, symbol2 in new_pairs:
             pair_key = self._get_pair_key(symbol1, symbol2)
-            current_round_pairs.add(pair_key)
             
             # 新配对
             if pair_key not in self.all_pairs:
                 # 传递原始Symbol对象给PairInfo
                 self.all_pairs[pair_key] = PairInfo(symbol1, symbol2)
                 new_discovered_pairs.append(f"{pair_key[0]}-{pair_key[1]}")
-            
-            # 更新发现状态
-            self.all_pairs[pair_key].is_current_round = True
-            self.all_pairs[pair_key].discovery_count += 1
-        
-        # 清理长期未被发现且无持仓的配对（可选）
-        # self._cleanup_dormant_pairs(current_round_pairs)
-        
-        # 重建symbol映射
-        self._rebuild_symbol_map()
         
         # 构建持续追踪的配对列表（有持仓的配对）
         tracking_pairs = []
@@ -256,7 +197,7 @@ class PairLedger:
             
             risk_data.append({
                 'pair': (pair_info.symbol1, pair_info.symbol2),
-                'pair_info': pair_info,  # 引用，便于设置风控标记
+                'pair_info': pair_info,  # 引用
                 'holding_days': status['holding_days'],
                 'total_pnl': status['total_pnl'],
                 'total_pnl_percent': status['total_pnl_percent'],
@@ -265,84 +206,6 @@ class PairLedger:
         
         # 按持仓天数降序排列
         return sorted(risk_data, key=lambda x: x['holding_days'], reverse=True)
-    
-    def get_active_pairs_count(self) -> int:
-        """
-        获取当前活跃配对数量
-        
-        供PortfolioConstruction检查最大配对数限制
-        
-        Returns:
-            int: 有持仓的配对数量
-        """
-        count = 0
-        for pair_info in self.all_pairs.values():
-            status = pair_info.get_position_status(self.algorithm)
-            if status['has_position']:
-                count += 1
-        return count
-    
-    def is_tradeable(self, symbol1: Symbol, symbol2: Symbol, cooldown_days: int = 0) -> bool:
-        """
-        检查配对是否可交易
-        
-        供PortfolioConstruction检查交易限制
-        
-        Args:
-            symbol1, symbol2: 配对的两只股票
-            cooldown_days: 冷却期天数
-            
-        Returns:
-            bool: 是否可以交易
-        """
-        pair_info = self.get_pair_info(symbol1, symbol2)
-        if not pair_info:
-            return False
-        
-        # 检查1: 必须是本轮发现的
-        # 注释掉此检查，因为选股是每月一次，但信号生成是每天进行
-        # AlphaModel只会对当前管理的配对生成信号，所以这个检查是多余的
-        # if not pair_info.is_current_round:
-        #     return False
-        
-        # 检查2: 不能已有持仓（实时检查）
-        status = pair_info.get_position_status(self.algorithm)
-        if status['has_position']:
-            return False
-        
-        # 检查3: 冷却期
-        if cooldown_days > 0 and pair_info.get_idle_days(self.algorithm) < cooldown_days:
-            return False
-        
-        return True
-    
-    def get_pair_info(self, symbol1: Symbol, symbol2: Symbol) -> Optional[PairInfo]:
-        """
-        获取配对信息
-        
-        Args:
-            symbol1, symbol2: 配对的两只股票
-            
-        Returns:
-            PairInfo: 配对信息，不存在返回None
-        """
-        pair_key = self._get_pair_key(symbol1, symbol2)
-        result = self.all_pairs.get(pair_key)
-        return result
-    
-    def get_paired_symbol(self, symbol: Symbol) -> Optional[str]:
-        """
-        获取配对的另一只股票
-        
-        快速查找某只股票的配对股票
-        
-        Args:
-            symbol: 股票代码
-            
-        Returns:
-            str: 配对的另一只股票的Value，不存在返回None
-        """
-        return self.symbol_map.get(symbol.Value)
     
     def _get_pair_key(self, symbol1: Symbol, symbol2: Symbol) -> Tuple[str, str]:
         """
@@ -360,26 +223,3 @@ class PairLedger:
         if value1 > value2:
             return (value2, value1)
         return (value1, value2)
-    
-    def _rebuild_symbol_map(self):
-        """重建双向映射，便于快速查找配对关系"""
-        self.symbol_map.clear()
-        for value1, value2 in self.all_pairs.keys():
-            self.symbol_map[value1] = value2
-            self.symbol_map[value2] = value1
-    
-    def get_summary_stats(self) -> Dict:
-        """
-        获取账本汇总统计
-        
-        Returns:
-            Dict: 各类统计信息
-        """
-        stats = {
-            'total_pairs': len(self.all_pairs),
-            'current_round_pairs': sum(1 for p in self.all_pairs.values() if p.is_current_round),
-            'active_pairs': self.get_active_pairs_count(),
-            'avg_discovery_count': sum(p.discovery_count for p in self.all_pairs.values()) / len(self.all_pairs) if self.all_pairs else 0,
-            'avg_trade_count': sum(p.trade_count for p in self.all_pairs.values()) / len(self.all_pairs) if self.all_pairs else 0
-        }
-        return stats
