@@ -4,6 +4,37 @@
 
 ---
 
+## [v3.1.0_critical-fixes-and-architecture-refactoring@20250805]
+### 关键性能修复
+- **信号持续时间优化**：
+  - 平仓信号：1天 → 5天（避免过早失效）
+  - 建仓信号：2天 → 3天（确保执行机会）
+- **持仓时间计算修复**：
+  - 修复 OrderTracker 中 entry_time 在平仓后未重置的问题
+  - 确保每次新建仓能正确计算持仓时间
+- **同向持仓错误修复**：
+  - RiskManagement 改用 PortfolioTarget.Percent() 替代 PortfolioTarget()
+  - 使用 PairRegistry 保证配对顺序一致性，避免错误平仓
+
+### 架构重构
+- **职责分离优化**：
+  - 从 AlphaModel 完全移除风控逻辑（删除 _filter_risk_controlled_pairs）
+  - AlphaModel 现在专注于纯粹的信号生成
+  - 所有风控检查（持仓时间、冷却期、止损）集中在 RiskManagement
+- **依赖注入改进**：
+  - RiskManagement：注入 order_tracker 和 pair_registry
+  - AlphaModel：注入 pair_registry，移除 order_tracker
+  - 消除所有通过 self.algorithm 访问依赖的代码
+
+### 参数调整
+- max_symbol_repeats: 3 → 1（每只股票只能在一个配对中）
+- max_holding_days: 60天 → 30天（更严格的持仓时间控制）
+- 新增 cooldown_days: 7天（平仓后冷却期）
+
+### 代码清理
+- 删除 src/PairLedger.py（已被 PairRegistry 替代）
+- 清理旧的 backtest 日志文件
+
 ## [v3.0.0_test-framework-and-ai-agents@20250804]
 ### 里程碑更新
 - 创建完整的测试框架，标志着策略开发进入专业化阶段

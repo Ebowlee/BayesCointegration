@@ -22,11 +22,11 @@ class OrderInfo:
         self.fill_time: Optional[datetime] = None
         self.pair_id: Optional[str] = None
     
-    def update(self, order_event: OrderEvent):
+    def update(self, order_event: OrderEvent, current_time: datetime):
         """更新订单状态"""
         self.status = order_event.Status
         if order_event.Status == OrderStatus.Filled:
-            self.fill_time = order_event.UtcTime
+            self.fill_time = current_time
     
     @property
     def is_filled(self) -> bool:
@@ -84,19 +84,25 @@ class PairOrderInfo:
         entry_orders = [o for o in self.orders if o.order_type == 'entry' and o.is_filled]
         exit_orders = [o for o in self.orders if o.order_type == 'exit' and o.is_filled]
         
-        # 检查entry时间（需要两边都成交）
-        s1_entry = next((o for o in entry_orders if o.symbol == self.symbol1), None)
-        s2_entry = next((o for o in entry_orders if o.symbol == self.symbol2), None)
-        
-        if s1_entry and s2_entry and s1_entry.fill_time and s2_entry.fill_time:
-            self.entry_time = max(s1_entry.fill_time, s2_entry.fill_time)
-        
-        # 检查exit时间（需要两边都成交）
+        # 先检查exit时间（需要两边都成交）
         s1_exit = next((o for o in exit_orders if o.symbol == self.symbol1), None)
         s2_exit = next((o for o in exit_orders if o.symbol == self.symbol2), None)
         
         if s1_exit and s2_exit and s1_exit.fill_time and s2_exit.fill_time:
-            self.exit_time = max(s1_exit.fill_time, s2_exit.fill_time)
+            new_exit_time = max(s1_exit.fill_time, s2_exit.fill_time)
+            
+            # 如果是新的平仓（时间更晚），重置entry_time
+            if self.exit_time is None or new_exit_time > self.exit_time:
+                self.exit_time = new_exit_time
+                self.entry_time = None  # 重置entry_time，为下次建仓准备
+        
+        # 检查entry时间（需要两边都成交）- 只在entry_time为空时更新
+        if self.entry_time is None:
+            s1_entry = next((o for o in entry_orders if o.symbol == self.symbol1), None)
+            s2_entry = next((o for o in entry_orders if o.symbol == self.symbol2), None)
+            
+            if s1_entry and s2_entry and s1_entry.fill_time and s2_entry.fill_time:
+                self.entry_time = max(s1_entry.fill_time, s2_entry.fill_time)
 
 
 class OrderTracker:
@@ -134,7 +140,7 @@ class OrderTracker:
         
         # 更新状态
         order_info = self.orders[order_id]
-        order_info.update(order_event)
+        order_info.update(order_event, self.algorithm.Time)
         
         # 更新配对时间
         if order_info.pair_id and order_info.is_filled:
@@ -149,7 +155,7 @@ class OrderTracker:
         
         # 创建订单
         order_info = OrderInfo(
-            order_id=order.OrderId,
+            order_id=order.Id,
             symbol=symbol,
             quantity=order.Quantity,
             submit_time=order.Time,
@@ -169,7 +175,7 @@ class OrderTracker:
             
             self.pair_orders[pair_id].add_order(order_info)
         
-        self.orders[order.OrderId] = order_info
+        self.orders[order.Id] = order_info
     
     def _get_pair_id(self, symbol1: Symbol, symbol2: Symbol) -> str:
         """生成配对ID"""

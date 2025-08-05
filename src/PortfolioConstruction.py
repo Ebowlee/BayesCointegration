@@ -46,7 +46,6 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
     
     与其他模块的交互:
     - AlphaModel: 提供交易信号(Insights)
-    - PairLedger: 查询配对状态和限制
     - RiskManagement: 生成的targets可能被风控调整
     - Execution: 最终执行具体订单
     
@@ -312,7 +311,6 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         处理平仓信号
         
         生成两只股票都平仓的目标(权重=0)。
-        PairLedger会在订单成交后自动记录平仓时间。
         
         Args:
             symbol1, symbol2: 配对股票
@@ -321,7 +319,6 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
             List[PortfolioTarget]: 两个权重为0的目标
         """
         self.algorithm.Debug(f"[PC]: [{symbol1.Value}, {symbol2.Value}] | [FLAT, FLAT]")
-        # 不再需要记录冷却期，因为PairLedger会在订单成交后自动记录last_exit_time
         return [
             PortfolioTarget.Percent(self.algorithm, symbol1, 0),
             PortfolioTarget.Percent(self.algorithm, symbol2, 0)

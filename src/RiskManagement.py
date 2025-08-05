@@ -41,7 +41,7 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
     - 透明性: 详细记录所有风控动作
     """
     
-    def __init__(self, algorithm, config: dict, order_tracker: OrderTracker):
+    def __init__(self, algorithm, config: dict, order_tracker: OrderTracker, pair_registry):
         """
         初始化风险管理模型
         
@@ -49,10 +49,12 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
             algorithm: QuantConnect算法实例
             config: 风控配置参数
             order_tracker: 订单追踪器实例
+            pair_registry: 配对注册表实例
         """
         super().__init__()
         self.algorithm = algorithm
         self.order_tracker = order_tracker
+        self.pair_registry = pair_registry
         
         # 风控参数
         self.max_holding_days = config.get('max_holding_days', 30)
@@ -175,11 +177,28 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
         # 生成平仓指令
         if liquidation_pairs:
             liquidation_targets = self._create_liquidation_targets(liquidation_pairs)
+            
+            # 记录原始targets和风控targets
+            original_symbols = {t.Symbol for t in risk_adjusted_targets}
+            liquidation_symbols = {t.Symbol for t in liquidation_targets}
+            
+            # 检查是否有冲突
+            conflicts = original_symbols.intersection(liquidation_symbols)
+            if conflicts:
+                self.algorithm.Debug(
+                    f"[RiskManagement] 警告: 风控指令与现有指令冲突，"
+                    f"冲突股票: {[s.Value for s in conflicts]}"
+                )
+                # 移除冲突的原始指令
+                risk_adjusted_targets = [t for t in risk_adjusted_targets 
+                                       if t.Symbol not in liquidation_symbols]
+            
             risk_adjusted_targets.extend(liquidation_targets)
             
             self.algorithm.Debug(
                 f"[RiskManagement] 风控平仓{len(liquidation_pairs)}对, "
-                f"生成{len(liquidation_targets)}个平仓指令"
+                f"生成{len(liquidation_targets)}个平仓指令, "
+                f"最终指令数: {len(risk_adjusted_targets)}"
             )
         
         # 检查异常订单
@@ -218,14 +237,20 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
             processed_symbols.add(symbol)
             processed_symbols.add(paired_symbol)
             
+            # 从PairRegistry获取原始配对顺序
+            original_pair = self.pair_registry.get_pair_for_symbol(symbol)
+            if not original_pair:
+                # 如果找不到，使用当前顺序（兼容性）
+                original_pair = (symbol, paired_symbol)
+            
             # 获取持仓时间
-            holding_days = self.order_tracker.get_holding_period(symbol, paired_symbol)
+            holding_days = self.order_tracker.get_holding_period(original_pair[0], original_pair[1])
             if holding_days is None:
                 # 如果OrderTracker没有记录，估算为0天（刚建仓）
                 holding_days = 0
             
             active_pairs.append({
-                'pair': (symbol, paired_symbol),
+                'pair': original_pair,  # 使用原始配对顺序
                 'holding_days': holding_days
             })
         
@@ -244,7 +269,7 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
             Optional[Symbol]: 配对的股票，如果没有找到返回None
         """
         # 使用 PairRegistry 获取配对信息
-        paired_symbol = self.algorithm.pair_registry.get_paired_symbol(symbol)
+        paired_symbol = self.pair_registry.get_paired_symbol(symbol)
         
         # 验证配对的股票确实有持仓
         if paired_symbol and self.algorithm.Portfolio[paired_symbol].Invested:
@@ -333,11 +358,11 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
         for symbol1, symbol2, reason in liquidation_pairs:
             # 避免重复添加同一股票的平仓指令
             if symbol1 not in processed_symbols:
-                targets.append(PortfolioTarget(symbol1, 0))
+                targets.append(PortfolioTarget.Percent(self.algorithm, symbol1, 0))
                 processed_symbols.add(symbol1)
             
             if symbol2 not in processed_symbols:
-                targets.append(PortfolioTarget(symbol2, 0))
+                targets.append(PortfolioTarget.Percent(self.algorithm, symbol2, 0))
                 processed_symbols.add(symbol2)
             
             # 记录平仓原因
@@ -448,7 +473,7 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
                 continue
                 
             # 使用 PairRegistry 查找配对的另一只股票
-            paired_symbol = self.algorithm.pair_registry.get_paired_symbol(symbol)
+            paired_symbol = self.pair_registry.get_paired_symbol(symbol)
             
             if paired_symbol:
                 # 检查冷却期

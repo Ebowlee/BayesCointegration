@@ -4,9 +4,10 @@ from src.UniverseSelection import MyUniverseSelectionModel
 from System import Action
 from QuantConnect.Data.Fundamental import MorningstarSectorCode
 from src.AlphaModel import BayesianCointegrationAlphaModel
-from src.PairLedger import PairLedger
 from src.PortfolioConstruction import BayesianCointegrationPortfolioConstructionModel
 from src.RiskManagement import BayesianCointegrationRiskManagementModel
+from src.PairRegistry import PairRegistry
+from src.OrderTracker import OrderTracker
 # endregion
     
 
@@ -49,7 +50,7 @@ class StrategyConfig:
         self.alpha_model = {
             'pvalue_threshold': 0.05,
             'correlation_threshold': 0.7,
-            'max_symbol_repeats': 3,
+            'max_symbol_repeats': 1,
             'max_pairs': 20,
             'lookback_period': 252,
             'mcmc_warmup_samples': 1000,
@@ -59,8 +60,8 @@ class StrategyConfig:
             'exit_threshold': 0.3,  
             'upper_limit': 3.0,  
             'lower_limit': -3.0,
-            'flat_signal_duration_days': 1,                 # 平仓信号有效期（天）
-            'entry_signal_duration_days': 2,                # 建仓信号有效期（天）
+            'flat_signal_duration_days': 5,                 # 平仓信号有效期（天）- 延长至5天确保执行
+            'entry_signal_duration_days': 3,                # 建仓信号有效期（天）- 延长至3天避免错过
             'min_data_completeness_ratio': 0.98,            # 数据完整性最低要求(98%)
             # 配对质量评分权重
             'quality_weights': {
@@ -80,7 +81,8 @@ class StrategyConfig:
         
         # RiskManagement 配置
         self.risk_management = {
-            'max_holding_days': 60,          # 最大持仓天数
+            'max_holding_days': 30,          # 最大持仓天数（从60天改为30天）
+            'cooldown_days': 7,              # 冷却期天数
             'max_pair_drawdown': 0.10,       # 配对最大回撤10%
             'max_single_drawdown': 0.20      # 单边最大回撤20%
         }
@@ -116,9 +118,8 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         """
         初始化算法、设置参数、注册事件处理程序
         """
-        # 初始化配置和记账簿
+        # 初始化配置
         self.config = StrategyConfig()
-        self.pair_ledger = PairLedger(self)
         
         # 设置基本参数
         self._setup_basic_parameters()
@@ -149,9 +150,15 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # 调度
         self._setup_schedule()
         
+        # PairRegistry - 配对信息中心
+        self.pair_registry = PairRegistry(self)
+        
+        # OrderTracker - 订单追踪器
+        self.order_tracker = OrderTracker(self, self.pair_registry)
+        
         # Alpha模块
         self.SetAlpha(BayesianCointegrationAlphaModel(
-            self, self.config.alpha_model, self.pair_ledger, self.config.sector_code_to_name
+            self, self.config.alpha_model, self.config.sector_code_to_name, self.pair_registry
         ))
         
         # PortfolioConstruction模块
@@ -159,11 +166,12 @@ class BayesianCointegrationStrategy(QCAlgorithm):
             self, self.config.portfolio_construction
         ))
         
-        # RiskManagement模块
+        # RiskManagement模块 - 传入OrderTracker和PairRegistry
         self.risk_manager = BayesianCointegrationRiskManagementModel(
             self, 
-            self.config.risk_management, 
-            self.pair_ledger
+            self.config.risk_management,
+            self.order_tracker,
+            self.pair_registry
         )
         self.AddRiskManagement(self.risk_manager)
 
@@ -175,3 +183,11 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         date_rule = getattr(self.DateRules, self.config.main['schedule_frequency'])()
         time_rule = self.TimeRules.At(*self.config.main['schedule_time'])
         self.Schedule.On(date_rule, time_rule, Action(self.universe_selector.TriggerSelection))
+    
+    def OnOrderEvent(self, orderEvent: OrderEvent):
+        """
+        处理订单事件
+        
+        将所有订单事件传递给OrderTracker进行记录
+        """
+        self.order_tracker.on_order_event(orderEvent)

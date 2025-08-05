@@ -438,7 +438,12 @@ class CointegrationAnalyzer:
     def _filter_pairs(self, all_pairs: List[Dict]) -> List[Dict]:
         """
         使用综合评分系统筛选配对
+        
+        筛选原则:
+        1. 按质量分数排序
+        2. 每只股票只能出现在一个配对中（max_symbol_repeats=1）
         """
+        
         # 为每个配对计算综合质量分数
         for pair in all_pairs:
             pair['quality_score'] = self._calculate_pair_quality_score(pair)
@@ -456,6 +461,7 @@ class CointegrationAnalyzer:
                 break
                 
             symbol1, symbol2 = pair['symbol1'], pair['symbol2']
+            
             # 检查两只股票是否都未达到最大出现次数
             if (symbol_count[symbol1] < self.max_symbol_repeats and 
                 symbol_count[symbol2] < self.max_symbol_repeats):
@@ -1109,21 +1115,21 @@ class BayesianCointegrationAlphaModel(AlphaModel):
     - 所有模块都有独立的错误处理
     """
     
-    def __init__(self, algorithm, config: dict, pair_ledger, sector_code_to_name: dict):
+    def __init__(self, algorithm, config: dict, sector_code_to_name: dict, pair_registry):
         """
         初始化Alpha模型
         
         Args:
             algorithm: QuantConnect算法实例
             config: 配置字典
-            pair_ledger: 配对记账簿实例
             sector_code_to_name: 行业代码到名称的映射
+            pair_registry: 配对注册表实例
         """
         super().__init__()
         self.algorithm = algorithm
         self.config = config
-        self.pair_ledger = pair_ledger
         self.sector_code_to_name = sector_code_to_name
+        self.pair_registry = pair_registry
         
         # 状态管理
         self.is_selection_day = False  # 标记是否为选股触发日
@@ -1195,9 +1201,9 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                 # 保存协整对结果
                 self.cointegrated_pairs = cointegration_result['cointegrated_pairs']
                 
-                # 更新配对记账簿（供其他模块使用）
+                # 更新 PairRegistry
                 pairs_list = [(pair['symbol1'], pair['symbol2']) for pair in self.cointegrated_pairs]
-                self.pair_ledger.update_from_selection(pairs_list)
+                self.pair_registry.update_pairs(pairs_list)
                 
                 # 步骤3: 贝叶斯建模 - 估计配对参数
                 if len(self.cointegrated_pairs) > 0:
@@ -1221,3 +1227,4 @@ class BayesianCointegrationAlphaModel(AlphaModel):
             return insights
         
         return []
+    
