@@ -22,9 +22,10 @@ class OrderStatus(Enum):
 
 class MockSymbol:
     """模拟股票代码"""
-    def __init__(self, value: str):
+    def __init__(self, value: str, sector_code: int = 1):
         self.Value = value
         self.ID = MockSecurityIdentifier(value)
+        self.sector_code = sector_code
         
     def __eq__(self, other):
         return isinstance(other, MockSymbol) and self.Value == other.Value
@@ -92,11 +93,12 @@ class MockPortfolio(dict):
 class MockOrder:
     """模拟订单"""
     def __init__(self, order_id: int, symbol: MockSymbol, quantity: float, 
-                 time: datetime, order_type: str = "Market"):
+                 time: datetime = None, order_type: str = "Market"):
         self.OrderId = order_id
+        self.Id = order_id  # 兼容性别名
         self.Symbol = symbol
         self.Quantity = quantity
-        self.Time = time
+        self.Time = time or datetime.now()
         self.Type = order_type
         self.Status = OrderStatus.New
         self.Tag = ""
@@ -183,9 +185,15 @@ class MockInsight:
 
 class MockPortfolioTarget:
     """模拟投资组合目标"""
-    def __init__(self, symbol: MockSymbol, quantity: float):
+    def __init__(self, symbol: MockSymbol, quantity: float, algorithm=None):
         self.Symbol = symbol
         self.Quantity = quantity
+        self._algorithm = algorithm  # 存储算法引用
+        
+    @classmethod
+    def Percent(cls, algorithm, symbol: MockSymbol, percentage: float):
+        """创建基于百分比的投资组合目标"""
+        return cls(symbol, percentage, algorithm)
         
     def __repr__(self):
         return f"MockPortfolioTarget({self.Symbol.Value}, {self.Quantity})"
@@ -214,3 +222,48 @@ def create_submitted_order_event(order: MockOrder) -> MockOrderEvent:
         0,
         0
     )
+
+
+# 添加缺失的类和枚举
+class InsightDirection(Enum):
+    """信号方向枚举"""
+    Up = 1
+    Down = -1
+    Flat = 0
+
+
+class MockSecurityChanges:
+    """模拟证券变更事件"""
+    def __init__(self):
+        self.added_securities = []
+        self.removed_securities = []
+        
+    def AddedSecurities(self):
+        return self.added_securities
+    
+    def RemovedSecurities(self):
+        return self.removed_securities
+
+
+class MockSlice:
+    """模拟数据切片"""
+    def __init__(self):
+        self.bars = {}
+        self.has_data = True
+        
+    def __getitem__(self, symbol):
+        return self.bars.get(symbol)
+    
+    def ContainsKey(self, symbol):
+        return symbol in self.bars
+        
+
+class MockBar:
+    """模拟价格Bar数据"""
+    def __init__(self, open_price=100, high=101, low=99, close=100, volume=1000000):
+        self.Open = open_price
+        self.High = high
+        self.Low = low
+        self.Close = close
+        self.Volume = volume
+        self.Price = close  # 当前价格

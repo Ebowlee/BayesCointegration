@@ -11,11 +11,16 @@ This is a **Bayesian Cointegration** pairs trading strategy built for the QuantC
 The strategy follows QuantConnect's **Algorithm Framework** with modular design:
 
 - **main.py**: Central orchestrator using `BayesianCointegrationStrategy(QCAlgorithm)`
-- **UniverseSelection**: Multi-stage fundamental screening with sector-based selection (30 stocks per sector)
+- **UniverseSelection**: Multi-stage fundamental screening with sector-based selection (20 stocks per sector)
 - **AlphaModel**: Core Bayesian cointegration engine using PyMC for MCMC sampling
 - **PortfolioConstruction**: Beta-neutral position sizing with margin considerations
-- **RiskManagement**: Multi-layered risk controls (max 4 pairs globally, 60-day holding limit)
+- **RiskManagement**: Multi-layered risk controls (max 4 pairs globally, 30-day holding limit)
 - **Execution**: Atomic pair execution (currently unused)
+
+### Supporting Modules
+- **OrderTracker**: Tracks order lifecycle and pair states, enforces cooldown periods
+- **PairRegistry**: Maintains active pair mappings and provides fast lookups
+- **RiskCalculator**: Computes pair drawdowns and position metrics (planned)
 
 Key architectural principles:
 - **Intra-industry pairing only** - securities are paired within the same Morningstar sector
@@ -30,10 +35,49 @@ Key architectural principles:
 lean backtest BayesCointegration
 
 # Deploy to QuantConnect cloud
-lean cloud push BayesCointegration
+lean cloud push --project BayesCointegration
 
 # View backtest results
 lean report
+
+# Check LEAN CLI help
+lean backtest --help
+```
+
+### Testing Framework
+```bash
+# Run all tests
+python run_tests.py
+
+# Run only unit tests
+python run_tests.py --unit
+
+# Run only integration tests  
+python run_tests.py --integration
+
+# Run specific test module
+python run_tests.py test_order_tracker
+python run_tests.py test_pair_registry  
+python run_tests.py test_risk_management
+python run_tests.py test_strategy_flow
+
+# Run with verbose output
+python run_tests.py -v
+
+# Run specific test method directly
+python -m unittest tests.unit.test_risk_management.TestRiskManagement.test_single_stop_loss
+```
+
+### Cloud Operations
+```bash
+# Validate configuration before backtest
+lean config validate
+
+# Check project structure
+lean project-create --list
+
+# Download backtest results
+lean cloud backtest results <backtest-id> --destination ./backtests/
 ```
 
 ### Version Control
@@ -46,51 +90,90 @@ git commit -m "v2.4.8_strategy-optimize@20250720"
 - Description of changes
 ```
 
-### Strategy Configuration
-- **StrategyConfig class**: Located in `main.py`, centralizes all strategy parameters
-- **Backtest period**: Modify `SetStartDate()` and `SetEndDate()` in `main.py` Initialize()
-- **Module parameters**: Currently hard-coded in each module's `__init__` method
-- **Scheduling**: Monthly universe reselection on first trading day at 9:10 AM
-- **Account settings**: `SetBrokerageModel(BrokerageName.InteractiveBrokersBrokerage)` for 2x leverage
+## Module Architecture and Interaction
+
+### 1. main.py - Strategy Orchestrator
+- **Purpose**: Central configuration and framework setup
+- **Key Components**:
+  - `StrategyConfig`: Centralized parameter management
+  - `BayesianCointegrationStrategy`: Main algorithm class
+  - Framework module initialization
+- **Configuration**: All strategy parameters in `StrategyConfig` class
+
+### 2. UniverseSelection.py - Stock Selection
+- **Purpose**: Two-stage filtering (Coarse → Fine) for tradeable universe
+- **Key Methods**:
+  - `_select_coarse()`: Price/volume/IPO filtering
+  - `_select_fine()`: Financial metrics and volatility filtering
+  - `_group_and_sort_by_sector()`: Sector-based grouping
+- **Triggers**: Monthly via `Schedule.On()` → `TriggerSelection()`
+
+### 3. AlphaModel.py - Signal Generation
+- **Purpose**: Bayesian cointegration analysis and trading signals
+- **Components**:
+  - `DataProcessor`: Historical data handling
+  - `CointegrationAnalyzer`: Statistical pair testing
+  - `BayesianRegressor`: MCMC parameter estimation
+  - `SignalGenerator`: Z-score based signal creation
+- **Signal Types**: Up/Down (entry), Flat (exit)
+
+### 4. PortfolioConstruction.py - Position Management
+- **Purpose**: Convert signals to position targets
+- **Key Features**:
+  - Dynamic position sizing (5-15% per pair)
+  - Beta-neutral hedging
+  - Quality score based allocation
+- **Signal Processing**: Parses Insight.Tag for parameters
+
+### 5. RiskManagement.py - Risk Control
+- **Purpose**: Independent risk monitoring and control
+- **Risk Limits**:
+  - Max holding period: 30 days (reduced from 60)
+  - Pair drawdown: 10%
+  - Single asset drawdown: 20%
+  - Cooldown period: 7 days after exit
+- **Execution**: Daily automatic checks via `ManageRisk()`
 
 ## Critical Implementation Details
 
 ### Statistical Engine (AlphaModel)
-- **Cointegration testing**: Engle-Granger test with p-value < 0.025
-- **Bayesian modeling**: PyMC with 1500 burn-in + 1500 draws, 2 chains
-- **Signal thresholds**: Entry ±1.65σ, Exit ±0.3σ, Safety limits ±3.0σ
-- **Risk controls**: Max 5 pairs, each stock in max 1 pair
+- **Cointegration testing**: Engle-Granger test with p-value < 0.05
+- **Bayesian modeling**: PyMC with 1000 burn-in + 1000 draws, 2 chains
+- **Signal thresholds**: Entry ±1.2σ, Exit ±0.3σ, Safety limits ±3.0σ
+- **Risk controls**: Max 20 pairs analyzed, each stock in max 1 pair
 
 ### Universe Selection Logic
-1. **Coarse filtering**: Price > $15, Volume > $250M, IPO > 3 years  
+1. **Coarse filtering**: Price > $20, Volume > $5M, IPO > 3 years  
 2. **Sector grouping**: 8 major sectors with 30 stocks each by market cap
-3. **Fundamental filters**: PE < 30, ROE > 5%, Debt-to-Assets < 60%, Leverage < 5x
+3. **Fundamental filters**: PE < 100, ROE > 0%, Debt-to-Assets < 80%, Leverage < 8x
+4. **Volatility filter**: Annual volatility < 60%
 
 ### Position Sizing (PortfolioConstruction)
-- **Equal allocation**: `1/N` where N = number of active pairs
+- **Equal allocation**: Dynamic sizing based on number of active pairs
 - **Beta hedging**: Long = 1.0, Short = |β| from Bayesian regression
-- **Margin**: 50% requirement for short positions
+- **Margin**: 100% requirement for short positions
+- **Cash buffer**: 5% for operational needs
 
 ## Cross-Module Communication
 
 ### Data Flow
 1. UniverseSelection → AlphaModel: `changes.AddedSecurities/RemovedSecurities`
-2. AlphaModel → PortfolioConstruction: `Insight.Tag` contains `"symbol1&symbol2|alpha|beta|zscore|num_pairs"`
+2. AlphaModel → PortfolioConstruction: `Insight.Tag` contains `"symbol1&symbol2|alpha|beta|zscore|quality_score"`
 3. Scheduling: `Schedule.On()` triggers universe reselection monthly
-4. PairLedger: Central state management for pair lifecycle and holding periods
+4. Direct state access: Modules can access each other via `self.algorithm`
 
 ### State Management
-- **PairLedger**: Tracks all pairs, active status, and entry times for holding period limits
+- **Global state**: No external state files; all state in module instances
 - **Module states**: Each maintains independent state (`self.symbols`, `self.posterior_params`)
-- **Reference passing**: `self.algorithm.universe_selector.last_fine_selected_symbols`
-- **Lifecycle separation**: Selection periods vs. daily operations
+- **Position tracking**: Direct portfolio queries, no complex order tracking
+- **Lifecycle**: Selection periods vs. daily operations
 
 ## Key Dependencies
 
 ### Statistical Libraries
 - **PyMC**: Bayesian MCMC sampling (version compatibility critical)
 - **statsmodels**: Cointegration testing (coint function)
-- **NumPy**: Numerical operations and array handling
+- **NumPy/Pandas**: Numerical operations and data handling
 
 ### QuantConnect Framework
 - **AlgorithmImports**: Comprehensive import module
@@ -118,28 +201,61 @@ self.algorithm.Debug(f"[ModuleName] Description: value")
 # [PC] 生成 2 组 PortfolioTarget
 ```
 
-### Parameter Access Pattern
-Currently hard-coded in each module's `__init__`. Future optimization should implement:
+### Module Access Pattern
 ```python
-default_config = {
-    'selection': {'min_price': 15, 'min_volume': 2.5e8},
-    'financial': {'max_pe': 30, 'min_roe': 0.05},
-    'volatility': {'max_volatility': 0.6}
-}
+# Access universe selection results
+symbols = self.algorithm.universe_selector.last_fine_selected_symbols
+
+# Access risk manager state
+risk_stats = self.algorithm.risk_manager.risk_triggers
 ```
 
 ## Performance Considerations
 
-- **MCMC optimization**: Limited to 2 chains × 1500 samples for production speed
+- **MCMC optimization**: Limited to 2 chains × 1000 samples for production speed
 - **History requests**: 252-day lookback optimizes accuracy vs. performance  
 - **Selective processing**: Skip failed cointegration tests early
 - **Memory management**: Clear outdated references during universe reselection
 
+## Testing and Debugging
+
+- **Local backtesting**: Use `lean backtest` for rapid iteration
+- **Cloud backtesting**: Use `lean cloud push` for production testing
+- **Debug logging**: Liberal use of `self.algorithm.Debug()` statements
+- **Performance metrics**: Monitor via QuantConnect backtest results
+
+## Configuration Management
+
+### Current Approach
+- All parameters hard-coded in `StrategyConfig` class in main.py
+- Module-specific parameters passed via config dictionary
+- No external configuration files
+
+### Future Optimization
+- Consider moving to JSON/YAML configuration
+- Implement parameter optimization framework
+- Add runtime parameter validation
+
+## Testing Infrastructure
+
+### Test Structure
+- **Unit tests**: `tests/unit/` - Test individual modules in isolation
+- **Integration tests**: `tests/integration/` - Test cross-module interactions
+- **Mock framework**: `tests/mocks/` - Simulated QuantConnect environment
+
+### Key Test Coverage
+- **OrderTracker**: Order lifecycle, pair matching, cooldown tracking
+- **PairRegistry**: Active pair management, symbol lookups
+- **RiskManagement**: Stop-loss triggers, holding limits, drawdown calculations
+- **Strategy Flow**: End-to-end pair lifecycle simulation
+
 ## Recent Optimization History
 
-- **Code simplification tools**: Used `quantconnect-code-simplifier` agent for RiskManagement and PortfolioConstruction modules
-- **Performance improvements**: Cleaned diagnostic logs (z-score, leverage) to reduce noise
-- **Architecture enhancements**: Extended holding period limits and pair cooldown periods
+- **v3.0.0**: Added comprehensive test framework and AI agent system
+- **v2.17.0**: Implemented complete RiskManagement module with 3-layer risk controls
+- **v2.16.0**: Verified PortfolioConstruction module functionality
+- **v2.15.0**: Made quality score weights configurable
+- **Module simplification**: Used `quantconnect-code-simplifier` agent for cleaner code
 
 ## Files to Avoid Modifying
 

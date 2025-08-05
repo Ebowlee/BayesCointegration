@@ -19,6 +19,10 @@ from src.PairRegistry import PairRegistry
 from src.OrderTracker import OrderTracker
 from src.RiskManagement import BayesianCointegrationRiskManagementModel
 
+# 为测试环境设置PortfolioTarget别名
+import tests.mocks.mock_quantconnect as mock_qc
+mock_qc.PortfolioTarget = MockPortfolioTarget
+
 
 class TestRiskManagement(unittest.TestCase):
     """RiskManagement 核心方法测试类"""
@@ -41,7 +45,7 @@ class TestRiskManagement(unittest.TestCase):
         }
         
         self.risk_manager = BayesianCointegrationRiskManagementModel(
-            self.algorithm, self.config, self.order_tracker
+            self.algorithm, self.config, self.order_tracker, self.pair_registry
         )
         
         # 创建测试用的股票
@@ -126,20 +130,28 @@ class TestRiskManagement(unittest.TestCase):
         # 设置配对
         self.pair_registry.update_pairs([(self.symbol1, self.symbol2)])
         
+        # 保存原始时间
+        original_time = self.algorithm.Time
+        
+        # 回到35天前
+        self.algorithm.SetTime(original_time - timedelta(days=35))
+        
         # 初始化空持仓（建仓前）
         self.algorithm.Portfolio[self.symbol1] = MockHolding(self.symbol1, False, 0, 0, 100)
         self.algorithm.Portfolio[self.symbol2] = MockHolding(self.symbol2, False, 0, 0, 100)
         
-        # 模拟建仓订单（35天前）
-        entry_time = self.algorithm.Time - timedelta(days=35)
-        order1 = self.algorithm.Transactions.CreateOrder(self.symbol1, 100, entry_time)
-        order2 = self.algorithm.Transactions.CreateOrder(self.symbol2, -50, entry_time)
+        # 在“35天前”创建订单
+        order1 = self.algorithm.Transactions.CreateOrder(self.symbol1, 100, self.algorithm.Time)
+        order2 = self.algorithm.Transactions.CreateOrder(self.symbol2, -50, self.algorithm.Time)
         
         # 记录订单
-        self.order_tracker.on_order_event(create_filled_order_event(order1, entry_time))
-        self.order_tracker.on_order_event(create_filled_order_event(order2, entry_time))
+        self.order_tracker.on_order_event(create_filled_order_event(order1))
+        self.order_tracker.on_order_event(create_filled_order_event(order2))
         
-        # 现在设置当前持仓状态
+        # 时间推进到现在
+        self.algorithm.SetTime(original_time)
+        
+        # 设置当前持仓状态
         self.algorithm.Portfolio[self.symbol1] = MockHolding(self.symbol1, True, 100, 100, 100)
         self.algorithm.Portfolio[self.symbol2] = MockHolding(self.symbol2, True, -50, 100, 100)
         
@@ -230,33 +242,40 @@ class TestRiskManagement(unittest.TestCase):
         # 设置配对
         self.pair_registry.update_pairs([(self.symbol1, self.symbol2)])
         
-        # 首先模拟建仓（需要先建仓才能平仓）
-        entry_time = self.algorithm.Time - timedelta(days=10)
+        # 保存原始时间
+        original_time = self.algorithm.Time
+        
+        # 回到10天前，先建仓
+        self.algorithm.SetTime(original_time - timedelta(days=10))
+        
         # 建仓前空持仓
         self.algorithm.Portfolio[self.symbol1] = MockHolding(self.symbol1, False, 0, 0, 100)
         self.algorithm.Portfolio[self.symbol2] = MockHolding(self.symbol2, False, 0, 0, 100)
         
         # 建仓订单
-        entry_order1 = self.algorithm.Transactions.CreateOrder(self.symbol1, 100, entry_time)
-        entry_order2 = self.algorithm.Transactions.CreateOrder(self.symbol2, -50, entry_time)
-        self.order_tracker.on_order_event(create_filled_order_event(entry_order1, entry_time))
-        self.order_tracker.on_order_event(create_filled_order_event(entry_order2, entry_time))
+        entry_order1 = self.algorithm.Transactions.CreateOrder(self.symbol1, 100, self.algorithm.Time)
+        entry_order2 = self.algorithm.Transactions.CreateOrder(self.symbol2, -50, self.algorithm.Time)
+        self.order_tracker.on_order_event(create_filled_order_event(entry_order1))
+        self.order_tracker.on_order_event(create_filled_order_event(entry_order2))
         
         # 设置持仓状态
         self.algorithm.Portfolio[self.symbol1] = MockHolding(self.symbol1, True, 100, 100, 100)
         self.algorithm.Portfolio[self.symbol2] = MockHolding(self.symbol2, True, -50, 100, 100)
         
-        # 模拟平仓（3天前）
-        exit_time = self.algorithm.Time - timedelta(days=3)
-        exit_order1 = self.algorithm.Transactions.CreateOrder(self.symbol1, -100, exit_time)
-        exit_order2 = self.algorithm.Transactions.CreateOrder(self.symbol2, 50, exit_time)
-        self.order_tracker.on_order_event(create_filled_order_event(exit_order1, exit_time))
-        self.order_tracker.on_order_event(create_filled_order_event(exit_order2, exit_time))
+        # 推进到3天前，平仓
+        self.algorithm.SetTime(original_time - timedelta(days=3))
+        
+        exit_order1 = self.algorithm.Transactions.CreateOrder(self.symbol1, -100, self.algorithm.Time)
+        exit_order2 = self.algorithm.Transactions.CreateOrder(self.symbol2, 50, self.algorithm.Time)
+        self.order_tracker.on_order_event(create_filled_order_event(exit_order1))
+        self.order_tracker.on_order_event(create_filled_order_event(exit_order2))
         
         # 清空持仓
         self.algorithm.Portfolio[self.symbol1] = MockHolding(self.symbol1, False, 0, 0, 100)
         self.algorithm.Portfolio[self.symbol2] = MockHolding(self.symbol2, False, 0, 0, 100)
         
+        # 推进到现在
+        self.algorithm.SetTime(original_time)
         
         # 创建新的建仓信号
         new_targets = [
@@ -267,27 +286,36 @@ class TestRiskManagement(unittest.TestCase):
         # 执行风控（应该过滤掉）
         risk_adjusted_targets = self.risk_manager.ManageRisk(self.algorithm, new_targets)
         
-        
         # 冷却期内的建仓信号应该被过滤
         self.assertEqual(len(risk_adjusted_targets), 0)
         
     def test_normal_position_no_action(self):
         """测试正常持仓不触发风控"""
-        # 设置配对和正常持仓
+        # 设置配对
         self.pair_registry.update_pairs([(self.symbol1, self.symbol2)])
+        
+        # 保存原始时间
+        original_time = self.algorithm.Time
+        
+        # 回到10天前建仓
+        self.algorithm.SetTime(original_time - timedelta(days=10))
+        
+        # 建仓
+        order1 = self.algorithm.Transactions.CreateOrder(self.symbol1, 100, self.algorithm.Time)
+        order2 = self.algorithm.Transactions.CreateOrder(self.symbol2, -50, self.algorithm.Time)
+        self.order_tracker.on_order_event(create_filled_order_event(order1))
+        self.order_tracker.on_order_event(create_filled_order_event(order2))
+        
+        # 回到现在
+        self.algorithm.SetTime(original_time)
+        
+        # 设置正常持仓状态
         self.algorithm.Portfolio[self.symbol1] = MockHolding(
             self.symbol1, True, 100, 100, 105  # 盈利5%
         )
         self.algorithm.Portfolio[self.symbol2] = MockHolding(
             self.symbol2, True, -50, 50, 48  # 盈利4%
         )
-        
-        # 模拟建仓（10天前）
-        entry_time = self.algorithm.Time - timedelta(days=10)
-        order1 = self.algorithm.Transactions.CreateOrder(self.symbol1, 100, entry_time)
-        order2 = self.algorithm.Transactions.CreateOrder(self.symbol2, -50, entry_time)
-        self.order_tracker.on_order_event(create_filled_order_event(order1, entry_time))
-        self.order_tracker.on_order_event(create_filled_order_event(order2, entry_time))
         
         # 执行风控检查
         targets = []

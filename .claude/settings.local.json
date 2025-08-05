@@ -16,7 +16,11 @@
       "Bash(git clean:*)",
       "Bash(git push:*)",
       "Bash(lean backtest:*)",
-      "WebFetch(domain:www.quantconnect.com)"
+      "WebFetch(domain:www.quantconnect.com)",
+      "Bash(mkdir:*)",
+      "Bash(del test_integration.py test_integration_simple.py)",
+      "Bash(del:*)",
+      "Bash(git rm:*)"
     ],
     "deny": []
   }

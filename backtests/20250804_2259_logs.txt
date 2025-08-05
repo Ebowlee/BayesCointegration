@@ -1,0 +1,653 @@
+2024-06-20 00:00:00 Launching analysis for 50103c284271eea8fde90142b35809ba with LEAN Engine v2.5.0.0.17233
+2024-06-20 00:00:00 [UniverseSelection] 初始化完成
+2024-06-20 00:00:00 [OrderTracker] 初始化完成
+2024-06-20 00:00:00 [AlphaModel] 初始化完成
+2024-06-20 00:00:00 [PortfolioConstruction] 初始化完成 (保证金率: 1.0, 单对仓位: 5.0%-15.0%, 现金缓冲: 5.0%)
+2024-06-20 00:00:00 [RiskManagement] 初始化完成 - 最大持仓30天, 配对止损10.0%, 单边止损20.0%
+2024-06-20 00:00:00 Accurate daily end-times now enabled by default. See more at https://qnt.co/3YHaWHL. To disable it and use legacy daily bars set self.settings.daily_precise_end_time = False.
+2024-07-02 00:00:00 ===== 第【1】次选股 =====
+2024-07-02 00:00:00 [UniverseSelection] 筛选流程: 初始90只 → 财务筛选58只 → 波动率筛选55只 → 最终选择48只
+2024-07-02 00:00:00 [UniverseSelection] 财务过滤明细: PE(11) ROE(10) 债务(2) 杠杆(15)
+2024-07-02 00:00:00 [UniverseSelection] 波动率过滤: 高波动3只, 数据缺失0只
+2024-07-02 00:00:00 [UniverseSelection] 行业分布: ConsumerCyclical(10只,波动率37.9%) Technology(9只,波动率30.3%) ConsumerDefensive(7只,波动率17.3%) Energy(6只,波动率24.9%) Healthcare(5只,波动率25.0%) CommunicationServices(5只,波动率27.3%) Industrials(4只,波动率34.3%) Utilities(2只,波动率25.3%)
+2024-07-02 00:00:00 [UniverseSelection] 选股完成: 共48只股票, 前5样本: ['CSCO(18.7%)', 'MSFT(20.2%)', 'AAPL(22.0%)', 'QCOM(31.3%)', 'MCHP(31.8%)']
+2024-07-02 16:00:00 [AlphaModel.Data] 数据处理: 48→48只 ()
+2024-07-02 16:00:00 [AlphaModel.Coint] 合计筛选2对: 平均0.649, 最高0.686, 最低0.612
+2024-07-02 16:00:00 [AlphaModel.Coint] ConsumerCyclical: (AMZN,CMG)/0.612
+2024-07-02 16:00:00 [AlphaModel.Coint] Technology: (MCHP,QCOM)/0.686
+2024-07-02 16:00:00 [PairRegistry] 更新配对列表(2对): [MCHP,QCOM], [AMZN,CMG]
+2024-07-02 16:00:00 [AlphaModel.Bayesian] 建模完成: 成功2对, 失败0对 (完全建模2对, 动态更新0对)
+2024-07-02 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-02 16:00:00 [SignalGen] MCHP-QCOM: z-score=-0.278 (raw=-0.278)
+2024-07-02 16:00:00 [SignalGen] AMZN-CMG: z-score=2.147 (raw=2.147)
+2024-07-02 16:00:00 [AlphaModel] 生成4个Insights
+2024-07-02 16:00:00 [PC] 收到4个Insights
+2024-07-02 16:00:00 [PC] GroupId分组结果: 2组
+2024-07-02 16:00:00 [PC]: [AMZN, CMG] | [SELL, BUY] | [-0.0451, 0.0661] | beta=0.682 | allocation=11.1%
+2024-07-02 16:00:00 [PC] 资金分配完成: 新建仓1对, 资金使用11.1%, 剩余可用83.9%
+2024-07-02 16:00:00 [PC] 生成 2 个 PortfolioTarget
+2024-07-02 16:00:00 [RiskManagement] 第1次日常风控检查: 2024-07-02, 收到2个targets
+2024-07-02 16:00:00 Warning: all market orders sent using daily data, or market orders sent after hours are automatically converted into MarketOnOpen orders.
+2024-07-03 00:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-03 00:00:00 [PC] GroupId分组结果: 0组
+2024-07-03 00:00:00 [RiskManagement] 第2次日常风控检查: 2024-07-03, 收到0个targets
+2024-07-03 13:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-03 13:00:00 [SignalGen] MCHP-QCOM: z-score=-0.079 (raw=-0.029)
+2024-07-03 13:00:00 [SignalGen] AMZN-CMG: z-score=1.850 (raw=1.776)
+2024-07-03 13:00:00 [AlphaModel] 生成4个Insights
+2024-07-03 13:00:00 [PC] 收到4个Insights
+2024-07-03 13:00:00 [PC] GroupId分组结果: 2组
+2024-07-05 00:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-05 00:00:00 [PC] GroupId分组结果: 0组
+2024-07-05 00:00:00 [RiskManagement] 第3次日常风控检查: 2024-07-05, 收到0个targets
+2024-07-05 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-05 16:00:00 [SignalGen] MCHP-QCOM: z-score=-0.357 (raw=-0.427)
+2024-07-05 16:00:00 [SignalGen] AMZN-CMG: z-score=1.776 (raw=1.757)
+2024-07-05 16:00:00 [AlphaModel] 生成2个Insights
+2024-07-05 16:00:00 [PC] 收到2个Insights
+2024-07-05 16:00:00 [PC] GroupId分组结果: 1组
+2024-07-08 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-08 16:00:00 [SignalGen] MCHP-QCOM: z-score=-0.251 (raw=-0.225)
+2024-07-08 16:00:00 [SignalGen] AMZN-CMG: z-score=2.447 (raw=2.614)
+2024-07-08 16:00:00 [AlphaModel] 生成4个Insights
+2024-07-08 16:00:00 [PC] 收到4个Insights
+2024-07-08 16:00:00 [PC] GroupId分组结果: 2组
+2024-07-08 16:00:00 [RiskManagement] 第4次日常风控检查: 2024-07-08, 收到0个targets
+2024-07-09 00:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-09 00:00:00 [PC] GroupId分组结果: 0组
+2024-07-09 00:00:00 [RiskManagement] 第5次日常风控检查: 2024-07-09, 收到0个targets
+2024-07-09 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-09 16:00:00 [SignalGen] MCHP-QCOM: z-score=-0.386 (raw=-0.420)
+2024-07-09 16:00:00 [SignalGen] AMZN-CMG: z-score=3.084 (raw=3.243)
+2024-07-09 16:00:00 [AlphaModel] 生成2个Insights
+2024-07-09 16:00:00 [PC] 收到2个Insights
+2024-07-09 16:00:00 [PC] GroupId分组结果: 1组
+2024-07-09 16:00:00 [PC]: [AMZN, CMG] | [FLAT, FLAT]
+2024-07-09 16:00:00 [PC] 生成 2 个 PortfolioTarget
+2024-07-10 00:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-10 00:00:00 [PC] GroupId分组结果: 0组
+2024-07-10 00:00:00 [RiskManagement] 第6次日常风控检查: 2024-07-10, 收到0个targets
+2024-07-10 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-10 16:00:00 [SignalGen] MCHP-QCOM: z-score=0.226 (raw=0.379)
+2024-07-10 16:00:00 [SignalGen] AMZN-CMG: z-score=3.055 (raw=3.048)
+2024-07-10 16:00:00 [AlphaModel] 生成4个Insights
+2024-07-10 16:00:00 [PC] 收到4个Insights
+2024-07-10 16:00:00 [PC] GroupId分组结果: 2组
+2024-07-11 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-11 16:00:00 [SignalGen] MCHP-QCOM: z-score=-0.164 (raw=-0.262)
+2024-07-11 16:00:00 [SignalGen] AMZN-CMG: z-score=2.731 (raw=2.650)
+2024-07-11 16:00:00 [AlphaModel] 生成4个Insights
+2024-07-11 16:00:00 [PC] 收到4个Insights
+2024-07-11 16:00:00 [PC] GroupId分组结果: 2组
+2024-07-11 16:00:00 [PC]: [AMZN, CMG] | [SELL, BUY] | [-0.0451, 0.0661] | beta=0.682 | allocation=11.1%
+2024-07-11 16:00:00 [PC] 资金分配完成: 新建仓1对, 资金使用11.1%, 剩余可用83.9%
+2024-07-11 16:00:00 [PC] 生成 2 个 PortfolioTarget
+2024-07-11 16:00:00 [RiskManagement] 第7次日常风控检查: 2024-07-11, 收到2个targets
+2024-07-11 16:00:00 [RiskManagement] 配对在冷却期内，过滤建仓信号: [AMZN,CMG]
+2024-07-12 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-12 16:00:00 [SignalGen] MCHP-QCOM: z-score=-0.206 (raw=-0.216)
+2024-07-12 16:00:00 [SignalGen] AMZN-CMG: z-score=2.575 (raw=2.537)
+2024-07-12 16:00:00 [AlphaModel] 生成4个Insights
+2024-07-12 16:00:00 [PC] 收到4个Insights
+2024-07-12 16:00:00 [PC] GroupId分组结果: 2组
+2024-07-12 16:00:00 [RiskManagement] 第8次日常风控检查: 2024-07-12, 收到0个targets
+2024-07-15 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-15 16:00:00 [SignalGen] MCHP-QCOM: z-score=-0.449 (raw=-0.510)
+2024-07-15 16:00:00 [SignalGen] AMZN-CMG: z-score=2.603 (raw=2.610)
+2024-07-15 16:00:00 [AlphaModel] 生成2个Insights
+2024-07-15 16:00:00 [PC] 收到2个Insights
+2024-07-15 16:00:00 [PC] GroupId分组结果: 1组
+2024-07-15 16:00:00 [RiskManagement] 第9次日常风控检查: 2024-07-15, 收到0个targets
+2024-07-16 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-16 16:00:00 [SignalGen] MCHP-QCOM: z-score=-0.021 (raw=0.086)
+2024-07-16 16:00:00 [SignalGen] AMZN-CMG: z-score=2.373 (raw=2.315)
+2024-07-16 16:00:00 [AlphaModel] 生成4个Insights
+2024-07-16 16:00:00 [PC] 收到4个Insights
+2024-07-16 16:00:00 [PC] GroupId分组结果: 2组
+2024-07-16 16:00:00 [RiskManagement] 第10次日常风控检查: 2024-07-16, 收到0个targets
+2024-07-17 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-17 16:00:00 [SignalGen] MCHP-QCOM: z-score=-0.117 (raw=-0.141)
+2024-07-17 16:00:00 [SignalGen] AMZN-CMG: z-score=2.387 (raw=2.390)
+2024-07-17 16:00:00 [AlphaModel] 生成4个Insights
+2024-07-17 16:00:00 [PC] 收到4个Insights
+2024-07-17 16:00:00 [PC] GroupId分组结果: 2组
+2024-07-17 16:00:00 [RiskManagement] 第11次日常风控检查: 2024-07-17, 收到0个targets
+2024-07-18 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-18 16:00:00 [SignalGen] MCHP-QCOM: z-score=-0.133 (raw=-0.137)
+2024-07-18 16:00:00 [SignalGen] AMZN-CMG: z-score=2.421 (raw=2.430)
+2024-07-18 16:00:00 [AlphaModel] 生成4个Insights
+2024-07-18 16:00:00 [PC] 收到4个Insights
+2024-07-18 16:00:00 [PC] GroupId分组结果: 2组
+2024-07-18 16:00:00 [RiskManagement] 第12次日常风控检查: 2024-07-18, 收到0个targets
+2024-07-19 00:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-19 00:00:00 [PC] GroupId分组结果: 0组
+2024-07-19 00:00:00 [RiskManagement] 第13次日常风控检查: 2024-07-19, 收到0个targets
+2024-07-19 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-19 16:00:00 [SignalGen] MCHP-QCOM: z-score=-0.536 (raw=-0.637)
+2024-07-19 16:00:00 [SignalGen] AMZN-CMG: z-score=2.303 (raw=2.274)
+2024-07-19 16:00:00 [AlphaModel] 生成2个Insights
+2024-07-19 16:00:00 [PC] 收到2个Insights
+2024-07-19 16:00:00 [PC] GroupId分组结果: 1组
+2024-07-22 00:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-22 00:00:00 [PC] GroupId分组结果: 0组
+2024-07-22 00:00:00 [RiskManagement] 第14次日常风控检查: 2024-07-22, 收到0个targets
+2024-07-22 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-22 16:00:00 [SignalGen] MCHP-QCOM: z-score=-0.001 (raw=0.133)
+2024-07-22 16:00:00 [SignalGen] AMZN-CMG: z-score=2.218 (raw=2.197)
+2024-07-22 16:00:00 [AlphaModel] 生成4个Insights
+2024-07-22 16:00:00 [PC] 收到4个Insights
+2024-07-22 16:00:00 [PC] GroupId分组结果: 2组
+2024-07-23 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-23 16:00:00 [SignalGen] MCHP-QCOM: z-score=-0.508 (raw=-0.635)
+2024-07-23 16:00:00 [SignalGen] AMZN-CMG: z-score=2.912 (raw=3.085)
+2024-07-23 16:00:00 [AlphaModel] 生成2个Insights
+2024-07-23 16:00:00 [PC] 收到2个Insights
+2024-07-23 16:00:00 [PC] GroupId分组结果: 1组
+2024-07-23 16:00:00 [RiskManagement] 第15次日常风控检查: 2024-07-23, 收到0个targets
+2024-07-23 16:00:00 [RiskManagement] 配对状态 [AMZN,CMG]: 持仓20天, 配对回撤-3.8%, 单边回撤[4.3%, -9.1%]
+2024-07-24 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-24 16:00:00 [SignalGen] MCHP-QCOM: z-score=-0.915 (raw=-1.016)
+2024-07-24 16:00:00 [SignalGen] AMZN-CMG: z-score=2.626 (raw=2.554)
+2024-07-24 16:00:00 [AlphaModel] 生成2个Insights
+2024-07-24 16:00:00 [PC] 收到2个Insights
+2024-07-24 16:00:00 [PC] GroupId分组结果: 1组
+2024-07-24 16:00:00 [RiskManagement] 第16次日常风控检查: 2024-07-24, 收到0个targets
+2024-07-25 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-25 16:00:00 [SignalGen] MCHP-QCOM: z-score=-1.156 (raw=-1.216)
+2024-07-25 16:00:00 [SignalGen] AMZN-CMG: z-score=2.723 (raw=2.747)
+2024-07-25 16:00:00 [AlphaModel] 生成2个Insights
+2024-07-25 16:00:00 [PC] 收到2个Insights
+2024-07-25 16:00:00 [PC] GroupId分组结果: 1组
+2024-07-25 16:00:00 [RiskManagement] 第17次日常风控检查: 2024-07-25, 收到0个targets
+2024-07-26 00:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-26 00:00:00 [PC] GroupId分组结果: 0组
+2024-07-26 00:00:00 [RiskManagement] 第18次日常风控检查: 2024-07-26, 收到0个targets
+2024-07-26 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-26 16:00:00 [SignalGen] MCHP-QCOM: z-score=-0.964 (raw=-0.916)
+2024-07-26 16:00:00 [SignalGen] AMZN-CMG: z-score=3.332 (raw=3.484)
+2024-07-26 16:00:00 [AlphaModel] 生成2个Insights
+2024-07-26 16:00:00 [PC] 收到2个Insights
+2024-07-26 16:00:00 [PC] GroupId分组结果: 1组
+2024-07-26 16:00:00 [PC]: [AMZN, CMG] | [FLAT, FLAT]
+2024-07-26 16:00:00 [PC] 生成 2 个 PortfolioTarget
+2024-07-29 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-29 16:00:00 [SignalGen] MCHP-QCOM: z-score=-0.661 (raw=-0.585)
+2024-07-29 16:00:00 [SignalGen] AMZN-CMG: z-score=3.210 (raw=3.179)
+2024-07-29 16:00:00 [AlphaModel] 生成2个Insights
+2024-07-29 16:00:00 [PC] 收到2个Insights
+2024-07-29 16:00:00 [PC] GroupId分组结果: 1组
+2024-07-29 16:00:00 [RiskManagement] 第19次日常风控检查: 2024-07-29, 收到0个targets
+2024-07-30 00:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-30 00:00:00 [PC] GroupId分组结果: 0组
+2024-07-30 00:00:00 [RiskManagement] 第20次日常风控检查: 2024-07-30, 收到0个targets
+2024-07-30 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-30 16:00:00 [SignalGen] MCHP-QCOM: z-score=-0.556 (raw=-0.530)
+2024-07-30 16:00:00 [SignalGen] AMZN-CMG: z-score=2.570 (raw=2.410)
+2024-07-30 16:00:00 [AlphaModel] 生成2个Insights
+2024-07-30 16:00:00 [PC] 收到2个Insights
+2024-07-30 16:00:00 [PC] GroupId分组结果: 1组
+2024-07-30 16:00:00 [PC]: [AMZN, CMG] | [SELL, BUY] | [-0.0451, 0.0661] | beta=0.682 | allocation=11.1%
+2024-07-30 16:00:00 [PC] 资金分配完成: 新建仓1对, 资金使用11.1%, 剩余可用83.9%
+2024-07-30 16:00:00 [PC] 生成 2 个 PortfolioTarget
+2024-07-31 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-31 16:00:00 [SignalGen] MCHP-QCOM: z-score=-0.479 (raw=-0.460)
+2024-07-31 16:00:00 [SignalGen] AMZN-CMG: z-score=2.574 (raw=2.575)
+2024-07-31 16:00:00 [AlphaModel] 生成2个Insights
+2024-07-31 16:00:00 [PC] 收到2个Insights
+2024-07-31 16:00:00 [PC] GroupId分组结果: 1组
+2024-07-31 16:00:00 [RiskManagement] 第21次日常风控检查: 2024-07-31, 收到0个targets
+2024-08-01 00:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-08-01 00:00:00 [PC] GroupId分组结果: 0组
+2024-08-01 00:00:00 [RiskManagement] 第22次日常风控检查: 2024-08-01, 收到0个targets
+2024-08-01 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-08-01 16:00:00 [SignalGen] MCHP-QCOM: z-score=-0.878 (raw=-0.978)
+2024-08-01 16:00:00 [SignalGen] AMZN-CMG: z-score=2.474 (raw=2.448)
+2024-08-01 16:00:00 [AlphaModel] 生成2个Insights
+2024-08-01 16:00:00 [PC] 收到2个Insights
+2024-08-01 16:00:00 [PC] GroupId分组结果: 1组
+2024-08-02 00:00:00 ===== 第【2】次选股 =====
+2024-08-02 00:00:00 [UniverseSelection] 筛选流程: 初始158只 → 财务筛选95只 → 波动率筛选93只 → 最终选择82只
+2024-08-02 00:00:00 [UniverseSelection] 财务过滤明细: PE(17) ROE(26) 债务(5) 杠杆(27)
+2024-08-02 00:00:00 [UniverseSelection] 波动率过滤: 高波动2只, 数据缺失0只
+2024-08-02 00:00:00 [UniverseSelection] 行业分布: Technology(17只,波动率31.9%) Energy(16只,波动率22.4%) Healthcare(11只,波动率28.5%) ConsumerCyclical(11只,波动率36.1%) ConsumerDefensive(8只,波动率20.2%) Industrials(7只,波动率31.1%) CommunicationServices(6只,波动率26.2%) Utilities(6只,波动率22.2%)
+2024-08-02 00:00:00 [UniverseSelection] 选股完成: 共82只股票, 前5样本: ['CSCO(18.6%)', 'MSFT(19.6%)', 'CTSH(20.7%)', 'APH(21.8%)', 'AAPL(22.7%)']
+2024-08-02 16:00:00 [AlphaModel.Data] 数据处理: 82→82只 ()
+2024-08-02 16:00:00 [AlphaModel.Coint] 合计筛选4对: 平均0.836, 最高0.952, 最低0.618
+2024-08-02 16:00:00 [AlphaModel.Coint] ConsumerCyclical: (AMZN,GM)/0.618
+2024-08-02 16:00:00 [AlphaModel.Coint] ConsumerDefensive: (PG,WMT)/0.923
+2024-08-02 16:00:00 [AlphaModel.Coint] Energy: (OXY,HES)/0.851
+2024-08-02 16:00:00 [AlphaModel.Coint] Industrials: (VRT,ETN)/0.952
+2024-08-02 16:00:00 [PairRegistry] 更新配对列表(4对): [VRT,ETN], [PG,WMT], [OXY,HES], [AMZN,GM]
+2024-08-02 16:00:00 [AlphaModel.Bayesian] 建模完成: 成功4对, 失败0对 (完全建模4对, 动态更新0对)
+2024-08-02 16:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-08-02 16:00:00 [SignalGen] VRT-ETN: z-score=0.537 (raw=0.537)
+2024-08-02 16:00:00 [SignalGen] PG-WMT: z-score=0.665 (raw=0.665)
+2024-08-02 16:00:00 [SignalGen] OXY-HES: z-score=0.336 (raw=0.336)
+2024-08-02 16:00:00 [SignalGen] AMZN-GM: z-score=-0.331 (raw=-0.331)
+2024-08-02 16:00:00 [PC] GroupId分组结果: 0组
+2024-08-02 16:00:00 [RiskManagement] 第23次日常风控检查: 2024-08-02, 收到0个targets
+2024-08-05 00:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-08-05 00:00:00 [PC] GroupId分组结果: 0组
+2024-08-05 00:00:00 [RiskManagement] 第24次日常风控检查: 2024-08-05, 收到0个targets
+2024-08-05 16:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-08-05 16:00:00 [SignalGen] VRT-ETN: z-score=0.844 (raw=0.920)
+2024-08-05 16:00:00 [SignalGen] PG-WMT: z-score=0.465 (raw=0.415)
+2024-08-05 16:00:00 [SignalGen] OXY-HES: z-score=0.571 (raw=0.630)
+2024-08-05 16:00:00 [SignalGen] AMZN-GM: z-score=-0.606 (raw=-0.675)
+2024-08-05 16:00:00 [PC] GroupId分组结果: 0组
+2024-08-06 00:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-08-06 00:00:00 [PC] GroupId分组结果: 0组
+2024-08-06 00:00:00 [RiskManagement] 第25次日常风控检查: 2024-08-06, 收到0个targets
+2024-08-06 16:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-08-06 16:00:00 [SignalGen] VRT-ETN: z-score=0.714 (raw=0.682)
+2024-08-06 16:00:00 [SignalGen] PG-WMT: z-score=0.385 (raw=0.365)
+2024-08-06 16:00:00 [SignalGen] OXY-HES: z-score=0.828 (raw=0.892)
+2024-08-06 16:00:00 [SignalGen] AMZN-GM: z-score=-0.752 (raw=-0.789)
+2024-08-06 16:00:00 [PC] GroupId分组结果: 0组
+2024-08-07 00:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-08-07 00:00:00 [PC] GroupId分组结果: 0组
+2024-08-07 00:00:00 [RiskManagement] 第26次日常风控检查: 2024-08-07, 收到0个targets
+2024-08-07 16:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-08-07 16:00:00 [SignalGen] VRT-ETN: z-score=0.322 (raw=0.224)
+2024-08-07 16:00:00 [SignalGen] PG-WMT: z-score=0.990 (raw=1.141)
+2024-08-07 16:00:00 [SignalGen] OXY-HES: z-score=0.929 (raw=0.954)
+2024-08-07 16:00:00 [SignalGen] AMZN-GM: z-score=-0.719 (raw=-0.711)
+2024-08-07 16:00:00 [PC] GroupId分组结果: 0组
+2024-08-08 16:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-08-08 16:00:00 [SignalGen] VRT-ETN: z-score=0.055 (raw=-0.012)
+2024-08-08 16:00:00 [SignalGen] PG-WMT: z-score=1.098 (raw=1.125)
+2024-08-08 16:00:00 [SignalGen] OXY-HES: z-score=1.775 (raw=1.986)
+2024-08-08 16:00:00 [SignalGen] AMZN-GM: z-score=-0.971 (raw=-1.034)
+2024-08-08 16:00:00 [AlphaModel] 生成4个Insights
+2024-08-08 16:00:00 [PC] 收到4个Insights
+2024-08-08 16:00:00 [PC] GroupId分组结果: 2组
+2024-08-08 16:00:00 [PC]: [OXY, HES] | [SELL, BUY] | [-0.0650, 0.0701] | beta=0.928 | allocation=13.5%
+2024-08-08 16:00:00 [PC] 资金分配完成: 新建仓1对, 资金使用24.3%, 剩余可用70.7%
+2024-08-08 16:00:00 [PC] 生成 2 个 PortfolioTarget
+2024-08-08 16:00:00 [RiskManagement] 第27次日常风控检查: 2024-08-08, 收到2个targets
+2024-08-09 16:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-08-09 16:00:00 [SignalGen] VRT-ETN: z-score=-0.287 (raw=-0.373)
+2024-08-09 16:00:00 [SignalGen] PG-WMT: z-score=0.977 (raw=0.947)
+2024-08-09 16:00:00 [SignalGen] OXY-HES: z-score=1.668 (raw=1.641)
+2024-08-09 16:00:00 [SignalGen] AMZN-GM: z-score=-1.106 (raw=-1.140)
+2024-08-09 16:00:00 [AlphaModel] 生成4个Insights
+2024-08-09 16:00:00 [PC] 收到4个Insights
+2024-08-09 16:00:00 [PC] GroupId分组结果: 2组
+2024-08-09 16:00:00 [RiskManagement] 第28次日常风控检查: 2024-08-09, 收到0个targets
+2024-08-12 00:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-08-12 00:00:00 [PC] GroupId分组结果: 0组
+2024-08-12 00:00:00 [RiskManagement] 第29次日常风控检查: 2024-08-12, 收到0个targets
+2024-08-12 16:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-08-12 16:00:00 [SignalGen] VRT-ETN: z-score=0.167 (raw=0.281)
+2024-08-12 16:00:00 [SignalGen] PG-WMT: z-score=-0.028 (raw=-0.279)
+2024-08-12 16:00:00 [SignalGen] OXY-HES: z-score=1.822 (raw=1.861)
+2024-08-12 16:00:00 [SignalGen] AMZN-GM: z-score=-1.027 (raw=-1.007)
+2024-08-12 16:00:00 [AlphaModel] 生成6个Insights
+2024-08-12 16:00:00 [PC] 收到6个Insights
+2024-08-12 16:00:00 [PC] GroupId分组结果: 3组
+2024-08-13 16:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-08-13 16:00:00 [SignalGen] VRT-ETN: z-score=0.202 (raw=0.210)
+2024-08-13 16:00:00 [SignalGen] PG-WMT: z-score=0.017 (raw=0.028)
+2024-08-13 16:00:00 [SignalGen] OXY-HES: z-score=1.243 (raw=1.099)
+2024-08-13 16:00:00 [SignalGen] AMZN-GM: z-score=-0.805 (raw=-0.750)
+2024-08-13 16:00:00 [AlphaModel] 生成6个Insights
+2024-08-13 16:00:00 [PC] 收到6个Insights
+2024-08-13 16:00:00 [PC] GroupId分组结果: 3组
+2024-08-13 16:00:00 [RiskManagement] 第30次日常风控检查: 2024-08-13, 收到0个targets
+2024-08-14 16:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-08-14 16:00:00 [SignalGen] VRT-ETN: z-score=0.572 (raw=0.665)
+2024-08-14 16:00:00 [SignalGen] PG-WMT: z-score=0.215 (raw=0.264)
+2024-08-14 16:00:00 [SignalGen] OXY-HES: z-score=0.803 (raw=0.693)
+2024-08-14 16:00:00 [SignalGen] AMZN-GM: z-score=-0.841 (raw=-0.850)
+2024-08-14 16:00:00 [AlphaModel] 生成2个Insights
+2024-08-14 16:00:00 [PC] 收到2个Insights
+2024-08-14 16:00:00 [PC] GroupId分组结果: 1组
+2024-08-14 16:00:00 [RiskManagement] 第31次日常风控检查: 2024-08-14, 收到0个targets
+2024-08-15 00:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-08-15 00:00:00 [PC] GroupId分组结果: 0组
+2024-08-15 00:00:00 [RiskManagement] 第32次日常风控检查: 2024-08-15, 收到0个targets
+2024-08-15 16:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-08-15 16:00:00 [SignalGen] VRT-ETN: z-score=0.718 (raw=0.754)
+2024-08-15 16:00:00 [SignalGen] PG-WMT: z-score=-1.027 (raw=-1.338)
+2024-08-15 16:00:00 [SignalGen] OXY-HES: z-score=0.718 (raw=0.696)
+2024-08-15 16:00:00 [SignalGen] AMZN-GM: z-score=-0.537 (raw=-0.461)
+2024-08-15 16:00:00 [PC] GroupId分组结果: 0组
+2024-08-16 00:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-08-16 00:00:00 [PC] GroupId分组结果: 0组
+2024-08-16 00:00:00 [RiskManagement] 第33次日常风控检查: 2024-08-16, 收到0个targets
+2024-08-16 16:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-08-16 16:00:00 [SignalGen] VRT-ETN: z-score=0.698 (raw=0.693)
+2024-08-16 16:00:00 [SignalGen] PG-WMT: z-score=-1.394 (raw=-1.486)
+2024-08-16 16:00:00 [SignalGen] OXY-HES: z-score=0.535 (raw=0.489)
+2024-08-16 16:00:00 [SignalGen] AMZN-GM: z-score=-0.624 (raw=-0.645)
+2024-08-16 16:00:00 [AlphaModel] 生成2个Insights
+2024-08-16 16:00:00 [PC] 收到2个Insights
+2024-08-16 16:00:00 [PC] GroupId分组结果: 1组
+2024-08-16 16:00:00 [PC]: [PG, WMT] | [BUY, SELL] | [0.0461, -0.0962] | beta=0.479 | allocation=14.2%
+2024-08-16 16:00:00 [PC] 资金分配完成: 新建仓1对, 资金使用38.5%, 剩余可用56.5%
+2024-08-16 16:00:00 [PC] 生成 2 个 PortfolioTarget
+2024-08-19 00:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-08-19 00:00:00 [PC] GroupId分组结果: 0组
+2024-08-19 00:00:00 [RiskManagement] 第34次日常风控检查: 2024-08-19, 收到0个targets
+2024-08-19 16:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-08-19 16:00:00 [SignalGen] VRT-ETN: z-score=0.581 (raw=0.552)
+2024-08-19 16:00:00 [SignalGen] PG-WMT: z-score=-1.417 (raw=-1.423)
+2024-08-19 16:00:00 [SignalGen] OXY-HES: z-score=0.033 (raw=-0.093)
+2024-08-19 16:00:00 [SignalGen] AMZN-GM: z-score=-0.650 (raw=-0.656)
+2024-08-19 16:00:00 [AlphaModel] 生成4个Insights
+2024-08-19 16:00:00 [PC] 收到4个Insights
+2024-08-19 16:00:00 [PC] GroupId分组结果: 2组
+2024-08-19 16:00:00 [PC]: [OXY, HES] | [FLAT, FLAT]
+2024-08-19 16:00:00 [PC] 生成 2 个 PortfolioTarget
+2024-08-19 16:00:00 [RiskManagement] 配对状态 [OXY,HES]: 持仓10天, 配对回撤2.7%, 单边回撤[2.1%, 3.2%]
+2024-08-20 00:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-08-20 00:00:00 [PC] GroupId分组结果: 0组
+2024-08-20 00:00:00 [RiskManagement] 第35次日常风控检查: 2024-08-20, 收到0个targets
+2024-08-20 00:00:00 [RiskManagement] 配对状态 [OXY,HES]: 持仓10天, 配对回撤2.7%, 单边回撤[2.1%, 3.2%]
+2024-08-20 16:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-08-20 16:00:00 [SignalGen] VRT-ETN: z-score=0.256 (raw=0.175)
+2024-08-20 16:00:00 [SignalGen] PG-WMT: z-score=-1.191 (raw=-1.135)
+2024-08-20 16:00:00 [SignalGen] OXY-HES: z-score=-0.287 (raw=-0.367)
+2024-08-20 16:00:00 [SignalGen] AMZN-GM: z-score=-0.653 (raw=-0.653)
+2024-08-20 16:00:00 [AlphaModel] 生成4个Insights
+2024-08-20 16:00:00 [PC] 收到4个Insights
+2024-08-20 16:00:00 [PC] GroupId分组结果: 2组
+2024-08-21 16:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-08-21 16:00:00 [SignalGen] VRT-ETN: z-score=0.135 (raw=0.105)
+2024-08-21 16:00:00 [SignalGen] PG-WMT: z-score=-1.359 (raw=-1.401)
+2024-08-21 16:00:00 [SignalGen] OXY-HES: z-score=-0.509 (raw=-0.564)
+2024-08-21 16:00:00 [SignalGen] AMZN-GM: z-score=-0.687 (raw=-0.696)
+2024-08-21 16:00:00 [AlphaModel] 生成4个Insights
+2024-08-21 16:00:00 [PC] 收到4个Insights
+2024-08-21 16:00:00 [PC] GroupId分组结果: 2组
+2024-08-21 16:00:00 [RiskManagement] 第36次日常风控检查: 2024-08-21, 收到0个targets
+2024-08-22 00:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-08-22 00:00:00 [PC] GroupId分组结果: 0组
+2024-08-22 00:00:00 [RiskManagement] 第37次日常风控检查: 2024-08-22, 收到0个targets
+2024-08-22 16:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-08-22 16:00:00 [SignalGen] VRT-ETN: z-score=0.088 (raw=0.077)
+2024-08-22 16:00:00 [SignalGen] PG-WMT: z-score=-1.472 (raw=-1.500)
+2024-08-22 16:00:00 [SignalGen] OXY-HES: z-score=-0.460 (raw=-0.447)
+2024-08-22 16:00:00 [SignalGen] AMZN-GM: z-score=-0.985 (raw=-1.060)
+2024-08-22 16:00:00 [AlphaModel] 生成4个Insights
+2024-08-22 16:00:00 [PC] 收到4个Insights
+2024-08-22 16:00:00 [PC] GroupId分组结果: 2组
+2024-08-23 16:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-08-23 16:00:00 [SignalGen] VRT-ETN: z-score=0.163 (raw=0.182)
+2024-08-23 16:00:00 [SignalGen] PG-WMT: z-score=-1.729 (raw=-1.793)
+2024-08-23 16:00:00 [SignalGen] OXY-HES: z-score=-0.250 (raw=-0.198)
+2024-08-23 16:00:00 [SignalGen] AMZN-GM: z-score=-1.433 (raw=-1.545)
+2024-08-23 16:00:00 [AlphaModel] 生成8个Insights
+2024-08-23 16:00:00 [PC] 收到8个Insights
+2024-08-23 16:00:00 [PC] GroupId分组结果: 4组
+2024-08-23 16:00:00 [PC]: [AMZN, GM] | [FLAT, FLAT]
+2024-08-23 16:00:00 [PC] 生成 2 个 PortfolioTarget
+2024-08-23 16:00:00 [RiskManagement] 第38次日常风控检查: 2024-08-23, 收到2个targets
+2024-08-26 16:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-08-26 16:00:00 [SignalGen] VRT-ETN: z-score=0.359 (raw=0.408)
+2024-08-26 16:00:00 [SignalGen] PG-WMT: z-score=-1.606 (raw=-1.575)
+2024-08-26 16:00:00 [SignalGen] OXY-HES: z-score=-0.161 (raw=-0.139)
+2024-08-26 16:00:00 [SignalGen] AMZN-GM: z-score=-1.684 (raw=-1.746)
+2024-08-26 16:00:00 [AlphaModel] 生成6个Insights
+2024-08-26 16:00:00 [PC] 收到6个Insights
+2024-08-26 16:00:00 [PC] GroupId分组结果: 3组
+2024-08-26 16:00:00 [PC]: [AMZN, GM] | [BUY, SELL] | [0.0475, -0.0643] | beta=0.740 | allocation=11.2%
+2024-08-26 16:00:00 [PC] 资金分配完成: 新建仓1对, 资金使用32.4%, 剩余可用62.6%
+2024-08-26 16:00:00 [PC] 生成 2 个 PortfolioTarget
+2024-08-26 16:00:00 [RiskManagement] 第39次日常风控检查: 2024-08-26, 收到2个targets
+2024-08-26 16:00:00 [RiskManagement] 检测到1个异常配对
+2024-08-26 16:00:00 [RiskManagement] 异常配对: [AMZN,GM]
+2024-08-27 00:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-08-27 00:00:00 [PC] GroupId分组结果: 0组
+2024-08-27 00:00:00 [RiskManagement] 第40次日常风控检查: 2024-08-27, 收到0个targets
+2024-08-27 16:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-08-27 16:00:00 [SignalGen] VRT-ETN: z-score=0.801 (raw=0.911)
+2024-08-27 16:00:00 [SignalGen] PG-WMT: z-score=-1.836 (raw=-1.893)
+2024-08-27 16:00:00 [SignalGen] OXY-HES: z-score=-0.262 (raw=-0.287)
+2024-08-27 16:00:00 [SignalGen] AMZN-GM: z-score=-2.031 (raw=-2.118)
+2024-08-27 16:00:00 [AlphaModel] 生成6个Insights
+2024-08-27 16:00:00 [PC] 收到6个Insights
+2024-08-27 16:00:00 [PC] GroupId分组结果: 3组
+2024-08-28 16:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-08-28 16:00:00 [SignalGen] VRT-ETN: z-score=1.140 (raw=1.225)
+2024-08-28 16:00:00 [SignalGen] PG-WMT: z-score=-1.911 (raw=-1.930)
+2024-08-28 16:00:00 [SignalGen] OXY-HES: z-score=-0.160 (raw=-0.134)
+2024-08-28 16:00:00 [SignalGen] AMZN-GM: z-score=-2.247 (raw=-2.302)
+2024-08-28 16:00:00 [AlphaModel] 生成6个Insights
+2024-08-28 16:00:00 [PC] 收到6个Insights
+2024-08-28 16:00:00 [PC] GroupId分组结果: 3组
+2024-08-28 16:00:00 [RiskManagement] 第41次日常风控检查: 2024-08-28, 收到0个targets
+2024-08-29 16:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-08-29 16:00:00 [SignalGen] VRT-ETN: z-score=0.492 (raw=0.331)
+2024-08-29 16:00:00 [SignalGen] PG-WMT: z-score=-1.798 (raw=-1.769)
+2024-08-29 16:00:00 [SignalGen] OXY-HES: z-score=-0.194 (raw=-0.203)
+2024-08-29 16:00:00 [SignalGen] AMZN-GM: z-score=-2.271 (raw=-2.277)
+2024-08-29 16:00:00 [AlphaModel] 生成6个Insights
+2024-08-29 16:00:00 [PC] 收到6个Insights
+2024-08-29 16:00:00 [PC] GroupId分组结果: 3组
+2024-08-29 16:00:00 [RiskManagement] 第42次日常风控检查: 2024-08-29, 收到0个targets
+2024-08-29 16:00:00 [RiskManagement] 配对状态 [PG,WMT]: 持仓10天, 配对回撤-2.5%, 单边回撤[1.1%, -4.1%]
+2024-08-30 00:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-08-30 00:00:00 [PC] GroupId分组结果: 0组
+2024-08-30 00:00:00 [RiskManagement] 第43次日常风控检查: 2024-08-30, 收到0个targets
+2024-08-30 00:00:00 [RiskManagement] 配对状态 [PG,WMT]: 持仓10天, 配对回撤-2.5%, 单边回撤[1.1%, -4.1%]
+2024-08-30 16:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-08-30 16:00:00 [SignalGen] VRT-ETN: z-score=0.348 (raw=0.312)
+2024-08-30 16:00:00 [SignalGen] PG-WMT: z-score=-1.643 (raw=-1.605)
+2024-08-30 16:00:00 [SignalGen] OXY-HES: z-score=-0.317 (raw=-0.348)
+2024-08-30 16:00:00 [SignalGen] AMZN-GM: z-score=-1.830 (raw=-1.720)
+2024-08-30 16:00:00 [AlphaModel] 生成4个Insights
+2024-08-30 16:00:00 [PC] 收到4个Insights
+2024-08-30 16:00:00 [PC] GroupId分组结果: 2组
+2024-09-03 00:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-09-03 00:00:00 [PC] GroupId分组结果: 0组
+2024-09-03 00:00:00 [RiskManagement] 第44次日常风控检查: 2024-09-03, 收到0个targets
+2024-09-03 16:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-09-03 16:00:00 [SignalGen] VRT-ETN: z-score=0.552 (raw=0.603)
+2024-09-03 16:00:00 [SignalGen] PG-WMT: z-score=-0.978 (raw=-0.811)
+2024-09-03 16:00:00 [SignalGen] OXY-HES: z-score=-0.412 (raw=-0.436)
+2024-09-03 16:00:00 [SignalGen] AMZN-GM: z-score=-1.631 (raw=-1.581)
+2024-09-03 16:00:00 [AlphaModel] 生成2个Insights
+2024-09-03 16:00:00 [PC] 收到2个Insights
+2024-09-03 16:00:00 [PC] GroupId分组结果: 1组
+2024-09-04 00:00:00 ===== 第【3】次选股 =====
+2024-09-04 00:00:00 [UniverseSelection] 筛选流程: 初始129只 → 财务筛选91只 → 波动率筛选86只 → 最终选择76只
+2024-09-04 00:00:00 [UniverseSelection] 财务过滤明细: PE(6) ROE(18) 债务(2) 杠杆(17)
+2024-09-04 00:00:00 [UniverseSelection] 波动率过滤: 高波动5只, 数据缺失0只
+2024-09-04 00:00:00 [UniverseSelection] 行业分布: Technology(18只,波动率36.5%) Energy(13只,波动率26.1%) ConsumerDefensive(11只,波动率21.2%) Healthcare(9只,波动率28.9%) ConsumerCyclical(8只,波动率37.1%) CommunicationServices(7只,波动率26.4%) Industrials(6只,波动率32.1%) Utilities(4只,波动率22.8%)
+2024-09-04 00:00:00 [UniverseSelection] 选股完成: 共76只股票, 前5样本: ['MSFT(20.0%)', 'CSCO(20.1%)', 'AAPL(22.6%)', 'APH(24.4%)', 'TXN(25.5%)']
+2024-09-04 00:00:00 [AlphaModel.Data] 数据处理: 76→76只 ()
+2024-09-04 00:00:00 [AlphaModel.Coint] 合计筛选4对: 平均0.772, 最高0.941, 最低0.610
+2024-09-04 00:00:00 [AlphaModel.Coint] ConsumerCyclical: (AMZN,CMG)/0.612
+2024-09-04 00:00:00 [AlphaModel.Coint] ConsumerDefensive: (PG,WMT)/0.924, (PEP,CAG)/0.610
+2024-09-04 00:00:00 [AlphaModel.Coint] Industrials: (DAL,UAL)/0.941
+2024-09-04 00:00:00 [PairRegistry] 更新配对列表(4对): [DAL,UAL], [PG,WMT], [AMZN,CMG], [PEP,CAG]
+2024-09-04 00:00:00 [AlphaModel.Bayesian] 建模完成: 成功4对, 失败0对 (完全建模2对, 动态更新2对)
+2024-09-04 00:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-09-04 00:00:00 [PC] GroupId分组结果: 0组
+2024-09-04 00:00:00 [RiskManagement] 第45次日常风控检查: 2024-09-04, 收到0个targets
+2024-09-04 00:00:00 [RiskManagement] 配对异常 [AMZN,CMG]: same_direction_error
+2024-09-04 00:00:00 [RiskManagement] 生成平仓指令 [AMZN,CMG]: 配对异常:same_direction_error
+2024-09-04 00:00:00 [RiskManagement] 风控平仓1对, 生成2个平仓指令
+2024-09-04 16:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-09-04 16:00:00 [SignalGen] DAL-UAL: z-score=0.262 (raw=0.262)
+2024-09-04 16:00:00 [SignalGen] PG-WMT: z-score=-0.411 (raw=-0.270)
+2024-09-04 16:00:00 [SignalGen] AMZN-CMG: z-score=0.911 (raw=0.520)
+2024-09-04 16:00:00 [SignalGen] PEP-CAG: z-score=-0.164 (raw=-0.164)
+2024-09-04 16:00:00 [AlphaModel] 生成4个Insights
+2024-09-04 16:00:00 [PC] 收到4个Insights
+2024-09-04 16:00:00 [PC] GroupId分组结果: 2组
+2024-09-05 00:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-09-05 00:00:00 [PC] GroupId分组结果: 0组
+2024-09-05 00:00:00 [RiskManagement] 第46次日常风控检查: 2024-09-05, 收到0个targets
+2024-09-05 16:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-09-05 16:00:00 [SignalGen] DAL-UAL: z-score=-0.170 (raw=-0.278)
+2024-09-05 16:00:00 [SignalGen] PG-WMT: z-score=-0.324 (raw=-0.302)
+2024-09-05 16:00:00 [SignalGen] AMZN-CMG: z-score=1.197 (raw=1.268)
+2024-09-05 16:00:00 [SignalGen] PEP-CAG: z-score=-0.064 (raw=-0.039)
+2024-09-05 16:00:00 [AlphaModel] 生成4个Insights
+2024-09-05 16:00:00 [PC] 收到4个Insights
+2024-09-05 16:00:00 [PC] GroupId分组结果: 2组
+2024-09-06 00:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-09-06 00:00:00 [PC] GroupId分组结果: 0组
+2024-09-06 00:00:00 [RiskManagement] 第47次日常风控检查: 2024-09-06, 收到0个targets
+2024-09-06 16:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-09-06 16:00:00 [SignalGen] DAL-UAL: z-score=-0.637 (raw=-0.754)
+2024-09-06 16:00:00 [SignalGen] PG-WMT: z-score=-0.212 (raw=-0.184)
+2024-09-06 16:00:00 [SignalGen] AMZN-CMG: z-score=0.344 (raw=0.130)
+2024-09-06 16:00:00 [SignalGen] PEP-CAG: z-score=-0.299 (raw=-0.357)
+2024-09-06 16:00:00 [AlphaModel] 生成4个Insights
+2024-09-06 16:00:00 [PC] 收到4个Insights
+2024-09-06 16:00:00 [PC] GroupId分组结果: 2组
+2024-09-06 16:00:00 [PC]: [PG, WMT] | [FLAT, FLAT]
+2024-09-06 16:00:00 [PC] 生成 2 个 PortfolioTarget
+2024-09-09 00:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-09-09 00:00:00 [PC] GroupId分组结果: 0组
+2024-09-09 00:00:00 [RiskManagement] 第48次日常风控检查: 2024-09-09, 收到0个targets
+2024-09-09 00:00:00 [RiskManagement] 配对状态 [PG,WMT]: 持仓20天, 配对回撤-1.6%, 单边回撤[4.4%, -4.4%]
+2024-09-09 16:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-09-09 16:00:00 [SignalGen] DAL-UAL: z-score=-1.122 (raw=-1.244)
+2024-09-09 16:00:00 [SignalGen] PG-WMT: z-score=-0.246 (raw=-0.254)
+2024-09-09 16:00:00 [SignalGen] AMZN-CMG: z-score=0.480 (raw=0.514)
+2024-09-09 16:00:00 [SignalGen] PEP-CAG: z-score=-0.211 (raw=-0.189)
+2024-09-09 16:00:00 [AlphaModel] 生成4个Insights
+2024-09-09 16:00:00 [PC] 收到4个Insights
+2024-09-09 16:00:00 [PC] GroupId分组结果: 2组
+2024-09-10 00:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-09-10 00:00:00 [PC] GroupId分组结果: 0组
+2024-09-10 00:00:00 [RiskManagement] 第49次日常风控检查: 2024-09-10, 收到0个targets
+2024-09-10 16:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-09-10 16:00:00 [SignalGen] DAL-UAL: z-score=-1.202 (raw=-1.222)
+2024-09-10 16:00:00 [SignalGen] PG-WMT: z-score=-0.224 (raw=-0.219)
+2024-09-10 16:00:00 [SignalGen] AMZN-CMG: z-score=0.994 (raw=1.123)
+2024-09-10 16:00:00 [SignalGen] PEP-CAG: z-score=-0.254 (raw=-0.264)
+2024-09-10 16:00:00 [AlphaModel] 生成6个Insights
+2024-09-10 16:00:00 [PC] 收到6个Insights
+2024-09-10 16:00:00 [PC] GroupId分组结果: 3组
+2024-09-10 16:00:00 [PC]: [DAL, UAL] | [BUY, SELL] | [0.0758, -0.0683] | beta=1.111 | allocation=14.4%
+2024-09-10 16:00:00 [PC] 资金分配完成: 新建仓1对, 资金使用20.3%, 剩余可用74.7%
+2024-09-10 16:00:00 [PC] 生成 2 个 PortfolioTarget
+2024-09-11 00:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-09-11 00:00:00 [PC] GroupId分组结果: 0组
+2024-09-11 00:00:00 [RiskManagement] 第50次日常风控检查: 2024-09-11, 收到0个targets
+2024-09-11 16:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-09-11 16:00:00 [SignalGen] DAL-UAL: z-score=-0.930 (raw=-0.862)
+2024-09-11 16:00:00 [SignalGen] PG-WMT: z-score=-1.004 (raw=-1.199)
+2024-09-11 16:00:00 [SignalGen] AMZN-CMG: z-score=1.255 (raw=1.320)
+2024-09-11 16:00:00 [SignalGen] PEP-CAG: z-score=0.067 (raw=0.147)
+2024-09-11 16:00:00 [AlphaModel] 生成4个Insights
+2024-09-11 16:00:00 [PC] 收到4个Insights
+2024-09-11 16:00:00 [PC] GroupId分组结果: 2组
+2024-09-11 16:00:00 [PC]: [AMZN, CMG] | [SELL, BUY] | [-0.0453, 0.0659] | beta=0.687 | allocation=11.1%
+2024-09-11 16:00:00 [PC] 资金分配完成: 新建仓1对, 资金使用31.4%, 剩余可用63.6%
+2024-09-11 16:00:00 [PC] 生成 2 个 PortfolioTarget
+2024-09-12 00:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-09-12 00:00:00 [PC] GroupId分组结果: 0组
+2024-09-12 00:00:00 [RiskManagement] 第51次日常风控检查: 2024-09-12, 收到0个targets
+2024-09-12 16:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-09-12 16:00:00 [SignalGen] DAL-UAL: z-score=-1.286 (raw=-1.375)
+2024-09-12 16:00:00 [SignalGen] PG-WMT: z-score=-1.425 (raw=-1.531)
+2024-09-12 16:00:00 [SignalGen] AMZN-CMG: z-score=1.430 (raw=1.473)
+2024-09-12 16:00:00 [SignalGen] PEP-CAG: z-score=0.288 (raw=0.344)
+2024-09-12 16:00:00 [AlphaModel] 生成8个Insights
+2024-09-12 16:00:00 [PC] 收到8个Insights
+2024-09-12 16:00:00 [PC] GroupId分组结果: 4组
+2024-09-12 16:00:00 [PC]: [PG, WMT] | [BUY, SELL] | [0.0458, -0.0966] | beta=0.474 | allocation=14.2%
+2024-09-12 16:00:00 [PC] 资金分配完成: 新建仓1对, 资金使用46.1%, 剩余可用48.9%
+2024-09-12 16:00:00 [PC] 生成 2 个 PortfolioTarget
+2024-09-12 16:00:00 [RiskManagement] 持仓超时 [AMZN,CMG]: 71天 > 30天
+2024-09-12 16:00:00 [RiskManagement] 生成平仓指令 [AMZN,CMG]: 持仓超时
+2024-09-12 16:00:00 [RiskManagement] 风控平仓1对, 生成2个平仓指令
+2024-09-12 16:00:00 [RiskManagement] 配对在冷却期内，过滤建仓信号: [PG,WMT]
+2024-09-13 00:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-09-13 00:00:00 [PC] GroupId分组结果: 0组
+2024-09-13 00:00:00 [RiskManagement] 第52次日常风控检查: 2024-09-13, 收到0个targets
+2024-09-13 00:00:00 [RiskManagement] 持仓超时 [AMZN,CMG]: 71天 > 30天
+2024-09-13 00:00:00 [RiskManagement] 生成平仓指令 [AMZN,CMG]: 持仓超时
+2024-09-13 00:00:00 [RiskManagement] 风控平仓1对, 生成2个平仓指令
+2024-09-13 16:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-09-13 16:00:00 [SignalGen] DAL-UAL: z-score=-1.241 (raw=-1.229)
+2024-09-13 16:00:00 [SignalGen] PG-WMT: z-score=-1.582 (raw=-1.621)
+2024-09-13 16:00:00 [SignalGen] AMZN-CMG: z-score=1.466 (raw=1.475)
+2024-09-13 16:00:00 [SignalGen] PEP-CAG: z-score=0.179 (raw=0.152)
+2024-09-13 16:00:00 [AlphaModel] 生成8个Insights
+2024-09-13 16:00:00 [PC] 收到8个Insights
+2024-09-13 16:00:00 [PC] GroupId分组结果: 4组
+2024-09-13 16:00:00 [PC]: [AMZN, CMG] | [SELL, BUY] | [-0.0453, 0.0659] | beta=0.687 | allocation=11.1%
+2024-09-13 16:00:00 [PC] 资金分配完成: 新建仓1对, 资金使用46.3%, 剩余可用48.7%
+2024-09-13 16:00:00 [PC] 生成 2 个 PortfolioTarget
+2024-09-16 00:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-09-16 00:00:00 [PC] GroupId分组结果: 0组
+2024-09-16 00:00:00 [RiskManagement] 第53次日常风控检查: 2024-09-16, 收到0个targets
+2024-09-16 16:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-09-16 16:00:00 [SignalGen] DAL-UAL: z-score=-1.557 (raw=-1.636)
+2024-09-16 16:00:00 [SignalGen] PG-WMT: z-score=-0.969 (raw=-0.816)
+2024-09-16 16:00:00 [SignalGen] AMZN-CMG: z-score=0.930 (raw=0.796)
+2024-09-16 16:00:00 [SignalGen] PEP-CAG: z-score=-0.198 (raw=-0.292)
+2024-09-16 16:00:00 [AlphaModel] 生成4个Insights
+2024-09-16 16:00:00 [PC] 收到4个Insights
+2024-09-16 16:00:00 [PC] GroupId分组结果: 2组
+2024-09-16 16:00:00 [RiskManagement] 持仓超时 [AMZN,CMG]: 75天 > 30天
+2024-09-16 16:00:00 [RiskManagement] 生成平仓指令 [AMZN,CMG]: 持仓超时
+2024-09-16 16:00:00 [RiskManagement] 风控平仓1对, 生成2个平仓指令
+2024-09-17 00:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-09-17 00:00:00 [PC] GroupId分组结果: 0组
+2024-09-17 00:00:00 [RiskManagement] 第54次日常风控检查: 2024-09-17, 收到0个targets
+2024-09-17 00:00:00 [RiskManagement] 持仓超时 [AMZN,CMG]: 75天 > 30天
+2024-09-17 00:00:00 [RiskManagement] 生成平仓指令 [AMZN,CMG]: 持仓超时
+2024-09-17 00:00:00 [RiskManagement] 风控平仓1对, 生成2个平仓指令
+2024-09-17 16:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-09-17 16:00:00 [SignalGen] DAL-UAL: z-score=-1.593 (raw=-1.602)
+2024-09-17 16:00:00 [SignalGen] PG-WMT: z-score=-0.706 (raw=-0.640)
+2024-09-17 16:00:00 [SignalGen] AMZN-CMG: z-score=0.838 (raw=0.815)
+2024-09-17 16:00:00 [SignalGen] PEP-CAG: z-score=-0.324 (raw=-0.356)
+2024-09-17 16:00:00 [AlphaModel] 生成2个Insights
+2024-09-17 16:00:00 [PC] 收到2个Insights
+2024-09-17 16:00:00 [PC] GroupId分组结果: 1组
+2024-09-18 00:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-09-18 00:00:00 [PC] GroupId分组结果: 0组
+2024-09-18 00:00:00 [RiskManagement] 第55次日常风控检查: 2024-09-18, 收到0个targets
+2024-09-18 16:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-09-18 16:00:00 [SignalGen] DAL-UAL: z-score=-1.625 (raw=-1.633)
+2024-09-18 16:00:00 [SignalGen] PG-WMT: z-score=-1.141 (raw=-1.250)
+2024-09-18 16:00:00 [SignalGen] AMZN-CMG: z-score=1.145 (raw=1.221)
+2024-09-18 16:00:00 [SignalGen] PEP-CAG: z-score=-0.816 (raw=-0.939)
+2024-09-18 16:00:00 [AlphaModel] 生成2个Insights
+2024-09-18 16:00:00 [PC] 收到2个Insights
+2024-09-18 16:00:00 [PC] GroupId分组结果: 1组
+2024-09-18 16:00:00 [RiskManagement] 配对状态 [PG,WMT]: 持仓30天, 配对回撤0.8%, 单边回撤[0.3%, 1.0%]
+2024-09-19 00:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-09-19 00:00:00 [PC] GroupId分组结果: 0组
+2024-09-19 00:00:00 [RiskManagement] 第56次日常风控检查: 2024-09-19, 收到0个targets
+2024-09-19 00:00:00 [RiskManagement] 配对状态 [PG,WMT]: 持仓30天, 配对回撤0.8%, 单边回撤[0.3%, 1.0%]
+2024-09-19 16:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-09-19 16:00:00 [SignalGen] DAL-UAL: z-score=-1.445 (raw=-1.400)
+2024-09-19 16:00:00 [SignalGen] PG-WMT: z-score=-1.504 (raw=-1.595)
+2024-09-19 16:00:00 [SignalGen] AMZN-CMG: z-score=1.325 (raw=1.370)
+2024-09-19 16:00:00 [SignalGen] PEP-CAG: z-score=-0.839 (raw=-0.845)
+2024-09-19 16:00:00 [AlphaModel] 生成6个Insights
+2024-09-19 16:00:00 [PC] 收到6个Insights
+2024-09-19 16:00:00 [PC] GroupId分组结果: 3组
+2024-09-19 16:00:00 [PC]: [AMZN, CMG] | [SELL, BUY] | [-0.0453, 0.0659] | beta=0.687 | allocation=11.1%
+2024-09-19 16:00:00 [PC] 资金分配完成: 新建仓1对, 资金使用46.9%, 剩余可用48.1%
+2024-09-19 16:00:00 [PC] 生成 2 个 PortfolioTarget
+2024-09-19 16:00:00 [RiskManagement] 持仓超时 [PG,WMT]: 31天 > 30天
+2024-09-19 16:00:00 [RiskManagement] 生成平仓指令 [PG,WMT]: 持仓超时
+2024-09-19 16:00:00 [RiskManagement] 风控平仓1对, 生成2个平仓指令
+2024-09-20 16:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-09-20 16:00:00 [SignalGen] DAL-UAL: z-score=-1.335 (raw=-1.307)
+2024-09-20 16:00:00 [SignalGen] PG-WMT: z-score=-1.260 (raw=-1.199)
+2024-09-20 16:00:00 [SignalGen] AMZN-CMG: z-score=1.716 (raw=1.814)
+2024-09-20 16:00:00 [SignalGen] PEP-CAG: z-score=-1.575 (raw=-1.760)
+2024-09-20 16:00:00 [AlphaModel] 生成8个Insights
+2024-09-20 16:00:00 [PC] 收到8个Insights
+2024-09-20 16:00:00 [PC] GroupId分组结果: 4组
+2024-09-20 16:00:00 [PC]: [PG, WMT] | [BUY, SELL] | [0.0458, -0.0966] | beta=0.474 | allocation=14.2%
+2024-09-20 16:00:00 [PC]: [PEP, CAG] | [BUY, SELL] | [0.0363, -0.0747] | beta=0.485 | allocation=11.1%
+2024-09-20 16:00:00 [PC] 资金分配完成: 新建仓2对, 资金使用58.2%, 剩余可用36.8%
+2024-09-20 16:00:00 [PC] 生成 4 个 PortfolioTarget
+2024-09-20 16:00:00 [RiskManagement] 第57次日常风控检查: 2024-09-20, 收到4个targets
+2024-09-20 16:00:00 [RiskManagement] 持仓超时 [AMZN,CMG]: 79天 > 30天
+2024-09-20 16:00:00 [RiskManagement] 生成平仓指令 [AMZN,CMG]: 持仓超时
+2024-09-20 16:00:00 [RiskManagement] 风控平仓1对, 生成2个平仓指令
+2024-09-21 00:00:00 Algorithm Id:(50103c284271eea8fde90142b35809ba) completed in 83.64 seconds at 2k data points per second. Processing total of 130,998 data points.

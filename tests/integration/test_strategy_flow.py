@@ -41,7 +41,7 @@ class TestStrategyFlow(unittest.TestCase):
             'max_single_drawdown': 0.20
         }
         self.risk_manager = BayesianCointegrationRiskManagementModel(
-            self.algorithm, config, self.order_tracker
+            self.algorithm, config, self.order_tracker, self.pair_registry
         )
         
         # 创建测试股票
@@ -282,17 +282,24 @@ class TestStrategyFlow(unittest.TestCase):
         
     def _create_normal_position(self, symbol1, symbol2, days_ago):
         """创建正常持仓"""
-        entry_time = self.algorithm.Time - timedelta(days=days_ago)
+        # 保存当前时间
+        original_time = self.algorithm.Time
+        
+        # 回到days_ago天前
+        self.algorithm.SetTime(original_time - timedelta(days=days_ago))
         
         # 先设置空持仓（建仓前）
         self.algorithm.Portfolio[symbol1] = MockHolding(symbol1, False, 0, 0, 100)
         self.algorithm.Portfolio[symbol2] = MockHolding(symbol2, False, 0, 0, 100)
         
         # 记录订单
-        order1 = self.algorithm.Transactions.CreateOrder(symbol1, 100, entry_time)
-        order2 = self.algorithm.Transactions.CreateOrder(symbol2, -50, entry_time)
-        self.order_tracker.on_order_event(create_filled_order_event(order1, entry_time))
-        self.order_tracker.on_order_event(create_filled_order_event(order2, entry_time))
+        order1 = self.algorithm.Transactions.CreateOrder(symbol1, 100, self.algorithm.Time)
+        order2 = self.algorithm.Transactions.CreateOrder(symbol2, -50, self.algorithm.Time)
+        self.order_tracker.on_order_event(create_filled_order_event(order1))
+        self.order_tracker.on_order_event(create_filled_order_event(order2))
+        
+        # 回到原始时间
+        self.algorithm.SetTime(original_time)
         
         # 现在设置当前持仓（小幅盈利）
         self.algorithm.Portfolio[symbol1] = MockHolding(symbol1, True, 100, 100, 105)
@@ -300,17 +307,24 @@ class TestStrategyFlow(unittest.TestCase):
         
     def _create_losing_position(self, symbol1, symbol2, days_ago):
         """创建亏损持仓"""
-        entry_time = self.algorithm.Time - timedelta(days=days_ago)
+        # 保存当前时间
+        original_time = self.algorithm.Time
+        
+        # 回到days_ago天前
+        self.algorithm.SetTime(original_time - timedelta(days=days_ago))
         
         # 先设置空持仓（建仓前）
         self.algorithm.Portfolio[symbol1] = MockHolding(symbol1, False, 0, 0, 100)
         self.algorithm.Portfolio[symbol2] = MockHolding(symbol2, False, 0, 0, 100)
         
         # 记录订单
-        order1 = self.algorithm.Transactions.CreateOrder(symbol1, 100, entry_time)
-        order2 = self.algorithm.Transactions.CreateOrder(symbol2, -50, entry_time)
-        self.order_tracker.on_order_event(create_filled_order_event(order1, entry_time))
-        self.order_tracker.on_order_event(create_filled_order_event(order2, entry_time))
+        order1 = self.algorithm.Transactions.CreateOrder(symbol1, 100, self.algorithm.Time)
+        order2 = self.algorithm.Transactions.CreateOrder(symbol2, -50, self.algorithm.Time)
+        self.order_tracker.on_order_event(create_filled_order_event(order1))
+        self.order_tracker.on_order_event(create_filled_order_event(order2))
+        
+        # 回到原始时间
+        self.algorithm.SetTime(original_time)
         
         # 现在设置当前持仓（单边亏损25%）
         self.algorithm.Portfolio[symbol1] = MockHolding(symbol1, True, 100, 100, 75)

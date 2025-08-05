@@ -159,10 +159,12 @@ class TestOrderTracker(unittest.TestCase):
         """测试建仓时间记录"""
         self.pair_registry.update_pairs([(self.symbol1, self.symbol2)])
         
+        # 保存原始时间
+        original_time = self.algorithm.Time
+        
         # 创建建仓订单
-        entry_time = self.algorithm.Time
-        order1 = self.algorithm.Transactions.CreateOrder(self.symbol1, 100, entry_time)
-        order2 = self.algorithm.Transactions.CreateOrder(self.symbol2, -50, entry_time)
+        order1 = self.algorithm.Transactions.CreateOrder(self.symbol1, 100, self.algorithm.Time)
+        order2 = self.algorithm.Transactions.CreateOrder(self.symbol2, -50, self.algorithm.Time)
         
         # 提交订单
         self.order_tracker.on_order_event(create_submitted_order_event(order1))
@@ -171,34 +173,33 @@ class TestOrderTracker(unittest.TestCase):
         # 此时还没有记录时间（未成交）
         self.assertIsNone(self.order_tracker.get_pair_entry_time(self.symbol1, self.symbol2))
         
-        # 第一个订单成交
-        fill_time1 = entry_time + timedelta(minutes=1)
-        self.order_tracker.on_order_event(create_filled_order_event(order1, fill_time1))
+        # 第一个订单成交（时间推进1分钟）
+        self.algorithm.SetTime(original_time + timedelta(minutes=1))
+        self.order_tracker.on_order_event(create_filled_order_event(order1))
         
         # 仍然没有记录时间（只有一边成交）
         self.assertIsNone(self.order_tracker.get_pair_entry_time(self.symbol1, self.symbol2))
         
-        # 第二个订单成交
-        fill_time2 = entry_time + timedelta(minutes=2)
-        self.order_tracker.on_order_event(create_filled_order_event(order2, fill_time2))
+        # 第二个订单成交（时间再推进1分钟）
+        self.algorithm.SetTime(original_time + timedelta(minutes=2))
+        self.order_tracker.on_order_event(create_filled_order_event(order2))
         
         # 现在应该记录时间（取较晚的时间）
         recorded_time = self.order_tracker.get_pair_entry_time(self.symbol1, self.symbol2)
-        self.assertEqual(recorded_time, fill_time2)
+        self.assertEqual(recorded_time, self.algorithm.Time)
         
     def test_holding_period_calculation(self):
         """测试持仓天数计算"""
         self.pair_registry.update_pairs([(self.symbol1, self.symbol2)])
         
         # 创建并成交订单
-        entry_time = self.algorithm.Time
-        order1 = self.algorithm.Transactions.CreateOrder(self.symbol1, 100, entry_time)
-        order2 = self.algorithm.Transactions.CreateOrder(self.symbol2, -50, entry_time)
+        order1 = self.algorithm.Transactions.CreateOrder(self.symbol1, 100, self.algorithm.Time)
+        order2 = self.algorithm.Transactions.CreateOrder(self.symbol2, -50, self.algorithm.Time)
         
         self.order_tracker.on_order_event(create_submitted_order_event(order1))
         self.order_tracker.on_order_event(create_submitted_order_event(order2))
-        self.order_tracker.on_order_event(create_filled_order_event(order1, entry_time))
-        self.order_tracker.on_order_event(create_filled_order_event(order2, entry_time))
+        self.order_tracker.on_order_event(create_filled_order_event(order1))
+        self.order_tracker.on_order_event(create_filled_order_event(order2))
         
         # 当天持仓天数应该是0
         holding_days = self.order_tracker.get_holding_period(self.symbol1, self.symbol2)
@@ -209,7 +210,7 @@ class TestOrderTracker(unittest.TestCase):
         holding_days = self.order_tracker.get_holding_period(self.symbol1, self.symbol2)
         self.assertEqual(holding_days, 5)
         
-        # 30天后
+        # 再过25天（总共30天）
         self.algorithm.AddDays(25)
         holding_days = self.order_tracker.get_holding_period(self.symbol1, self.symbol2)
         self.assertEqual(holding_days, 30)
@@ -218,19 +219,39 @@ class TestOrderTracker(unittest.TestCase):
         """测试冷却期检查"""
         self.pair_registry.update_pairs([(self.symbol1, self.symbol2)])
         
-        # 创建建仓和平仓订单
+        # 保存原始时间
+        original_time = self.algorithm.Time
+        
+        # 回到10天前，先建仓
+        self.algorithm.SetTime(original_time - timedelta(days=10))
+        
+        # 建仓（需要先有持仓才能平仓）
+        self.algorithm.Portfolio[self.symbol1].Quantity = 0
+        self.algorithm.Portfolio[self.symbol2].Quantity = 0
+        
+        entry_order1 = self.algorithm.Transactions.CreateOrder(self.symbol1, 100, self.algorithm.Time)
+        entry_order2 = self.algorithm.Transactions.CreateOrder(self.symbol2, -50, self.algorithm.Time)
+        
+        self.order_tracker.on_order_event(create_submitted_order_event(entry_order1))
+        self.order_tracker.on_order_event(create_submitted_order_event(entry_order2))
+        self.order_tracker.on_order_event(create_filled_order_event(entry_order1))
+        self.order_tracker.on_order_event(create_filled_order_event(entry_order2))
+        
+        # 设置持仓状态
         self.algorithm.Portfolio[self.symbol1].Quantity = 100
         self.algorithm.Portfolio[self.symbol2].Quantity = -50
         
-        exit_time = self.algorithm.Time
-        exit_order1 = self.algorithm.Transactions.CreateOrder(self.symbol1, -100, exit_time)
-        exit_order2 = self.algorithm.Transactions.CreateOrder(self.symbol2, 50, exit_time)
+        # 推进到原始时间，平仓
+        self.algorithm.SetTime(original_time)
+        
+        exit_order1 = self.algorithm.Transactions.CreateOrder(self.symbol1, -100, self.algorithm.Time)
+        exit_order2 = self.algorithm.Transactions.CreateOrder(self.symbol2, 50, self.algorithm.Time)
         
         # 处理平仓
         self.order_tracker.on_order_event(create_submitted_order_event(exit_order1))
         self.order_tracker.on_order_event(create_submitted_order_event(exit_order2))
-        self.order_tracker.on_order_event(create_filled_order_event(exit_order1, exit_time))
-        self.order_tracker.on_order_event(create_filled_order_event(exit_order2, exit_time))
+        self.order_tracker.on_order_event(create_filled_order_event(exit_order1))
+        self.order_tracker.on_order_event(create_filled_order_event(exit_order2))
         
         # 刚平仓，应该在冷却期
         self.assertTrue(self.order_tracker.is_in_cooldown(self.symbol1, self.symbol2, 7))
@@ -239,7 +260,7 @@ class TestOrderTracker(unittest.TestCase):
         self.algorithm.AddDays(5)
         self.assertTrue(self.order_tracker.is_in_cooldown(self.symbol1, self.symbol2, 7))
         
-        # 8天后，不在冷却期
+        # 再过3天（总共8天），不在冷却期
         self.algorithm.AddDays(3)
         self.assertFalse(self.order_tracker.is_in_cooldown(self.symbol1, self.symbol2, 7))
         

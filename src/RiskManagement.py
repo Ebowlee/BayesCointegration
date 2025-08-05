@@ -57,10 +57,21 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
         self.pair_registry = pair_registry
         
         # 风控参数
+        # 风控阈值边界条件说明:
+        # - max_holding_days: 30天 (使用>比较，第31天触发超时平仓)
+        # - cooldown_days: 7天 (使用<比较，第7天仍在冷却期，第8天才能重新建仓)
+        # - max_pair_drawdown: 10% (使用<比较，回撤需要超过-10%才触发，如-10.1%)
+        # - max_single_drawdown: 20% (使用<比较，回撤需要超过-20%才触发，如-20.1%)
         self.max_holding_days = config.get('max_holding_days', 30)
         self.cooldown_days = config.get('cooldown_days', 7)
         self.max_pair_drawdown = config.get('max_pair_drawdown', 0.10)
         self.max_single_drawdown = config.get('max_single_drawdown', 0.20)
+        
+        # 验证风控参数
+        assert 0 < self.max_holding_days <= 365, f"持仓天数必须在1-365之间，当前值: {self.max_holding_days}"
+        assert 0 < self.cooldown_days <= 30, f"冷却期必须在1-30天之间，当前值: {self.cooldown_days}"
+        assert 0 < self.max_pair_drawdown <= 1, f"配对回撤阈值必须在0-100%之间，当前值: {self.max_pair_drawdown}"
+        assert 0 < self.max_single_drawdown <= 1, f"单边回撤阈值必须在0-100%之间，当前值: {self.max_single_drawdown}"
         
         # 调用验证
         self.last_check_date = None
@@ -102,9 +113,10 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
         current_date = algorithm.Time.date()
         if self.last_check_date != current_date:
             self.daily_check_count += 1
+            targets_count = len(targets) if targets is not None else 0
             self.algorithm.Debug(
                 f"[RiskManagement] 第{self.daily_check_count}次日常风控检查: {current_date}, "
-                f"收到{len(targets)}个targets"
+                f"收到{targets_count}个targets"
             )
             self.last_check_date = current_date
         
@@ -201,8 +213,25 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
                 f"最终指令数: {len(risk_adjusted_targets)}"
             )
         
-        # 检查异常订单
-        self._check_abnormal_orders()
+        # 检查异常订单并获取需要平仓的配对
+        abnormal_liquidation_pairs = self._check_abnormal_orders()
+        if abnormal_liquidation_pairs:
+            # 将异常配对加入平仓列表
+            for symbol1, symbol2 in abnormal_liquidation_pairs:
+                # 检查是否已经在平仓列表中
+                if not any((s1, s2) == (symbol1, symbol2) or (s2, s1) == (symbol1, symbol2) 
+                          for s1, s2, _ in liquidation_pairs):
+                    liquidation_pairs.append((symbol1, symbol2, "订单执行异常"))
+            
+            # 重新生成平仓指令
+            if liquidation_pairs:
+                liquidation_targets = self._create_liquidation_targets(liquidation_pairs)
+                
+                # 更新风险调整后的目标列表
+                liquidation_symbols = {t.Symbol for t in liquidation_targets}
+                risk_adjusted_targets = [t for t in risk_adjusted_targets 
+                                       if t.Symbol not in liquidation_symbols]
+                risk_adjusted_targets.extend(liquidation_targets)
         
         # 过滤冷却期内的新建仓信号
         risk_adjusted_targets = self._filter_cooldown_targets(risk_adjusted_targets)
@@ -223,8 +252,11 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
         active_pairs = []
         processed_symbols = set()
         
+        # 使用列表副本避免迭代时修改字典的问题
+        portfolio_items = list(self.algorithm.Portfolio.items())
+        
         # 遍历所有持仓
-        for symbol, holding in self.algorithm.Portfolio.items():
+        for symbol, holding in portfolio_items:
             if not holding.Invested or symbol in processed_symbols:
                 continue
             
@@ -332,6 +364,14 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
                 drawdowns[symbol] = 0
                 continue
             
+            # 处理价格为0的特殊情况（数据缺失）
+            if current_price == 0:
+                self.algorithm.Debug(
+                    f"[RiskManagement] 警告: {symbol.Value}价格为0，跳过回撤计算"
+                )
+                drawdowns[symbol] = 0
+                continue
+            
             # 根据持仓方向计算回撤
             if holding.Quantity > 0:  # 做多
                 drawdown = (current_price - avg_price) / avg_price
@@ -421,10 +461,13 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
         """
         检查并处理异常订单
         
-        使用OrderTracker检测异常配对，记录但不主动处理
-        （处理逻辑可根据需要扩展）
+        使用OrderTracker检测异常配对，返回需要平仓的异常配对列表
+        
+        Returns:
+            List[Tuple]: 需要平仓的异常配对列表，格式为[(symbol1, symbol2), ...]
         """
         abnormal_pairs = self.order_tracker.get_abnormal_pairs()
+        pairs_to_liquidate = []
         
         if abnormal_pairs:
             self.algorithm.Debug(
@@ -435,6 +478,10 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
                 self.algorithm.Debug(
                     f"[RiskManagement] 异常配对: [{symbol1.Value},{symbol2.Value}]"
                 )
+                # 将异常配对加入平仓列表
+                pairs_to_liquidate.append((symbol1, symbol2))
+        
+        return pairs_to_liquidate
     
     def _filter_cooldown_targets(self, targets: List[PortfolioTarget]) -> List[PortfolioTarget]:
         """
