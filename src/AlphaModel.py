@@ -1193,6 +1193,9 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         self.sector_code_to_name = sector_code_to_name
         self.pair_registry = pair_registry
         
+        # 信号持续时间配置
+        self.flat_signal_duration_days = config.get('flat_signal_duration_days', 5)
+        
         # 使用集中的状态管理
         self.state = AlphaModelState()
         
@@ -1239,6 +1242,8 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         if not symbols or len(symbols) < 2:
             return []
         
+        insights = []  # 初始化insights列表
+        
         if self.state.control['is_selection_day']:
             # 步骤1: 使用数据处理器处理数据
             data_result = self.data_processor.process(symbols)
@@ -1260,9 +1265,40 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                 cointegrated_pairs = cointegration_result['cointegrated_pairs']
                 self.state.update_temporary_data('cointegrated_pairs', cointegrated_pairs)
                 
+                # 获取旧配对列表（在更新前）
+                old_pairs = self.pair_registry.get_active_pairs()
+                
                 # 更新 PairRegistry
                 pairs_list = [(pair['symbol1'], pair['symbol2']) for pair in cointegrated_pairs]
                 self.pair_registry.update_pairs(pairs_list)
+                
+                # 检查失效的配对（在旧列表但不在新列表）
+                new_pairs_set = set(pairs_list)
+                expired_pairs = []
+                for old_pair in old_pairs:
+                    # 检查正向和反向都不在新列表中
+                    if (old_pair not in new_pairs_set and 
+                        (old_pair[1], old_pair[0]) not in new_pairs_set):
+                        expired_pairs.append(old_pair)
+                
+                # 为失效配对生成平仓信号
+                if expired_pairs:
+                    self.algorithm.Debug(
+                        f"[AlphaModel] 检测到 {len(expired_pairs)} 个失效配对，生成平仓信号"
+                    )
+                    for symbol1, symbol2 in expired_pairs:
+                        self.algorithm.Debug(
+                            f"[AlphaModel] 协整关系失效: [{symbol1.Value},{symbol2.Value}]"
+                        )
+                        # 生成平仓信号，使用特殊的tag标记失效原因
+                        tag = f"{symbol1.Value}&{symbol2.Value}|0|0|0|0|cointegration_expired"
+                        
+                        flat_insights = self._create_insight_group(
+                            symbol1, symbol2,
+                            InsightDirection.Flat, InsightDirection.Flat,
+                            self.flat_signal_duration_days, tag
+                        )
+                        insights.extend(flat_insights)
                 
                 # 步骤3: 贝叶斯建模 - 估计配对参数
                 if len(cointegrated_pairs) > 0:
@@ -1284,10 +1320,28 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         modeled_pairs = self.state.persistent['modeled_pairs']
         if modeled_pairs:
             self.algorithm.Debug(f"[AlphaModel] 生成信号: 跟踪{len(modeled_pairs)}对配对")
-            insights = self.signal_generator.generate_signals(modeled_pairs, data)
-            if insights:
-                self.algorithm.Debug(f"[AlphaModel] 生成{len(insights)}个Insights")
-            return insights
+            daily_insights = self.signal_generator.generate_signals(modeled_pairs, data)
+            if daily_insights:
+                insights.extend(daily_insights)
+                self.algorithm.Debug(f"[AlphaModel] 生成{len(daily_insights)}个日常Insights")
         
-        return []
+        # 返回所有insights（包括失效配对的平仓信号）
+        if insights:
+            self.algorithm.Debug(f"[AlphaModel] 总计生成{len(insights)}个Insights")
+        return insights
+    
+    def _create_insight_group(self, symbol1: Symbol, symbol2: Symbol, 
+                             direction1: InsightDirection, direction2: InsightDirection,
+                             duration_days: int, tag: str):
+        """
+        创建配对的Insight组
+        
+        注意: 返回Insight.Group()的原始结果
+        """
+        return Insight.Group(
+            Insight.Price(symbol1, timedelta(days=duration_days), direction1, 
+                         None, None, None, None, tag),
+            Insight.Price(symbol2, timedelta(days=duration_days), direction2,
+                         None, None, None, None, tag)
+        )
     

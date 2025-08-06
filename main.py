@@ -84,7 +84,8 @@ class StrategyConfig:
             'max_holding_days': 30,          # 最大持仓天数（从60天改为30天）
             'cooldown_days': 7,              # 冷却期天数
             'max_pair_drawdown': 0.10,       # 配对最大回撤10%
-            'max_single_drawdown': 0.20      # 单边最大回撤20%
+            'max_single_drawdown': 0.15,     # 单边最大回撤15%（从20%降低）
+            'sector_exposure_threshold': 0.30 # 行业集中度阈值30%
         }
         
         # 行业映射配置
@@ -166,12 +167,13 @@ class BayesianCointegrationStrategy(QCAlgorithm):
             self, self.config.portfolio_construction
         ))
         
-        # RiskManagement模块 - 传入OrderTracker和PairRegistry
+        # RiskManagement模块 - 传入OrderTracker、PairRegistry和行业映射
         self.risk_manager = BayesianCointegrationRiskManagementModel(
             self, 
             self.config.risk_management,
             self.order_tracker,
-            self.pair_registry
+            self.pair_registry,
+            self.config.sector_code_to_name  # 传递行业映射
         )
         self.AddRiskManagement(self.risk_manager)
 

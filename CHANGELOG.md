@@ -4,6 +4,30 @@
 
 ---
 
+## [v3.4.0_risk-enhancement-string-format@20250806]
+### 风控增强功能
+- **跨周期协整失效检测**：
+  - AlphaModel：检测未在当前周期更新的配对，生成Flat信号强制平仓
+  - Tag格式扩展：支持可选的reason字段（如'cointegration_expired'）
+  - 5天平仓信号持续时间确保失效配对被平仓
+- **风控参数优化**：
+  - 单边最大回撤：20% → 15%（更严格的单边风控）
+  - 最大持仓天数：60天 → 30天（更快的资金周转）
+- **行业集中度监控**：
+  - 实现30%行业集中度阈值监控
+  - 超限时自动平仓该行业最早建仓的配对
+  - 新增风控统计项：sector_concentration
+
+### 技术实现
+- **Tag格式向后兼容**：
+  - 保持字符串格式而非JSON（QuantConnect兼容性）
+  - 格式：`symbol1&symbol2|alpha|beta|zscore|quality_score[|reason]`
+  - PortfolioConstruction兼容新旧格式解析
+- **RiskManagement增强**：
+  - 新增_check_sector_concentration()方法
+  - 接收sector_code_to_name映射用于行业识别
+  - 统一的风控触发器统计
+
 ## [v3.2.0_architecture-design-decisions@20250806]
 ### 架构设计决策
 - **明确T+0与T+1风控的区别**：

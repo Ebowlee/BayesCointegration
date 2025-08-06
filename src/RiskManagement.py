@@ -12,10 +12,11 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
     每日主动监控所有持仓并执行必要的风控措施。
     
     核心功能:
-    1. 持仓时间管理: 超过60天强制平仓
+    1. 持仓时间管理: 超过30天强制平仓
     2. 配对回撤监控: 配对整体亏损超过10%止损
-    3. 单边回撤监控: 单只股票亏损超过20%止损
-    4. 实时风险评估: 每日检查所有持仓
+    3. 单边回撤监控: 单只股票亏损超过15%止损
+    4. 行业集中度监控: 单个行业暴露超过30%时平仓最早的配对
+    5. 实时风险评估: 每日检查所有持仓
     
     工作机制:
     - 框架保证每日调用ManageRisk方法
@@ -24,9 +25,10 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
     - 使用OnOrderEvent记录的真实建仓时间
     
     风控阈值:
-    - max_holding_days: 60天 (硬性限制)
+    - max_holding_days: 30天 (硬性限制)
     - max_pair_drawdown: 10% (配对整体)
-    - max_single_drawdown: 20% (单边资产)
+    - max_single_drawdown: 15% (单边资产)
+    - sector_exposure_threshold: 30% (行业集中度)
     
     与其他模块的关系:
     - 输入: PortfolioConstruction的targets
@@ -41,7 +43,7 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
     - 透明性: 详细记录所有风控动作
     """
     
-    def __init__(self, algorithm, config: dict, order_tracker: OrderTracker, pair_registry):
+    def __init__(self, algorithm, config: dict, order_tracker: OrderTracker, pair_registry, sector_code_to_name: dict = None):
         """
         初始化风险管理模型
         
@@ -50,22 +52,26 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
             config: 风控配置参数
             order_tracker: 订单追踪器实例
             pair_registry: 配对注册表实例
+            sector_code_to_name: 行业代码到名称的映射字典
         """
         super().__init__()
         self.algorithm = algorithm
         self.order_tracker = order_tracker
         self.pair_registry = pair_registry
+        self.sector_code_to_name = sector_code_to_name or {}
         
         # 风控参数
         # 风控阈值边界条件说明:
         # - max_holding_days: 30天 (使用>比较，第31天触发超时平仓)
         # - cooldown_days: 7天 (使用<比较，第7天仍在冷却期，第8天才能重新建仓)
         # - max_pair_drawdown: 10% (使用<比较，回撤需要超过-10%才触发，如-10.1%)
-        # - max_single_drawdown: 20% (使用<比较，回撤需要超过-20%才触发，如-20.1%)
+        # - max_single_drawdown: 15% (使用<比较，回撤需要超过-15%才触发，如-15.1%)
+        # - sector_exposure_threshold: 30% (使用>比较，超过30%触发平仓)
         self.max_holding_days = config.get('max_holding_days', 30)
         self.cooldown_days = config.get('cooldown_days', 7)
         self.max_pair_drawdown = config.get('max_pair_drawdown', 0.10)
-        self.max_single_drawdown = config.get('max_single_drawdown', 0.20)
+        self.max_single_drawdown = config.get('max_single_drawdown', 0.15)
+        self.sector_exposure_threshold = config.get('sector_exposure_threshold', 0.30)
         
         # 验证风控参数
         assert 0 < self.max_holding_days <= 365, f"持仓天数必须在1-365之间，当前值: {self.max_holding_days}"
@@ -81,14 +87,16 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
         self.risk_triggers = {
             'holding_timeout': 0,
             'pair_stop_loss': 0,
-            'single_stop_loss': 0
+            'single_stop_loss': 0,
+            'sector_concentration': 0
         }
         
         self.algorithm.Debug(
             f"[RiskManagement] 初始化完成 - "
             f"最大持仓{self.max_holding_days}天, "
             f"配对止损{self.max_pair_drawdown*100}%, "
-            f"单边止损{self.max_single_drawdown*100}%"
+            f"单边止损{self.max_single_drawdown*100}%, "
+            f"行业集中度阈值{self.sector_exposure_threshold*100}%"
         )
     
     def ManageRisk(self, algorithm, targets: List[PortfolioTarget]) -> List[PortfolioTarget]:
@@ -235,6 +243,23 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
         
         # 过滤冷却期内的新建仓信号
         risk_adjusted_targets = self._filter_cooldown_targets(risk_adjusted_targets)
+        
+        # 检查行业集中度
+        sector_liquidation_pairs = self._check_sector_concentration()
+        if sector_liquidation_pairs:
+            sector_targets = self._create_liquidation_targets(
+                [(s1, s2, "行业集中度超限") for s1, s2 in sector_liquidation_pairs]
+            )
+            
+            # 合并到风险调整目标中
+            liquidation_symbols = {t.Symbol for t in sector_targets}
+            risk_adjusted_targets = [t for t in risk_adjusted_targets 
+                                   if t.Symbol not in liquidation_symbols]
+            risk_adjusted_targets.extend(sector_targets)
+            
+            self.algorithm.Debug(
+                f"[RiskManagement] 行业集中度超限，平仓{len(sector_liquidation_pairs)}对配对"
+            )
         
         return risk_adjusted_targets
     
@@ -536,3 +561,108 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
             filtered_targets.append(target)
         
         return filtered_targets
+    
+    def _check_sector_concentration(self) -> List[Tuple[Symbol, Symbol]]:
+        """
+        检查行业集中度并返回需要平仓的配对
+        
+        计算每个行业的资金暴露比例，如果超过阈值，
+        则平仓该行业中建仓时间最早的配对。
+        
+        Returns:
+            List[Tuple[Symbol, Symbol]]: 需要平仓的配对列表
+        """
+        # 获取所有活跃配对
+        active_pairs = self._get_active_pairs()
+        if not active_pairs:
+            return []
+        
+        # 计算每个行业的暴露
+        sector_exposure = {}
+        sector_pairs = {}  # 记录每个行业的配对列表
+        total_portfolio_value = self.algorithm.Portfolio.TotalPortfolioValue
+        
+        if total_portfolio_value <= 0:
+            return []
+        
+        for pair_info in active_pairs:
+            symbol1, symbol2 = pair_info['pair']
+            
+            # 获取两只股票的行业信息
+            sector1 = self._get_symbol_sector(symbol1)
+            sector2 = self._get_symbol_sector(symbol2)
+            
+            # 配对应该在同一行业
+            if sector1 != sector2:
+                self.algorithm.Debug(
+                    f"[RiskManagement] 警告：配对跨行业 [{symbol1.Value}({sector1}), "
+                    f"{symbol2.Value}({sector2})]"
+                )
+                continue
+            
+            if sector1 is None:
+                continue
+            
+            # 计算该配对的市值暴露
+            holding1 = self.algorithm.Portfolio[symbol1]
+            holding2 = self.algorithm.Portfolio[symbol2]
+            pair_value = abs(holding1.HoldingsValue) + abs(holding2.HoldingsValue)
+            pair_exposure = pair_value / total_portfolio_value
+            
+            # 累加到行业暴露
+            if sector1 not in sector_exposure:
+                sector_exposure[sector1] = 0
+                sector_pairs[sector1] = []
+            
+            sector_exposure[sector1] += pair_exposure
+            sector_pairs[sector1].append({
+                'pair': (symbol1, symbol2),
+                'holding_days': pair_info['holding_days'],
+                'exposure': pair_exposure
+            })
+        
+        # 检查是否有行业超过阈值
+        pairs_to_liquidate = []
+        for sector, exposure in sector_exposure.items():
+            if exposure > self.sector_exposure_threshold:
+                sector_name = self.sector_code_to_name.get(sector, str(sector))
+                self.algorithm.Debug(
+                    f"[RiskManagement] 行业集中度超限 - {sector_name}: "
+                    f"{exposure*100:.1f}% > {self.sector_exposure_threshold*100}%"
+                )
+                
+                # 找出该行业中建仓时间最早的配对
+                if sector in sector_pairs and sector_pairs[sector]:
+                    # 按持仓天数排序，选择最早的配对
+                    oldest_pair = max(sector_pairs[sector], key=lambda x: x['holding_days'])
+                    pairs_to_liquidate.append(oldest_pair['pair'])
+                    
+                    self.algorithm.Debug(
+                        f"[RiskManagement] 选择平仓最早配对: "
+                        f"[{oldest_pair['pair'][0].Value}, {oldest_pair['pair'][1].Value}], "
+                        f"持仓{oldest_pair['holding_days']}天"
+                    )
+                    
+                    self.risk_triggers['sector_concentration'] += 1
+        
+        return pairs_to_liquidate
+    
+    def _get_symbol_sector(self, symbol: Symbol):
+        """
+        获取股票的行业代码
+        
+        Args:
+            symbol: 股票代码
+            
+        Returns:
+            行业代码，如果无法获取则返回None
+        """
+        try:
+            security = self.algorithm.Securities[symbol]
+            if hasattr(security, 'Fundamentals') and security.Fundamentals:
+                if hasattr(security.Fundamentals, 'AssetClassification'):
+                    return security.Fundamentals.AssetClassification.MorningstarSectorCode
+        except Exception as e:
+            self.algorithm.Debug(f"[RiskManagement] 获取{symbol.Value}行业信息失败: {e}")
+        
+        return None

@@ -165,13 +165,14 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         
         Tag是AlphaModel传递详细参数的载体，包含了执行交易所需的所有信息。
         
-        Tag格式: 'symbol1&symbol2|alpha|beta|zscore|quality_score'
+        Tag格式: 'symbol1&symbol2|alpha|beta|zscore|quality_score|reason'（reason可选）
         其中:
         - symbol1&symbol2: 配对的股票代码
         - alpha: 协整关系的截距项
         - beta: 对冲比率 (beta=0.8表示1份symbol1对冲0.8份symbol2)
         - zscore: 当前偏离程度 (标准化残差)
         - quality_score: 配对质量分数 (0-1，来自AlphaModel的综合评分)
+        - reason: 可选，特殊原因标记（如cointegration_expired）
         
         Args:
             tag: Insight的Tag字符串
@@ -181,6 +182,7 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
                 - beta: 对冲比率
                 - zscore: 偏离程度
                 - quality_score: 质量分数
+                - reason: 可选，特殊原因
             失败返回None
         """
         try:
@@ -194,11 +196,20 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
             zscore = float(tag_parts[3])
             quality_score = float(tag_parts[4])  # 直接使用AlphaModel计算的quality_score
             
-            return {
+            result = {
                 'beta': beta,
                 'zscore': zscore,
                 'quality_score': quality_score
             }
+            
+            # 解析可选的reason字段
+            if len(tag_parts) > 5:
+                result['reason'] = tag_parts[5]
+                # 如果检测到协整失效原因，输出日志
+                if tag_parts[5] == 'cointegration_expired':
+                    self.algorithm.Debug(f"[PC] 检测到协整失效信号: {tag_parts[0]}")
+            
+            return result
         except (IndexError, ValueError) as e:
             self.algorithm.Debug(f"[PC] Tag解析失败 - Tag: {tag}, 错误: {e}")
             return None
