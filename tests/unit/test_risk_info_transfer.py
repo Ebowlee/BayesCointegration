@@ -239,6 +239,9 @@ class TestRiskInfoTransfer(unittest.TestCase):
         # 只有一边成交
         self.order_tracker.on_order_event(create_filled_order_event(order1))
         
+        # v3.5.0: 设置Portfolio中的持仓状态，模拟symbol1成交后有持仓
+        self.algorithm.Portfolio[self.symbol1] = MockHolding(self.symbol1, True, 100, 100, 100)
+        
         # OrderTracker应该检测到异常
         abnormal_pairs = self.order_tracker.get_abnormal_pairs()
         self.assertEqual(len(abnormal_pairs), 1)
@@ -249,8 +252,9 @@ class TestRiskInfoTransfer(unittest.TestCase):
         
         # 验证RiskManagement通过_check_abnormal_orders方法获取了信息
         # （通过debug信息间接验证，实际应该看到相关日志）
-        # 检查是否有检测到异常配对的消息
-        has_abnormal_detection = any("检测到" in msg and "异常配对" in msg 
+        # v3.5.0: 更新期望的日志消息格式
+        has_abnormal_detection = any(("OrderTracker报告" in msg and "潜在异常配对" in msg) or
+                                    ("确认异常配对" in msg and "有持仓" in msg)
                                     for msg in self.algorithm.debug_messages)
         self.assertTrue(has_abnormal_detection, "应该检测到异常配对")
         

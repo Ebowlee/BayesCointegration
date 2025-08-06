@@ -488,6 +488,9 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
         
         使用OrderTracker检测异常配对，返回需要平仓的异常配对列表
         
+        v3.5.0修复：只处理Portfolio中有实际持仓的异常配对，
+        避免未建仓的配对（如AMZN,GM）被错误识别为异常
+        
         Returns:
             List[Tuple]: 需要平仓的异常配对列表，格式为[(symbol1, symbol2), ...]
         """
@@ -496,15 +499,32 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
         
         if abnormal_pairs:
             self.algorithm.Debug(
-                f"[RiskManagement] 检测到{len(abnormal_pairs)}个异常配对"
+                f"[RiskManagement] OrderTracker报告{len(abnormal_pairs)}个潜在异常配对"
             )
             
             for symbol1, symbol2 in abnormal_pairs:
-                self.algorithm.Debug(
-                    f"[RiskManagement] 异常配对: [{symbol1.Value},{symbol2.Value}]"
-                )
-                # 将异常配对加入平仓列表
-                pairs_to_liquidate.append((symbol1, symbol2))
+                # v3.5.0关键修复：验证Portfolio中是否真的有持仓
+                has_position = False
+                
+                # 检查symbol1是否有持仓
+                if symbol1 and self.algorithm.Portfolio[symbol1].Invested:
+                    has_position = True
+                
+                # 检查symbol2是否有持仓
+                if symbol2 and self.algorithm.Portfolio[symbol2].Invested:
+                    has_position = True
+                
+                # 只处理真正有持仓的异常配对
+                if has_position:
+                    self.algorithm.Debug(
+                        f"[RiskManagement] 确认异常配对（有持仓）: [{symbol1.Value if symbol1 else 'None'},{symbol2.Value if symbol2 else 'None'}]"
+                    )
+                    pairs_to_liquidate.append((symbol1, symbol2))
+                else:
+                    # 无持仓的配对仅记录日志，不生成平仓指令
+                    self.algorithm.Debug(
+                        f"[RiskManagement] 忽略无持仓配对: [{symbol1.Value if symbol1 else 'None'},{symbol2.Value if symbol2 else 'None'}]"
+                    )
         
         return pairs_to_liquidate
     

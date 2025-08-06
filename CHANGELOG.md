@@ -4,6 +4,24 @@
 
 ---
 
+## [v3.5.0_fix-abnormal-pairs-detection@20250806]
+### 关键Bug修复
+- **异常配对检测修复**：
+  - 问题：未建仓的配对（如AMZN,GM）被错误识别为异常配对
+  - 原因：OrderTracker检测异常时未验证Portfolio实际持仓
+  - 修复：_check_abnormal_orders()增加持仓验证逻辑
+  - 效果：只对真正有持仓的配对执行异常处理
+
+### 技术改进
+- **最小化改动原则**：
+  - 仅修改RiskManagement一个方法（5行核心代码）
+  - 保持所有接口不变，确保向后兼容
+  - 不影响PyMC和信号生成逻辑
+
+### 测试更新
+- 更新test_risk_info_transfer测试用例
+- 适配新的异常检测逻辑
+
 ## [v3.4.0_risk-enhancement-string-format@20250806]
 ### 风控增强功能
 - **跨周期协整失效检测**：
