@@ -8,6 +8,7 @@ import itertools
 from statsmodels.tsa.stattools import coint
 import pymc as pm
 from datetime import timedelta
+from Newtonsoft.Json import JsonConvert
 # endregion
 
 
@@ -1064,10 +1065,16 @@ class SignalGenerator:
         symbol1, symbol2 = pair['symbol1'], pair['symbol2']
         zscore = pair['zscore']
         
-        # 构建标签 - 包含关键信息便于追踪和调试
-        # 格式：symbol1&symbol2|alpha|beta|zscore|quality_score
+        # 构建标签 - 使用JSON格式便于扩展和解析
         quality_score = pair.get('quality_score', 0.5)  # 默认0.5如果没有
-        tag = f"{symbol1.Value}&{symbol2.Value}|{pair['alpha_mean']:.4f}|{pair['beta_mean']:.4f}|{zscore:.2f}|{quality_score:.3f}"
+        tag_data = {
+            'symbols': [symbol1.Value, symbol2.Value],
+            'alpha': round(pair['alpha_mean'], 4),
+            'beta': round(pair['beta_mean'], 4),
+            'zscore': round(zscore, 2),
+            'quality_score': round(quality_score, 3)
+        }
+        tag = JsonConvert.SerializeObject(tag_data)
         
         # 风险检查 - 极端偏离
         if abs(zscore) > self.upper_limit:
