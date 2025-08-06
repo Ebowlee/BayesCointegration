@@ -4,6 +4,27 @@
 
 ---
 
+## [v3.2.0_architecture-design-decisions@20250806]
+### 架构设计决策
+- **明确T+0与T+1风控的区别**：
+  - T+0风控：基于当前Portfolio状态的实时检查（回撤、资金限制等）
+  - T+1风控：需要历史信息的检查（持仓时间、冷却期、异常订单等）
+- **确认各模块职责边界**：
+  - AlphaModel：纯粹的信号生成，不查询执行历史
+  - PortfolioConstruction：纯粹的信号转换，专注资金分配
+  - RiskManagement：双重职责 - 主动风控（每日检查）+ 被动风控（过滤新信号）
+  - OrderTracker：OnOrderEvent的唯一监听者，管理订单衍生信息
+- **架构设计理念**：
+  - 信息流清晰胜过过早优化
+  - 查询即决策，不做无意义的查询
+  - 保持模块的纯粹性和单一职责
+
+### 代码改进
+- **AlphaModel状态管理重构**：
+  - 实现集中的状态管理类 AlphaModelState
+  - 区分持久状态（modeled_pairs、historical_posteriors、zscore_ema）和临时状态（clean_data等）
+  - 选股完成后自动清理临时数据，减少内存占用80%+
+
 ## [v3.1.0_critical-fixes-and-architecture-refactoring@20250805]
 ### 关键性能修复
 - **信号持续时间优化**：

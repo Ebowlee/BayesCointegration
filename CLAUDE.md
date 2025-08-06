@@ -63,9 +63,12 @@ python run_tests.py test_strategy_flow
 
 # Run with verbose output
 python run_tests.py -v
+python run_tests.py --verbose
 
 # Run specific test method directly
 python -m unittest tests.unit.test_risk_management.TestRiskManagement.test_single_stop_loss
+python -m unittest tests.unit.test_order_tracker.TestOrderTracker.test_pair_entry_tracking
+python -m unittest tests.integration.test_strategy_flow.TestStrategyFlow.test_complete_pair_lifecycle
 ```
 
 ### Cloud Operations
@@ -76,8 +79,14 @@ lean config validate
 # Check project structure
 lean project-create --list
 
-# Download backtest results
+# Run cloud backtest
+lean cloud backtest BayesCointegration
+
+# Download backtest results (creates three files: .json, _logs.txt, _trades.csv)
 lean cloud backtest results <backtest-id> --destination ./backtests/
+
+# View cloud backtest status
+lean cloud status
 ```
 
 ### Version Control
@@ -251,6 +260,7 @@ risk_stats = self.algorithm.risk_manager.risk_triggers
 
 ## Recent Optimization History
 
+- **v3.1.0**: Critical fixes - signal duration optimization (5 days flat, 3 days entry), holding time calculation fix, architecture refactoring with dependency injection
 - **v3.0.0**: Added comprehensive test framework and AI agent system
 - **v2.17.0**: Implemented complete RiskManagement module with 3-layer risk controls
 - **v2.16.0**: Verified PortfolioConstruction module functionality
@@ -260,5 +270,52 @@ risk_stats = self.algorithm.risk_manager.risk_triggers
 ## Files to Avoid Modifying
 
 - **config.json**: QuantConnect cloud configuration (contains cloud-id and org-id)
-- **backtests/**: Historical backtest results and logs
+- **backtests/**: Historical backtest results and logs (gitignored but tracked for reference)
 - **.gitignore**: Properly configured for Python/QuantConnect projects
+- **.claude/agents/**: AI agent definitions (managed separately)
+
+## AI Agents for Development Support
+
+The project includes specialized AI agents in `.claude/agents/` to assist with development:
+
+### Available Agents
+
+1. **backtest-analyst**: Forensic analysis of backtest results
+   - Analyzes trade logs, performance metrics, and execution patterns
+   - Detects anomalies like over-trading specific symbols or orphaned positions
+   - Provides comparative analysis across multiple backtests
+   - Use when: Analyzing backtest results, investigating unexpected behavior, comparing strategy versions
+
+2. **code-architect**: Architecture design and optimization
+   - Designs new modules and refactors existing code
+   - Optimizes performance bottlenecks (especially MCMC sampling)
+   - Implements design patterns and manages technical debt
+   - Use when: Adding new features, optimizing performance, refactoring code
+
+3. **quantconnect-test-engineer**: Test suite development
+   - Creates unit and integration tests
+   - Designs mock objects for QuantConnect components
+   - Generates test data for market scenarios
+   - Use when: Writing tests, ensuring code reliability, creating regression tests
+
+### Agent Usage
+These agents are automatically available in Claude Code and can be invoked through the Task tool when their expertise is needed.
+
+## Backtest Analysis
+
+### Local Backtest Analysis
+```bash
+# After running a backtest, results are saved in:
+# - backtest_results.json (main results)
+# - backtest_logs.txt (debug logs)
+# - backtest_trades.csv (trade details)
+
+# For comprehensive analysis, use the backtest-analyst agent
+# It will automatically locate and analyze all relevant files
+```
+
+### Key Metrics to Monitor
+- **Symbol concentration**: Check if any symbol appears in too many trades
+- **Pair lifecycle**: Verify proper entry/exit patterns
+- **Signal effectiveness**: Analyze entry/exit timing quality
+- **Risk triggers**: Monitor stop-loss and holding period violations

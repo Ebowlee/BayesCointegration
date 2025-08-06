@@ -12,6 +12,77 @@ from datetime import timedelta
 
 
 # =============================================================================
+# 状态管理类 - AlphaModelState
+# =============================================================================
+class AlphaModelState:
+    """
+    集中管理 AlphaModel 的所有状态
+    
+    将状态分为三类：
+    1. persistent: 持久状态，跨周期保持（如活跃配对、历史后验）
+    2. temporary: 临时状态，选股日使用后清理（如原始数据、中间结果）
+    3. control: 控制状态，管理流程控制（如选股标志）
+    """
+    
+    def __init__(self):
+        # 持久状态 - 每天都需要的数据
+        self.persistent = {
+            'modeled_pairs': [],           # 当前活跃的配对（带模型参数）
+            'historical_posteriors': {},   # 历史后验参数 {(symbol1, symbol2): {...}}
+            'zscore_ema': {}              # Z-score EMA值 {(symbol1, symbol2): float}
+        }
+        
+        # 临时状态 - 选股日的中间数据
+        self.temporary = {
+            'clean_data': {},             # 处理后的历史数据 {Symbol: DataFrame}
+            'valid_symbols': [],          # 通过筛选的股票列表
+            'cointegrated_pairs': []      # 协整配对（未建模）
+        }
+        
+        # 控制状态 - 流程控制
+        self.control = {
+            'is_selection_day': False,    # 是否为选股日
+            'symbols': []                 # 当前跟踪的股票列表
+        }
+    
+    def clear_temporary(self):
+        """选股完成后清理临时数据，释放内存"""
+        self.temporary = {
+            'clean_data': {},
+            'valid_symbols': [],
+            'cointegrated_pairs': []
+        }
+    
+    def get_required_data(self) -> Dict:
+        """只保留活跃配对所需的数据"""
+        required_symbols = set()
+        
+        # 收集所有活跃配对的股票
+        for pair in self.persistent['modeled_pairs']:
+            required_symbols.add(pair['symbol1'])
+            required_symbols.add(pair['symbol2'])
+        
+        # 只返回这些股票的数据
+        return {
+            symbol: data 
+            for symbol, data in self.temporary['clean_data'].items()
+            if symbol in required_symbols
+        }
+    
+    def update_persistent_data(self, key: str, value):
+        """更新持久状态"""
+        self.persistent[key] = value
+    
+    def update_temporary_data(self, key: str, value):
+        """更新临时状态"""
+        self.temporary[key] = value
+    
+    def update_control_state(self, key: str, value):
+        """更新控制状态"""
+        self.control[key] = value
+
+
+# =============================================================================
 # 数据处理模块 - DataProcessor
 # =============================================================================
 class DataProcessor:
@@ -121,7 +192,7 @@ class DataProcessor:
             return symbol_data
             
         except Exception as e:
-            self.algorithm.Debug(f"[AlphaModel.Data] 处理{symbol.Value}时出错: {str(e)[:50]}")
+            self.algorithm.Debug(f"[AlphaModel.Data] 处理{symbol.Value}时出错: {str(e)}")
             statistics['data_missing'] += 1
             return None
     
@@ -290,11 +361,10 @@ class CointegrationAnalyzer:
         filtered_pairs = self._filter_pairs(all_cointegrated_pairs)
         statistics['cointegrated_pairs_found'] = len(filtered_pairs)
         
-        # 保存筛选后的配对，供日志输出使用
-        self.cointegrated_pairs = filtered_pairs
+        # 注意：配对结果现在直接返回，不再保存在实例中
         
         # 输出统计信息
-        self._log_statistics(statistics)
+        self._log_statistics(statistics, filtered_pairs)
         
         return {
             'cointegrated_pairs': filtered_pairs,
@@ -378,7 +448,7 @@ class CointegrationAnalyzer:
                     'liquidity_match': liquidity_match  # 新增字段
                 }
         except Exception as e:
-            self.algorithm.Debug(f"[AlphaModel.Coint] 协整检验失败 {symbol1.Value}-{symbol2.Value}: {str(e)[:50]}")
+            self.algorithm.Debug(f"[AlphaModel.Coint] 协整检验失败 {symbol1.Value}-{symbol2.Value}: {str(e)}")
         return None
     
     def _calculate_liquidity_match(self, data1: pd.DataFrame, data2: pd.DataFrame) -> float:
@@ -408,7 +478,7 @@ class CointegrationAnalyzer:
             return float(volume_ratio)
             
         except Exception as e:
-            self.algorithm.Debug(f"[AlphaModel.Coint] 流动性计算失败: {str(e)[:50]}")
+            self.algorithm.Debug(f"[AlphaModel.Coint] 流动性计算失败: {str(e)}")
             return 0.5  # 返回中性值
     
     def _calculate_pair_quality_score(self, pair: Dict) -> float:
@@ -471,14 +541,14 @@ class CointegrationAnalyzer:
         
         return filtered_pairs
     
-    def _log_statistics(self, statistics: dict):
+    def _log_statistics(self, statistics: dict, filtered_pairs: List[Dict]):
         """输出统计信息"""
         # 输出选中配对的质量分数信息
-        if hasattr(self, 'cointegrated_pairs') and self.cointegrated_pairs:
-            scores = [p.get('quality_score', 0) for p in self.cointegrated_pairs if 'quality_score' in p]
+        if filtered_pairs:
+            scores = [p.get('quality_score', 0) for p in filtered_pairs if 'quality_score' in p]
             if scores:
                 self.algorithm.Debug(
-                    f"[AlphaModel.Coint] 合计筛选{len(self.cointegrated_pairs)}对: "
+                    f"[AlphaModel.Coint] 合计筛选{len(filtered_pairs)}对: "
                     f"平均{np.mean(scores):.3f}, "
                     f"最高{max(scores):.3f}, "
                     f"最低{min(scores):.3f}"
@@ -486,7 +556,7 @@ class CointegrationAnalyzer:
             
             # 按行业分组输出具体配对详情
             sector_pairs = defaultdict(list)
-            for pair in self.cointegrated_pairs:
+            for pair in filtered_pairs:
                 sector = pair.get('sector', 'Unknown')
                 symbol1 = pair['symbol1'].Value
                 symbol2 = pair['symbol2'].Value
@@ -544,23 +614,21 @@ class BayesianModeler:
     - 动态更新避免了参数的剧烈跳动
     """
     
-    def __init__(self, algorithm, config: dict):
+    def __init__(self, algorithm, config: dict, state: AlphaModelState):
         """
         初始化贝叶斯建模器
         
         Args:
             algorithm: QuantConnect算法实例
             config: 包含MCMC相关配置的字典
+            state: AlphaModel的状态管理对象
         """
         self.algorithm = algorithm
         self.mcmc_warmup_samples = config['mcmc_warmup_samples']
         self.mcmc_posterior_samples = config['mcmc_posterior_samples']
         self.mcmc_chains = config['mcmc_chains']
         self.lookback_period = config['lookback_period']
-        
-        # 历史后验存储 {(symbol1, symbol2): {...}}
-        # 用于实现贝叶斯动态更新：今天的后验成为明天的先验
-        self.historical_posteriors = {}
+        self.state = state
     
     def model_pairs(self, cointegrated_pairs: List[Dict], clean_data: Dict) -> Dict:
         """
@@ -627,7 +695,7 @@ class BayesianModeler:
             return result
             
         except Exception as e:
-            self.algorithm.Debug(f"[AlphaModel.Bayesian] 建模失败 {symbol1.Value}-{symbol2.Value}: {str(e)[:50]}")
+            self.algorithm.Debug(f"[AlphaModel.Bayesian] 建模失败 {symbol1.Value}-{symbol2.Value}: {str(e)}")
             return None
     
     def _get_prior_params(self, symbol1: Symbol, symbol2: Symbol) -> Dict:
@@ -637,10 +705,11 @@ class BayesianModeler:
         pair_key = (symbol1, symbol2)
         
         # 一次性检查存在性和有效性
-        if pair_key not in self.historical_posteriors:
+        historical_posteriors = self.state.persistent['historical_posteriors']
+        if pair_key not in historical_posteriors:
             return None
         
-        historical = self.historical_posteriors[pair_key]
+        historical = historical_posteriors[pair_key]
         time_diff = self.algorithm.Time - historical['update_time']
         
         if time_diff.days > self.lookback_period:
@@ -788,7 +857,7 @@ class BayesianModeler:
         
         # 只保存需要的统计量
         keys_to_save = ['alpha_mean', 'alpha_std', 'beta_mean', 'beta_std', 'sigma_mean', 'sigma_std']
-        self.historical_posteriors[pair_key] = {
+        self.state.persistent['historical_posteriors'][pair_key] = {
             **{k: stats[k] for k in keys_to_save},
             'update_time': self.algorithm.Time
         }
@@ -852,13 +921,14 @@ class SignalGenerator:
     - 极端z-score可能预示模型失效
     """
     
-    def __init__(self, algorithm, config: dict):
+    def __init__(self, algorithm, config: dict, state: AlphaModelState):
         """
         初始化信号生成器
         
         Args:
             algorithm: QuantConnect算法实例
             config: 包含信号生成相关配置的字典
+            state: AlphaModel的状态管理对象
         """
         self.algorithm = algorithm
         self.entry_threshold = config['entry_threshold']
@@ -867,9 +937,8 @@ class SignalGenerator:
         self.lower_limit = config['lower_limit']
         self.flat_signal_duration_days = config.get('flat_signal_duration_days', 1)
         self.entry_signal_duration_days = config.get('entry_signal_duration_days', 2)
+        self.state = state
         
-        # 添加EMA相关参数
-        self.zscore_ema = {}  # 存储每个配对的EMA值
         # EMA平滑系数：0.8表示80%权重给当前值，20%给历史值
         # 较高的alpha值使信号对新数据更敏感，较低则更平滑
         self.ema_alpha = 0.8
@@ -886,17 +955,8 @@ class SignalGenerator:
                 pair_insights = self._generate_pair_signals(pair_with_zscore)
                 # Insight.Group可能返回特殊对象，需要正确处理
                 if pair_insights:
-                    # 如果是可迭代对象，使用extend；否则尝试其他方式
-                    try:
-                        insights.extend(pair_insights)
-                    except TypeError:
-                        # 如果extend失败，可能是单个对象或特殊类型
-                        if hasattr(pair_insights, '__iter__'):
-                            for insight in pair_insights:
-                                insights.append(insight)
-                        else:
-                            insights.append(pair_insights)
-        
+                    insights.extend(pair_insights)
+                    
         return insights
     
     def _calculate_zscore(self, pair: Dict, data) -> Dict:
@@ -956,16 +1016,18 @@ class SignalGenerator:
         
         # EMA平滑处理
         pair_key = (symbol1, symbol2)
-        if pair_key not in self.zscore_ema:
+        zscore_ema = self.state.persistent['zscore_ema']
+        
+        if pair_key not in zscore_ema:
             # 首次计算，直接使用原始值
             smoothed_zscore = raw_zscore
         else:
             # 应用EMA平滑公式：EMA(t) = α * X(t) + (1-α) * EMA(t-1)
             # 这样可以减少短期噪音，避免频繁交易
-            smoothed_zscore = self.ema_alpha * raw_zscore + (1 - self.ema_alpha) * self.zscore_ema[pair_key]
+            smoothed_zscore = self.ema_alpha * raw_zscore + (1 - self.ema_alpha) * zscore_ema[pair_key]
         
         # 更新EMA存储，供下次使用
-        self.zscore_ema[pair_key] = smoothed_zscore
+        self.state.persistent['zscore_ema'][pair_key] = smoothed_zscore
         
         # 更新配对信息
         pair.update({
@@ -1131,15 +1193,8 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         self.sector_code_to_name = sector_code_to_name
         self.pair_registry = pair_registry
         
-        # 状态管理
-        self.is_selection_day = False  # 标记是否为选股触发日
-        self.symbols = []              # 当前跟踪的股票列表
-        
-        # 数据存储
-        self.clean_data = {}           # 处理后的干净数据 {Symbol: DataFrame}
-        self.valid_symbols = []        # 通过所有筛选的股票列表
-        self.cointegrated_pairs = []   # 协整对结果列表
-        self.modeled_pairs = []        # 贝叶斯建模结果列表
+        # 使用集中的状态管理
+        self.state = AlphaModelState()
         
         # 创建数据处理器
         self.data_processor = DataProcessor(self.algorithm, self.config)
@@ -1147,11 +1202,11 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         # 创建协整分析器
         self.cointegration_analyzer = CointegrationAnalyzer(self.algorithm, self.config)
         
-        # 创建贝叶斯建模器
-        self.bayesian_modeler = BayesianModeler(self.algorithm, self.config)
+        # 创建贝叶斯建模器（传入state以管理historical_posteriors）
+        self.bayesian_modeler = BayesianModeler(self.algorithm, self.config, self.state)
         
-        # 创建信号生成器
-        self.signal_generator = SignalGenerator(self.algorithm, self.config)
+        # 创建信号生成器（传入state以管理zscore_ema）
+        self.signal_generator = SignalGenerator(self.algorithm, self.config, self.state)
         
         self.algorithm.Debug("[AlphaModel] 初始化完成")
     
@@ -1160,68 +1215,76 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         处理证券变更事件
         步骤1: 解析选股结果
         """
-        self.is_selection_day = True
+        self.state.update_control_state('is_selection_day', True)
         
         # 添加新股票（避免重复）
-        self.symbols.extend([
+        current_symbols = self.state.control['symbols']
+        current_symbols.extend([
             s.Symbol for s in changes.AddedSecurities 
-            if s.Symbol and s.Symbol not in self.symbols
+            if s.Symbol and s.Symbol not in current_symbols
         ])
         
         # 移除旧股票（保持列表更新）
-        self.symbols = [
-            s for s in self.symbols 
+        self.state.update_control_state('symbols', [
+            s for s in current_symbols 
             if s not in [r.Symbol for r in changes.RemovedSecurities]
-        ]
+        ])
         
     
     def Update(self, algorithm: QCAlgorithm, data: Slice) -> List[Insight]:
         """
         主更新方法
         """
-        if not self.symbols or len(self.symbols) < 2:
+        symbols = self.state.control['symbols']
+        if not symbols or len(symbols) < 2:
             return []
         
-        if self.is_selection_day:
+        if self.state.control['is_selection_day']:
             # 步骤1: 使用数据处理器处理数据
-            data_result = self.data_processor.process(self.symbols)
+            data_result = self.data_processor.process(symbols)
             
             # 保存处理结果
-            self.clean_data = data_result['clean_data']
-            self.valid_symbols = data_result['valid_symbols']
+            self.state.update_temporary_data('clean_data', data_result['clean_data'])
+            self.state.update_temporary_data('valid_symbols', data_result['valid_symbols'])
             
             # 步骤2: 协整分析 - 寻找具有长期均衡关系的配对
-            if len(self.valid_symbols) >= 2:
+            valid_symbols = self.state.temporary['valid_symbols']
+            if len(valid_symbols) >= 2:
                 cointegration_result = self.cointegration_analyzer.analyze(
-                    self.valid_symbols, 
-                    self.clean_data, 
+                    valid_symbols, 
+                    self.state.temporary['clean_data'], 
                     self.sector_code_to_name
                 )
                 
                 # 保存协整对结果
-                self.cointegrated_pairs = cointegration_result['cointegrated_pairs']
+                cointegrated_pairs = cointegration_result['cointegrated_pairs']
+                self.state.update_temporary_data('cointegrated_pairs', cointegrated_pairs)
                 
                 # 更新 PairRegistry
-                pairs_list = [(pair['symbol1'], pair['symbol2']) for pair in self.cointegrated_pairs]
+                pairs_list = [(pair['symbol1'], pair['symbol2']) for pair in cointegrated_pairs]
                 self.pair_registry.update_pairs(pairs_list)
                 
                 # 步骤3: 贝叶斯建模 - 估计配对参数
-                if len(self.cointegrated_pairs) > 0:
+                if len(cointegrated_pairs) > 0:
                     modeling_result = self.bayesian_modeler.model_pairs(
-                        self.cointegrated_pairs,
-                        self.clean_data
+                        cointegrated_pairs,
+                        self.state.temporary['clean_data']
                     )
                     
                     # 保存建模结果
-                    self.modeled_pairs = modeling_result['modeled_pairs']
+                    self.state.update_persistent_data('modeled_pairs', modeling_result['modeled_pairs'])
                     
             # 重置选股标志
-            self.is_selection_day = False
+            self.state.update_control_state('is_selection_day', False)
+            
+            # 清理临时数据，释放内存
+            self.state.clear_temporary()
         
         # 步骤4: 日常信号生成 - 基于实时价格生成交易信号
-        if self.modeled_pairs:
-            self.algorithm.Debug(f"[AlphaModel] 生成信号: 跟踪{len(self.modeled_pairs)}对配对")
-            insights = self.signal_generator.generate_signals(self.modeled_pairs, data)
+        modeled_pairs = self.state.persistent['modeled_pairs']
+        if modeled_pairs:
+            self.algorithm.Debug(f"[AlphaModel] 生成信号: 跟踪{len(modeled_pairs)}对配对")
+            insights = self.signal_generator.generate_signals(modeled_pairs, data)
             if insights:
                 self.algorithm.Debug(f"[AlphaModel] 生成{len(insights)}个Insights")
             return insights

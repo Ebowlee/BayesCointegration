@@ -284,14 +284,34 @@ class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
         max_volatility = self.config['max_volatility']
         lookback_days = self.config['volatility_lookback_days']
         
+        # 批量获取所有股票的历史数据以提升性能
+        symbols = [stock.Symbol for stock in stocks]
+        self.algorithm.Debug(f"[UniverseSelection] 批量获取{len(symbols)}只股票的历史数据...")
+        
+        try:
+            all_history = self.algorithm.History(
+                symbols, 
+                lookback_days, 
+                Resolution.Daily
+            )
+            
+            if all_history.empty:
+                self.algorithm.Debug("[UniverseSelection] 批量获取历史数据失败，返回空DataFrame")
+                return [], stats
+                
+        except Exception as e:
+            self.algorithm.Debug(f"[UniverseSelection] 批量获取历史数据异常: {type(e).__name__}: {str(e)}")
+            return [], stats
+        
+        # 处理每只股票
         for stock in stocks:
             try:
-                # 获取历史价格数据
-                history = self.algorithm.History(
-                    stock.Symbol, 
-                    lookback_days, 
-                    Resolution.Daily
-                )
+                # 从批量数据中提取该股票的历史
+                if stock.Symbol in all_history.index.levels[0]:
+                    history = all_history.loc[stock.Symbol]
+                else:
+                    stats['data_missing'] += 1
+                    continue
                 
                 # 数据完整性检查：要求至少有配置比例的交易日数据
                 # 避免因停牌、新股等原因导致数据不足影响波动率计算准确性
