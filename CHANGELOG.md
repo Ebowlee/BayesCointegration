@@ -4,8 +4,15 @@
 
 ---
 
-## [v3.5.0_fix-abnormal-pairs-detection@20250806]
-### 关键Bug修复
+## [v3.5.0_t0-t1-risk-separation@20250806]
+### Stage 2: T+0/T+1风控逻辑分离
+- **风控架构重构**：
+  - 新增_perform_t0_checks()：自下而上的实时风控（个股→配对→组合→行业）
+  - 新增_perform_t1_checks()：基于历史信息的风控（持仓时间、异常订单）
+  - ManageRisk重构：清晰分离T+0和T+1逻辑
+  - 保持对外接口不变，仅重组内部实现
+
+### Stage 1: 异常配对检测修复（已完成）
 - **异常配对检测修复**：
   - 问题：未建仓的配对（如AMZN,GM）被错误识别为异常配对
   - 原因：OrderTracker检测异常时未验证Portfolio实际持仓

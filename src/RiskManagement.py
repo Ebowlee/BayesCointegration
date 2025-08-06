@@ -103,12 +103,15 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
         """
         主风控方法 - 框架每日调用
         
+        v3.5.0重构：清晰分离T+0和T+1风控逻辑
+        
         执行流程:
         1. 验证每日调用
-        2. 扫描所有活跃持仓
-        3. 检查各项风控指标
-        4. 生成必要的平仓指令
-        5. 合并原始targets和风控targets
+        2. T+0检查（基于Portfolio实时状态，自下而上）
+        3. T+1检查（基于历史信息）
+        4. 合并去重所有平仓指令
+        5. 生成风险调整后的targets
+        6. 过滤冷却期内的新建仓（T+1逻辑）
         
         Args:
             algorithm: 算法实例
@@ -131,72 +134,34 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
         # 复制原始targets
         risk_adjusted_targets = list(targets) if targets else []
         
-        # 获取所有活跃持仓配对
-        active_pairs = self._get_active_pairs()
+        # ============ T+0风控检查（自下而上） ============
+        t0_liquidations = self._perform_t0_checks()
         
-        # 检查每个配对的风控条件
-        liquidation_pairs = []
+        # ============ T+1风控检查（历史信息） ============
+        t1_liquidations = self._perform_t1_checks()
         
-        if active_pairs:
-            for pair_info in active_pairs:
-                symbol1, symbol2 = pair_info['pair']
-                
-                # 首先检查配对完整性
-                integrity_status = self._check_pair_integrity(symbol1, symbol2)
-                if integrity_status in ["same_direction_error", "single_side_only"]:
-                    self.algorithm.Debug(
-                        f"[RiskManagement] 配对异常 [{symbol1.Value},{symbol2.Value}]: {integrity_status}"
-                    )
-                    liquidation_pairs.append((symbol1, symbol2, f"配对异常:{integrity_status}"))
-                    continue
-                
-                # 检查持仓时间
-                holding_days = pair_info['holding_days']
-                if holding_days > self.max_holding_days:
-                    self.algorithm.Debug(
-                        f"[RiskManagement] 持仓超时 [{symbol1.Value},{symbol2.Value}]: "
-                        f"{holding_days}天 > {self.max_holding_days}天"
-                    )
-                    liquidation_pairs.append((symbol1, symbol2, "持仓超时"))
-                    self.risk_triggers['holding_timeout'] += 1
-                    continue
-                
-                # 计算回撤
-                pair_drawdown = self._calculate_pair_drawdown(symbol1, symbol2)
-                single_drawdowns = self._calculate_single_drawdowns(symbol1, symbol2)
-                
-                # 检查配对整体回撤
-                if pair_drawdown < -self.max_pair_drawdown:
-                    self.algorithm.Debug(
-                        f"[RiskManagement] 配对止损 [{symbol1.Value},{symbol2.Value}]: "
-                        f"回撤{pair_drawdown*100:.1f}% < -{self.max_pair_drawdown*100}%"
-                    )
-                    liquidation_pairs.append((symbol1, symbol2, "配对止损"))
-                    self.risk_triggers['pair_stop_loss'] += 1
-                    continue
-                
-                # 检查单边回撤
-                for symbol, drawdown in single_drawdowns.items():
-                    if drawdown < -self.max_single_drawdown:
-                        self.algorithm.Debug(
-                            f"[RiskManagement] 单边止损 [{symbol1.Value},{symbol2.Value}]: "
-                            f"{symbol.Value}回撤{drawdown*100:.1f}% < -{self.max_single_drawdown*100}%"
-                        )
-                        liquidation_pairs.append((symbol1, symbol2, f"{symbol.Value}单边止损"))
-                        self.risk_triggers['single_stop_loss'] += 1
-                        break
-                
-                # 记录正常持仓状态（每10天记录一次）
-                if holding_days % 10 == 0 and holding_days > 0:
-                    self.algorithm.Debug(
-                        f"[RiskManagement] 配对状态 [{symbol1.Value},{symbol2.Value}]: "
-                        f"持仓{holding_days}天, 配对回撤{pair_drawdown*100:.1f}%, "
-                        f"单边回撤[{single_drawdowns[symbol1]*100:.1f}%, {single_drawdowns[symbol2]*100:.1f}%]"
-                    )
+        # ============ 合并所有平仓指令 ============
+        all_liquidations = []
+        processed_pairs = set()
         
-        # 生成平仓指令
-        if liquidation_pairs:
-            liquidation_targets = self._create_liquidation_targets(liquidation_pairs)
+        # 合并T+0和T+1的平仓列表，去重
+        # 优先保留T+0的结果（更紧急的风控）
+        for symbol1, symbol2, reason in t0_liquidations:
+            pair_key = (symbol1, symbol2) if symbol1.Value < symbol2.Value else (symbol2, symbol1)
+            if pair_key not in processed_pairs:
+                all_liquidations.append((symbol1, symbol2, reason))
+                processed_pairs.add(pair_key)
+        
+        # 然后添加T+1的结果（如果没有被T+0处理过）
+        for symbol1, symbol2, reason in t1_liquidations:
+            pair_key = (symbol1, symbol2) if symbol1.Value < symbol2.Value else (symbol2, symbol1)
+            if pair_key not in processed_pairs:
+                all_liquidations.append((symbol1, symbol2, reason))
+                processed_pairs.add(pair_key)
+        
+        # ============ 生成平仓指令 ============
+        if all_liquidations:
+            liquidation_targets = self._create_liquidation_targets(all_liquidations)
             
             # 记录原始targets和风控targets
             original_symbols = {t.Symbol for t in risk_adjusted_targets}
@@ -216,52 +181,167 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
             risk_adjusted_targets.extend(liquidation_targets)
             
             self.algorithm.Debug(
-                f"[RiskManagement] 风控平仓{len(liquidation_pairs)}对, "
-                f"生成{len(liquidation_targets)}个平仓指令, "
-                f"最终指令数: {len(risk_adjusted_targets)}"
+                f"[RiskManagement] 风控汇总: T+0平仓{len(t0_liquidations)}对, "
+                f"T+1平仓{len(t1_liquidations)}对, "
+                f"合计生成{len(liquidation_targets)}个平仓指令"
             )
         
-        # 检查异常订单并获取需要平仓的配对
-        abnormal_liquidation_pairs = self._check_abnormal_orders()
-        if abnormal_liquidation_pairs:
-            # 将异常配对加入平仓列表
-            for symbol1, symbol2 in abnormal_liquidation_pairs:
-                # 检查是否已经在平仓列表中
-                if not any((s1, s2) == (symbol1, symbol2) or (s2, s1) == (symbol1, symbol2) 
-                          for s1, s2, _ in liquidation_pairs):
-                    liquidation_pairs.append((symbol1, symbol2, "订单执行异常"))
-            
-            # 重新生成平仓指令
-            if liquidation_pairs:
-                liquidation_targets = self._create_liquidation_targets(liquidation_pairs)
-                
-                # 更新风险调整后的目标列表
-                liquidation_symbols = {t.Symbol for t in liquidation_targets}
-                risk_adjusted_targets = [t for t in risk_adjusted_targets 
-                                       if t.Symbol not in liquidation_symbols]
-                risk_adjusted_targets.extend(liquidation_targets)
-        
-        # 过滤冷却期内的新建仓信号
+        # ============ T+1: 过滤冷却期内的新建仓信号 ============
         risk_adjusted_targets = self._filter_cooldown_targets(risk_adjusted_targets)
         
-        # 检查行业集中度
-        sector_liquidation_pairs = self._check_sector_concentration()
-        if sector_liquidation_pairs:
-            sector_targets = self._create_liquidation_targets(
-                [(s1, s2, "行业集中度超限") for s1, s2 in sector_liquidation_pairs]
-            )
-            
-            # 合并到风险调整目标中
-            liquidation_symbols = {t.Symbol for t in sector_targets}
-            risk_adjusted_targets = [t for t in risk_adjusted_targets 
-                                   if t.Symbol not in liquidation_symbols]
-            risk_adjusted_targets.extend(sector_targets)
-            
-            self.algorithm.Debug(
-                f"[RiskManagement] 行业集中度超限，平仓{len(sector_liquidation_pairs)}对配对"
-            )
+        # 记录正常持仓状态（每10天记录一次）
+        active_pairs = self._get_active_pairs()
+        for pair_info in active_pairs:
+            holding_days = pair_info['holding_days']
+            if holding_days % 10 == 0 and holding_days > 0:
+                symbol1, symbol2 = pair_info['pair']
+                pair_drawdown = self._calculate_pair_drawdown(symbol1, symbol2)
+                single_drawdowns = self._calculate_single_drawdowns(symbol1, symbol2)
+                self.algorithm.Debug(
+                    f"[RiskManagement] 配对状态 [{symbol1.Value},{symbol2.Value}]: "
+                    f"持仓{holding_days}天, 配对回撤{pair_drawdown*100:.1f}%, "
+                    f"单边回撤[{single_drawdowns[symbol1]*100:.1f}%, {single_drawdowns[symbol2]*100:.1f}%]"
+                )
         
         return risk_adjusted_targets
+    
+    def _perform_t0_checks(self) -> List[Tuple]:
+        """
+        T+0风控检查：基于Portfolio实时状态，自下而上检查
+        
+        检查顺序（重要）：
+        1. Level 1: 个股级别 - 单边最大回撤
+        2. Level 2: 配对级别 - 配对整体回撤
+        3. Level 3: 组合级别 - Portfolio总回撤（预留）
+        4. Level 4: 行业级别 - 行业集中度
+        
+        Returns:
+            List[Tuple]: 需要平仓的配对列表，格式为[(symbol1, symbol2, reason), ...]
+        """
+        liquidation_pairs = []
+        active_pairs = self._get_active_pairs()
+        
+        if not active_pairs:
+            return liquidation_pairs
+        
+        # 遍历每个活跃配对
+        processed_for_t0 = set()  # 避免重复计数
+        
+        for pair_info in active_pairs:
+            symbol1, symbol2 = pair_info['pair']
+            pair_key = (symbol1, symbol2) if symbol1.Value < symbol2.Value else (symbol2, symbol1)
+            
+            # Level 1: 个股级别 - 单边回撤检查（15%）
+            single_drawdowns = self._calculate_single_drawdowns(symbol1, symbol2)
+            single_stop_triggered = False
+            
+            for symbol, drawdown in single_drawdowns.items():
+                if drawdown < -self.max_single_drawdown:
+                    self.algorithm.Debug(
+                        f"[T+0-L1] 个股止损 [{symbol1.Value},{symbol2.Value}]: "
+                        f"{symbol.Value}回撤{drawdown*100:.1f}% < -{self.max_single_drawdown*100}%"
+                    )
+                    if pair_key not in processed_for_t0:
+                        liquidation_pairs.append((symbol1, symbol2, f"{symbol.Value}单边止损"))
+                        self.risk_triggers['single_stop_loss'] += 1
+                        processed_for_t0.add(pair_key)
+                        single_stop_triggered = True
+                    break  # 一旦触发个股止损，不再检查其他个股
+            
+            # 如果个股级别已触发止损，跳过配对级别检查
+            if single_stop_triggered:
+                continue
+            
+            # Level 2: 配对级别 - 配对整体回撤（10%）
+            pair_drawdown = self._calculate_pair_drawdown(symbol1, symbol2)
+            if pair_drawdown < -self.max_pair_drawdown:
+                self.algorithm.Debug(
+                    f"[T+0-L2] 配对止损 [{symbol1.Value},{symbol2.Value}]: "
+                    f"回撤{pair_drawdown*100:.1f}% < -{self.max_pair_drawdown*100}%"
+                )
+                if pair_key not in processed_for_t0:
+                    liquidation_pairs.append((symbol1, symbol2, "配对止损"))
+                    self.risk_triggers['pair_stop_loss'] += 1
+                    processed_for_t0.add(pair_key)
+        
+        # Level 3: 组合级别 - Portfolio总回撤（预留接口）
+        # portfolio_drawdown = self._calculate_portfolio_drawdown()
+        # if portfolio_drawdown < -self.max_portfolio_drawdown:
+        #     # 可以选择平仓部分或全部持仓
+        #     pass
+        
+        # Level 4: 行业级别 - 行业集中度（30%）
+        sector_overlimit_pairs = self._check_sector_concentration()
+        for pair in sector_overlimit_pairs:
+            self.algorithm.Debug(
+                f"[T+0-L4] 行业集中度超限，平仓最早配对: [{pair[0].Value},{pair[1].Value}]"
+            )
+            liquidation_pairs.append((pair[0], pair[1], "行业集中度超限"))
+        
+        return liquidation_pairs
+    
+    def _perform_t1_checks(self) -> List[Tuple]:
+        """
+        T+1风控检查：基于历史信息检查
+        
+        检查项目：
+        1. 配对完整性（同向持仓、单边持仓等）
+        2. 持仓时间限制（30天）
+        3. 异常订单检测（OrderTracker报告的异常）
+        
+        Returns:
+            List[Tuple]: 需要平仓的配对列表，格式为[(symbol1, symbol2, reason), ...]
+        """
+        liquidation_pairs = []
+        active_pairs = self._get_active_pairs()
+        
+        if not active_pairs:
+            return liquidation_pairs
+        
+        for pair_info in active_pairs:
+            symbol1, symbol2 = pair_info['pair']
+            holding_days = pair_info['holding_days']
+            
+            # 1. 配对完整性检查
+            integrity_status = self._check_pair_integrity(symbol1, symbol2)
+            if integrity_status in ["same_direction_error", "single_side_only"]:
+                self.algorithm.Debug(
+                    f"[T+1] 配对异常 [{symbol1.Value},{symbol2.Value}]: {integrity_status}"
+                )
+                liquidation_pairs.append((symbol1, symbol2, f"配对异常:{integrity_status}"))
+                continue  # 发现异常直接处理，不再检查其他条件
+            
+            # 2. 持仓时间检查
+            if holding_days > self.max_holding_days:
+                self.algorithm.Debug(
+                    f"[T+1] 持仓超时 [{symbol1.Value},{symbol2.Value}]: "
+                    f"{holding_days}天 > {self.max_holding_days}天"
+                )
+                liquidation_pairs.append((symbol1, symbol2, "持仓超时"))
+                self.risk_triggers['holding_timeout'] += 1
+        
+        # 3. 异常订单检查（使用改进后的逻辑）
+        abnormal_pairs = self._check_abnormal_orders()
+        if abnormal_pairs:
+            # 为了兼容测试，保留原有的日志格式
+            self.algorithm.Debug(
+                f"[RiskManagement] OrderTracker报告{len(abnormal_pairs)}个潜在异常配对"
+            )
+        for symbol1, symbol2 in abnormal_pairs:
+            # 避免重复处理已经在配对完整性检查中处理过的配对
+            pair_key = (symbol1, symbol2) if symbol1 and symbol2 and symbol1.Value < symbol2.Value else (symbol1, symbol2)
+            already_processed = any(
+                (s1 == symbol1 and s2 == symbol2) or (s1 == symbol2 and s2 == symbol1)
+                for s1, s2, _ in liquidation_pairs
+            )
+            if not already_processed:
+                self.algorithm.Debug(
+                    f"[T+1] 订单异常 [{symbol1.Value if symbol1 else 'None'},"
+                    f"{symbol2.Value if symbol2 else 'None'}]"
+                )
+                liquidation_pairs.append((symbol1, symbol2, "订单执行异常"))
+        
+        return liquidation_pairs
     
     def _get_active_pairs(self) -> List[Dict]:
         """
