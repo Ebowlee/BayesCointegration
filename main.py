@@ -4,8 +4,8 @@ from src.UniverseSelection import MyUniverseSelectionModel
 from System import Action
 from QuantConnect.Data.Fundamental import MorningstarSectorCode
 from src.AlphaModel import BayesianCointegrationAlphaModel
-# from src.PortfolioConstruction import BayesianCointegrationPortfolioConstructionModel
-# from src.RiskManagement import BayesianCointegrationRiskManagementModel
+from src.PortfolioConstruction import BayesianCointegrationPortfolioConstructionModel
+from src.RiskManagement import BayesianCointegrationRiskManagementModel
 from src.PairRegistry import PairRegistry
 from src.OrderTracker import OrderTracker
 # endregion
@@ -161,19 +161,19 @@ class BayesianCointegrationStrategy(QCAlgorithm):
             self, self.config.alpha_model, self.config.sector_code_to_name, self.pair_registry
         ))
         
-        # # PortfolioConstruction模块
-        # self.SetPortfolioConstruction(BayesianCointegrationPortfolioConstructionModel(
-        #     self, self.config.portfolio_construction
-        # ))
+        # PortfolioConstruction模块
+        self.SetPortfolioConstruction(BayesianCointegrationPortfolioConstructionModel(
+            self, self.config.portfolio_construction
+        ))
         
-        # # RiskManagement模块 - 传入OrderTracker和PairRegistry
-        # self.risk_manager = BayesianCointegrationRiskManagementModel(
-        #     self, 
-        #     self.config.risk_management,
-        #     self.order_tracker,
-        #     self.pair_registry
-        # )
-        # self.AddRiskManagement(self.risk_manager)
+        # RiskManagement模块 - 传入OrderTracker和PairRegistry
+        self.risk_manager = BayesianCointegrationRiskManagementModel(
+            self, 
+            self.config.risk_management,
+            self.order_tracker,
+            self.pair_registry
+        )
+        self.AddRiskManagement(self.risk_manager)
 
         # # # # 设置Execution模块
         # # # self.SetExecution(MyExecutionModel(self))
