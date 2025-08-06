@@ -4,6 +4,31 @@
 
 ---
 
+## [v3.6.0_holding-period-fix@20250806]
+### 持仓时间计算修复
+- **OrderTracker持仓时间错误修复**：
+  - 问题：同一配对多次建仓平仓时，持仓时间被错误累计（如AMZN,CMG显示79天）
+  - 原因：update_times()获取了历史上所有entry订单，而非最近一段的
+  - 修复：只考虑最近一次平仓后的entry订单，确保每段持仓独立计算
+  - 新增：get_holding_period()增加Portfolio持仓验证和时间异常检测
+
+### Symbol顺序一致性
+- **验证配对顺序传递**：
+  - AlphaModel → PairRegistry → RiskManagement顺序保持一致
+  - 确保同向持仓检查使用正确的symbol顺序
+  - 平仓指令按原始配对顺序生成
+
+### 测试覆盖
+- **新增test_order_tracker_v36.py**：
+  - 测试多次建仓平仓的持仓时间分段计算
+  - 测试entry_time平仓后重置逻辑
+  - 测试异常时间记录处理
+
+### 技术细节
+- 修复PairOrderInfo.update_times()的entry订单筛选逻辑
+- 类型注解优化以避免循环导入问题
+- 保持向后兼容性，不影响现有功能
+
 ## [v3.5.0_t0-t1-risk-separation@20250806]
 ### Stage 2: T+0/T+1风控逻辑分离
 - **风控架构重构**：
