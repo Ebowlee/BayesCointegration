@@ -1,6 +1,9 @@
 # region imports
 from AlgorithmImports import *
-from typing import List, Tuple, Set
+from typing import List, Tuple, Set, Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from AlgorithmImports import Symbol
 # endregion
 
 
@@ -27,11 +30,11 @@ class PairRegistry:
         """
         self.algorithm = algorithm
         # 当前活跃的配对列表 [(symbol1, symbol2), ...]
-        self.active_pairs: List[Tuple[Symbol, Symbol]] = []
+        self.active_pairs: List[Tuple] = []
         # 最后更新时间
         self.last_update_time = None
     
-    def update_pairs(self, new_pairs: List[Tuple[Symbol, Symbol]]):
+    def update_pairs(self, new_pairs: List[Tuple]):
         """
         更新配对列表
         
@@ -49,7 +52,7 @@ class PairRegistry:
             f"[PairRegistry] 更新配对列表({len(new_pairs)}对): {pairs_str}"
         )
     
-    def get_active_pairs(self) -> List[Tuple[Symbol, Symbol]]:
+    def get_active_pairs(self) -> List[Tuple]:
         """
         获取当前活跃的配对列表
         
@@ -58,7 +61,7 @@ class PairRegistry:
         """
         return self.active_pairs.copy()
     
-    def get_all_symbols_in_pairs(self) -> Set[Symbol]:
+    def get_all_symbols_in_pairs(self) -> Set:
         """
         获取所有在配对中的股票
         
@@ -71,7 +74,7 @@ class PairRegistry:
             symbols.add(symbol2)
         return symbols
     
-    def is_symbol_in_pairs(self, symbol: Symbol) -> bool:
+    def is_symbol_in_pairs(self, symbol) -> bool:
         """
         检查股票是否在任何配对中
         
@@ -86,7 +89,7 @@ class PairRegistry:
                 return True
         return False
     
-    def get_pair_for_symbol(self, symbol: Symbol) -> Optional[Tuple[Symbol, Symbol]]:
+    def get_pair_for_symbol(self, symbol) -> Optional[Tuple]:
         """
         获取包含指定股票的配对
         
@@ -101,7 +104,7 @@ class PairRegistry:
                 return (symbol1, symbol2)
         return None
     
-    def get_paired_symbol(self, symbol: Symbol) -> Optional[Symbol]:
+    def get_paired_symbol(self, symbol):
         """
         获取配对的另一只股票
         
@@ -118,7 +121,7 @@ class PairRegistry:
                 return symbol1
         return None
     
-    def contains_pair(self, symbol1: Symbol, symbol2: Symbol) -> bool:
+    def contains_pair(self, symbol1, symbol2) -> bool:
         """
         检查是否包含指定的配对
         

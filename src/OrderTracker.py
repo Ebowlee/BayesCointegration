@@ -1,6 +1,9 @@
 # region imports
 from AlgorithmImports import *
-from typing import Dict, List, Optional, Tuple, Set
+from typing import Dict, List, Optional, Tuple, Set, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from AlgorithmImports import Symbol
 from datetime import datetime, timedelta
 from src.PairRegistry import PairRegistry
 # endregion
@@ -9,7 +12,7 @@ from src.PairRegistry import PairRegistry
 class OrderInfo:
     """订单信息 - 极简设计"""
     
-    def __init__(self, order_id: int, symbol: Symbol, quantity: float, 
+    def __init__(self, order_id: int, symbol, quantity: float, 
                  submit_time: datetime, order_type: str):
         self.order_id = order_id
         self.symbol = symbol
@@ -22,7 +25,7 @@ class OrderInfo:
         self.fill_time: Optional[datetime] = None
         self.pair_id: Optional[str] = None
     
-    def update(self, order_event: OrderEvent, current_time: datetime):
+    def update(self, order_event, current_time: datetime):
         """更新订单状态"""
         self.status = order_event.Status
         if order_event.Status == OrderStatus.Filled:
@@ -41,7 +44,7 @@ class OrderInfo:
 class PairOrderInfo:
     """配对订单信息 - 只记录必要信息"""
     
-    def __init__(self, pair_id: str, symbol1: Symbol, symbol2: Symbol):
+    def __init__(self, pair_id: str, symbol1, symbol2):
         self.pair_id = pair_id
         self.symbol1 = symbol1
         self.symbol2 = symbol2
@@ -96,10 +99,17 @@ class PairOrderInfo:
                 self.exit_time = new_exit_time
                 self.entry_time = None  # 重置entry_time，为下次建仓准备
         
-        # 检查entry时间（需要两边都成交）- 只在entry_time为空时更新
-        if self.entry_time is None:
-            s1_entry = next((o for o in entry_orders if o.symbol == self.symbol1), None)
-            s2_entry = next((o for o in entry_orders if o.symbol == self.symbol2), None)
+        # 检查entry时间（需要两边都成交）
+        # v3.6.0修复：只考虑最近一次平仓后的entry订单
+        if self.entry_time is None or (self.exit_time and self.entry_time and self.entry_time < self.exit_time):
+            # 筛选出exit_time之后的entry订单（如果有exit_time的话）
+            valid_entry_orders = entry_orders
+            if self.exit_time:
+                valid_entry_orders = [o for o in entry_orders if o.fill_time and o.fill_time > self.exit_time]
+            
+            # 查找两边的entry订单
+            s1_entry = next((o for o in valid_entry_orders if o.symbol == self.symbol1), None)
+            s2_entry = next((o for o in valid_entry_orders if o.symbol == self.symbol2), None)
             
             if s1_entry and s2_entry and s1_entry.fill_time and s2_entry.fill_time:
                 self.entry_time = max(s1_entry.fill_time, s2_entry.fill_time)
@@ -125,7 +135,7 @@ class OrderTracker:
         
         self.algorithm.Debug("[OrderTracker] 初始化完成")
     
-    def on_order_event(self, order_event: OrderEvent):
+    def on_order_event(self, order_event):
         """处理订单事件"""
         order_id = order_event.OrderId
         
@@ -148,7 +158,7 @@ class OrderTracker:
             if pair_info:
                 pair_info.update_times()
     
-    def _create_order_info(self, order, order_event: OrderEvent):
+    def _create_order_info(self, order, order_event):
         """创建订单信息"""
         symbol = order.Symbol
         position_before = self.algorithm.Portfolio[symbol].Quantity
@@ -177,7 +187,7 @@ class OrderTracker:
         
         self.orders[order.Id] = order_info
     
-    def _get_pair_id(self, symbol1: Symbol, symbol2: Symbol) -> str:
+    def _get_pair_id(self, symbol1, symbol2) -> str:
         """生成配对ID"""
         if symbol1.Value < symbol2.Value:
             return f"{symbol1.Value}&{symbol2.Value}"
@@ -185,7 +195,7 @@ class OrderTracker:
     
     # ============= 风控查询接口 =============
     
-    def get_abnormal_pairs(self) -> List[Tuple[Symbol, Symbol]]:
+    def get_abnormal_pairs(self) -> List[Tuple]:
         """获取异常配对"""
         abnormal = []
         for pair_info in self.pair_orders.values():
@@ -193,35 +203,59 @@ class OrderTracker:
                 abnormal.append((pair_info.symbol1, pair_info.symbol2))
         return abnormal
     
-    def get_pair_entry_time(self, symbol1: Symbol, symbol2: Symbol) -> Optional[datetime]:
+    def get_pair_entry_time(self, symbol1, symbol2) -> Optional[datetime]:
         """获取配对建仓时间"""
         pair_id = self._get_pair_id(symbol1, symbol2)
         if pair_id in self.pair_orders:
             return self.pair_orders[pair_id].entry_time
         return None
     
-    def get_pair_exit_time(self, symbol1: Symbol, symbol2: Symbol) -> Optional[datetime]:
+    def get_pair_exit_time(self, symbol1, symbol2) -> Optional[datetime]:
         """获取配对平仓时间"""
         pair_id = self._get_pair_id(symbol1, symbol2)
         if pair_id in self.pair_orders:
             return self.pair_orders[pair_id].exit_time
         return None
     
-    def is_in_cooldown(self, symbol1: Symbol, symbol2: Symbol, cooldown_days: int) -> bool:
+    def is_in_cooldown(self, symbol1, symbol2, cooldown_days: int) -> bool:
         """检查是否在冷却期"""
         exit_time = self.get_pair_exit_time(symbol1, symbol2)
         if exit_time:
             return (self.algorithm.Time - exit_time).days < cooldown_days
         return False
     
-    def get_holding_period(self, symbol1: Symbol, symbol2: Symbol) -> Optional[int]:
-        """获取持仓天数"""
+    def get_holding_period(self, symbol1, symbol2) -> Optional[int]:
+        """
+        获取持仓天数
+        
+        v3.6.0修复：确保只计算当前持仓段的时间，不累计历史持仓
+        """
+        # 首先检查是否真的有持仓
+        if not (self.algorithm.Portfolio[symbol1].Invested and 
+                self.algorithm.Portfolio[symbol2].Invested):
+            return None
+        
+        # 获取配对的时间信息
         entry_time = self.get_pair_entry_time(symbol1, symbol2)
+        exit_time = self.get_pair_exit_time(symbol1, symbol2)
+        
+        # 如果有entry_time
         if entry_time:
+            # 确保entry_time在exit_time之后（如果有exit_time）
+            if exit_time and exit_time >= entry_time:
+                # 数据异常：已平仓但仍有持仓，可能是时间记录未更新
+                # 返回None让风控模块使用默认值
+                self.algorithm.Debug(
+                    f"[OrderTracker] 警告：{symbol1.Value},{symbol2.Value} "
+                    f"时间记录异常 (exit={exit_time}, entry={entry_time})"
+                )
+                return None
+            
             return (self.algorithm.Time - entry_time).days
+        
         return None
     
-    def has_pending_orders(self, symbol: Symbol) -> bool:
+    def has_pending_orders(self, symbol) -> bool:
         """检查是否有待成交订单"""
         return any(o.symbol == symbol and o.is_pending for o in self.orders.values())
     
