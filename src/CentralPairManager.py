@@ -448,6 +448,7 @@ class CentralPairManager:
         # Clean expired cooldown pairs
         for pair_info in self.cooldown_pairs_cache[:]:
             if not self._is_in_cooldown(pair_info):
-                self.cooldown_pairs_cache.remove(pair_info)
+                if pair_info in self.cooldown_pairs_cache:
+                    self.cooldown_pairs_cache.remove(pair_info)
         
         self.last_cache_update = self.algorithm.Time
