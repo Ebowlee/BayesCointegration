@@ -6,6 +6,12 @@ if TYPE_CHECKING:
     from AlgorithmImports import Symbol
 # endregion
 
+# ================================================
+# DEPRECATED: This module will be removed in v4.0
+# Use CentralPairManager instead for pair lifecycle management
+# 此模块已废弃，将在v4.0版本移除
+# 请使用CentralPairManager进行配对生命周期管理
+# ================================================
 
 class PairRegistry:
     """

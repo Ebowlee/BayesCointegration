@@ -8,6 +8,7 @@ from src.PortfolioConstruction import BayesianCointegrationPortfolioConstruction
 from src.RiskManagement import BayesianCointegrationRiskManagementModel
 from src.PairRegistry import PairRegistry
 from src.OrderTracker import OrderTracker
+from src.CentralPairManager import CentralPairManager
 # endregion
     
 
@@ -88,6 +89,16 @@ class StrategyConfig:
             'sector_exposure_threshold': 0.30 # 行业集中度阈值30%
         }
         
+        # CentralPairManager 配置
+        self.central_pair_manager = {
+            'enable_central_pair_manager': True,  # 启用开关（便于回滚）
+            'max_pairs': 4,                      # 最大同时持有配对数
+            'max_symbol_repeats': 1,             # 单股票最多参与配对数
+            'cooldown_days': 7,                  # 冷却期天数
+            'max_holding_days': 30,              # 最大持仓天数
+            'min_quality_score': 0.3             # 最低质量分数
+        }
+        
         # 行业映射配置
         self.sector_code_to_name = {
             MorningstarSectorCode.Technology: "Technology",
@@ -151,29 +162,36 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # 调度
         self._setup_schedule()
         
-        # PairRegistry - 配对信息中心
+        # CentralPairManager - 新增核心组件（依赖注入）
+        self.central_pair_manager = CentralPairManager(self, self.config.central_pair_manager)
+        
+        # PairRegistry - 配对信息中心（标记为DEPRECATED，将在v4.0移除）
         self.pair_registry = PairRegistry(self)
         
         # OrderTracker - 订单追踪器
         self.order_tracker = OrderTracker(self, self.pair_registry)
         
-        # Alpha模块
+        # Alpha模块 - 依赖注入CentralPairManager
         self.SetAlpha(BayesianCointegrationAlphaModel(
-            self, self.config.alpha_model, self.config.sector_code_to_name, self.pair_registry
+            self, self.config.alpha_model, self.config.sector_code_to_name, 
+            self.pair_registry,
+            self.central_pair_manager  # 新增参数
         ))
         
-        # PortfolioConstruction模块
+        # PortfolioConstruction模块 - 依赖注入CentralPairManager
         self.SetPortfolioConstruction(BayesianCointegrationPortfolioConstructionModel(
-            self, self.config.portfolio_construction
+            self, self.config.portfolio_construction,
+            self.central_pair_manager  # 新增参数
         ))
         
-        # RiskManagement模块 - 传入OrderTracker、PairRegistry和行业映射
+        # RiskManagement模块 - 依赖注入CentralPairManager
         self.risk_manager = BayesianCointegrationRiskManagementModel(
             self, 
             self.config.risk_management,
             self.order_tracker,
             self.pair_registry,
-            self.config.sector_code_to_name  # 传递行业映射
+            self.config.sector_code_to_name,  # 传递行业映射
+            self.central_pair_manager  # 新增参数
         )
         self.AddRiskManagement(self.risk_manager)
 

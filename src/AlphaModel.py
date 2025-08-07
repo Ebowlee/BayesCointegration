@@ -1177,7 +1177,7 @@ class BayesianCointegrationAlphaModel(AlphaModel):
     - 所有模块都有独立的错误处理
     """
     
-    def __init__(self, algorithm, config: dict, sector_code_to_name: dict, pair_registry):
+    def __init__(self, algorithm, config: dict, sector_code_to_name: dict, pair_registry, central_pair_manager=None):
         """
         初始化Alpha模型
         
@@ -1185,13 +1185,15 @@ class BayesianCointegrationAlphaModel(AlphaModel):
             algorithm: QuantConnect算法实例
             config: 配置字典
             sector_code_to_name: 行业代码到名称的映射
-            pair_registry: 配对注册表实例
+            pair_registry: 配对注册表实例（DEPRECATED, 将在v4.0移除）
+            central_pair_manager: 中央配对管理器（新增，用于前置风控）
         """
         super().__init__()
         self.algorithm = algorithm
         self.config = config
         self.sector_code_to_name = sector_code_to_name
         self.pair_registry = pair_registry
+        self.central_pair_manager = central_pair_manager
         
         # 信号持续时间配置
         self.flat_signal_duration_days = config.get('flat_signal_duration_days', 5)
@@ -1268,8 +1270,30 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                 # 获取旧配对列表（在更新前）
                 old_pairs = self.pair_registry.get_active_pairs()
                 
-                # 更新 PairRegistry
+                # 准备候选配对列表
                 pairs_list = [(pair['symbol1'], pair['symbol2']) for pair in cointegrated_pairs]
+                
+                # v3.8.0: 通过CentralPairManager进行前置风控评估
+                if self.central_pair_manager:
+                    original_count = len(pairs_list)
+                    # 提交所有候选配对进行评估
+                    approved_pairs = self.central_pair_manager.evaluate_candidates(pairs_list)
+                    
+                    # 只保留批准的配对
+                    approved_pairs_set = set(approved_pairs)
+                    cointegrated_pairs = [
+                        pair for pair in cointegrated_pairs
+                        if (pair['symbol1'], pair['symbol2']) in approved_pairs_set
+                    ]
+                    
+                    # 更新pairs_list为批准的配对
+                    pairs_list = approved_pairs
+                    
+                    self.algorithm.Debug(
+                        f"[AlphaModel] CentralPairManager批准 {len(approved_pairs)}/{original_count} 个配对"
+                    )
+                
+                # 更新 PairRegistry
                 self.pair_registry.update_pairs(pairs_list)
                 
                 # 检查失效的配对（在旧列表但不在新列表）

@@ -4,6 +4,29 @@
 
 ---
 
+## [v3.8.0_central-pair-manager-mvp@20250807]
+### Phase 1: CentralPairManager最小可行产品
+- **核心组件实现**：
+  - 创建CentralPairManager类，统一管理配对生命周期
+  - 实现配对状态机（CANDIDATE→APPROVED→ACTIVE→COOLDOWN）
+  - 前置风控检查（冷却期、单股票限制、全局配对数）
+  
+- **依赖注入架构**：
+  - main.py通过构造函数注入CentralPairManager到各模块
+  - 避免直接依赖algorithm属性，提高测试性和解耦
+  
+- **模块集成**：
+  - AlphaModel: 在协整分析后调用evaluate_candidates()进行前置风控
+  - PortfolioConstruction: 建仓时调用register_entry()登记状态
+  - RiskManagement: 平仓时调用register_exit()，从CPM获取活跃配对
+  - PairRegistry: 标记为DEPRECATED，保留兼容性
+  
+### 预期效果
+- ✅ 冷却期机制100%生效（7天内不能重新开仓）
+- ✅ 单股票配对限制生效（每只股票最多1个配对）
+- ✅ 全局配对数限制生效（最多4个配对）
+- ✅ 保留回滚能力（通过enable_central_pair_manager配置）
+
 ## [v3.7.0_architecture-investigation@20250807]
 ### 深度架构分析和问题诊断
 - **问题调查**：

@@ -43,7 +43,8 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
     - 透明性: 详细记录所有风控动作
     """
     
-    def __init__(self, algorithm, config: dict, order_tracker: OrderTracker, pair_registry, sector_code_to_name: dict = None):
+    def __init__(self, algorithm, config: dict, order_tracker: OrderTracker, pair_registry, 
+                 sector_code_to_name: dict = None, central_pair_manager=None):
         """
         初始化风险管理模型
         
@@ -51,14 +52,16 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
             algorithm: QuantConnect算法实例
             config: 风控配置参数
             order_tracker: 订单追踪器实例
-            pair_registry: 配对注册表实例
+            pair_registry: 配对注册表实例（DEPRECATED, 将在v4.0移除）
             sector_code_to_name: 行业代码到名称的映射字典
+            central_pair_manager: 中央配对管理器（新增，用于获取配对状态）
         """
         super().__init__()
         self.algorithm = algorithm
         self.order_tracker = order_tracker
         self.pair_registry = pair_registry
         self.sector_code_to_name = sector_code_to_name or {}
+        self.central_pair_manager = central_pair_manager
         
         # 风控参数
         # 风控阈值边界条件说明:
@@ -347,13 +350,18 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
         """
         获取所有活跃持仓配对
         
-        使用Portfolio识别当前持仓，并通过OrderTracker获取时间信息
+        v3.8.0: 优先从CentralPairManager获取，fallback到原有逻辑
         
         Returns:
             List[Dict]: 活跃配对信息列表，每个元素包含:
                 - 'pair': (symbol1, symbol2)
                 - 'holding_days': 持仓天数
         """
+        # v3.8.0: 优先从CentralPairManager获取活跃配对信息
+        if self.central_pair_manager:
+            return self.central_pair_manager.get_active_pairs()
+        
+        # Fallback到原有逻辑
         active_pairs = []
         processed_symbols = set()
         
@@ -509,6 +517,10 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
             if symbol2 not in processed_symbols:
                 targets.append(PortfolioTarget.Percent(self.algorithm, symbol2, 0))
                 processed_symbols.add(symbol2)
+            
+            # v3.8.0: 登记平仓到CentralPairManager
+            if self.central_pair_manager:
+                self.central_pair_manager.register_exit(symbol1, symbol2)
             
             # 记录平仓原因
             self.algorithm.Debug(
