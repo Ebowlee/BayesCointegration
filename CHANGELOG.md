@@ -4,6 +4,28 @@
 
 ---
 
+## [v3.7.0_architecture-investigation@20250807]
+### 深度架构分析和问题诊断
+- **问题调查**：
+  - 分析冷却期失效原因：PairRegistry每月覆盖历史数据导致信息丢失
+  - 分析单股票配对限制失效：AlphaModel只检查当前选择周期，不考虑已有持仓
+  - 发现根本原因：缺乏统一的配对生命周期管理器
+  
+- **架构设计**：
+  - 制定长期架构优化方案（CentralPairManager）
+  - 设计前置风控机制（在AlphaModel中执行）
+  - 规划渐进式实施路线图（4个阶段）
+  
+- **文档更新**：
+  - 创建docs/LONG_TERM_ARCHITECTURE_PLAN.md详细记录优化方案
+  - 删除过时文档（PORTFOLIO_CONSTRUCTION_OPTIMIZATION_SUMMARY.md等）
+  - 为潜在的对话中断做好准备
+
+### 技术准备
+- 确认问题根源并制定解决方案
+- 保留回滚能力（通过版本控制）
+- 准备Phase 1实施（CentralPairManager最小可行产品）
+
 ## [v3.6.0_holding-period-fix@20250806]
 ### 持仓时间计算修复
 - **OrderTracker持仓时间错误修复**：
