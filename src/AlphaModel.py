@@ -192,7 +192,7 @@ class DataProcessor:
             return symbol_data
             
         except Exception as e:
-            self.algorithm.Debug(f"[AlphaModel.Data] 处理{symbol.Value}时出错: {str(e)}")
+            pass  # 静默处理单个股票错误
             statistics['data_missing'] += 1
             return None
     
@@ -203,7 +203,7 @@ class DataProcessor:
         try:
             return self.algorithm.History(symbols, self.lookback_period, Resolution.Daily)
         except Exception as e:
-            self.algorithm.Debug(f"[AlphaModel.Data] 历史数据下载失败: {str(e)}")
+            self.algorithm.Debug(f"[错误] 数据下载失败: {str(e)}")
             return None
     
     def _validate_data(self, data: pd.DataFrame) -> Tuple[bool, str]:
@@ -448,7 +448,7 @@ class CointegrationAnalyzer:
                     'liquidity_match': liquidity_match  # 新增字段
                 }
         except Exception as e:
-            self.algorithm.Debug(f"[AlphaModel.Coint] 协整检验失败 {symbol1.Value}-{symbol2.Value}: {str(e)}")
+            pass  # 静默处理协整检验失败
         return None
     
     def _calculate_liquidity_match(self, data1: pd.DataFrame, data2: pd.DataFrame) -> float:
@@ -478,7 +478,7 @@ class CointegrationAnalyzer:
             return float(volume_ratio)
             
         except Exception as e:
-            self.algorithm.Debug(f"[AlphaModel.Coint] 流动性计算失败: {str(e)}")
+            pass  # 静默处理
             return 0.5  # 返回中性值
     
     def _calculate_pair_quality_score(self, pair: Dict) -> float:
@@ -695,7 +695,7 @@ class BayesianModeler:
             return result
             
         except Exception as e:
-            self.algorithm.Debug(f"[AlphaModel.Bayesian] 建模失败 {symbol1.Value}-{symbol2.Value}: {str(e)}")
+            pass  # 静默处理建模失败
             return None
     
     def _get_prior_params(self, symbol1: Symbol, symbol2: Symbol) -> Dict:
@@ -713,7 +713,7 @@ class BayesianModeler:
         time_diff = self.algorithm.Time - historical['update_time']
         
         if time_diff.days > self.lookback_period:
-            self.algorithm.Debug(f"[AlphaModel.Bayesian] 历史后验已过期 {symbol1.Value}-{symbol2.Value} ({time_diff.days}天)")
+            pass  # 不需要输出过期信息
             return None
         
         return historical
@@ -1038,7 +1038,8 @@ class SignalGenerator:
         })
         
         # 添加调试日志，监控z-score值
-        self.algorithm.Debug(f"[SignalGen] {symbol1.Value}-{symbol2.Value}: z-score={smoothed_zscore:.3f} (raw={raw_zscore:.3f})")
+        # 只在生成信号时输出
+        pass
         
         return pair
     
@@ -1177,7 +1178,7 @@ class BayesianCointegrationAlphaModel(AlphaModel):
     - 所有模块都有独立的错误处理
     """
     
-    def __init__(self, algorithm, config: dict, sector_code_to_name: dict, pair_registry, central_pair_manager=None):
+    def __init__(self, algorithm, config: dict, sector_code_to_name: dict, central_pair_manager=None):
         """
         初始化Alpha模型
         
@@ -1185,14 +1186,12 @@ class BayesianCointegrationAlphaModel(AlphaModel):
             algorithm: QuantConnect算法实例
             config: 配置字典
             sector_code_to_name: 行业代码到名称的映射
-            pair_registry: 配对注册表实例（DEPRECATED, 将在v4.0移除）
-            central_pair_manager: 中央配对管理器（新增，用于前置风控）
+            central_pair_manager: 中央配对管理器（用于前置风控）
         """
         super().__init__()
         self.algorithm = algorithm
         self.config = config
         self.sector_code_to_name = sector_code_to_name
-        self.pair_registry = pair_registry
         self.central_pair_manager = central_pair_manager
         
         # 信号持续时间配置
@@ -1213,7 +1212,7 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         # 创建信号生成器（传入state以管理zscore_ema）
         self.signal_generator = SignalGenerator(self.algorithm, self.config, self.state)
         
-        self.algorithm.Debug("[AlphaModel] 初始化完成")
+        # 初始化不需要输出
     
     def OnSecuritiesChanged(self, algorithm: QCAlgorithm, changes: SecurityChanges):
         """
@@ -1267,9 +1266,6 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                 cointegrated_pairs = cointegration_result['cointegrated_pairs']
                 self.state.update_temporary_data('cointegrated_pairs', cointegrated_pairs)
                 
-                # 获取旧配对列表（在更新前）
-                old_pairs = self.pair_registry.get_active_pairs()
-                
                 # 准备候选配对列表
                 pairs_list = [(pair['symbol1'], pair['symbol2']) for pair in cointegrated_pairs]
                 
@@ -1292,9 +1288,6 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                     self.algorithm.Debug(
                         f"[AlphaModel] CentralPairManager批准 {len(approved_pairs)}/{original_count} 个配对"
                     )
-                
-                # 更新 PairRegistry
-                self.pair_registry.update_pairs(pairs_list)
                 
                 # 检查失效的配对（在旧列表但不在新列表）
                 new_pairs_set = set(pairs_list)

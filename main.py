@@ -2,117 +2,13 @@
 from AlgorithmImports import *
 from src.UniverseSelection import MyUniverseSelectionModel
 from System import Action
-from QuantConnect.Data.Fundamental import MorningstarSectorCode
-from src.AlphaModel import BayesianCointegrationAlphaModel
-from src.PortfolioConstruction import BayesianCointegrationPortfolioConstructionModel
-from src.RiskManagement import BayesianCointegrationRiskManagementModel
-from src.PairRegistry import PairRegistry
-from src.OrderTracker import OrderTracker
-from src.CentralPairManager import CentralPairManager
+# from src.CentralPairManager import CentralPairManager  # 暂时注释，后续重构时启用
+from src.config import StrategyConfig
 # endregion
-    
 
-
-class StrategyConfig:
-    """
-    策略参数统一配置类
-    """
-    def __init__(self):
-        # Main 配置 - main.py中的硬编码参数
-        self.main = {
-            'start_date': (2024, 6, 20),
-            'end_date': (2024, 9, 20),
-            'cash': 100000,
-            'resolution': Resolution.Daily,
-            'brokerage_name': BrokerageName.InteractiveBrokersBrokerage,
-            'account_type': AccountType.Margin,
-            'schedule_frequency': 'MonthStart',
-            'schedule_time': (9, 10),
-            'portfolio_max_drawdown': 0.1,
-            'portfolio_max_sector_exposure': 0.3
-        }
-        
-        # UniverseSelection 配置
-        self.universe_selection = {
-            'max_stocks_per_sector': 20,
-            'min_price': 20,                                # 最低价格20美元，支持中小盘
-            'min_volume': 5e6,                              # 最低成交量：500万股
-            'min_days_since_ipo': 1095,                     # 保持3年
-            'max_pe': 100,                                  # 放宽至100，容纳成长股
-            'min_roe': 0,                                   # 放宽至0，容纳转型期公司
-            'max_debt_ratio': 0.8,                          # 放宽至80%
-            'max_leverage_ratio': 8,                        # 放宽至8倍
-            'max_volatility': 0.6,                          # 新增：最大年化波动率60%
-            'volatility_lookback_days': 252,                # 新增：波动率计算天数
-            'volatility_data_completeness_ratio': 0.98      # 新增：波动率计算时要求的最低数据完整性(98%)
-        }
-        
-        # AlphaModel 配置
-        self.alpha_model = {
-            'pvalue_threshold': 0.05,
-            'correlation_threshold': 0.7,
-            'max_symbol_repeats': 1,
-            'max_pairs': 20,
-            'lookback_period': 252,
-            'mcmc_warmup_samples': 1000,
-            'mcmc_posterior_samples': 1000,
-            'mcmc_chains': 2,
-            'entry_threshold': 1.2,                         
-            'exit_threshold': 0.3,  
-            'upper_limit': 3.0,  
-            'lower_limit': -3.0,
-            'flat_signal_duration_days': 5,                 # 平仓信号有效期（天）- 延长至5天确保执行
-            'entry_signal_duration_days': 3,                # 建仓信号有效期（天）- 延长至3天避免错过
-            'min_data_completeness_ratio': 0.98,            # 数据完整性最低要求(98%)
-            # 配对质量评分权重
-            'quality_weights': {
-                'statistical': 0.4,  # 统计显著性权重（1-pvalue）
-                'correlation': 0.2,  # 相关性权重
-                'liquidity': 0.4     # 流动性匹配权重
-            }
-        }
-        
-        # PortfolioConstruction 配置
-        self.portfolio_construction = {
-            'margin_rate': 1.0,
-            'max_position_per_pair': 0.15,                  # 单对最大仓位15%
-            'min_position_per_pair': 0.05,                  # 单对最小仓位5%
-            'cash_buffer': 0.05                             # 5%现金缓冲
-        }
-        
-        # RiskManagement 配置
-        self.risk_management = {
-            'max_holding_days': 30,          # 最大持仓天数（从60天改为30天）
-            'cooldown_days': 7,              # 冷却期天数
-            'max_pair_drawdown': 0.10,       # 配对最大回撤10%
-            'max_single_drawdown': 0.15,     # 单边最大回撤15%（从20%降低）
-            'sector_exposure_threshold': 0.30 # 行业集中度阈值30%
-        }
-        
-        # CentralPairManager 配置
-        self.central_pair_manager = {
-            'enable_central_pair_manager': True,  # 启用开关（便于回滚）
-            'max_pairs': 4,                      # 最大同时持有配对数
-            'max_symbol_repeats': 1,             # 单股票最多参与配对数
-            'cooldown_days': 7,                  # 冷却期天数
-            'max_holding_days': 30,              # 最大持仓天数
-            'min_quality_score': 0.3             # 最低质量分数
-        }
-        
-        # 行业映射配置
-        self.sector_code_to_name = {
-            MorningstarSectorCode.Technology: "Technology",
-            MorningstarSectorCode.Healthcare: "Healthcare",
-            MorningstarSectorCode.Energy: "Energy",
-            MorningstarSectorCode.ConsumerDefensive: "ConsumerDefensive",
-            MorningstarSectorCode.ConsumerCyclical: "ConsumerCyclical",
-            MorningstarSectorCode.CommunicationServices: "CommunicationServices",
-            MorningstarSectorCode.Industrials: "Industrials",
-            MorningstarSectorCode.Utilities: "Utilities"
-        }
-        self.sector_name_to_code = {v: k for k, v in self.sector_code_to_name.items()}
-
-
+# ==============================================================================================
+#                                    主策略类
+# ==============================================================================================
 
 class BayesianCointegrationStrategy(QCAlgorithm):
     """
@@ -126,6 +22,10 @@ class BayesianCointegrationStrategy(QCAlgorithm):
     5. 交易执行：优化订单执行
     """
     
+    # ----------------------------------------------------------------------------------------------
+    #                                    初始化方法
+    # ----------------------------------------------------------------------------------------------
+    
     def Initialize(self):
         """
         初始化算法、设置参数、注册事件处理程序
@@ -133,11 +33,22 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # 初始化配置
         self.config = StrategyConfig()
         
+        # 设置调试级别说明
+        # Level 0: 关闭所有日志输出
+        # Level 1: 仅输出关键决策日志（交易执行、风控触发、重要决策）
+        # Level 2: 输出详细流程日志（包含筛选过程、评分细节）
+        # Level 3: 输出全部调试信息（包含数据处理、计算细节）
+        self.debug_level = self.config.main['debug_level']
+        
         # 设置基本参数
         self._setup_basic_parameters()
         
         # 设置框架模块
         self._setup_framework_modules()
+    
+    # ----------------------------------------------------------------------------------------------
+    #                                    配置方法
+    # ----------------------------------------------------------------------------------------------
     
     def _setup_basic_parameters(self):
         """设置基本参数"""
@@ -162,41 +73,34 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # 调度
         self._setup_schedule()
         
-        # CentralPairManager - 新增核心组件（依赖注入）
-        self.central_pair_manager = CentralPairManager(self, self.config.central_pair_manager)
+        # CentralPairManager - 核心组件（待重构）
+        # self.central_pair_manager = CentralPairManager(self, self.config.central_pair_manager)
+        self.central_pair_manager = None  # 暂时设为None，后续重构
         
-        # PairRegistry - 配对信息中心（标记为DEPRECATED，将在v4.0移除）
-        self.pair_registry = PairRegistry(self)
+        # 设置Null模块以验证选股功能
+        # 后续会逐步重构并启用真实模块
         
-        # OrderTracker - 订单追踪器
-        self.order_tracker = OrderTracker(self, self.pair_registry)
+        # AlphaModel - 暂时使用Null（待重构）
+        from QuantConnect.Algorithm.Framework.Alphas import NullAlphaModel
+        self.SetAlpha(NullAlphaModel())
         
-        # Alpha模块 - 依赖注入CentralPairManager
-        self.SetAlpha(BayesianCointegrationAlphaModel(
-            self, self.config.alpha_model, self.config.sector_code_to_name, 
-            self.pair_registry,
-            self.central_pair_manager  # 新增参数
-        ))
+        # PortfolioConstruction - 暂时使用Null（待重构）
+        from QuantConnect.Algorithm.Framework.Portfolio import NullPortfolioConstructionModel
+        self.SetPortfolioConstruction(NullPortfolioConstructionModel())
         
-        # PortfolioConstruction模块 - 依赖注入CentralPairManager
-        self.SetPortfolioConstruction(BayesianCointegrationPortfolioConstructionModel(
-            self, self.config.portfolio_construction,
-            self.central_pair_manager  # 新增参数
-        ))
+        # RiskManagement - 暂时使用Null（待重构）
+        from QuantConnect.Algorithm.Framework.Risk import NullRiskManagementModel
+        self.SetRiskManagement(NullRiskManagementModel())
         
-        # RiskManagement模块 - 依赖注入CentralPairManager
-        self.risk_manager = BayesianCointegrationRiskManagementModel(
-            self, 
-            self.config.risk_management,
-            self.order_tracker,
-            self.pair_registry,
-            self.config.sector_code_to_name,  # 传递行业映射
-            self.central_pair_manager  # 新增参数
-        )
-        self.AddRiskManagement(self.risk_manager)
-
-        # # # # 设置Execution模块
-        # # # self.SetExecution(MyExecutionModel(self))
+        # TODO: 框架模块重构计划
+        # 阶段3: AlphaModel - 移除PairRegistry依赖
+        # 阶段4: PortfolioConstruction - 完全基于CPM
+        # 阶段5: RiskManagement - 移除OrderTracker依赖
+        # 阶段6: OnOrderEvent增强 - 基于CPM的订单处理
+    
+    # ----------------------------------------------------------------------------------------------
+    #                                    调度设置
+    # ----------------------------------------------------------------------------------------------
     
     def _setup_schedule(self):
         """设置调度"""
@@ -204,10 +108,23 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         time_rule = self.TimeRules.At(*self.config.main['schedule_time'])
         self.Schedule.On(date_rule, time_rule, Action(self.universe_selector.TriggerSelection))
     
+    # ----------------------------------------------------------------------------------------------
+    #                                    事件处理
+    # ----------------------------------------------------------------------------------------------
+    
     def OnOrderEvent(self, orderEvent: OrderEvent):
         """
-        处理订单事件
+        处理订单事件 - 简化版
         
-        将所有订单事件传递给OrderTracker进行记录
+        第一阶段：仅记录订单成交事件
+        后续阶段：根据CPM增强需求逐步完善
         """
-        self.order_tracker.on_order_event(orderEvent)
+        if orderEvent.Status == OrderStatus.Filled:
+            order = self.Transactions.GetOrderById(orderEvent.OrderId)
+            if order:
+                self.Debug(f"[Order] {order.Symbol.Value} filled: {orderEvent.FillQuantity} @ {orderEvent.FillPrice}")
+                
+                # TODO: 阶段6实现
+                # 1. 从CPM获取配对关系
+                # 2. 检查配对双边成交状态
+                # 3. 更新CPM状态（register_entry/exit）

@@ -1,0 +1,266 @@
+2024-06-20 00:00:00 Launching analysis for 655c6984585105763135b753af4d7b89 with LEAN Engine v2.5.0.0.17239
+2024-06-20 00:00:00 [UniverseSelection] 初始化完成
+2024-06-20 00:00:00 [OrderTracker] 初始化完成
+2024-06-20 00:00:00 [PortfolioConstruction] 初始化完成 (保证金率: 1.0, 单对仓位: 5.0%-15.0%, 现金缓冲: 5.0%)
+2024-06-20 00:00:00 Accurate daily end-times now enabled by default. See more at https://qnt.co/3YHaWHL. To disable it and use legacy daily bars set self.settings.daily_precise_end_time = False.
+2024-07-02 00:00:00 ===== 第【1】次选股 =====
+2024-07-02 00:00:00 [UniverseSelection] 批量获取58只股票的历史数据...
+2024-07-02 00:00:00 [UniverseSelection] 筛选流程: 初始90只 → 财务筛选58只 → 波动率筛选55只 → 最终选择48只
+2024-07-02 00:00:00 [UniverseSelection] 财务过滤明细: PE(11) ROE(10) 债务(2) 杠杆(15)
+2024-07-02 00:00:00 [UniverseSelection] 波动率过滤: 高波动3只, 数据缺失0只
+2024-07-02 00:00:00 [UniverseSelection] 行业分布: ConsumerCyclical(10只,波动率37.9%) Technology(9只,波动率30.3%) ConsumerDefensive(7只,波动率17.3%) Energy(6只,波动率24.9%) Healthcare(5只,波动率25.0%) CommunicationServices(5只,波动率27.3%) Industrials(4只,波动率34.3%) Utilities(2只,波动率25.3%)
+2024-07-02 00:00:00 [UniverseSelection] 选股完成: 共48只股票, 前5样本: ['CSCO(18.7%)', 'MSFT(20.2%)', 'AAPL(22.0%)', 'QCOM(31.3%)', 'MCHP(31.8%)']
+2024-07-02 16:00:00 [AlphaModel.Data] 数据处理: 48→48只 ()
+2024-07-02 16:00:00 [AlphaModel.Coint] 合计筛选2对: 平均0.649, 最高0.686, 最低0.612
+2024-07-02 16:00:00 [AlphaModel.Coint] ConsumerCyclical: (AMZN,CMG)/0.612
+2024-07-02 16:00:00 [AlphaModel.Coint] Technology: (MCHP,QCOM)/0.686
+2024-07-02 16:00:00 [CPM-决策] 评估2个候选配对:
+2024-07-02 16:00:00   ✅ 批准: MCHP&QCOM - 全新配对
+2024-07-02 16:00:00   ✅ 批准: AMZN&CMG - 全新配对
+2024-07-02 16:00:00 [AlphaModel] CentralPairManager批准 2/2 个配对
+2024-07-02 16:00:00 [PairRegistry] 更新配对列表(2对): [MCHP,QCOM], [AMZN,CMG]
+2024-07-02 16:00:00 [AlphaModel.Bayesian] 建模完成: 成功2对, 失败0对 (完全建模2对, 动态更新0对)
+2024-07-02 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-02 16:00:00 [AlphaModel] 生成4个日常Insights
+2024-07-02 16:00:00 [AlphaModel] 总计生成4个Insights
+2024-07-02 16:00:00 [PC-执行] AMZN&CMG: 做空/做多, 资金11.1%, beta=0.68, 质量=0.61
+2024-07-02 16:00:00 [生命周期] AMZN&CMG: APPROVED → ACTIVE (建仓)
+2024-07-02 16:00:00 [PC-资金] 新建1对配对, 资金使用率11.1%
+2024-07-02 16:00:00 [PC] 生成1对建仓目标
+2024-07-02 16:00:00 Warning: all market orders sent using daily data, or market orders sent after hours are automatically converted into MarketOnOpen orders.
+2024-07-03 00:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-03 13:00:00 [AlphaModel] 生成4个日常Insights
+2024-07-03 13:00:00 [AlphaModel] 总计生成4个Insights
+2024-07-05 00:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-05 16:00:00 [AlphaModel] 生成2个日常Insights
+2024-07-05 16:00:00 [AlphaModel] 总计生成2个Insights
+2024-07-08 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-08 16:00:00 [AlphaModel] 生成4个日常Insights
+2024-07-08 16:00:00 [AlphaModel] 总计生成4个Insights
+2024-07-09 00:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-09 16:00:00 [AlphaModel] 生成2个日常Insights
+2024-07-09 16:00:00 [AlphaModel] 总计生成2个Insights
+2024-07-09 16:00:00 [PC-平仓] AMZN&CMG
+2024-07-09 16:00:00 [PC] 生成1对平仓目标
+2024-07-10 00:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-10 16:00:00 [AlphaModel] 生成4个日常Insights
+2024-07-10 16:00:00 [AlphaModel] 总计生成4个Insights
+2024-07-11 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-11 16:00:00 [AlphaModel] 生成4个日常Insights
+2024-07-11 16:00:00 [AlphaModel] 总计生成4个Insights
+2024-07-11 16:00:00 [PC-执行] AMZN&CMG: 做空/做多, 资金11.1%, beta=0.68, 质量=0.61
+2024-07-11 16:00:00 [生命周期] AMZN&CMG: APPROVED → ACTIVE (建仓)
+2024-07-11 16:00:00 [PC-资金] 新建1对配对, 资金使用率11.1%
+2024-07-11 16:00:00 [PC] 生成1对建仓目标
+2024-07-12 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-12 16:00:00 [AlphaModel] 生成4个日常Insights
+2024-07-12 16:00:00 [AlphaModel] 总计生成4个Insights
+2024-07-15 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-15 16:00:00 [AlphaModel] 生成2个日常Insights
+2024-07-15 16:00:00 [AlphaModel] 总计生成2个Insights
+2024-07-16 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-16 16:00:00 [AlphaModel] 生成4个日常Insights
+2024-07-16 16:00:00 [AlphaModel] 总计生成4个Insights
+2024-07-17 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-17 16:00:00 [AlphaModel] 生成4个日常Insights
+2024-07-17 16:00:00 [AlphaModel] 总计生成4个Insights
+2024-07-18 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-18 16:00:00 [AlphaModel] 生成4个日常Insights
+2024-07-18 16:00:00 [AlphaModel] 总计生成4个Insights
+2024-07-19 00:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-19 16:00:00 [AlphaModel] 生成2个日常Insights
+2024-07-19 16:00:00 [AlphaModel] 总计生成2个Insights
+2024-07-22 00:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-22 16:00:00 [AlphaModel] 生成4个日常Insights
+2024-07-22 16:00:00 [AlphaModel] 总计生成4个Insights
+2024-07-23 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-23 16:00:00 [AlphaModel] 生成2个日常Insights
+2024-07-23 16:00:00 [AlphaModel] 总计生成2个Insights
+2024-07-24 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-24 16:00:00 [AlphaModel] 生成2个日常Insights
+2024-07-24 16:00:00 [AlphaModel] 总计生成2个Insights
+2024-07-25 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-25 16:00:00 [AlphaModel] 生成2个日常Insights
+2024-07-25 16:00:00 [AlphaModel] 总计生成2个Insights
+2024-07-26 00:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-26 16:00:00 [AlphaModel] 生成2个日常Insights
+2024-07-26 16:00:00 [AlphaModel] 总计生成2个Insights
+2024-07-26 16:00:00 [PC-平仓] AMZN&CMG
+2024-07-26 16:00:00 [PC] 生成1对平仓目标
+2024-07-29 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-29 16:00:00 [AlphaModel] 生成2个日常Insights
+2024-07-29 16:00:00 [AlphaModel] 总计生成2个Insights
+2024-07-30 00:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-30 16:00:00 [AlphaModel] 生成2个日常Insights
+2024-07-30 16:00:00 [AlphaModel] 总计生成2个Insights
+2024-07-30 16:00:00 [PC-执行] AMZN&CMG: 做空/做多, 资金11.1%, beta=0.68, 质量=0.61
+2024-07-30 16:00:00 [生命周期] AMZN&CMG: APPROVED → ACTIVE (建仓)
+2024-07-30 16:00:00 [PC-资金] 新建1对配对, 资金使用率11.1%
+2024-07-30 16:00:00 [PC] 生成1对建仓目标
+2024-07-31 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-31 16:00:00 [AlphaModel] 生成2个日常Insights
+2024-07-31 16:00:00 [AlphaModel] 总计生成2个Insights
+2024-08-01 00:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-08-01 16:00:00 [AlphaModel] 生成2个日常Insights
+2024-08-01 16:00:00 [AlphaModel] 总计生成2个Insights
+2024-08-02 00:00:00 ===== 第【2】次选股 =====
+2024-08-02 00:00:00 [UniverseSelection] 批量获取95只股票的历史数据...
+2024-08-02 00:00:00 [UniverseSelection] 筛选流程: 初始158只 → 财务筛选95只 → 波动率筛选93只 → 最终选择81只
+2024-08-02 00:00:00 [UniverseSelection] 财务过滤明细: PE(17) ROE(26) 债务(5) 杠杆(27)
+2024-08-02 00:00:00 [UniverseSelection] 波动率过滤: 高波动2只, 数据缺失0只
+2024-08-02 00:00:00 [UniverseSelection] 行业分布: Technology(17只,波动率31.9%) Energy(15只,波动率22.1%) Healthcare(11只,波动率28.5%) ConsumerCyclical(11只,波动率36.1%) ConsumerDefensive(8只,波动率20.2%) Industrials(7只,波动率31.1%) CommunicationServices(6只,波动率26.2%) Utilities(6只,波动率22.2%)
+2024-08-02 00:00:00 [UniverseSelection] 选股完成: 共81只股票, 前5样本: ['CSCO(18.6%)', 'MSFT(19.6%)', 'CTSH(20.7%)', 'APH(21.8%)', 'AAPL(22.7%)']
+2024-08-02 16:00:00 [AlphaModel.Data] 数据处理: 81→81只 ()
+2024-08-02 16:00:00 [AlphaModel.Coint] 合计筛选3对: 平均0.831, 最高0.952, 最低0.618
+2024-08-02 16:00:00 [AlphaModel.Coint] ConsumerCyclical: (AMZN,GM)/0.618
+2024-08-02 16:00:00 [AlphaModel.Coint] ConsumerDefensive: (PG,WMT)/0.923
+2024-08-02 16:00:00 [AlphaModel.Coint] Industrials: (VRT,ETN)/0.952
+2024-08-02 16:00:00 [CPM-决策] 评估3个候选配对:
+2024-08-02 16:00:00   ✅ 批准: ETN&VRT - 全新配对
+2024-08-02 16:00:00   ✅ 批准: PG&WMT - 全新配对
+2024-08-02 16:00:00   ❌ 拒绝: AMZN&GM - AMZN已在配对AMZN&CMG中
+2024-08-02 16:00:00 [CPM-状态] 当前活跃: AMZN&CMG (1/20)
+2024-08-02 16:00:00 [AlphaModel] CentralPairManager批准 2/3 个配对
+2024-08-02 16:00:00 [PairRegistry] 更新配对列表(2对): [VRT,ETN], [PG,WMT]
+2024-08-02 16:00:00 [AlphaModel] 检测到 2 个失效配对，生成平仓信号
+2024-08-02 16:00:00 [AlphaModel] 协整关系失效: [MCHP,QCOM]
+2024-08-02 16:00:00 [AlphaModel] 协整关系失效: [AMZN,CMG]
+2024-08-02 16:00:00 [AlphaModel.Bayesian] 建模完成: 成功2对, 失败0对 (完全建模2对, 动态更新0对)
+2024-08-02 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-08-02 16:00:00 [AlphaModel] 总计生成4个Insights
+2024-08-02 16:00:00 [PC] 检测到协整失效信号: MCHP&QCOM
+2024-08-02 16:00:00 [PC] 检测到协整失效信号: AMZN&CMG
+2024-08-02 16:00:00 [PC-平仓] AMZN&CMG
+2024-08-02 16:00:00 [PC] 生成1对平仓目标
+2024-08-05 00:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-08-08 16:00:00 [AlphaModel] 生成2个日常Insights
+2024-08-08 16:00:00 [AlphaModel] 总计生成2个Insights
+2024-08-09 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-08-09 16:00:00 [AlphaModel] 生成2个日常Insights
+2024-08-09 16:00:00 [AlphaModel] 总计生成2个Insights
+2024-08-12 00:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-08-12 16:00:00 [AlphaModel] 生成4个日常Insights
+2024-08-12 16:00:00 [AlphaModel] 总计生成4个Insights
+2024-08-13 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-08-13 16:00:00 [AlphaModel] 生成4个日常Insights
+2024-08-13 16:00:00 [AlphaModel] 总计生成4个Insights
+2024-08-14 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-08-14 16:00:00 [AlphaModel] 生成2个日常Insights
+2024-08-14 16:00:00 [AlphaModel] 总计生成2个Insights
+2024-08-15 00:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-08-16 16:00:00 [AlphaModel] 生成2个日常Insights
+2024-08-16 16:00:00 [AlphaModel] 总计生成2个Insights
+2024-08-16 16:00:00 [PC-执行] PG&WMT: 做多/做空, 资金14.2%, beta=0.48, 质量=0.92
+2024-08-16 16:00:00 [生命周期] PG&WMT: APPROVED → ACTIVE (建仓)
+2024-08-16 16:00:00 [PC-资金] 新建1对配对, 资金使用率14.2%
+2024-08-16 16:00:00 [PC] 生成1对建仓目标
+2024-08-19 00:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-08-19 16:00:00 [AlphaModel] 生成2个日常Insights
+2024-08-19 16:00:00 [AlphaModel] 总计生成2个Insights
+2024-08-20 00:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-08-20 16:00:00 [AlphaModel] 生成2个日常Insights
+2024-08-20 16:00:00 [AlphaModel] 总计生成2个Insights
+2024-08-21 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-08-21 16:00:00 [AlphaModel] 生成4个日常Insights
+2024-08-21 16:00:00 [AlphaModel] 总计生成4个Insights
+2024-08-22 00:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-08-22 16:00:00 [AlphaModel] 生成4个日常Insights
+2024-08-22 16:00:00 [AlphaModel] 总计生成4个Insights
+2024-08-23 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-08-23 16:00:00 [AlphaModel] 生成4个日常Insights
+2024-08-23 16:00:00 [AlphaModel] 总计生成4个Insights
+2024-08-26 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-08-26 16:00:00 [AlphaModel] 生成2个日常Insights
+2024-08-26 16:00:00 [AlphaModel] 总计生成2个Insights
+2024-08-27 00:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-08-27 16:00:00 [AlphaModel] 生成2个日常Insights
+2024-08-27 16:00:00 [AlphaModel] 总计生成2个Insights
+2024-08-28 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-08-28 16:00:00 [AlphaModel] 生成2个日常Insights
+2024-08-28 16:00:00 [AlphaModel] 总计生成2个Insights
+2024-08-29 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-08-29 16:00:00 [AlphaModel] 生成2个日常Insights
+2024-08-29 16:00:00 [AlphaModel] 总计生成2个Insights
+2024-08-30 00:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-08-30 16:00:00 [AlphaModel] 生成2个日常Insights
+2024-08-30 16:00:00 [AlphaModel] 总计生成2个Insights
+2024-08-30 16:00:00 [生命周期] AMZN&CMG: ACTIVE → COOLDOWN (平仓,持仓31天,冷却至09/06)
+2024-08-30 16:00:00 [风控] 平仓: [AMZN,CMG] - 持仓超时
+2024-09-03 00:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-09-04 00:00:00 ===== 第【3】次选股 =====
+2024-09-04 00:00:00 [UniverseSelection] 批量获取91只股票的历史数据...
+2024-09-04 00:00:00 [UniverseSelection] 筛选流程: 初始129只 → 财务筛选91只 → 波动率筛选86只 → 最终选择76只
+2024-09-04 00:00:00 [UniverseSelection] 财务过滤明细: PE(6) ROE(18) 债务(2) 杠杆(17)
+2024-09-04 00:00:00 [UniverseSelection] 波动率过滤: 高波动5只, 数据缺失0只
+2024-09-04 00:00:00 [UniverseSelection] 行业分布: Technology(18只,波动率36.5%) Energy(13只,波动率26.1%) ConsumerDefensive(11只,波动率21.2%) Healthcare(9只,波动率28.9%) ConsumerCyclical(8只,波动率37.1%) CommunicationServices(7只,波动率26.4%) Industrials(6只,波动率32.1%) Utilities(4只,波动率22.8%)
+2024-09-04 00:00:00 [UniverseSelection] 选股完成: 共76只股票, 前5样本: ['MSFT(20.0%)', 'CSCO(20.1%)', 'AAPL(22.6%)', 'APH(24.4%)', 'TXN(25.5%)']
+2024-09-04 00:00:00 [AlphaModel.Data] 数据处理: 76→76只 ()
+2024-09-04 00:00:00 [AlphaModel.Coint] 合计筛选4对: 平均0.772, 最高0.941, 最低0.610
+2024-09-04 00:00:00 [AlphaModel.Coint] ConsumerCyclical: (AMZN,CMG)/0.612
+2024-09-04 00:00:00 [AlphaModel.Coint] ConsumerDefensive: (PG,WMT)/0.924, (PEP,CAG)/0.610
+2024-09-04 00:00:00 [AlphaModel.Coint] Industrials: (DAL,UAL)/0.941
+2024-09-04 00:00:00 [CPM-决策] 评估4个候选配对:
+2024-09-04 00:00:00   ✅ 批准: DAL&UAL - 全新配对
+2024-09-04 00:00:00   ✅ 批准: CAG&PEP - 全新配对
+2024-09-04 00:00:00   ❌ 拒绝: PG&WMT - 配对已经活跃
+2024-09-04 00:00:00   ❌ 拒绝: AMZN&CMG - 冷却期还剩2天(上次平仓:08/30)
+2024-09-04 00:00:00 [CPM-状态] 当前活跃: PG&WMT (1/20)
+2024-09-04 00:00:00 [AlphaModel] CentralPairManager批准 2/4 个配对
+2024-09-04 00:00:00 [PairRegistry] 更新配对列表(2对): [DAL,UAL], [PEP,CAG]
+2024-09-04 00:00:00 [AlphaModel] 检测到 2 个失效配对，生成平仓信号
+2024-09-04 00:00:00 [AlphaModel] 协整关系失效: [VRT,ETN]
+2024-09-04 00:00:00 [AlphaModel] 协整关系失效: [PG,WMT]
+2024-09-04 00:00:00 [AlphaModel.Bayesian] 建模完成: 成功2对, 失败0对 (完全建模2对, 动态更新0对)
+2024-09-04 00:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-09-04 00:00:00 [AlphaModel] 总计生成4个Insights
+2024-09-04 00:00:00 [PC] 检测到协整失效信号: VRT&ETN
+2024-09-04 00:00:00 [PC] 检测到协整失效信号: PG&WMT
+2024-09-04 00:00:00 [PC-平仓] PG&WMT
+2024-09-04 00:00:00 [PC] 生成1对平仓目标
+2024-09-04 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-09-04 16:00:00 [AlphaModel] 生成4个日常Insights
+2024-09-04 16:00:00 [AlphaModel] 总计生成4个Insights
+2024-09-05 00:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-09-05 16:00:00 [AlphaModel] 生成4个日常Insights
+2024-09-05 16:00:00 [AlphaModel] 总计生成4个Insights
+2024-09-06 00:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-09-09 16:00:00 [AlphaModel] 生成2个日常Insights
+2024-09-09 16:00:00 [AlphaModel] 总计生成2个Insights
+2024-09-10 00:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-09-10 16:00:00 [AlphaModel] 生成4个日常Insights
+2024-09-10 16:00:00 [AlphaModel] 总计生成4个Insights
+2024-09-10 16:00:00 [PC-执行] DAL&UAL: 做多/做空, 资金14.4%, beta=1.11, 质量=0.94
+2024-09-10 16:00:00 [生命周期] DAL&UAL: APPROVED → ACTIVE (建仓)
+2024-09-10 16:00:00 [PC-资金] 新建1对配对, 资金使用率14.4%
+2024-09-10 16:00:00 [PC] 生成1对建仓目标
+2024-09-11 00:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-09-11 16:00:00 [AlphaModel] 生成2个日常Insights
+2024-09-11 16:00:00 [AlphaModel] 总计生成2个Insights
+2024-09-12 00:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-09-12 16:00:00 [AlphaModel] 生成4个日常Insights
+2024-09-12 16:00:00 [AlphaModel] 总计生成4个Insights
+2024-09-13 00:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-09-13 16:00:00 [AlphaModel] 生成4个日常Insights
+2024-09-13 16:00:00 [AlphaModel] 总计生成4个Insights
+2024-09-16 00:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-09-16 16:00:00 [AlphaModel] 生成4个日常Insights
+2024-09-16 16:00:00 [AlphaModel] 总计生成4个Insights
+2024-09-16 16:00:00 [生命周期] PG&WMT: ACTIVE → COOLDOWN (平仓,持仓31天,冷却至09/23)
+2024-09-16 16:00:00 [风控] 平仓: [PG,WMT] - 持仓超时
+2024-09-17 00:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-09-17 16:00:00 [AlphaModel] 生成2个日常Insights
+2024-09-17 16:00:00 [AlphaModel] 总计生成2个Insights
+2024-09-18 00:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-09-18 16:00:00 [AlphaModel] 生成2个日常Insights
+2024-09-18 16:00:00 [AlphaModel] 总计生成2个Insights
+2024-09-19 00:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-09-19 16:00:00 [AlphaModel] 生成2个日常Insights
+2024-09-19 16:00:00 [AlphaModel] 总计生成2个Insights
+2024-09-20 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-09-20 16:00:00 [AlphaModel] 生成4个日常Insights
+2024-09-20 16:00:00 [AlphaModel] 总计生成4个Insights
+2024-09-20 16:00:00 [PC-执行] PEP&CAG: 做多/做空, 资金11.1%, beta=0.49, 质量=0.61
+2024-09-20 16:00:00 [生命周期] CAG&PEP: APPROVED → ACTIVE (建仓)
+2024-09-20 16:00:00 [PC-资金] 新建1对配对, 资金使用率26.6%
+2024-09-20 16:00:00 [PC] 生成1对建仓目标
+2024-09-21 00:00:00 Algorithm Id:(655c6984585105763135b753af4d7b89) completed in 101.14 seconds at 1k data points per second. Processing total of 130,703 data points.

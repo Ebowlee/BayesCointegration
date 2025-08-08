@@ -43,7 +43,7 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
     - 透明性: 详细记录所有风控动作
     """
     
-    def __init__(self, algorithm, config: dict, order_tracker: OrderTracker, pair_registry, 
+    def __init__(self, algorithm, config: dict, order_tracker: OrderTracker,
                  sector_code_to_name: dict = None, central_pair_manager=None):
         """
         初始化风险管理模型
@@ -52,14 +52,12 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
             algorithm: QuantConnect算法实例
             config: 风控配置参数
             order_tracker: 订单追踪器实例
-            pair_registry: 配对注册表实例（DEPRECATED, 将在v4.0移除）
             sector_code_to_name: 行业代码到名称的映射字典
-            central_pair_manager: 中央配对管理器（新增，用于获取配对状态）
+            central_pair_manager: 中央配对管理器（用于获取配对状态）
         """
         super().__init__()
         self.algorithm = algorithm
         self.order_tracker = order_tracker
-        self.pair_registry = pair_registry
         self.sector_code_to_name = sector_code_to_name or {}
         self.central_pair_manager = central_pair_manager
         
@@ -94,13 +92,7 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
             'sector_concentration': 0
         }
         
-        self.algorithm.Debug(
-            f"[RiskManagement] 初始化完成 - "
-            f"最大持仓{self.max_holding_days}天, "
-            f"配对止损{self.max_pair_drawdown*100}%, "
-            f"单边止损{self.max_single_drawdown*100}%, "
-            f"行业集中度阈值{self.sector_exposure_threshold*100}%"
-        )
+        # 初始化不需要输出
     
     def ManageRisk(self, algorithm, targets: List[PortfolioTarget]) -> List[PortfolioTarget]:
         """
@@ -127,12 +119,8 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
         current_date = algorithm.Time.date()
         if self.last_check_date != current_date:
             self.daily_check_count += 1
-            targets_count = len(targets) if targets is not None else 0
-            self.algorithm.Debug(
-                f"[RiskManagement] 第{self.daily_check_count}次日常风控检查: {current_date}, "
-                f"收到{targets_count}个targets"
-            )
             self.last_check_date = current_date
+            # 不需要每天输出例行检查
         
         # 复制原始targets
         risk_adjusted_targets = list(targets) if targets else []
@@ -173,38 +161,22 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
             # 检查是否有冲突
             conflicts = original_symbols.intersection(liquidation_symbols)
             if conflicts:
-                self.algorithm.Debug(
-                    f"[RiskManagement] 警告: 风控指令与现有指令冲突，"
-                    f"冲突股票: {[s.Value for s in conflicts]}"
-                )
-                # 移除冲突的原始指令
+                # 移除冲突的原始指令，不需要输出
                 risk_adjusted_targets = [t for t in risk_adjusted_targets 
                                        if t.Symbol not in liquidation_symbols]
             
             risk_adjusted_targets.extend(liquidation_targets)
             
-            self.algorithm.Debug(
-                f"[RiskManagement] 风控汇总: T+0平仓{len(t0_liquidations)}对, "
-                f"T+1平仓{len(t1_liquidations)}对, "
-                f"合计生成{len(liquidation_targets)}个平仓指令"
-            )
+            # 只输出重要的风控触发
+            for symbol1, symbol2, reason in all_liquidations:
+                self.algorithm.Debug(
+                    f"[风控] 平仓: [{symbol1.Value},{symbol2.Value}] - {reason}"
+                )
         
         # ============ T+1: 过滤冷却期内的新建仓信号 ============
         risk_adjusted_targets = self._filter_cooldown_targets(risk_adjusted_targets)
         
-        # 记录正常持仓状态（每10天记录一次）
-        active_pairs = self._get_active_pairs()
-        for pair_info in active_pairs:
-            holding_days = pair_info['holding_days']
-            if holding_days % 10 == 0 and holding_days > 0:
-                symbol1, symbol2 = pair_info['pair']
-                pair_drawdown = self._calculate_pair_drawdown(symbol1, symbol2)
-                single_drawdowns = self._calculate_single_drawdowns(symbol1, symbol2)
-                self.algorithm.Debug(
-                    f"[RiskManagement] 配对状态 [{symbol1.Value},{symbol2.Value}]: "
-                    f"持仓{holding_days}天, 配对回撤{pair_drawdown*100:.1f}%, "
-                    f"单边回撤[{single_drawdowns[symbol1]*100:.1f}%, {single_drawdowns[symbol2]*100:.1f}%]"
-                )
+        # 删除定期状态输出，太冗余
         
         return risk_adjusted_targets
     
@@ -240,10 +212,8 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
             
             for symbol, drawdown in single_drawdowns.items():
                 if drawdown < -self.max_single_drawdown:
-                    self.algorithm.Debug(
-                        f"[T+0-L1] 个股止损 [{symbol1.Value},{symbol2.Value}]: "
-                        f"{symbol.Value}回撤{drawdown*100:.1f}% < -{self.max_single_drawdown*100}%"
-                    )
+                    # 止损日志由总结输出，这里不重复
+                    pass
                     if pair_key not in processed_for_t0:
                         liquidation_pairs.append((symbol1, symbol2, f"{symbol.Value}单边止损"))
                         self.risk_triggers['single_stop_loss'] += 1
@@ -258,10 +228,8 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
             # Level 2: 配对级别 - 配对整体回撤（10%）
             pair_drawdown = self._calculate_pair_drawdown(symbol1, symbol2)
             if pair_drawdown < -self.max_pair_drawdown:
-                self.algorithm.Debug(
-                    f"[T+0-L2] 配对止损 [{symbol1.Value},{symbol2.Value}]: "
-                    f"回撤{pair_drawdown*100:.1f}% < -{self.max_pair_drawdown*100}%"
-                )
+                # 止损日志由总结输出
+                pass
                 if pair_key not in processed_for_t0:
                     liquidation_pairs.append((symbol1, symbol2, "配对止损"))
                     self.risk_triggers['pair_stop_loss'] += 1
@@ -276,9 +244,8 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
         # Level 4: 行业级别 - 行业集中度（30%）
         sector_overlimit_pairs = self._check_sector_concentration()
         for pair in sector_overlimit_pairs:
-            self.algorithm.Debug(
-                f"[T+0-L4] 行业集中度超限，平仓最早配对: [{pair[0].Value},{pair[1].Value}]"
-            )
+            # 行业集中度日志由总结输出
+            pass
             liquidation_pairs.append((pair[0], pair[1], "行业集中度超限"))
         
         return liquidation_pairs
@@ -308,28 +275,20 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
             # 1. 配对完整性检查
             integrity_status = self._check_pair_integrity(symbol1, symbol2)
             if integrity_status in ["same_direction_error", "single_side_only"]:
-                self.algorithm.Debug(
-                    f"[T+1] 配对异常 [{symbol1.Value},{symbol2.Value}]: {integrity_status}"
-                )
+                # 异常日志由总结输出
+                pass
                 liquidation_pairs.append((symbol1, symbol2, f"配对异常:{integrity_status}"))
                 continue  # 发现异常直接处理，不再检查其他条件
             
             # 2. 持仓时间检查
             if holding_days > self.max_holding_days:
-                self.algorithm.Debug(
-                    f"[T+1] 持仓超时 [{symbol1.Value},{symbol2.Value}]: "
-                    f"{holding_days}天 > {self.max_holding_days}天"
-                )
+                # 超时日志由总结输出
+                pass
                 liquidation_pairs.append((symbol1, symbol2, "持仓超时"))
                 self.risk_triggers['holding_timeout'] += 1
         
         # 3. 异常订单检查（使用改进后的逻辑）
         abnormal_pairs = self._check_abnormal_orders()
-        if abnormal_pairs:
-            # 为了兼容测试，保留原有的日志格式
-            self.algorithm.Debug(
-                f"[RiskManagement] OrderTracker报告{len(abnormal_pairs)}个潜在异常配对"
-            )
         for symbol1, symbol2 in abnormal_pairs:
             # 避免重复处理已经在配对完整性检查中处理过的配对
             pair_key = (symbol1, symbol2) if symbol1 and symbol2 and symbol1.Value < symbol2.Value else (symbol1, symbol2)
@@ -338,10 +297,8 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
                 for s1, s2, _ in liquidation_pairs
             )
             if not already_processed:
-                self.algorithm.Debug(
-                    f"[T+1] 订单异常 [{symbol1.Value if symbol1 else 'None'},"
-                    f"{symbol2.Value if symbol2 else 'None'}]"
-                )
+                # 异常日志由总结输出
+                pass
                 liquidation_pairs.append((symbol1, symbol2, "订单执行异常"))
         
         return liquidation_pairs
@@ -382,11 +339,8 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
             processed_symbols.add(symbol)
             processed_symbols.add(paired_symbol)
             
-            # 从PairRegistry获取原始配对顺序
-            original_pair = self.pair_registry.get_pair_for_symbol(symbol)
-            if not original_pair:
-                # 如果找不到，使用当前顺序（兼容性）
-                original_pair = (symbol, paired_symbol)
+            # 使用当前顺序作为配对
+            original_pair = (symbol, paired_symbol)
             
             # 获取持仓时间
             holding_days = self.order_tracker.get_holding_period(original_pair[0], original_pair[1])
@@ -405,7 +359,7 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
         """
         查找与给定股票配对的另一只股票
         
-        使用 PairRegistry 获取正确的配对关系
+        通过CPM或持仓信息查找配对关系
         
         Args:
             symbol: 需要查找配对的股票
@@ -413,8 +367,10 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
         Returns:
             Optional[Symbol]: 配对的股票，如果没有找到返回None
         """
-        # 使用 PairRegistry 获取配对信息
-        paired_symbol = self.pair_registry.get_paired_symbol(symbol)
+        # 使用CPM获取配对信息（如果可用）
+        paired_symbol = None
+        if self.central_pair_manager:
+            paired_symbol = self.central_pair_manager.get_paired_symbol(symbol)
         
         # 验证配对的股票确实有持仓
         if paired_symbol and self.algorithm.Portfolio[paired_symbol].Invested:
@@ -518,14 +474,8 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
                 targets.append(PortfolioTarget.Percent(self.algorithm, symbol2, 0))
                 processed_symbols.add(symbol2)
             
-            # v3.8.0: 登记平仓到CentralPairManager
-            if self.central_pair_manager:
-                self.central_pair_manager.register_exit(symbol1, symbol2)
-            
-            # 记录平仓原因
-            self.algorithm.Debug(
-                f"[RiskManagement] 生成平仓指令 [{symbol1.Value},{symbol2.Value}]: {reason}"
-            )
+            # 注意：不在这里调用register_exit
+            # CPM状态更新将在OnOrderEvent中基于实际成交进行
         
         return targets
     
@@ -589,34 +539,22 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
         abnormal_pairs = self.order_tracker.get_abnormal_pairs()
         pairs_to_liquidate = []
         
-        if abnormal_pairs:
-            self.algorithm.Debug(
-                f"[RiskManagement] OrderTracker报告{len(abnormal_pairs)}个潜在异常配对"
-            )
+        for symbol1, symbol2 in abnormal_pairs:
+            # v3.5.0关键修复：验证Portfolio中是否真的有持仓
+            has_position = False
             
-            for symbol1, symbol2 in abnormal_pairs:
-                # v3.5.0关键修复：验证Portfolio中是否真的有持仓
-                has_position = False
-                
-                # 检查symbol1是否有持仓
-                if symbol1 and self.algorithm.Portfolio[symbol1].Invested:
-                    has_position = True
-                
-                # 检查symbol2是否有持仓
-                if symbol2 and self.algorithm.Portfolio[symbol2].Invested:
-                    has_position = True
-                
-                # 只处理真正有持仓的异常配对
-                if has_position:
-                    self.algorithm.Debug(
-                        f"[RiskManagement] 确认异常配对（有持仓）: [{symbol1.Value if symbol1 else 'None'},{symbol2.Value if symbol2 else 'None'}]"
-                    )
-                    pairs_to_liquidate.append((symbol1, symbol2))
-                else:
-                    # 无持仓的配对仅记录日志，不生成平仓指令
-                    self.algorithm.Debug(
-                        f"[RiskManagement] 忽略无持仓配对: [{symbol1.Value if symbol1 else 'None'},{symbol2.Value if symbol2 else 'None'}]"
-                    )
+            # 检查symbol1是否有持仓
+            if symbol1 and self.algorithm.Portfolio[symbol1].Invested:
+                has_position = True
+            
+            # 检查symbol2是否有持仓
+            if symbol2 and self.algorithm.Portfolio[symbol2].Invested:
+                has_position = True
+            
+            # 只处理真正有持仓的异常配对
+            if has_position:
+                # 异常日志由总结输出
+                pairs_to_liquidate.append((symbol1, symbol2))
         
         return pairs_to_liquidate
     
@@ -656,16 +594,16 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
                 # 这个股票已经被处理过（作为配对的一部分被过滤）
                 continue
                 
-            # 使用 PairRegistry 查找配对的另一只股票
-            paired_symbol = self.pair_registry.get_paired_symbol(symbol)
+            # 使用CPM查找配对的另一只股票
+            paired_symbol = None
+            if self.central_pair_manager:
+                paired_symbol = self.central_pair_manager.get_paired_symbol(symbol)
             
             if paired_symbol:
                 # 检查冷却期
                 if self.order_tracker.is_in_cooldown(symbol, paired_symbol, self.cooldown_days):
-                    self.algorithm.Debug(
-                        f"[RiskManagement] 配对在冷却期内，过滤建仓信号: "
-                        f"[{symbol.Value},{paired_symbol.Value}]"
-                    )
+                    # 冷却期过滤已由CPM处理，这里不重复输出
+                    pass
                     processed_symbols.add(symbol)
                     processed_symbols.add(paired_symbol)
                     continue

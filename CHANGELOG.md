@@ -4,6 +4,41 @@
 
 ---
 
+## [v4.0.0_架构重构-删除PairRegistry@20250808]
+### 重大架构重构
+- **PairRegistry完全移除**：
+  - 删除 `src/PairRegistry.py` 文件
+  - 移除所有模块中的PairRegistry依赖
+  - AlphaModel、RiskManagement、OrderTracker均已更新
+  - 删除相关测试文件
+  
+- **配置管理优化**：
+  - 创建独立配置文件 `src/config.py`
+  - 从main.py分离所有配置参数
+  - 支持多环境配置（production/test/development）
+  
+- **CentralPairManager简化**：
+  - 移除所有预设方法骨架
+  - 保持为空白类，等待根据实际需求设计
+  - 遵循增量式重构原则
+  
+- **模块状态**：
+  - UniverseSelection：✅ 重构完成，独立运行
+  - AlphaModel：使用NullAlphaModel
+  - PortfolioConstruction：使用NullPortfolioConstructionModel  
+  - RiskManagement：使用NullRiskManagementModel
+  
+### 测试结果
+- 选股功能独立测试成功
+- 完成3次月度选股：48只、81只、76只股票
+- 系统运行稳定
+
+### 下一步计划
+- 阶段3：AlphaModel重构与CPM集成
+- 阶段4：PortfolioConstruction重构
+- 阶段5：RiskManagement重构
+- 阶段6：OnOrderEvent增强
+
 ## [v3.8.0_central-pair-manager-mvp@20250807]
 ### Phase 1: CentralPairManager最小可行产品
 - **核心组件实现**：

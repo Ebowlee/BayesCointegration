@@ -54,27 +54,27 @@ class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
     # 定义了需要检查的财务指标及其筛选逻辑，用于_check_financial_criteria方法
     FINANCIAL_CRITERIA = {
         'pe_failed': {
-            'attr_path': ['ValuationRatios', 'PERatio'],      # 市盈率(P/E Ratio)的对象属性访问路径
-            'config_key': 'max_pe',                            # 在config中对应的配置键名
-            'operator': 'lt'                                   # 比较操作符: 'lt'表示值必须小于阈值才通过
+            'attr_path': ['ValuationRatios', 'PERatio'],                            # 市盈率(P/E Ratio)的对象属性访问路径
+            'config_key': 'max_pe',                                                 # 在config中对应的配置键名
+            'operator': 'lt'                                                        # 比较操作符: 'lt'表示值必须小于阈值才通过
             # 业务含义: 市盈率反映投资回收期，过高的PE可能意味着股票被高估
         },
         'roe_failed': {
-            'attr_path': ['OperationRatios', 'ROE', 'Value'], # 净资产收益率(ROE)的访问路径，注意需要.Value属性
-            'config_key': 'min_roe',                           # 对应的最小ROE配置
-            'operator': 'gt'                                   # 'gt'表示值必须大于阈值才通过
+            'attr_path': ['OperationRatios', 'ROE', 'Value'],                       # 净资产收益率(ROE)的访问路径，注意需要.Value属性
+            'config_key': 'min_roe',                                                # 对应的最小ROE配置
+            'operator': 'gt'                                                        # 'gt'表示值必须大于阈值才通过
             # 业务含义: ROE衡量公司盈利能力，低ROE可能表示经营效率差
         },
         'debt_failed': {
-            'attr_path': ['OperationRatios', 'DebtToAssets', 'Value'],  # 资产负债率的访问路径
-            'config_key': 'max_debt_ratio',                              # 最大负债率配置
-            'operator': 'lt'                                             # 值必须小于阈值
+            'attr_path': ['OperationRatios', 'DebtToAssets', 'Value'],              # 资产负债率的访问路径
+            'config_key': 'max_debt_ratio',                                         # 最大负债率配置
+            'operator': 'lt'                                                        # 值必须小于阈值
             # 业务含义: 资产负债率反映财务风险，过高的负债率增加破产风险
         },
         'leverage_failed': {
-            'attr_path': ['OperationRatios', 'FinancialLeverage', 'Value'],  # 财务杠杆的访问路径
-            'config_key': 'max_leverage_ratio',                               # 最大杠杆率配置
-            'operator': 'lt'                                                  # 值必须小于阈值
+            'attr_path': ['OperationRatios', 'FinancialLeverage', 'Value'],         # 财务杠杆的访问路径
+            'config_key': 'max_leverage_ratio',                                     # 最大杠杆率配置
+            'operator': 'lt'                                                        # 值必须小于阈值
             # 业务含义: 财务杠杆=总资产/股东权益，过高杠杆增加财务风险
         }
     }
@@ -169,20 +169,28 @@ class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
         coarse = list(coarse)
         
         # 预计算所有筛选阈值，避免在循环中重复计算
-        min_ipo_date = self.algorithm.Time - timedelta(days=self.config['min_days_since_ipo'])
-        min_price = self.config['min_price']
-        min_volume = self.config['min_volume']
+        min_ipo_date = self.algorithm.Time - timedelta(days=self.config['min_days_since_ipo'])      # IPO日期阈值
+        min_price = self.config['min_price']                                                        # 最低价格阈值
+        min_volume = self.config['min_volume']                                                      # 最低成交量阈值
         
         # 使用列表推导式进行高效筛选
         # 条件顺序经过优化：先检查计算成本低的条件，利用Python的短路求值特性
-        return [
+        selected = [
             x.Symbol for x in coarse 
-            if x.HasFundamentalData                         # 排除ETF、期权等非股票资产
-            and x.Price > min_price                         # 价格筛选：避免penny stocks
-            and x.Volume > min_volume                       # 成交量筛选：确保流动性（注：Volume是股数而非金额）
-            and x.SecurityReference.IPODate is not None     # 确保IPO日期数据存在
-            and x.SecurityReference.IPODate <= min_ipo_date # IPO时间筛选：需要足够的历史数据
+            if x.HasFundamentalData                              # 排除ETF、期权等非股票资产
+            and x.Price > min_price                              # 价格筛选：避免penny stocks（低价垃圾股）
+            and x.Volume > min_volume                            # 成交量筛选：确保流动性（Volume是股数非金额）
+            and x.SecurityReference.IPODate is not None          # 确保IPO日期数据存在
+            and x.SecurityReference.IPODate <= min_ipo_date      # IPO时间筛选：需要足够的历史数据
         ]
+        
+        # Level 2: 输出粗选结果
+        if self.algorithm.debug_level >= 2:
+            self.algorithm.Debug(
+                f"[选股-粗选] 从{len(coarse)}只股票中筛选出{len(selected)}只"
+            )
+        
+        return selected
 
 
     def _select_fine(self, fine: List[FineFundamental]) -> List[Symbol]:
@@ -221,7 +229,10 @@ class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
         # 重置选股标志
         self.selection_on = False 
         self.fine_selection_count += 1
-        self.algorithm.Debug(f"===== 第【{self.fine_selection_count}】次选股 =====")
+        
+        # Level 1: 输出选股开始
+        if self.algorithm.debug_level >= 1:
+            self.algorithm.Debug(f"===== 第【{self.fine_selection_count}】次选股 =====")
         
         # 将迭代器转换为列表，确保后续操作（如len()）可以正常执行
         fine = list(fine)
@@ -493,14 +504,13 @@ class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
                               financial_stats: Dict[str, int],
                               volatility_stats: Dict[str, int]):
         """
-        输出选股结果日志
+        根据debug_level输出不同详细程度的选股统计日志
         
-        包含:
-        1. 基础统计信息
-        2. 财务筛选失败原因分析
-        3. 波动率筛选统计
-        4. 行业分布统计
-        5. 最终选股结果样本
+        分级日志策略:
+        - Level 0: 完全静默，不输出任何日志
+        - Level 1: 仅输出关键结果（最终选股数量）
+        - Level 2: 输出筛选流程统计（各阶段通过率、淘汰原因）
+        - Level 3: 输出所有细节（个股信息、行业分布、失败原因明细）
         
         参数:
             initial: 初始候选股票列表
@@ -508,82 +518,87 @@ class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
             financial_stats: 财务筛选统计信息
             volatility_stats: 波动率筛选统计信息
         """
-        # 整体筛选流程统计
-        self.algorithm.Debug(
-            f"[UniverseSelection] 筛选流程: "
-            f"初始{len(initial)}只 → "
-            f"财务筛选{financial_stats['passed']}只 → "
-            f"波动率筛选{volatility_stats['passed']}只 → "
-            f"最终选择{len(final)}只"
-        )
+        debug_level = self.algorithm.debug_level
         
-        # 财务筛选失败原因分析
-        financial_filtered = financial_stats['total'] - financial_stats['passed']
-        if financial_filtered > 0:
-            reason_map = {
-                'pe_failed': 'PE',
-                'roe_failed': 'ROE',
-                'debt_failed': '债务',
-                'leverage_failed': '杠杆',
-                'data_missing': '缺失'
-            }
+        # Level 0: 完全静默
+        if debug_level == 0:
+            return
+        
+        # Level 1: 只输出关键结果
+        if debug_level >= 1:
+            self.algorithm.Debug(
+                f"[选股] 第{self.fine_selection_count}次选股完成: "
+                f"{len(initial)}→{len(final)}只"
+            )
+        
+        # Level 2: 输出详细流程
+        if debug_level >= 2:
+            # 整体筛选流程统计
+            self.algorithm.Debug(
+                f"[选股-流程] "
+                f"初始{len(initial)}只 → "
+                f"财务筛选{financial_stats['passed']}只 → "
+                f"波动率筛选{volatility_stats['passed']}只 → "
+                f"最终{len(final)}只"
+            )
             
-            failed_details = [
-                f"{label}({financial_stats[reason]})"
-                for reason, label in reason_map.items()
-                if financial_stats.get(reason, 0) > 0
-            ]
-            
-            if failed_details:
+            # 财务筛选失败原因（简要）
+            financial_filtered = financial_stats['total'] - financial_stats['passed']
+            if financial_filtered > 0:
                 self.algorithm.Debug(
-                    f"[UniverseSelection] 财务过滤明细: {' '.join(failed_details)}"
+                    f"[选股-财务] 淘汰{financial_filtered}只: "
+                    f"PE({financial_stats.get('pe_failed', 0)}) "
+                    f"ROE({financial_stats.get('roe_failed', 0)}) "
+                    f"债务({financial_stats.get('debt_failed', 0)}) "
+                    f"杠杆({financial_stats.get('leverage_failed', 0)})"
+                )
+            
+            # 波动率筛选统计（简要）
+            volatility_filtered = volatility_stats['total'] - volatility_stats['passed']
+            if volatility_filtered > 0:
+                self.algorithm.Debug(
+                    f"[选股-波动] 淘汰{volatility_filtered}只: "
+                    f"高波动({volatility_stats.get('volatility_failed', 0)}) "
+                    f"数据缺失({volatility_stats.get('data_missing', 0)})"
                 )
         
-        # 波动率筛选统计
-        volatility_filtered = volatility_stats['total'] - volatility_stats['passed']
-        if volatility_filtered > 0:
-            self.algorithm.Debug(
-                f"[UniverseSelection] 波动率过滤: "
-                f"高波动{volatility_stats.get('volatility_failed', 0)}只, "
-                f"数据缺失{volatility_stats.get('data_missing', 0)}只"
-            )
-        
-        # 行业分布统计
-        if final:
-            sector_counts = defaultdict(int)
-            volatility_by_sector = defaultdict(list)
-            
-            # 统计每个行业的股票数量和平均波动率
-            for stock in final:
-                sector_code = stock.AssetClassification.MorningstarSectorCode
-                sector_name = self.sector_code_to_name.get(sector_code)
-                if sector_name:
-                    sector_counts[sector_name] += 1
-                    if hasattr(stock, 'Volatility'):
-                        volatility_by_sector[sector_name].append(stock.Volatility)
-            
-            if sector_counts:
-                # 按数量降序排列
-                sector_items = sorted(sector_counts.items(), key=lambda x: x[1], reverse=True)
-                sector_details = []
-                for name, count in sector_items:
-                    avg_vol = np.mean(volatility_by_sector[name]) if volatility_by_sector[name] else 0
-                    sector_details.append(f"{name}({count}只,波动率{avg_vol:.1%})")
+        # Level 3: 输出所有细节
+        if debug_level >= 3:
+            # 行业分布详情
+            if final:
+                sector_counts = defaultdict(int)
+                volatility_by_sector = defaultdict(list)
                 
-                self.algorithm.Debug(f"[UniverseSelection] 行业分布: {' '.join(sector_details)}")
-        
-        # 最终选股结果
-        final_count = len(final)
-        if final_count > 0:
-            # 显示前5只股票作为样本（包含波动率信息）
-            sample_info = []
-            for stock in final[:5]:
-                vol = getattr(stock, 'Volatility', 0)
-                sample_info.append(f"{stock.Symbol.Value}({vol:.1%})")
+                # 统计每个行业的股票数量和平均波动率
+                for stock in final:
+                    sector_code = stock.AssetClassification.MorningstarSectorCode
+                    sector_name = self.sector_code_to_name.get(sector_code)
+                    if sector_name:
+                        sector_counts[sector_name] += 1
+                        if hasattr(stock, 'Volatility'):
+                            volatility_by_sector[sector_name].append(stock.Volatility)
+                
+                if sector_counts:
+                    # 按数量降序排列
+                    sector_items = sorted(sector_counts.items(), key=lambda x: x[1], reverse=True)
+                    sector_details = []
+                    for name, count in sector_items:
+                        avg_vol = np.mean(volatility_by_sector[name]) if volatility_by_sector[name] else 0
+                        sector_details.append(f"{name}({count}只,波动{avg_vol:.1%})")
+                    
+                    self.algorithm.Debug(f"[选股-行业] 分布: {' '.join(sector_details)}")
             
-            self.algorithm.Debug(
-                f"[UniverseSelection] 选股完成: "
-                f"共{final_count}只股票, 前5样本: {sample_info}"
-            )
-        else:
-            self.algorithm.Debug("[UniverseSelection] 选股完成: 无符合条件的股票")
+            # 前5只股票样本详情
+            if final and len(final) > 0:
+                self.algorithm.Debug("[选股-样本] 前5只股票详情:")
+                for i, stock in enumerate(final[:5], 1):
+                    vol = getattr(stock, 'Volatility', 0)
+                    pe = stock.ValuationRatios.PERatio if hasattr(stock.ValuationRatios, 'PERatio') else 'N/A'
+                    roe = stock.OperationRatios.ROE.Value if hasattr(stock.OperationRatios.ROE, 'Value') else 'N/A'
+                    
+                    self.algorithm.Debug(
+                        f"  {i}. {stock.Symbol.Value}: "
+                        f"PE={pe:.1f if pe != 'N/A' else pe}, "
+                        f"ROE={roe:.2% if roe != 'N/A' else roe}, "
+                        f"波动率={vol:.2%}"
+                    )

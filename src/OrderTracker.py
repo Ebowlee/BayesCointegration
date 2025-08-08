@@ -5,7 +5,6 @@ from typing import Dict, List, Optional, Tuple, Set, TYPE_CHECKING
 if TYPE_CHECKING:
     from AlgorithmImports import Symbol
 from datetime import datetime, timedelta
-from src.PairRegistry import PairRegistry
 # endregion
 
 
@@ -125,9 +124,9 @@ class OrderTracker:
     3. 供风控查询
     """
     
-    def __init__(self, algorithm, pair_registry: PairRegistry):
+    def __init__(self, algorithm, central_pair_manager=None):
         self.algorithm = algorithm
-        self.pair_registry = pair_registry
+        self.central_pair_manager = central_pair_manager
         
         # 数据存储
         self.orders: Dict[int, OrderInfo] = {}
@@ -172,8 +171,13 @@ class OrderTracker:
             order_type='entry' if position_before == 0 else 'exit'
         )
         
-        # 查找配对
-        pair = self.pair_registry.get_pair_for_symbol(symbol)
+        # 查找配对（使用CPM如果可用）
+        pair = None
+        if self.central_pair_manager:
+            paired_symbol = self.central_pair_manager.get_paired_symbol(symbol)
+            if paired_symbol:
+                pair = (symbol, paired_symbol)
+        
         if pair:
             # 生成配对ID
             pair_id = self._get_pair_id(pair[0], pair[1])

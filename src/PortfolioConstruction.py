@@ -97,10 +97,6 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         Returns:
             List[PortfolioTarget]: 目标持仓列表，每个元素指定一只股票的目标权重
         """
-        # 日志：记录收到的Insights
-        if insights:
-            self.algorithm.Debug(f"[PC] 收到{len(insights)}个Insights")
-        
         # 按 GroupId 分组
         grouped_insights = defaultdict(list)
         for insight in insights:
@@ -109,9 +105,6 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
             else:
                 # 调试：输出没有GroupId的Insight
                 self.algorithm.Debug(f"[PC] 警告: Insight没有GroupId - Symbol: {insight.Symbol.Value}, Direction: {insight.Direction}")
-        
-        # 调试：输出分组结果
-        self.algorithm.Debug(f"[PC] GroupId分组结果: {len(grouped_insights)}组")
         
         # 收集所有建仓信号
         new_position_signals = []
@@ -156,8 +149,17 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         if new_position_signals:
             targets.extend(self._allocate_capital_and_create_targets(new_position_signals))
         
+        # 只在有实际目标时输出简洁日志
         if targets:
-            self.algorithm.Debug(f"[PC] 生成 {len(targets)} 个 PortfolioTarget")
+            # 统计类型
+            flat_count = sum(1 for t in targets if t.Quantity == 0)
+            new_count = len(targets) - flat_count
+            if flat_count > 0 and new_count > 0:
+                self.algorithm.Debug(f"[PC] 生成{len(targets)}个目标: {new_count//2}对建仓, {flat_count//2}对平仓")
+            elif flat_count > 0:
+                self.algorithm.Debug(f"[PC] 生成{flat_count//2}对平仓目标")
+            elif new_count > 0:
+                self.algorithm.Debug(f"[PC] 生成{new_count//2}对建仓目标")
         return targets
 
     def _parse_tag_params(self, tag: str) -> Optional[Dict]:
@@ -258,7 +260,9 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         # 可用资金 = 总资金 - 现金缓冲 - 已使用资金
         available_capital = (1.0 - self.cash_buffer) - used_capital
         if available_capital <= 0:
-            self.algorithm.Debug(f"[PC] 无可用资金，跳过新建仓")
+            # 只在确实无资金时输出
+            if len(new_position_signals) > 0:
+                self.algorithm.Debug(f"[PC] 资金已满(已用{used_capital:.1%}),跳过{len(new_position_signals)}个新信号")
             return targets
         
         # 按质量分数排序
@@ -294,11 +298,12 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
             
             symbol1_weight, symbol2_weight = weights
             
-            # 记录日志
-            action = "BUY, SELL" if signal['direction'] == InsightDirection.Up else "SELL, BUY"
-            self.algorithm.Debug(f"[PC]: [{signal['symbol1'].Value}, {signal['symbol2'].Value}] | [{action}] | "
-                               f"[{symbol1_weight:.4f}, {symbol2_weight:.4f}] | "
-                               f"beta={signal['beta']:.3f} | allocation={allocation:.1%}")
+            # 记录关键交易信息
+            direction_str = "做多/做空" if signal['direction'] == InsightDirection.Up else "做空/做多"
+            self.algorithm.Debug(
+                f"[PC-执行] {signal['symbol1'].Value}&{signal['symbol2'].Value}: "
+                f"{direction_str}, 资金{allocation:.1%}, beta={signal['beta']:.2f}, 质量={signal['quality_score']:.2f}"
+            )
             
             # 创建targets
             targets.extend([
@@ -306,20 +311,17 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
                 PortfolioTarget.Percent(self.algorithm, signal['symbol2'], symbol2_weight)
             ])
             
-            # v3.8.0: 登记建仓到CentralPairManager
-            if self.central_pair_manager:
-                self.central_pair_manager.register_entry(signal['symbol1'], signal['symbol2'])
+            # 注意：不在这里调用register_entry
+            # CPM状态更新将在OnOrderEvent中基于实际成交进行
             
             # 更新可用资金
             available_capital -= allocation
             allocated_count += 1
         
-        # 输出资金使用情况
-        total_used = (1.0 - self.cash_buffer) - available_capital
-        self.algorithm.Debug(
-            f"[PC] 资金分配完成: 新建仓{allocated_count}对, "
-            f"资金使用{total_used:.1%}, 剩余可用{available_capital:.1%}"
-        )
+        # 只在有实际分配时输出简洁的资金使用情况
+        if allocated_count > 0:
+            total_used = (1.0 - self.cash_buffer) - available_capital
+            self.algorithm.Debug(f"[PC-资金] 新建{allocated_count}对配对, 资金使用率{total_used:.1%}")
         return targets
     
     def _handle_flat_signal(self, symbol1: Symbol, symbol2: Symbol) -> List[PortfolioTarget]:
@@ -334,7 +336,7 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         Returns:
             List[PortfolioTarget]: 两个权重为0的目标
         """
-        self.algorithm.Debug(f"[PC]: [{symbol1.Value}, {symbol2.Value}] | [FLAT, FLAT]")
+        self.algorithm.Debug(f"[PC-平仓] {symbol1.Value}&{symbol2.Value}")
         return [
             PortfolioTarget.Percent(self.algorithm, symbol1, 0),
             PortfolioTarget.Percent(self.algorithm, symbol2, 0)
@@ -482,7 +484,7 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
     
     def _log_cannot_short(self, symbol1: Symbol, symbol2: Symbol):
         """记录无法做空的日志"""
-        self.algorithm.Debug(f"[PC]: 无法做空,跳过配对 [{symbol1.Value}, {symbol2.Value}]")
+        self.algorithm.Debug(f"[PC-跳过] {symbol1.Value}&{symbol2.Value}: 无法做空")
     
     def can_short(self, symbol: Symbol) -> bool:
         """
