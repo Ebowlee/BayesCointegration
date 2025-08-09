@@ -71,7 +71,8 @@ class StrategyConfig:
             'margin_rate': 1.0,                             # 保证金率
             'max_position_per_pair': 0.15,                  # 单对最大仓位15%
             'min_position_per_pair': 0.05,                  # 单对最小仓位5%
-            'cash_buffer': 0.05                             # 现金缓冲5%
+            'cash_buffer': 0.05,                            # 现金缓冲5%
+            'cooldown_days': 7                              # 冷却期天数（避免频繁进出）
         }
         
         # RiskManagement 配置 - 风险管理模块参数

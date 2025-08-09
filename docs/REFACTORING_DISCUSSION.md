@@ -666,6 +666,54 @@ def OnOrderEvent(self, orderEvent: OrderEvent):
 - 继续PortfolioConstruction重构
 - 继续RiskManagement重构
 
+### v4.2.0 (2025-01-09)
+
+#### 完成的工作
+
+1. **PortfolioConstruction智能化升级**
+   - 从机械Insight→Target转换器升级为智能Target生成器
+   - 移除冗余信号验证逻辑（信任AlphaModel的前置过滤）
+   - 删除_validate_signal和_get_pair_position_status方法（404-483行）
+   - 简化Tag解析，移除reason字段
+
+2. **质量过滤机制实现**
+   - 添加quality_score < 0.7的硬编码过滤
+   - 在_allocate_capital_and_create_targets中实现
+   - 回测验证成功过滤70个低质量信号
+   - 典型过滤案例：AMZN&CMG、AMZN&GM、PEP&CAG
+
+3. **冷却期管理内置**
+   - PC内部实现cooldown_records字典追踪
+   - 使用tuple(sorted([symbol1, symbol2]))作为键确保一致性
+   - 解决[A,B]和[B,A]配对识别问题
+   - _handle_flat_signal记录退出时间
+   - create_targets中检查并跳过冷却期内的信号
+   - 回测验证：PG&WMT交易9/6，第7天（9/13）成功重新进入
+
+4. **代码清理优化**
+   - main.py重构：所有imports集中到顶部region
+   - 删除散落在代码中的import语句
+   - 移除过多的注释和TODO标记
+   - 启用真实PortfolioConstruction替代NullPortfolioConstructionModel
+
+#### 性能改进
+
+- **信号过滤效率**：质量过滤+冷却期管理大幅减少无效交易
+- **代码可维护性**：删除约80行冗余代码，结构更清晰
+- **系统稳定性**：智能决策逻辑防止频繁交易
+
+#### 当前系统状态
+
+- **活跃模块**：UniverseSelection、AlphaModel、PortfolioConstruction（全部重构完成）
+- **待重构模块**：RiskManagement
+- **待实现**：CentralPairManager完整功能
+
+#### 下一步计划
+
+- RiskManagement模块重构
+- CentralPairManager功能实现
+- OnOrderEvent增强与订单成交后状态更新
+
 ---
 
 *文档持续更新中...*

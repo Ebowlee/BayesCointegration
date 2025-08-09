@@ -1,14 +1,14 @@
 # region imports
 from AlgorithmImports import *
-from src.UniverseSelection import MyUniverseSelectionModel
 from System import Action
-# from src.CentralPairManager import CentralPairManager  # 暂时注释，后续重构时启用
 from src.config import StrategyConfig
+from src.UniverseSelection import MyUniverseSelectionModel
+from src.alpha import BayesianCointegrationAlphaModel
+from src.PortfolioConstruction import BayesianCointegrationPortfolioConstructionModel
+from QuantConnect.Algorithm.Framework.Risk import NullRiskManagementModel
+# from src.CentralPairManager import CentralPairManager  # 待重构时启用
 # endregion
 
-# ==============================================================================================
-#                                    主策略类
-# ==============================================================================================
 
 class BayesianCointegrationStrategy(QCAlgorithm):
     """
@@ -22,14 +22,8 @@ class BayesianCointegrationStrategy(QCAlgorithm):
     5. 交易执行：优化订单执行
     """
     
-    # ----------------------------------------------------------------------------------------------
-    #                                    初始化方法
-    # ----------------------------------------------------------------------------------------------
-    
     def Initialize(self):
-        """
-        初始化算法、设置参数、注册事件处理程序
-        """
+        """初始化算法、设置参数、注册事件处理程序"""
         # 初始化配置
         self.config = StrategyConfig()
         
@@ -45,10 +39,6 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         
         # 设置框架模块
         self._setup_framework_modules()
-    
-    # ----------------------------------------------------------------------------------------------
-    #                                    配置方法
-    # ----------------------------------------------------------------------------------------------
     
     def _setup_basic_parameters(self):
         """设置基本参数"""
@@ -73,37 +63,25 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # 调度
         self._setup_schedule()
         
-        # CentralPairManager - 核心组件（待重构）
-        # self.central_pair_manager = CentralPairManager(self, self.config.central_pair_manager)
-        self.central_pair_manager = None  # 暂时设为None，后续重构
+        # CentralPairManager - 待重构
+        self.central_pair_manager = None
         
-        # 设置Null模块以验证选股功能
-        # 后续会逐步重构并启用真实模块
-        
-        # AlphaModel - 使用重构后的贝叶斯协整Alpha模型
-        from src.alpha import BayesianCointegrationAlphaModel
+        # AlphaModel
         self.SetAlpha(BayesianCointegrationAlphaModel(
             self, 
             self.config.alpha_model, 
             self.config.sector_code_to_name
         ))
         
-        # PortfolioConstruction - 暂时使用Null（待重构）
-        from QuantConnect.Algorithm.Framework.Portfolio import NullPortfolioConstructionModel
-        self.SetPortfolioConstruction(NullPortfolioConstructionModel())
+        # PortfolioConstruction
+        self.SetPortfolioConstruction(BayesianCointegrationPortfolioConstructionModel(
+            self,
+            self.config.portfolio_construction,
+            self.central_pair_manager
+        ))
         
-        # RiskManagement - 暂时使用Null（待重构）
-        from QuantConnect.Algorithm.Framework.Risk import NullRiskManagementModel
+        # RiskManagement - 待重构
         self.SetRiskManagement(NullRiskManagementModel())
-        
-        # TODO: 框架模块重构计划
-        # 阶段4: PortfolioConstruction - 完全基于CPM
-        # 阶段5: RiskManagement - 移除OrderTracker依赖
-        # 阶段6: OnOrderEvent增强 - 基于CPM的订单处理
-    
-    # ----------------------------------------------------------------------------------------------
-    #                                    调度设置
-    # ----------------------------------------------------------------------------------------------
     
     def _setup_schedule(self):
         """设置调度"""
@@ -111,23 +89,9 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         time_rule = self.TimeRules.At(*self.config.main['schedule_time'])
         self.Schedule.On(date_rule, time_rule, Action(self.universe_selector.TriggerSelection))
     
-    # ----------------------------------------------------------------------------------------------
-    #                                    事件处理
-    # ----------------------------------------------------------------------------------------------
-    
     def OnOrderEvent(self, orderEvent: OrderEvent):
-        """
-        处理订单事件 - 简化版
-        
-        第一阶段：仅记录订单成交事件
-        后续阶段：根据CPM增强需求逐步完善
-        """
+        """处理订单事件"""
         if orderEvent.Status == OrderStatus.Filled:
             order = self.Transactions.GetOrderById(orderEvent.OrderId)
             if order:
                 self.Debug(f"[Order] {order.Symbol.Value} filled: {orderEvent.FillQuantity} @ {orderEvent.FillPrice}")
-                
-                # TODO: 阶段6实现
-                # 1. 从CPM获取配对关系
-                # 2. 检查配对双边成交状态
-                # 3. 更新CPM状态（register_entry/exit）

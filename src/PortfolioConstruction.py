@@ -1,59 +1,66 @@
 # region imports
 from AlgorithmImports import *
 from collections import defaultdict
-from typing import Tuple, Optional, List
+from typing import Tuple, Optional, List, Dict
 # endregion
 
 class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel):
     """
-    贝叶斯协整投资组合构建模型 - 将交易信号转化为具体持仓
+    贝叶斯协整投资组合构建模型 - 智能Target生成器
     
-    该模型是配对交易系统的执行层，负责将AlphaModel生成的交易信号
-    转化为具体的投资组合持仓。采用动态资金管理，根据信号质量和
-    可用资金智能分配仓位。
+    该模型是配对交易系统的执行转换层，负责将AlphaModel生成的交易信号
+    转化为具体的投资组合目标。作为智能Target生成器，不仅机械转换信号，
+    还进行合理性判断，避免频繁交易和低质量建仓。
     
     核心功能:
     1. 信号解析: 从Insight.Tag中提取交易参数
-    2. 持仓验证: 检查当前持仓状态，避免重复建仓
-    3. 动态资金管理: 基于信号质量分配5%-15%的资金
-    4. Beta中性对冲: 根据协整关系计算对冲比率
-    5. 风险控制: 冷却期管理，做空能力检查
+    2. 质量过滤: 跳过quality_score < 0.7的低质量信号
+    3. 冷却期管理: 同一配对7天内不重复建仓
+    4. 动态资金管理: 基于信号质量分配5%-15%的资金
+    5. Beta中性对冲: 根据协整关系计算对冲比率
     
     工作流程:
     1. 接收AlphaModel的Insights (按GroupId配对)
-    2. 解析每个配对的参数 (beta, z-score, quality_score)
-    3. 验证交易信号的有效性
-    4. 收集所有有效信号
-    5. 动态分配资金并生成PortfolioTarget
+    2. 解析每个配对的参数 (alpha, beta, z-score, quality_score)
+    3. 分类信号为平仓或建仓
+    4. 处理平仓信号并记录冷却期
+    5. 过滤冷却期内和低质量的建仓信号
+    6. 动态分配资金并生成PortfolioTarget
     
     资金管理策略:
     - 单对仓位: 5%-15% (基于quality_score动态调整)
+    - 质量阈值: quality_score < 0.7的信号被过滤
     - 现金缓冲: 5% (应对追加保证金和滑点)
     - 优先级: quality_score高的配对优先分配资金
-    - 保证金: 做空需要100%保证金(InteractiveBrokers)
     
-    信号处理规则:
+    冷却期机制:
+    - 平仓后7天内不接受同配对的建仓信号
+    - 使用sorted tuple确保配对标识一致性
+    - 自动清理过期的冷却期记录
+    
+    信号处理:
     - Up信号: symbol1做多, symbol2做空 (beta加权)
     - Down信号: symbol1做空, symbol2做多 (beta加权)
-    - Flat信号: 两只股票都平仓
-    - 反向信号: 转为平仓信号 (不做反向建仓)
+    - Flat信号: 两只股票都平仓，记录冷却期
+    - 完全信任AlphaModel的前置过滤
     
     配置参数:
     - margin_rate: 保证金率 (默认1.0)
     - min_position_per_pair: 最小仓位 (默认5%)
     - max_position_per_pair: 最大仓位 (默认15%)
     - cash_buffer: 现金缓冲 (默认5%)
+    - cooldown_days: 冷却期天数 (默认7天)
     
     与其他模块的交互:
     - AlphaModel: 提供交易信号(Insights)
     - RiskManagement: 生成的targets可能被风控调整
-    - Execution: 最终执行具体订单
+    - Portfolio: 查询当前持仓和可用资金
     
     注意事项:
-    - 动态资金管理取代了固定配对数限制
+    - 作为智能Target生成器，不仅转换还要判断
     - Beta对冲确保市场中性
     - 实盘需要检查做空能力
-    - 冷却期避免频繁交易同一配对
+    - 配对标识使用sorted tuple保证一致性
     """
     
     # 常量定义
@@ -71,24 +78,28 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         self.max_position_per_pair = config.get('max_position_per_pair', 0.10)  # 单对最大仓位10%
         self.min_position_per_pair = config.get('min_position_per_pair', 0.05)  # 单对最小仓位5%
         
+        # 冷却期管理
+        self.cooldown_days = config.get('cooldown_days', 7)  # 冷却期天数
+        self.cooldown_records = {}  # {(symbol1, symbol2): exit_time}
+        
         self.algorithm.Debug(f"[PortfolioConstruction] 初始化完成 (保证金率: {self.margin_rate}, "
                            f"单对仓位: {self.min_position_per_pair*100}%-{self.max_position_per_pair*100}%, "
-                           f"现金缓冲: {self.cash_buffer*100}%)")
+                           f"现金缓冲: {self.cash_buffer*100}%, 冷却期: {self.cooldown_days}天)")
                            
     def create_targets(self, algorithm, insights) -> List[PortfolioTarget]:
         """
         创建投资组合目标 - 主入口方法
         
         该方法将AlphaModel生成的交易信号转化为具体的持仓目标。
-        采用两阶段处理：先收集所有信号，再统一分配资金。
+        作为智能Target生成器，进行合理性判断后生成目标。
         
         处理流程:
         1. 按GroupId分组Insights (确保配对同时处理)
         2. 解析每个配对的信号参数
-        3. 验证信号有效性 (检查当前持仓、冷却期等)
-        4. 分类信号 (新建仓 vs 平仓)
-        5. 优先处理平仓信号
-        6. 动态分配资金给新建仓信号
+        3. 分类信号 (建仓 vs 平仓)
+        4. 处理平仓信号，记录冷却期
+        5. 过滤冷却期内和低质量的建仓信号
+        6. 动态分配资金给过滤后的建仓信号
         
         Args:
             algorithm: QuantConnect算法实例
@@ -122,20 +133,16 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
             if params is None:
                 continue
             
-            # 获取当前持仓状态并验证信号
-            current_position = self._get_pair_position_status(symbol1, symbol2)
-            validated_direction = self._validate_signal(current_position, insight1.Direction, symbol1, symbol2)
+            # 直接使用信号方向，信任AlphaModel的前置过滤
+            signal_direction = insight1.Direction
             
-            if validated_direction is None:
-                continue
-            
-            if validated_direction == InsightDirection.Flat:
+            if signal_direction == InsightDirection.Flat:
                 flat_signals.append((symbol1, symbol2))
             else:
                 new_position_signals.append({
                     'symbol1': symbol1,
                     'symbol2': symbol2,
-                    'direction': validated_direction,
+                    'direction': signal_direction,
                     'beta': params['beta'],
                     'quality_score': params.get('quality_score', 0.5)
                 })
@@ -145,9 +152,34 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         for symbol1, symbol2 in flat_signals:
             targets.extend(self._handle_flat_signal(symbol1, symbol2))
         
-        # 动态分配资金并处理新建仓信号
-        if new_position_signals:
-            targets.extend(self._allocate_capital_and_create_targets(new_position_signals))
+        # 清理过期的冷却期记录
+        self._cleanup_expired_cooldowns()
+        
+        # 过滤处于冷却期的配对
+        filtered_signals = []
+        cooldown_filtered = 0
+        
+        for signal in new_position_signals:
+            pair_key = tuple(sorted([signal['symbol1'], signal['symbol2']]))
+            
+            # 检查是否在冷却期内
+            if pair_key in self.cooldown_records:
+                exit_time = self.cooldown_records[pair_key]
+                days_since_exit = (self.algorithm.Time - exit_time).days
+                
+                if days_since_exit < self.cooldown_days:
+                    cooldown_filtered += 1
+                    self.algorithm.Debug(
+                        f"[PC-冷却期] 跳过{signal['symbol1'].Value}&{signal['symbol2'].Value}, "
+                        f"距离上次平仓{days_since_exit}天 (需要{self.cooldown_days}天)"
+                    )
+                    continue
+            
+            filtered_signals.append(signal)
+        
+        # 动态分配资金并处理过滤后的新建仓信号
+        if filtered_signals:
+            targets.extend(self._allocate_capital_and_create_targets(filtered_signals))
         
         # 只在有实际目标时输出简洁日志
         if targets:
@@ -168,14 +200,13 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         
         Tag是AlphaModel传递详细参数的载体，包含了执行交易所需的所有信息。
         
-        Tag格式: 'symbol1&symbol2|alpha|beta|zscore|quality_score|reason'（reason可选）
+        Tag格式: 'symbol1&symbol2|alpha|beta|zscore|quality_score'
         其中:
         - symbol1&symbol2: 配对的股票代码
         - alpha: 协整关系的截距项
         - beta: 对冲比率 (beta=0.8表示1份symbol1对冲0.8份symbol2)
         - zscore: 当前偏离程度 (标准化残差)
         - quality_score: 配对质量分数 (0-1，来自AlphaModel的综合评分)
-        - reason: 可选，特殊原因标记（如cointegration_expired）
         
         Args:
             tag: Insight的Tag字符串
@@ -185,7 +216,6 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
                 - beta: 对冲比率
                 - zscore: 偏离程度
                 - quality_score: 质量分数
-                - reason: 可选，特殊原因
             失败返回None
         """
         try:
@@ -197,20 +227,13 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
             # 解析参数
             beta = float(tag_parts[2])
             zscore = float(tag_parts[3])
-            quality_score = float(tag_parts[4])  # 直接使用AlphaModel计算的quality_score
+            quality_score = float(tag_parts[4])
             
             result = {
                 'beta': beta,
                 'zscore': zscore,
                 'quality_score': quality_score
             }
-            
-            # 解析可选的reason字段
-            if len(tag_parts) > 5:
-                result['reason'] = tag_parts[5]
-                # 如果检测到协整失效原因，输出日志
-                if tag_parts[5] == 'cointegration_expired':
-                    self.algorithm.Debug(f"[PC] 检测到协整失效信号: {tag_parts[0]}")
             
             return result
         except (IndexError, ValueError) as e:
@@ -222,14 +245,15 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         动态分配资金并创建投资组合目标 - 核心资金管理逻辑
         
         该方法实现了智能的资金分配算法，根据信号质量和可用资金
-        动态决定每个配对的仓位大小。
+        动态决定每个配对的仓位大小。已包含质量过滤(< 0.7)。
         
         分配策略:
         1. 计算当前已使用资金 (考虑保证金)
         2. 确定可用资金 (总资金 - 已用 - 缓冲)
         3. 按quality_score排序信号 (高质量优先)
-        4. 逐个分配资金，直到资金耗尽
-        5. 根据质量分数在min和max之间调整仓位
+        4. 过滤quality_score < 0.7的低质量信号
+        5. 逐个分配资金，直到资金耗尽
+        6. 根据质量分数在min和max之间调整仓位
         
         资金计算公式:
         - 做多资金 = 仓位权重 × 总资产
@@ -237,7 +261,7 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         - 单对分配 = min_position + (max-min) × quality_score
         
         Args:
-            new_position_signals: 新建仓信号列表，每个包含:
+            new_position_signals: 已过滤冷却期的建仓信号列表，每个包含:
                 - symbol1, symbol2: 配对股票
                 - direction: 交易方向 (Up/Down)
                 - beta: 对冲比率
@@ -270,7 +294,13 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         
         # 分配资金
         allocated_count = 0
+        filtered_count = 0  # 记录被过滤的低质量信号
         for signal in sorted_signals:
+            # 过滤低质量信号
+            if signal['quality_score'] < 0.7:
+                filtered_count += 1
+                continue
+            
             # 检查是否还有足够资金
             if available_capital < self.min_position_per_pair:
                 break
@@ -318,17 +348,43 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
             available_capital -= allocation
             allocated_count += 1
         
-        # 只在有实际分配时输出简洁的资金使用情况
-        if allocated_count > 0:
+        # 输出资金分配情况
+        if allocated_count > 0 or filtered_count > 0:
             total_used = (1.0 - self.cash_buffer) - available_capital
-            self.algorithm.Debug(f"[PC-资金] 新建{allocated_count}对配对, 资金使用率{total_used:.1%}")
+            if filtered_count > 0:
+                self.algorithm.Debug(f"[PC-资金] 新建{allocated_count}对配对, 过滤{filtered_count}个低质量信号, 资金使用率{total_used:.1%}")
+            else:
+                self.algorithm.Debug(f"[PC-资金] 新建{allocated_count}对配对, 资金使用率{total_used:.1%}")
         return targets
+    
+    def _cleanup_expired_cooldowns(self):
+        """
+        清理过期的冷却期记录
+        
+        定期清理超过冷却期的记录，避免内存泄漏。
+        """
+        current_time = self.algorithm.Time
+        expired_pairs = []
+        
+        for pair_key, exit_time in self.cooldown_records.items():
+            days_since_exit = (current_time - exit_time).days
+            if days_since_exit >= self.cooldown_days:
+                expired_pairs.append(pair_key)
+        
+        # 清理过期记录
+        for pair_key in expired_pairs:
+            del self.cooldown_records[pair_key]
+        
+        # 如果有清理，输出日志
+        if expired_pairs:
+            self.algorithm.Debug(f"[PC-清理] 清理{len(expired_pairs)}个过期冷却期记录")
     
     def _handle_flat_signal(self, symbol1: Symbol, symbol2: Symbol) -> List[PortfolioTarget]:
         """
         处理平仓信号
         
         生成两只股票都平仓的目标(权重=0)。
+        同时记录平仓时间用于冷却期管理。
         
         Args:
             symbol1, symbol2: 配对股票
@@ -336,7 +392,11 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         Returns:
             List[PortfolioTarget]: 两个权重为0的目标
         """
-        self.algorithm.Debug(f"[PC-平仓] {symbol1.Value}&{symbol2.Value}")
+        # 记录平仓时间（使用排序后的元组作为key，确保顺序一致）
+        pair_key = tuple(sorted([symbol1, symbol2]))
+        self.cooldown_records[pair_key] = self.algorithm.Time
+        
+        self.algorithm.Debug(f"[PC-平仓] {symbol1.Value}&{symbol2.Value} (进入{self.cooldown_days}天冷却期)")
         return [
             PortfolioTarget.Percent(self.algorithm, symbol1, 0),
             PortfolioTarget.Percent(self.algorithm, symbol2, 0)
@@ -400,87 +460,6 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
             return None
         
         return symbol1_weight, symbol2_weight
-    
-    def _get_pair_position_status(self, symbol1: Symbol, symbol2: Symbol) -> Optional[InsightDirection]:
-        """
-        获取配对的当前持仓状态
-        
-        通过查询Portfolio获取实时持仓信息，判断配对的当前方向。
-        用于验证新信号是否与现有持仓冲突。
-        
-        持仓状态判断:
-        - Up: symbol1做多(>0) 且 symbol2做空(≤0)
-        - Down: symbol1做空(<0) 且 symbol2做多(≥0)
-        - None: 无持仓或异常状态
-        
-        Args:
-            symbol1, symbol2: 配对的两只股票
-            
-        Returns:
-            InsightDirection: Up/Down表示当前持仓方向
-            None: 无持仓
-        """
-        portfolio = self.algorithm.Portfolio
-        s1_holding = portfolio[symbol1]
-        s2_holding = portfolio[symbol2]
-        
-        # 快速检查：都未持仓
-        if not s1_holding.Invested and not s2_holding.Invested:
-            return None
-        
-        s1_quantity = s1_holding.Quantity
-        s2_quantity = s2_holding.Quantity
-        
-        # 判断持仓方向
-        if s1_quantity > 0 and s2_quantity <= 0:
-            return InsightDirection.Up
-        elif s1_quantity < 0 and s2_quantity >= 0:
-            return InsightDirection.Down
-        elif s1_quantity != 0 and s2_quantity != 0 and (s1_quantity > 0) == (s2_quantity > 0):
-            # 异常：同向持仓
-            self.algorithm.Debug(f"[PC] 警告：检测到异常同向持仓 - {symbol1.Value}: {s1_quantity}, "
-                               f"{symbol2.Value}: {s2_quantity}")
-        
-        return None
-
-    def _validate_signal(self, current_position: Optional[InsightDirection], 
-                        signal_direction: InsightDirection, 
-                        symbol1: Symbol, symbol2: Symbol) -> Optional[InsightDirection]:
-        """
-        验证交易信号有效性 - 信号过滤器
-        
-        该方法确保只有合理的信号才会被执行，避免重复建仓、
-        过快反转等问题。
-        
-        验证规则:
-        1. 平仓信号: 必须有持仓才能平仓
-        2. 同向信号: 已持有相同方向，忽略
-        3. 反向信号: 转为平仓 (避免直接反转)
-        4. 新建仓: 检查冷却期和其他限制
-        
-        Args:
-            current_position: 当前持仓方向 (Up/Down/None)
-            signal_direction: 信号方向 (Up/Down/Flat)
-            symbol1, symbol2: 配对股票
-            
-        Returns:
-            InsightDirection: 验证后的有效方向
-            None: 信号无效，应忽略
-        """
-        # 平仓信号：必须有持仓
-        if signal_direction == InsightDirection.Flat:
-            return signal_direction if current_position is not None else None
-        
-        # 已持仓情况
-        if current_position is not None:
-            # 同方向：忽略
-            if current_position == signal_direction:
-                return None
-            # 反方向：转为平仓 (不做反向建仓)
-            return InsightDirection.Flat
-        
-        # 新建仓直接返回信号方向
-        return signal_direction
     
     def _log_cannot_short(self, symbol1: Symbol, symbol2: Symbol):
         """记录无法做空的日志"""

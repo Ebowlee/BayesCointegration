@@ -4,6 +4,35 @@
 
 ---
 
+## [v4.2.0_PortfolioConstruction优化@20250809]
+### PortfolioConstruction模块重大优化
+- **智能Target生成器转型**：
+  - 从机械转换器升级为智能决策模块
+  - 移除冗余的信号验证（已在AlphaModel完成）
+  - 移除Tag中的reason字段解析
+  - 删除_validate_signal和_get_pair_position_status方法
+  
+- **质量过滤机制**：
+  - 添加quality_score < 0.7的硬编码过滤
+  - 防止低质量信号进入交易执行
+  - 回测验证过滤70个低质量信号（AMZN&CMG等）
+  
+- **冷却期管理内置**：
+  - PC内部实现7天冷却期追踪
+  - 使用tuple(sorted([symbol1, symbol2]))确保配对一致性
+  - 避免[A,B]和[B,A]被视为不同配对
+  - 回测验证冷却期正确生效（PG&WMT在第7天可重新交易）
+  
+- **代码优化**：
+  - main.py清理：所有imports移至顶部region
+  - 启用真实PortfolioConstruction替代NullPortfolioConstructionModel
+  - 删除不必要的注释和TODO标记
+
+### 测试验证
+- 回测20250809_1822验证所有功能正常
+- 质量过滤和冷却期管理按预期工作
+- 系统稳定性和代码可维护性显著提升
+
 ## [v4.1.0_AlphaModel模块化重构@20250809]
 ### AlphaModel模块化重构完成
 - **模块拆分**：
