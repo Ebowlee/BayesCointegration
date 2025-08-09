@@ -80,9 +80,13 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # 设置Null模块以验证选股功能
         # 后续会逐步重构并启用真实模块
         
-        # AlphaModel - 暂时使用Null（待重构）
-        from QuantConnect.Algorithm.Framework.Alphas import NullAlphaModel
-        self.SetAlpha(NullAlphaModel())
+        # AlphaModel - 使用重构后的贝叶斯协整Alpha模型
+        from src.alpha import BayesianCointegrationAlphaModel
+        self.SetAlpha(BayesianCointegrationAlphaModel(
+            self, 
+            self.config.alpha_model, 
+            self.config.sector_code_to_name
+        ))
         
         # PortfolioConstruction - 暂时使用Null（待重构）
         from QuantConnect.Algorithm.Framework.Portfolio import NullPortfolioConstructionModel
@@ -93,7 +97,6 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         self.SetRiskManagement(NullRiskManagementModel())
         
         # TODO: 框架模块重构计划
-        # 阶段3: AlphaModel - 移除PairRegistry依赖
         # 阶段4: PortfolioConstruction - 完全基于CPM
         # 阶段5: RiskManagement - 移除OrderTracker依赖
         # 阶段6: OnOrderEvent增强 - 基于CPM的订单处理

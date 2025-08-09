@@ -4,6 +4,32 @@
 
 ---
 
+## [v4.1.0_AlphaModel模块化重构@20250809]
+### AlphaModel模块化重构完成
+- **模块拆分**：
+  - 将1365行单文件拆分为5个独立模块
+  - AlphaState.py - 集中状态管理（persistent/temporary/control）
+  - DataProcessor.py - 数据处理逻辑
+  - PairAnalyzer.py - 配对分析整合（协整+贝叶斯）
+  - SignalGenerator.py - 信号生成逻辑
+  - AlphaModel.py - 主协调器
+  
+- **风控前置机制**：
+  - 实现配对级别的过期资产清理
+  - SignalGenerator添加持仓前置检查
+  - 建仓信号：检查两资产都无持仓
+  - 平仓信号：检查至少一资产有持仓
+  
+- **Bug修复**：
+  - 修复过期配对清理逻辑：从资产级别改为配对级别
+  - 解决AMZN&CMG→AMZN&GM时CMG未清理问题
+  - 防止无持仓生成平仓信号，有持仓生成建仓信号
+  
+### 测试验证
+- 回测日志验证模块化正常工作
+- 信号生成数量合理，持仓检查有效
+- 配对切换时正确清理过期资产
+
 ## [v4.0.0_架构重构-删除PairRegistry@20250808]
 ### 重大架构重构
 - **PairRegistry完全移除**：

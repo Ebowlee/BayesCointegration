@@ -1,0 +1,189 @@
+2024-06-20 00:00:00 Launching analysis for 65d645d22ef79f780e1050020b2922c2 with LEAN Engine v2.5.0.0.17241
+2024-06-20 00:00:00 [UniverseSelection] 初始化完成
+2024-06-20 00:00:00 Accurate daily end-times now enabled by default. See more at https://qnt.co/3YHaWHL. To disable it and use legacy daily bars set self.settings.daily_precise_end_time = False.
+2024-07-02 00:00:00 ===== 第【1】次选股 =====
+2024-07-02 00:00:00 [UniverseSelection] 批量获取58只股票的历史数据...
+2024-07-02 00:00:00 [选股] 第1次选股完成: 90→48只
+2024-07-02 16:00:00 [AlphaModel.Data] 数据处理: 48→48只 ()
+2024-07-02 16:00:00 [AlphaModel.Coint] 合计筛选2对: 平均0.649, 最高0.686, 最低0.612
+2024-07-02 16:00:00 [AlphaModel.Coint] ConsumerCyclical: (AMZN,CMG)/0.612
+2024-07-02 16:00:00 [AlphaModel.Coint] Technology: (MCHP,QCOM)/0.686
+2024-07-02 16:00:00 [AlphaModel.Bayesian] 建模完成: 成功2对, 失败0对 (完全建模2对, 动态更新0对)
+2024-07-02 16:00:00 [AlphaModel] 配对分析完成: 2个配对
+2024-07-02 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-02 16:00:00 [AlphaModel] 生成4个日常Insights
+2024-07-02 16:00:00 [AlphaModel] 总计生成4个Insights
+2024-07-03 00:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-03 13:00:00 [AlphaModel] 生成4个日常Insights
+2024-07-03 13:00:00 [AlphaModel] 总计生成4个Insights
+2024-07-05 00:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-05 16:00:00 [AlphaModel] 生成2个日常Insights
+2024-07-05 16:00:00 [AlphaModel] 总计生成2个Insights
+2024-07-08 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-08 16:00:00 [AlphaModel] 生成4个日常Insights
+2024-07-08 16:00:00 [AlphaModel] 总计生成4个Insights
+2024-07-09 00:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-09 16:00:00 [AlphaModel] 生成2个日常Insights
+2024-07-09 16:00:00 [AlphaModel] 总计生成2个Insights
+2024-07-10 00:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-10 16:00:00 [AlphaModel] 生成4个日常Insights
+2024-07-10 16:00:00 [AlphaModel] 总计生成4个Insights
+2024-07-11 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-11 16:00:00 [AlphaModel] 生成4个日常Insights
+2024-07-11 16:00:00 [AlphaModel] 总计生成4个Insights
+2024-07-12 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-12 16:00:00 [AlphaModel] 生成4个日常Insights
+2024-07-12 16:00:00 [AlphaModel] 总计生成4个Insights
+2024-07-15 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-15 16:00:00 [AlphaModel] 生成2个日常Insights
+2024-07-15 16:00:00 [AlphaModel] 总计生成2个Insights
+2024-07-16 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-16 16:00:00 [AlphaModel] 生成4个日常Insights
+2024-07-16 16:00:00 [AlphaModel] 总计生成4个Insights
+2024-07-17 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-17 16:00:00 [AlphaModel] 生成4个日常Insights
+2024-07-17 16:00:00 [AlphaModel] 总计生成4个Insights
+2024-07-18 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-18 16:00:00 [AlphaModel] 生成4个日常Insights
+2024-07-18 16:00:00 [AlphaModel] 总计生成4个Insights
+2024-07-19 00:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-19 16:00:00 [AlphaModel] 生成2个日常Insights
+2024-07-19 16:00:00 [AlphaModel] 总计生成2个Insights
+2024-07-22 00:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-22 16:00:00 [AlphaModel] 生成4个日常Insights
+2024-07-22 16:00:00 [AlphaModel] 总计生成4个Insights
+2024-07-23 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-23 16:00:00 [AlphaModel] 生成2个日常Insights
+2024-07-23 16:00:00 [AlphaModel] 总计生成2个Insights
+2024-07-24 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-24 16:00:00 [AlphaModel] 生成2个日常Insights
+2024-07-24 16:00:00 [AlphaModel] 总计生成2个Insights
+2024-07-25 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-25 16:00:00 [AlphaModel] 生成2个日常Insights
+2024-07-25 16:00:00 [AlphaModel] 总计生成2个Insights
+2024-07-26 00:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-26 16:00:00 [AlphaModel] 生成2个日常Insights
+2024-07-26 16:00:00 [AlphaModel] 总计生成2个Insights
+2024-07-29 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-29 16:00:00 [AlphaModel] 生成2个日常Insights
+2024-07-29 16:00:00 [AlphaModel] 总计生成2个Insights
+2024-07-30 00:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-30 16:00:00 [AlphaModel] 生成2个日常Insights
+2024-07-30 16:00:00 [AlphaModel] 总计生成2个Insights
+2024-07-31 16:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-07-31 16:00:00 [AlphaModel] 生成2个日常Insights
+2024-07-31 16:00:00 [AlphaModel] 总计生成2个Insights
+2024-08-01 00:00:00 [AlphaModel] 生成信号: 跟踪2对配对
+2024-08-01 16:00:00 [AlphaModel] 生成2个日常Insights
+2024-08-01 16:00:00 [AlphaModel] 总计生成2个Insights
+2024-08-02 00:00:00 ===== 第【2】次选股 =====
+2024-08-02 00:00:00 [UniverseSelection] 批量获取95只股票的历史数据...
+2024-08-02 00:00:00 [选股] 第2次选股完成: 158→81只
+2024-08-02 16:00:00 [AlphaModel.Data] 数据处理: 81→81只 ()
+2024-08-02 16:00:00 [AlphaModel.Coint] 合计筛选3对: 平均0.831, 最高0.952, 最低0.618
+2024-08-02 16:00:00 [AlphaModel.Coint] ConsumerCyclical: (AMZN,GM)/0.618
+2024-08-02 16:00:00 [AlphaModel.Coint] ConsumerDefensive: (PG,WMT)/0.923
+2024-08-02 16:00:00 [AlphaModel.Coint] Industrials: (VRT,ETN)/0.952
+2024-08-02 16:00:00 [AlphaModel.Bayesian] 建模完成: 成功3对, 失败0对 (完全建模3对, 动态更新0对)
+2024-08-02 16:00:00 [AlphaModel] 配对分析完成: 3个配对
+2024-08-02 16:00:00 [AlphaModel] 生成信号: 跟踪3对配对
+2024-08-08 16:00:00 [AlphaModel] 生成2个日常Insights
+2024-08-08 16:00:00 [AlphaModel] 总计生成2个Insights
+2024-08-09 16:00:00 [AlphaModel] 生成信号: 跟踪3对配对
+2024-08-09 16:00:00 [AlphaModel] 生成2个日常Insights
+2024-08-09 16:00:00 [AlphaModel] 总计生成2个Insights
+2024-08-12 00:00:00 [AlphaModel] 生成信号: 跟踪3对配对
+2024-08-12 16:00:00 [AlphaModel] 生成4个日常Insights
+2024-08-12 16:00:00 [AlphaModel] 总计生成4个Insights
+2024-08-13 16:00:00 [AlphaModel] 生成信号: 跟踪3对配对
+2024-08-13 16:00:00 [AlphaModel] 生成4个日常Insights
+2024-08-13 16:00:00 [AlphaModel] 总计生成4个Insights
+2024-08-14 16:00:00 [AlphaModel] 生成信号: 跟踪3对配对
+2024-08-14 16:00:00 [AlphaModel] 生成2个日常Insights
+2024-08-14 16:00:00 [AlphaModel] 总计生成2个Insights
+2024-08-15 00:00:00 [AlphaModel] 生成信号: 跟踪3对配对
+2024-08-16 16:00:00 [AlphaModel] 生成2个日常Insights
+2024-08-16 16:00:00 [AlphaModel] 总计生成2个Insights
+2024-08-19 00:00:00 [AlphaModel] 生成信号: 跟踪3对配对
+2024-08-19 16:00:00 [AlphaModel] 生成2个日常Insights
+2024-08-19 16:00:00 [AlphaModel] 总计生成2个Insights
+2024-08-20 00:00:00 [AlphaModel] 生成信号: 跟踪3对配对
+2024-08-20 16:00:00 [AlphaModel] 生成2个日常Insights
+2024-08-20 16:00:00 [AlphaModel] 总计生成2个Insights
+2024-08-21 16:00:00 [AlphaModel] 生成信号: 跟踪3对配对
+2024-08-21 16:00:00 [AlphaModel] 生成4个日常Insights
+2024-08-21 16:00:00 [AlphaModel] 总计生成4个Insights
+2024-08-22 00:00:00 [AlphaModel] 生成信号: 跟踪3对配对
+2024-08-22 16:00:00 [AlphaModel] 生成4个日常Insights
+2024-08-22 16:00:00 [AlphaModel] 总计生成4个Insights
+2024-08-23 16:00:00 [AlphaModel] 生成信号: 跟踪3对配对
+2024-08-23 16:00:00 [AlphaModel] 生成6个日常Insights
+2024-08-23 16:00:00 [AlphaModel] 总计生成6个Insights
+2024-08-26 16:00:00 [AlphaModel] 生成信号: 跟踪3对配对
+2024-08-26 16:00:00 [AlphaModel] 生成4个日常Insights
+2024-08-26 16:00:00 [AlphaModel] 总计生成4个Insights
+2024-08-27 00:00:00 [AlphaModel] 生成信号: 跟踪3对配对
+2024-08-27 16:00:00 [AlphaModel] 生成4个日常Insights
+2024-08-27 16:00:00 [AlphaModel] 总计生成4个Insights
+2024-08-28 16:00:00 [AlphaModel] 生成信号: 跟踪3对配对
+2024-08-28 16:00:00 [AlphaModel] 生成4个日常Insights
+2024-08-28 16:00:00 [AlphaModel] 总计生成4个Insights
+2024-08-29 16:00:00 [AlphaModel] 生成信号: 跟踪3对配对
+2024-08-29 16:00:00 [AlphaModel] 生成4个日常Insights
+2024-08-29 16:00:00 [AlphaModel] 总计生成4个Insights
+2024-08-30 00:00:00 [AlphaModel] 生成信号: 跟踪3对配对
+2024-08-30 16:00:00 [AlphaModel] 生成4个日常Insights
+2024-08-30 16:00:00 [AlphaModel] 总计生成4个Insights
+2024-09-03 00:00:00 [AlphaModel] 生成信号: 跟踪3对配对
+2024-09-03 16:00:00 [AlphaModel] 生成2个日常Insights
+2024-09-03 16:00:00 [AlphaModel] 总计生成2个Insights
+2024-09-04 00:00:00 ===== 第【3】次选股 =====
+2024-09-04 00:00:00 [UniverseSelection] 批量获取91只股票的历史数据...
+2024-09-04 00:00:00 [选股] 第3次选股完成: 129→76只
+2024-09-04 00:00:00 [AlphaModel.Data] 数据处理: 76→76只 ()
+2024-09-04 00:00:00 [AlphaModel.Coint] 合计筛选4对: 平均0.772, 最高0.941, 最低0.610
+2024-09-04 00:00:00 [AlphaModel.Coint] ConsumerCyclical: (AMZN,CMG)/0.612
+2024-09-04 00:00:00 [AlphaModel.Coint] ConsumerDefensive: (PG,WMT)/0.924, (PEP,CAG)/0.610
+2024-09-04 00:00:00 [AlphaModel.Coint] Industrials: (DAL,UAL)/0.941
+2024-09-04 00:00:00 [AlphaModel.Bayesian] 建模完成: 成功4对, 失败0对 (完全建模2对, 动态更新2对)
+2024-09-04 00:00:00 [AlphaModel] 配对分析完成: 4个配对
+2024-09-04 00:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-09-04 16:00:00 [AlphaModel] 生成4个日常Insights
+2024-09-04 16:00:00 [AlphaModel] 总计生成4个Insights
+2024-09-05 00:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-09-05 16:00:00 [AlphaModel] 生成4个日常Insights
+2024-09-05 16:00:00 [AlphaModel] 总计生成4个Insights
+2024-09-06 00:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-09-06 16:00:00 [AlphaModel] 生成2个日常Insights
+2024-09-06 16:00:00 [AlphaModel] 总计生成2个Insights
+2024-09-09 00:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-09-09 16:00:00 [AlphaModel] 生成4个日常Insights
+2024-09-09 16:00:00 [AlphaModel] 总计生成4个Insights
+2024-09-10 00:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-09-10 16:00:00 [AlphaModel] 生成6个日常Insights
+2024-09-10 16:00:00 [AlphaModel] 总计生成6个Insights
+2024-09-11 00:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-09-11 16:00:00 [AlphaModel] 生成4个日常Insights
+2024-09-11 16:00:00 [AlphaModel] 总计生成4个Insights
+2024-09-12 00:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-09-12 16:00:00 [AlphaModel] 生成8个日常Insights
+2024-09-12 16:00:00 [AlphaModel] 总计生成8个Insights
+2024-09-13 00:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-09-13 16:00:00 [AlphaModel] 生成8个日常Insights
+2024-09-13 16:00:00 [AlphaModel] 总计生成8个Insights
+2024-09-16 00:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-09-16 16:00:00 [AlphaModel] 生成4个日常Insights
+2024-09-16 16:00:00 [AlphaModel] 总计生成4个Insights
+2024-09-17 00:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-09-17 16:00:00 [AlphaModel] 生成2个日常Insights
+2024-09-17 16:00:00 [AlphaModel] 总计生成2个Insights
+2024-09-18 00:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-09-18 16:00:00 [AlphaModel] 生成2个日常Insights
+2024-09-18 16:00:00 [AlphaModel] 总计生成2个Insights
+2024-09-19 00:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-09-19 16:00:00 [AlphaModel] 生成6个日常Insights
+2024-09-19 16:00:00 [AlphaModel] 总计生成6个Insights
+2024-09-20 16:00:00 [AlphaModel] 生成信号: 跟踪4对配对
+2024-09-20 16:00:00 [AlphaModel] 生成8个日常Insights
+2024-09-20 16:00:00 [AlphaModel] 总计生成8个Insights
+2024-09-21 00:00:00 Algorithm Id:(65d645d22ef79f780e1050020b2922c2) completed in 70.77 seconds at 2k data points per second. Processing total of 130,704 data points.

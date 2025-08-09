@@ -625,6 +625,47 @@ def OnOrderEvent(self, orderEvent: OrderEvent):
 - 阶段5：RiskManagement重构
 - 阶段6：OnOrderEvent增强与CPM完善
 
+### v4.1.0 (2025-01-09)
+
+#### 完成的工作
+
+1. **AlphaModel模块化重构**
+   - 将1365行单文件拆分为5个独立模块
+   - AlphaState.py (76行) - 集中状态管理
+   - DataProcessor.py - 数据处理逻辑
+   - PairAnalyzer.py - 配对分析整合
+   - SignalGenerator.py (244行) - 信号生成
+   - AlphaModel.py (219行) - 主协调器
+
+2. **实现风控前置机制**
+   - 添加过期配对清理逻辑（配对级别）
+   - 修复清理逻辑bug：从资产级别改为配对级别
+   - 在SignalGenerator中添加持仓检查
+   - 建仓前检查两资产都无持仓
+   - 平仓前检查至少一资产有持仓
+
+3. **状态追踪优化**
+   - AlphaState添加previous_modeled_pairs字段
+   - 用于追踪配对变化和检测过期配对
+   - 支持跨月度配对生命周期管理
+
+#### Bug修复
+
+- **过期配对清理逻辑**：修复AMZN&CMG→AMZN&GM时CMG未被清理的问题
+- **信号生成逻辑**：防止无持仓时生成平仓信号，有持仓时生成建仓信号
+
+#### 当前系统状态
+
+- **活跃模块**：UniverseSelection、AlphaModel（完整重构）
+- **待重构模块**：PortfolioConstruction、RiskManagement  
+- **待实现**：CentralPairManager冷却期功能
+
+#### 下一步计划
+
+- 实现CentralPairManager冷却期管理
+- 继续PortfolioConstruction重构
+- 继续RiskManagement重构
+
 ---
 
 *文档持续更新中...*
