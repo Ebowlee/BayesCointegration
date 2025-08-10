@@ -82,7 +82,7 @@ class BayesianCointegrationAlphaModel(AlphaModel):
     - 所有模块都有独立的错误处理
     """
     
-    def __init__(self, algorithm, config: dict, sector_code_to_name: dict):
+    def __init__(self, algorithm, config: dict, sector_code_to_name: dict, central_pair_manager=None):
         """
         初始化Alpha模型
         
@@ -90,11 +90,13 @@ class BayesianCointegrationAlphaModel(AlphaModel):
             algorithm: QuantConnect算法实例
             config: 配置字典
             sector_code_to_name: 行业代码到名称的映射
+            central_pair_manager: 中央配对管理器（可选）
         """
         super().__init__()
         self.algorithm = algorithm
         self.config = config
         self.sector_code_to_name = sector_code_to_name
+        self.central_pair_manager = central_pair_manager
         
         # 信号持续时间配置
         self.flat_signal_duration_days = config.get('flat_signal_duration_days', 5)
@@ -162,6 +164,28 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                 self.algorithm.Debug(
                     f"[AlphaModel] 配对分析完成: {len(analysis_result['modeled_pairs'])}个配对"
                 )
+                
+                # 提交配对到CPM
+                if self.central_pair_manager:
+                    try:
+                        # 准备提交数据，保留原始顺序信息
+                        pairs_data = []
+                        for pair in analysis_result['modeled_pairs']:
+                            pairs_data.append({
+                                'symbol1': pair['symbol1'].Value if hasattr(pair['symbol1'], 'Value') else str(pair['symbol1']),
+                                'symbol2': pair['symbol2'].Value if hasattr(pair['symbol2'], 'Value') else str(pair['symbol2']),
+                                'beta': pair.get('beta', 1.0),
+                                'alpha': pair.get('alpha', 0.0),
+                                'quality_score': pair.get('quality_score', 0.5)
+                            })
+                        
+                        # 提交给CPM
+                        if self.central_pair_manager.submit_modeled_pairs(pairs_data):
+                            self.algorithm.Debug(f"[AlphaModel] 成功提交{len(pairs_data)}个配对到CPM")
+                        else:
+                            self.algorithm.Debug("[AlphaModel] 警告：提交配对到CPM失败")
+                    except Exception as e:
+                        self.algorithm.Debug(f"[AlphaModel] CPM提交异常：{str(e)}")
             
             # 重置选股标志
             self.state.update_control_state('is_selection_day', False)

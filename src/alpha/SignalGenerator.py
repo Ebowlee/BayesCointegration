@@ -147,7 +147,7 @@ class SignalGenerator:
         raw_zscore = residual / pair['residual_std'] if pair['residual_std'] > 0 else 0
         
         # EMA平滑处理
-        pair_key = (symbol1, symbol2)
+        pair_key = tuple(sorted([symbol1, symbol2]))
         zscore_ema = self.state.persistent['zscore_ema']
         
         if pair_key not in zscore_ema:

@@ -459,7 +459,7 @@ class BayesianModeler:
         """
         获取历史后验参数
         """
-        pair_key = (symbol1, symbol2)
+        pair_key = tuple(sorted([symbol1, symbol2]))
         
         # 一次性检查存在性和有效性
         historical_posteriors = self.state.persistent['historical_posteriors']
@@ -610,7 +610,7 @@ class BayesianModeler:
         """
         保存后验参数
         """
-        pair_key = (symbol1, symbol2)
+        pair_key = tuple(sorted([symbol1, symbol2]))
         
         # 只保存需要的统计量
         keys_to_save = ['alpha_mean', 'alpha_std', 'beta_mean', 'beta_std', 'sigma_mean', 'sigma_std']
