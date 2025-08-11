@@ -63,23 +63,17 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # 调度
         self._setup_schedule()
         
-        # CentralPairManager - 信息中心
-        from src.CentralPairManager import CentralPairManager
-        self.central_pair_manager = CentralPairManager(self)
-        
         # AlphaModel
         self.SetAlpha(BayesianCointegrationAlphaModel(
             self, 
             self.config.alpha_model, 
-            self.config.sector_code_to_name,
-            self.central_pair_manager
+            self.config.sector_code_to_name
         ))
         
         # PortfolioConstruction
         self.SetPortfolioConstruction(BayesianCointegrationPortfolioConstructionModel(
             self,
-            self.config.portfolio_construction,
-            self.central_pair_manager
+            self.config.portfolio_construction
         ))
         
         # RiskManagement - 待重构

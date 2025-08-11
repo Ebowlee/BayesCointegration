@@ -1,7 +1,6 @@
 # region imports
 from AlgorithmImports import *
 from typing import List, Dict, Tuple, Optional
-from src.OrderTracker import OrderTracker
 # endregion
 
 class BayesianCointegrationRiskManagementModel(RiskManagementModel):
@@ -43,23 +42,19 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
     - 透明性: 详细记录所有风控动作
     """
     
-    def __init__(self, algorithm, config: dict, order_tracker: OrderTracker,
-                 sector_code_to_name: dict = None, central_pair_manager=None):
+    def __init__(self, algorithm, config: dict,
+                 sector_code_to_name: dict = None):
         """
         初始化风险管理模型
         
         Args:
             algorithm: QuantConnect算法实例
             config: 风控配置参数
-            order_tracker: 订单追踪器实例
             sector_code_to_name: 行业代码到名称的映射字典
-            central_pair_manager: 中央配对管理器（用于获取配对状态）
         """
         super().__init__()
         self.algorithm = algorithm
-        self.order_tracker = order_tracker
         self.sector_code_to_name = sector_code_to_name or {}
-        self.central_pair_manager = central_pair_manager
         
         # 风控参数
         # 风控阈值边界条件说明:
@@ -314,11 +309,7 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
                 - 'pair': (symbol1, symbol2)
                 - 'holding_days': 持仓天数
         """
-        # v3.8.0: 优先从CentralPairManager获取活跃配对信息
-        if self.central_pair_manager:
-            return self.central_pair_manager.get_active_pairs()
-        
-        # Fallback到原有逻辑
+        # 直接从Portfolio获取活跃配对
         active_pairs = []
         processed_symbols = set()
         
@@ -342,11 +333,8 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
             # 使用当前顺序作为配对
             original_pair = (symbol, paired_symbol)
             
-            # 获取持仓时间
-            holding_days = self.order_tracker.get_holding_period(original_pair[0], original_pair[1])
-            if holding_days is None:
-                # 如果OrderTracker没有记录，估算为0天（刚建仓）
-                holding_days = 0
+            # 估算持仓时间（简化处理，后续可以优化）
+            holding_days = 0  # TODO: 后续实现持仓时间计算
             
             active_pairs.append({
                 'pair': original_pair,  # 使用原始配对顺序
@@ -367,15 +355,8 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
         Returns:
             Optional[Symbol]: 配对的股票，如果没有找到返回None
         """
-        # 使用CPM获取配对信息（如果可用）
-        paired_symbol = None
-        if self.central_pair_manager:
-            paired_symbol = self.central_pair_manager.get_paired_symbol(symbol)
-        
-        # 验证配对的股票确实有持仓
-        if paired_symbol and self.algorithm.Portfolio[paired_symbol].Invested:
-            return paired_symbol
-        
+        # 简化处理：暂时返回None，后续可以实现更复杂的配对查找逻辑
+        # TODO: 实现配对查找逻辑
         return None
     
     def _calculate_pair_drawdown(self, symbol1: Symbol, symbol2: Symbol) -> float:
@@ -528,35 +509,13 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
         """
         检查并处理异常订单
         
-        使用OrderTracker检测异常配对，返回需要平仓的异常配对列表
-        
-        v3.5.0修复：只处理Portfolio中有实际持仓的异常配对，
-        避免未建仓的配对（如AMZN,GM）被错误识别为异常
+        简化实现：暂时返回空列表，后续可以根据需要实现
         
         Returns:
             List[Tuple]: 需要平仓的异常配对列表，格式为[(symbol1, symbol2), ...]
         """
-        abnormal_pairs = self.order_tracker.get_abnormal_pairs()
-        pairs_to_liquidate = []
-        
-        for symbol1, symbol2 in abnormal_pairs:
-            # v3.5.0关键修复：验证Portfolio中是否真的有持仓
-            has_position = False
-            
-            # 检查symbol1是否有持仓
-            if symbol1 and self.algorithm.Portfolio[symbol1].Invested:
-                has_position = True
-            
-            # 检查symbol2是否有持仓
-            if symbol2 and self.algorithm.Portfolio[symbol2].Invested:
-                has_position = True
-            
-            # 只处理真正有持仓的异常配对
-            if has_position:
-                # 异常日志由总结输出
-                pairs_to_liquidate.append((symbol1, symbol2))
-        
-        return pairs_to_liquidate
+        # TODO: 实现异常订单检测逻辑
+        return []
     
     def _filter_cooldown_targets(self, targets: List[PortfolioTarget]) -> List[PortfolioTarget]:
         """
@@ -593,21 +552,9 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
             if symbol in processed_symbols:
                 # 这个股票已经被处理过（作为配对的一部分被过滤）
                 continue
-                
-            # 使用CPM查找配对的另一只股票
-            paired_symbol = None
-            if self.central_pair_manager:
-                paired_symbol = self.central_pair_manager.get_paired_symbol(symbol)
             
-            if paired_symbol:
-                # 检查冷却期
-                if self.order_tracker.is_in_cooldown(symbol, paired_symbol, self.cooldown_days):
-                    # 冷却期过滤已由CPM处理，这里不重复输出
-                    pass
-                    processed_symbols.add(symbol)
-                    processed_symbols.add(paired_symbol)
-                    continue
-            
+            # TODO: 实现冷却期检查逻辑
+            # 暂时直接添加到过滤后的targets
             filtered_targets.append(target)
         
         return filtered_targets
