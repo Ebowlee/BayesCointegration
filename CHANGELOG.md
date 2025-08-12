@@ -4,6 +4,31 @@
 
 ---
 
+## [v1.0.0_CPM-v1-PC意图管理@20250812] (feature/cpm-development分支)
+### CentralPairManager v1版本 - PC交互功能实现
+- **核心功能**：
+  - submit_intent方法处理prepare_open/prepare_close意图
+  - 自动确定cycle_id（开仓从current_active，平仓从open_instances）
+  - 日级去重缓存机制，防止同日重复提交
+  - 实例生命周期管理（创建、跟踪、删除）
+  - 四条件开仓资格检查（活跃、eligible、无实例）
+
+- **技术实现**：
+  - pair_key规范化：tuple(sorted([s1, s2]))
+  - instance_id永不回退的计数器机制
+  - 完整的拒绝码系统（NOT_ACTIVE, NOT_ELIGIBLE, HAS_OPEN_INSTANCE, CONFLICT_SAME_DAY）
+  - PortfolioConstruction集成，自动提交意图
+  - main.py传递CPM实例给PC
+
+- **测试覆盖**：
+  - 创建test_cpm_v1.py，10个单元测试全部通过
+  - 覆盖所有核心场景（接受、拒绝、去重、冲突、跨期）
+
+### 下一步计划
+- 实现v2的Execution交互（on_execution_filled）
+- 添加实际成交后的fulfilled标记
+- 完善history_log历史记录
+
 ## [v4.2.0_PortfolioConstruction优化@20250809]
 ### PortfolioConstruction模块重大优化
 - **智能Target生成器转型**：
