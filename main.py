@@ -78,7 +78,8 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # PortfolioConstruction
         self.SetPortfolioConstruction(BayesianCointegrationPortfolioConstructionModel(
             self,
-            self.config.portfolio_construction
+            self.config.portfolio_construction,
+            self.central_pair_manager  # 传递CPM给PC
         ))
         
         # RiskManagement - 待重构

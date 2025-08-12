@@ -6,24 +6,30 @@ from typing import Dict, List, Tuple, Set
 
 class CentralPairManager:
     """
-    中央配对管理器 - v0最小交互版本
+    中央配对管理器 - v1版本（Alpha交互 + PC意图管理）
     
-    仅处理Alpha在选股日提交的活跃配对，维护当前活跃目录。
-    不在此阶段写交易历史。
+    v0功能：处理Alpha在选股日提交的活跃配对
+    v1新增：处理PC提交的交易意图，管理运行期实例
     """
     
     def __init__(self, algorithm, config=None):
         """初始化CPM"""
         self.algorithm = algorithm
         
-        # 核心容器
-        self.current_active = {}  # {PairKey: {cycle_id, beta, quality_score, eligible_in_cycle}}
-        self.history_log = []     # 本阶段不写入
-        
-        # 幂等性控制
+        # === v0 容器 ===
+        self.current_active = {}       # {PairKey: {cycle_id, beta, quality_score, eligible_in_cycle}}
+        self.history_log = []          # 本阶段不写入
         self.last_cycle_id = None
-        self.last_cycle_pairs = set()  # 存储pair_key集合用于比较
+        self.last_cycle_pairs = set()
+        
+        # === v1 新增容器 ===
+        self.intents_log = []          # 意图日志
+        self.open_instances = {}       # 运行期实例（仅未平）
+        self.instance_counters = {}    # 实例计数器（永不回退）
+        self.daily_intent_cache = {}   # 日去重缓存
+        self.cache_date = None         # 缓存日期
     
+    # === v0 Alpha交互（保持不变）===
     def submit_modeled_pairs(self, cycle_id: int, pairs: List[Dict]) -> None:
         """
         接收Alpha模型提交的当轮活跃配对
@@ -103,10 +109,162 @@ class CentralPairManager:
         return tuple(sorted([symbol1_value, symbol2_value]))
     
     def _has_open_instance(self, pair_key: Tuple[str, str]) -> bool:
-        """检查配对是否有未平仓实例（占位，暂返回False）"""
-        # TODO: 后续接入Execution时实现真实逻辑
-        return False
+        """检查配对是否有未平仓实例（v1实现）"""
+        return pair_key in self.open_instances
     
     def get_current_active(self) -> Dict:
         """获取当前活跃配对（供查询）"""
         return self.current_active.copy()
+    
+    # === v1 PC交互 ===
+    def submit_intent(self, pair_key: Tuple[str, str], action: str, intent_date: int) -> str:
+        """
+        接收PC提交的交易意图
+        
+        Args:
+            pair_key: 配对键
+            action: "prepare_open" 或 "prepare_close"
+            intent_date: 意图日期（yyyymmdd）
+            
+        Returns:
+            str: "accepted" | "ignored_duplicate" | "ignored_no_position" | "rejected"
+        """
+        # 1. 使用统一的键规范化
+        if isinstance(pair_key, tuple) and len(pair_key) == 2:
+            pair_key = self._make_pair_key(str(pair_key[0]), str(pair_key[1]))
+        else:
+            self.algorithm.Error(f"[CPM] 拒绝(INVALID_KEY): 无效的pair_key格式: {pair_key}")
+            return "rejected"
+        
+        # 2. 参数验证
+        if action not in ["prepare_open", "prepare_close"]:
+            self.algorithm.Error(f"[CPM] 拒绝(INVALID_ACTION): 无效action: {action}")
+            return "rejected"
+        
+        # 3. 缓存日期检查与清理
+        if self.cache_date != intent_date:
+            self.daily_intent_cache.clear()
+            self.cache_date = intent_date
+            self.algorithm.Debug(f"[CPM] 清理日缓存，新日期: {intent_date}")
+        
+        # 4. 同日去重检查
+        cache_key = (pair_key, intent_date)
+        if cache_key in self.daily_intent_cache:
+            existing_action = self.daily_intent_cache[cache_key]
+            if existing_action == action:
+                self.algorithm.Debug(f"[CPM] 忽略重复意图(ignored_duplicate): {pair_key} {action} on {intent_date}")
+                return "ignored_duplicate"
+            else:
+                self.algorithm.Error(f"[CPM] 拒绝(CONFLICT_SAME_DAY): {pair_key} 已有{existing_action}，又收到{action}")
+                return "rejected"
+        
+        # 5. 根据action类型获取cycle_id和instance_id
+        cycle_id = None
+        instance_id = None
+        
+        if action == "prepare_open":
+            # 开仓：从current_active获取cycle_id
+            if pair_key in self.current_active:
+                cycle_id = self.current_active[pair_key].get('cycle_id')
+            else:
+                self.algorithm.Error(f"[CPM] 拒绝(NOT_ACTIVE): {pair_key} 不在当前活跃列表")
+                return "rejected"
+            
+            # 检查开仓资格
+            eligibility_check = self._check_open_eligibility(pair_key)
+            if not eligibility_check['eligible']:
+                self.algorithm.Error(f"[CPM] 拒绝({eligibility_check['code']}): {pair_key} - {eligibility_check['reason']}")
+                return "rejected"
+            
+            # 创建open_instance并获取instance_id
+            instance_id = self._create_open_instance(pair_key, cycle_id, intent_date)
+            
+        elif action == "prepare_close":
+            # 平仓：从open_instances获取cycle_id和instance_id
+            if pair_key in self.open_instances:
+                instance_info = self.open_instances[pair_key]
+                cycle_id = instance_info['cycle_id_start']
+                instance_id = instance_info['instance_id']
+            else:
+                self.algorithm.Debug(f"[CPM] 忽略平仓(ignored_no_position): {pair_key} 无仓可平")
+                return "ignored_no_position"
+        
+        # 6. 记录意图
+        intent_record = {
+            'pair_key': pair_key,
+            'action': action,
+            'cycle_id': cycle_id,
+            'intent_date': intent_date,
+            'instance_id': instance_id,
+            'fulfilled': False,
+            'timestamp': self.algorithm.Time
+        }
+        self.intents_log.append(intent_record)
+        
+        # 7. 更新缓存
+        self.daily_intent_cache[cache_key] = action
+        
+        self.algorithm.Debug(
+            f"[CPM] 接受意图: {pair_key} {action} for {intent_date} "
+            f"(cycle={cycle_id}, instance={instance_id})"
+        )
+        return "accepted"
+    
+    def _check_open_eligibility(self, pair_key: Tuple[str, str]) -> Dict:
+        """检查开仓资格（四个条件）"""
+        # 条件1: pair_key在current_active中（已在上层检查）
+        if pair_key not in self.current_active:
+            return {'eligible': False, 'reason': '配对不在当前活跃列表', 'code': 'NOT_ACTIVE'}
+        
+        pair_info = self.current_active[pair_key]
+        
+        # 条件2: eligible_in_cycle == True
+        if not pair_info.get('eligible_in_cycle', False):
+            return {'eligible': False, 'reason': '配对非当轮活跃(跨期持仓)', 'code': 'NOT_ELIGIBLE'}
+        
+        # 条件3: cycle_id匹配（自动满足）
+        
+        # 条件4: 无未平实例
+        if pair_key in self.open_instances:
+            return {'eligible': False, 'reason': '已有未平实例', 'code': 'HAS_OPEN_INSTANCE'}
+        
+        return {'eligible': True, 'reason': 'OK', 'code': 'OK'}
+    
+    def _create_open_instance(self, pair_key: Tuple[str, str], 
+                            cycle_id: int, intent_date: int) -> int:
+        """创建开仓实例"""
+        # 获取或初始化实例计数器（永不回退）
+        if pair_key not in self.instance_counters:
+            self.instance_counters[pair_key] = 1
+        else:
+            self.instance_counters[pair_key] += 1
+        
+        instance_id = self.instance_counters[pair_key]
+        
+        # 创建实例
+        self.open_instances[pair_key] = {
+            'instance_id': instance_id,
+            'cycle_id_start': cycle_id,
+            'intended_entry_date': intent_date,
+            'entry_time': None,
+            'last_exec_state': 'pending_entry',
+            'leg_qtys': {}
+        }
+        
+        self.algorithm.Debug(f"[CPM] 创建实例: {pair_key} #instance_{instance_id}")
+        return instance_id
+    
+    # === 未来Execution接口（占位）===
+    def on_execution_filled(self, symbol: str, quantity: float, fill_time) -> None:
+        """
+        处理成交回报（v2实现）
+        
+        TODO:
+        - 检测两腿都成，更新entry_time
+        - 找到对应的prepare_open意图（通过pair_key + instance_id），标记fulfilled=True
+        - 检测两腿归零，计算exit_time/holding_days/pnl
+        - 找到对应的prepare_close意图（通过pair_key + instance_id），标记fulfilled=True
+        - 落history_log
+        - 从open_instances删除该pair_key（关键！）
+        """
+        pass

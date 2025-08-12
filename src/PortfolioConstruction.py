@@ -67,11 +67,12 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
     TAG_DELIMITER = '|'
     WEIGHT_TOLERANCE = 0.01  # 权重验证容差: 允许总资金分配与预期相差1%以内
     
-    def __init__(self, algorithm, config):
+    def __init__(self, algorithm, config, central_pair_manager=None):
         super().__init__() 
         self.algorithm = algorithm
         self.margin_rate = config.get('margin_rate', 0.5)
         self.cash_buffer = config.get('cash_buffer', 0.05)
+        self.central_pair_manager = central_pair_manager  # CPM引用
         
         # 动态资金管理参数
         self.max_position_per_pair = config.get('max_position_per_pair', 0.10)  # 单对最大仓位10%
@@ -120,6 +121,9 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         new_position_signals = []
         flat_signals = []
         
+        # 获取当前日期用于意图提交
+        current_date = int(self.algorithm.Time.strftime('%Y%m%d'))
+        
         for group_id, group in grouped_insights.items():
             if len(group) != 2:
                 continue
@@ -146,10 +150,23 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
                     'quality_score': params.get('quality_score', 0.5)
                 })
         
-        # 处理平仓信号
+        # 处理平仓信号并提交平仓意图到CPM
         targets = []
         for symbol1, symbol2 in flat_signals:
             targets.extend(self._handle_flat_signal(symbol1, symbol2))
+            
+            # 提交平仓意图到CPM（如果CPM存在）
+            if self.central_pair_manager:
+                pair_key = (symbol1.Value, symbol2.Value)
+                result = self.central_pair_manager.submit_intent(
+                    pair_key=pair_key,
+                    action="prepare_close",
+                    intent_date=current_date
+                )
+                if result == "accepted":
+                    self.algorithm.Debug(f"[PC→CPM] 平仓意图已接受: {symbol1.Value}&{symbol2.Value}")
+                elif result != "ignored_no_position":
+                    self.algorithm.Debug(f"[PC→CPM] 平仓意图结果: {result} for {symbol1.Value}&{symbol2.Value}")
         
         # 清理过期的冷却期记录
         self._cleanup_expired_cooldowns()
@@ -178,6 +195,20 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         
         # 动态分配资金并处理过滤后的新建仓信号
         if filtered_signals:
+            # 提交开仓意图到CPM（在资金分配之前）
+            if self.central_pair_manager:
+                for signal in filtered_signals:
+                    pair_key = (signal['symbol1'].Value, signal['symbol2'].Value)
+                    result = self.central_pair_manager.submit_intent(
+                        pair_key=pair_key,
+                        action="prepare_open",
+                        intent_date=current_date
+                    )
+                    if result == "accepted":
+                        self.algorithm.Debug(f"[PC→CPM] 开仓意图已接受: {signal['symbol1'].Value}&{signal['symbol2'].Value}")
+                    elif result not in ["ignored_duplicate"]:
+                        self.algorithm.Debug(f"[PC→CPM] 开仓意图被拒绝({result}): {signal['symbol1'].Value}&{signal['symbol2'].Value}")
+            
             targets.extend(self._allocate_capital_and_create_targets(filtered_signals))
         
         # 只在有实际目标时输出简洁日志
