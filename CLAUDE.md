@@ -18,9 +18,8 @@ The strategy follows QuantConnect's **Algorithm Framework** with modular design:
 - **Execution**: Atomic pair execution (currently unused)
 
 ### Supporting Modules
+- **CentralPairManager**: Central authority for pair lifecycle management (v1 implementation)
 - **OrderTracker**: Tracks order lifecycle and pair states, enforces cooldown periods
-- **PairRegistry**: Maintains active pair mappings and provides fast lookups
-- **RiskCalculator**: Computes pair drawdowns and position metrics (planned)
 
 Key architectural principles:
 - **Intra-industry pairing only** - securities are paired within the same Morningstar sector
@@ -57,7 +56,7 @@ python run_tests.py --integration
 
 # Run specific test module
 python run_tests.py test_order_tracker
-python run_tests.py test_pair_registry  
+python run_tests.py test_central_pair_manager
 python run_tests.py test_risk_management
 python run_tests.py test_strategy_flow
 
@@ -94,7 +93,7 @@ lean cloud status
 # Commit format: v<major>.<minor>.<patch>[_description][@date]
 git commit -m "v2.4.8_strategy-optimize@20250720"
 
-# Update CHANGELOG.md after each commit with format:
+# Update docs/CHANGELOG.md after each commit with format:
 ## [v2.4.8_strategy-optimize@20250720]
 - Description of changes
 ```
@@ -104,10 +103,10 @@ git commit -m "v2.4.8_strategy-optimize@20250720"
 ### 1. main.py - Strategy Orchestrator
 - **Purpose**: Central configuration and framework setup
 - **Key Components**:
-  - `StrategyConfig`: Centralized parameter management
   - `BayesianCointegrationStrategy`: Main algorithm class
   - Framework module initialization
-- **Configuration**: All strategy parameters in `StrategyConfig` class
+  - CentralPairManager initialization
+- **Configuration**: All parameters in `src/config.py` via `StrategyConfig` class
 
 ### 2. UniverseSelection.py - Stock Selection
 - **Purpose**: Two-stage filtering (Coarse → Fine) for tradeable universe
@@ -117,22 +116,26 @@ git commit -m "v2.4.8_strategy-optimize@20250720"
   - `_group_and_sort_by_sector()`: Sector-based grouping
 - **Triggers**: Monthly via `Schedule.On()` → `TriggerSelection()`
 
-### 3. AlphaModel.py - Signal Generation
+### 3. AlphaModel - Signal Generation (Modular Architecture)
 - **Purpose**: Bayesian cointegration analysis and trading signals
-- **Components**:
-  - `DataProcessor`: Historical data handling
-  - `CointegrationAnalyzer`: Statistical pair testing
-  - `BayesianRegressor`: MCMC parameter estimation
-  - `SignalGenerator`: Z-score based signal creation
+- **Module Structure** (src/alpha/):
+  - `AlphaModel.py`: Main coordinator (242 lines)
+  - `AlphaState.py`: Centralized state management
+  - `DataProcessor.py`: Historical data handling  
+  - `PairAnalyzer.py`: Integrated cointegration testing and Bayesian modeling
+  - `SignalGenerator.py`: Z-score based signal creation
 - **Signal Types**: Up/Down (entry), Flat (exit)
+- **CPM Integration**: Submits modeled pairs to CentralPairManager on selection days
 
 ### 4. PortfolioConstruction.py - Position Management
 - **Purpose**: Convert signals to position targets
 - **Key Features**:
   - Dynamic position sizing (5-15% per pair)
   - Beta-neutral hedging
-  - Quality score based allocation
+  - Quality score based allocation (filters < 0.7)
+  - Built-in cooldown period management (7 days)
 - **Signal Processing**: Parses Insight.Tag for parameters
+- **CPM Integration**: Submits trading intents (prepare_open/prepare_close)
 
 ### 5. RiskManagement.py - Risk Control
 - **Purpose**: Independent risk monitoring and control
@@ -167,9 +170,11 @@ git commit -m "v2.4.8_strategy-optimize@20250720"
 
 ### Data Flow
 1. UniverseSelection → AlphaModel: `changes.AddedSecurities/RemovedSecurities`
-2. AlphaModel → PortfolioConstruction: `Insight.Tag` contains `"symbol1&symbol2|alpha|beta|zscore|quality_score"`
-3. Scheduling: `Schedule.On()` triggers universe reselection monthly
-4. Direct state access: Modules can access each other via `self.algorithm`
+2. AlphaModel → CentralPairManager: Submit modeled pairs via `submit_modeled_pairs()`
+3. AlphaModel → PortfolioConstruction: `Insight.Tag` contains `"symbol1&symbol2|alpha|beta|zscore|quality_score"`
+4. PortfolioConstruction → CentralPairManager: Submit intents via `submit_intent()`
+5. Scheduling: `Schedule.On()` triggers universe reselection monthly
+6. Direct state access: Modules can access each other via `self.algorithm`
 
 ### State Management
 - **Global state**: No external state files; all state in module instances
@@ -236,7 +241,7 @@ risk_stats = self.algorithm.risk_manager.risk_triggers
 ## Configuration Management
 
 ### Current Approach
-- All parameters hard-coded in `StrategyConfig` class in main.py
+- All parameters centralized in `src/config.py` via `StrategyConfig` class
 - Module-specific parameters passed via config dictionary
 - No external configuration files
 
@@ -253,19 +258,19 @@ risk_stats = self.algorithm.risk_manager.risk_triggers
 - **Mock framework**: `tests/mocks/` - Simulated QuantConnect environment
 
 ### Key Test Coverage
+- **CentralPairManager**: Pair lifecycle management, intent tracking, instance management
 - **OrderTracker**: Order lifecycle, pair matching, cooldown tracking
-- **PairRegistry**: Active pair management, symbol lookups
 - **RiskManagement**: Stop-loss triggers, holding limits, drawdown calculations
 - **Strategy Flow**: End-to-end pair lifecycle simulation
 
 ## Recent Optimization History
 
-- **v3.1.0**: Critical fixes - signal duration optimization (5 days flat, 3 days entry), holding time calculation fix, architecture refactoring with dependency injection
+- **v4.1.0**: AlphaModel modularization - split into 5 specialized modules
+- **v4.0.0**: Removed PairRegistry, simplified CentralPairManager for rebuild
+- **v3.1.0**: Critical fixes - signal duration optimization (5 days flat, 3 days entry)
 - **v3.0.0**: Added comprehensive test framework and AI agent system
 - **v2.17.0**: Implemented complete RiskManagement module with 3-layer risk controls
-- **v2.16.0**: Verified PortfolioConstruction module functionality
-- **v2.15.0**: Made quality score weights configurable
-- **Module simplification**: Used `quantconnect-code-simplifier` agent for cleaner code
+- **v1.0.0**: CPM v1 implementation - Alpha interaction and PC intent management
 
 ## Files to Avoid Modifying
 
@@ -273,6 +278,15 @@ risk_stats = self.algorithm.risk_manager.risk_triggers
 - **backtests/**: Historical backtest results and logs (gitignored but tracked for reference)
 - **.gitignore**: Properly configured for Python/QuantConnect projects
 - **.claude/agents/**: AI agent definitions (managed separately)
+
+## Project File Organization
+
+- **src/**: Source code modules
+  - **alpha/**: AlphaModel modular components
+  - **config.py**: Centralized configuration
+- **tests/**: Test suite with unit and integration tests
+- **docs/**: Documentation including CHANGELOG.md
+- **research/**: Jupyter notebooks for strategy research
 
 ## AI Agents for Development Support
 
