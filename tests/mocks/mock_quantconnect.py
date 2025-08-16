@@ -141,12 +141,29 @@ class MockTransactions:
         return order
 
 
+class MockSecurities:
+    """模拟证券集合"""
+    def __init__(self):
+        self._symbols = []
+    
+    @property
+    def Keys(self):
+        """返回所有证券的Symbol列表"""
+        return self._symbols
+    
+    def add_symbol(self, symbol):
+        """添加证券Symbol"""
+        if symbol not in self._symbols:
+            self._symbols.append(symbol)
+
+
 class MockAlgorithm:
     """模拟算法实例"""
     def __init__(self, start_time: datetime = None):
         self.Time = start_time or datetime(2024, 8, 1)
         self.Portfolio = MockPortfolio()
         self.Transactions = MockTransactions()
+        self.Securities = MockSecurities()
         self.debug_messages = []
         self.logs = []
         

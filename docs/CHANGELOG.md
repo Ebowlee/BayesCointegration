@@ -4,6 +4,37 @@
 
 ---
 
+## [v1.1.0_风险管理优化@20250116] (feature/cpm-development分支)
+### RiskManagement 止损逻辑优化与修正
+- **止损阈值调整**：
+  - 配对整体止损：10% → 20%（给均值回归策略更多恢复空间）
+  - 单边止损：15% → 30%（作为最后防线，防止单腿失控）
+  - 双重保护机制：任一条件触发即双边平仓
+
+- **单边止损逻辑修正**：
+  - 修复做空时错误地对 UnrealizedProfit 取反的问题
+  - 根本原因：QuantConnect API 的 UnrealizedProfit 已内置方向考虑
+  - 统一计算公式：`drawdown = UnrealizedProfit / abs(HoldingsCost)`
+  - 影响：确保做空头寸的止损计算正确
+
+- **代码质量优化**：
+  - 性能提升：Symbol 查找从 O(n*m) 循环优化到 O(n) 字典查找
+  - 代码精简：`_check_pair_drawdown` 方法从 110 行减到 80 行（-27%）
+  - 可读性提升：减少嵌套层级，提前计算布尔条件
+  - 消除重复：使用 `targets.extend()` 替代重复的平仓代码
+
+- **测试完善**：
+  - 更新所有测试的阈值期望值（20%/30%）
+  - 修复 MockAlgorithm 缺少 Securities 属性问题
+  - 添加 MockSecurities 类支持测试
+  - 新增边界条件测试（29%/19%刚好不触发）
+  - 调整测试数据确保逻辑正确性
+
+### 技术实现细节
+- 配对回撤计算：`(h1.UnrealizedProfit + h2.UnrealizedProfit) / total_cost`
+- 单边回撤计算：`h.UnrealizedProfit / abs(h.HoldingsCost)`（不区分方向）
+- 触发优先级：单边止损 > 配对整体止损
+
 ## [v1.0.0_CPM-v1-PC意图管理@20250812] (feature/cpm-development分支)
 ### CentralPairManager v1版本 - PC交互功能实现
 - **核心功能**：

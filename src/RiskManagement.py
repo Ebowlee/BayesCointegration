@@ -70,12 +70,16 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
         """
         # 重置风控触发记录
         self.risk_triggers = {
+            'expired_pairs': [],     # 新增：过期配对
             'pair_drawdown': [],
             'holding_time': [],
             'sector_concentration': [],
             'market_condition': [],
             'incomplete_pairs': []
         }
+        
+        # 0. 过期配对检查（最高优先级）
+        targets = self._check_expired_pairs(targets)
         
         # 1. 配对止损检查
         targets = self._check_pair_drawdown(targets)
@@ -97,12 +101,73 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
         
         return targets
     
+    def _check_expired_pairs(self, targets: List[PortfolioTarget]) -> List[PortfolioTarget]:
+        """
+        检查并处理过期配对
+        
+        从CPM获取过期配对信息并生成平仓指令。
+        过期配对是指上个周期存在但本周期不再有协整关系的配对。
+        
+        Args:
+            targets: 当前目标仓位
+            
+        Returns:
+            调整后的目标仓位（加入过期配对的平仓指令）
+        """
+        if not self.central_pair_manager:
+            return targets
+        
+        # 从CPM获取风控警报
+        alerts = self.central_pair_manager.get_risk_alerts()
+        expired_pairs = alerts.get('expired_pairs', [])
+        
+        if not expired_pairs:
+            return targets
+        
+        # 处理每个过期配对
+        for item in expired_pairs:
+            pair_key = item['pair_key']  # (symbol1_value, symbol2_value)
+            reason = item.get('reason', 'expired')
+            
+            # 从pair_key获取symbol值
+            symbol1_value, symbol2_value = pair_key
+            
+            # 查找对应的Symbol对象
+            symbol1 = None
+            symbol2 = None
+            for symbol in self.algorithm.Securities.Keys:
+                if symbol.Value == symbol1_value:
+                    symbol1 = symbol
+                elif symbol.Value == symbol2_value:
+                    symbol2 = symbol
+            
+            # 生成平仓targets
+            if symbol1 and self.algorithm.Portfolio[symbol1].Invested:
+                targets.append(PortfolioTarget.Percent(self.algorithm, symbol1, 0))
+                self.algorithm.Debug(f"[RiskManagement] 清理过期配对资产: {symbol1_value}")
+            
+            if symbol2 and self.algorithm.Portfolio[symbol2].Invested:
+                targets.append(PortfolioTarget.Percent(self.algorithm, symbol2, 0))
+                self.algorithm.Debug(f"[RiskManagement] 清理过期配对资产: {symbol2_value}")
+            
+            # 记录风控触发
+            self.risk_triggers['expired_pairs'].append(f"{symbol1_value}&{symbol2_value}")
+        
+        # 清空CPM的过期配对列表（已处理）
+        self.central_pair_manager.clear_expired_pairs()
+        
+        if len(expired_pairs) > 0:
+            self.algorithm.Debug(f"[RiskManagement] 处理{len(expired_pairs)}个过期配对")
+        
+        return targets
+    
     def _check_pair_drawdown(self, targets: List[PortfolioTarget]) -> List[PortfolioTarget]:
         """
-        检查配对整体回撤
+        检查配对整体回撤和单边回撤
         
-        监控每个配对的整体盈亏，当回撤超过阈值时触发止损。
-        配对回撤 = (当前配对总值 - 配对成本) / 配对成本
+        监控每个配对的整体盈亏和单边盈亏，当超过阈值时触发止损。
+        - 配对回撤 = 总盈亏 / 总成本
+        - 单边回撤 = 单边盈亏 / 单边成本
         
         Args:
             targets: 当前目标仓位
@@ -110,13 +175,92 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
         Returns:
             调整后的目标仓位
         """
-        # TODO: 实现配对回撤检查逻辑
-        # 1. 识别所有活跃配对
-        # 2. 计算每个配对的当前价值和成本
-        # 3. 计算回撤率
-        # 4. 超过阈值的配对生成平仓target
+        if not self.central_pair_manager:
+            return targets
         
-        self.algorithm.Debug("[RiskManagement] 配对止损检查 - 待实现")
+        # 获取有持仓的活跃配对
+        active_pairs = self.central_pair_manager.get_active_pairs_with_position()
+        if not active_pairs:
+            return targets
+        
+        # 构建Symbol查找字典（优化查找性能）
+        symbols_dict = {s.Value: s for s in self.algorithm.Securities.Keys}
+        
+        # 检查每个配对的回撤
+        for pair_info in active_pairs:
+            pair_key = pair_info['pair_key']
+            symbol1_value, symbol2_value = pair_key
+            
+            # 快速查找Symbol对象
+            symbol1 = symbols_dict.get(symbol1_value)
+            symbol2 = symbols_dict.get(symbol2_value)
+            
+            if not symbol1 or not symbol2:
+                continue
+            
+            # 获取持仓信息
+            h1 = self.algorithm.Portfolio[symbol1]
+            h2 = self.algorithm.Portfolio[symbol2]
+            
+            # 确保两边都有持仓
+            if not h1.Invested or not h2.Invested:
+                continue
+            
+            # 计算成本（始终为正）
+            cost1 = abs(h1.HoldingsCost)
+            cost2 = abs(h2.HoldingsCost)
+            total_cost = cost1 + cost2
+            
+            if total_cost <= 0:
+                continue
+            
+            # 计算回撤率（UnrealizedProfit 已经考虑了做多/做空方向）
+            # 负值表示亏损，正值表示盈利
+            s1_drawdown = h1.UnrealizedProfit / cost1 if cost1 != 0 else 0
+            s2_drawdown = h2.UnrealizedProfit / cost2 if cost2 != 0 else 0
+            total_pnl = h1.UnrealizedProfit + h2.UnrealizedProfit
+            pair_drawdown = total_pnl / total_cost
+            
+            # 判断是否需要止损
+            trigger_single = s1_drawdown < -self.max_single_drawdown or s2_drawdown < -self.max_single_drawdown
+            trigger_pair = pair_drawdown < -self.max_pair_drawdown
+            
+            if trigger_single or trigger_pair:
+                # 生成平仓targets
+                targets.extend([
+                    PortfolioTarget.Percent(self.algorithm, symbol1, 0),
+                    PortfolioTarget.Percent(self.algorithm, symbol2, 0)
+                ])
+                
+                # 记录风控触发信息
+                if trigger_single:
+                    trigger_symbol = 'symbol1' if s1_drawdown < -self.max_single_drawdown else 'symbol2'
+                    self.risk_triggers['pair_drawdown'].append({
+                        'pair': f"{symbol1_value}&{symbol2_value}",
+                        'type': 'single_stop',
+                        's1_drawdown': s1_drawdown,
+                        's2_drawdown': s2_drawdown,
+                        'trigger': trigger_symbol
+                    })
+                    
+                    self.algorithm.Debug(
+                        f"[RiskManagement] 单边止损触发: {symbol1_value}&{symbol2_value}, "
+                        f"{symbol1_value}回撤{s1_drawdown:.2%}, {symbol2_value}回撤{s2_drawdown:.2%}"
+                    )
+                else:
+                    self.risk_triggers['pair_drawdown'].append({
+                        'pair': f"{symbol1_value}&{symbol2_value}",
+                        'type': 'pair_stop',
+                        'drawdown': pair_drawdown,
+                        'pnl': total_pnl,
+                        'cost': total_cost
+                    })
+                    
+                    self.algorithm.Debug(
+                        f"[RiskManagement] 配对止损触发: {symbol1_value}&{symbol2_value}, "
+                        f"回撤{pair_drawdown:.2%}, 亏损${total_pnl:.2f}"
+                    )
+        
         return targets
     
     def _check_holding_time(self, targets: List[PortfolioTarget]) -> List[PortfolioTarget]:

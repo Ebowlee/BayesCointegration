@@ -79,8 +79,8 @@ class StrategyConfig:
         self.risk_management = {
             'max_holding_days': 30,                         # 最大持仓天数
             'cooldown_days': 7,                             # 冷却期天数
-            'max_pair_drawdown': 0.10,                      # 配对最大回撤10%
-            'max_single_drawdown': 0.15,                    # 单边最大回撤15%
+            'max_pair_drawdown': 0.20,                      # 配对最大回撤20%
+            'max_single_drawdown': 0.30,                    # 单边最大回撤30%
             'sector_exposure_threshold': 0.30               # 行业集中度阈值30%
         }
         
