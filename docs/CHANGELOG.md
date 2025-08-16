@@ -17,23 +17,64 @@
   - 统一计算公式：`drawdown = UnrealizedProfit / abs(HoldingsCost)`
   - 影响：确保做空头寸的止损计算正确
 
+- **时间管理功能实现**：
+  - 实现 `_check_holding_time` 分级时间管理
+  - 15天仍亏损：全部平仓
+  - 20天无论盈亏：减仓50%
+  - 30天强制：全部平仓
+  - CentralPairManager 新增 `get_pairs_with_holding_info()` 支持
+
+- **单腿异常检测实现**：
+  - 实现 `_check_incomplete_pairs` 方法
+  - 检测配对缺腿：一边有持仓，另一边没有
+  - 检测孤立持仓：不在任何活跃配对中的持仓
+  - 自动生成平仓指令消除非对冲风险
+  - 记录到 risk_triggers['incomplete_pairs']
+
+- **风控执行顺序优化**：
+  - 调整为：过期配对→配对止损→时间管理→单腿异常→行业集中度→市场异常
+  - 单腿异常检查提前，优先处理紧急风险
+  - 物理重排方法顺序与执行顺序一致
+  - 添加70字符分隔线提升代码可读性
+
 - **代码质量优化**：
   - 性能提升：Symbol 查找从 O(n*m) 循环优化到 O(n) 字典查找
   - 代码精简：`_check_pair_drawdown` 方法从 110 行减到 80 行（-27%）
   - 可读性提升：减少嵌套层级，提前计算布尔条件
   - 消除重复：使用 `targets.extend()` 替代重复的平仓代码
 
+- **行业集中度控制实现**：
+  - 实现 `_check_sector_concentration` 方法
+  - 监控各行业的仓位占比，防止单一行业过度暴露
+  - 阈值设定：单行业暴露超过50%时触发
+  - 缩减策略：超限行业所有配对同比例缩减到75%
+  - 一次遍历收集所有信息，优化性能
+  - 使用 defaultdict 和预计算权重减少重复计算
+  - 记录到 risk_triggers['sector_concentration']
+
 - **测试完善**：
   - 更新所有测试的阈值期望值（20%/30%）
   - 修复 MockAlgorithm 缺少 Securities 属性问题
   - 添加 MockSecurities 类支持测试
   - 新增边界条件测试（29%/19%刚好不触发）
+  - 新增 test_sector_concentration_control 测试
+  - 模拟多配对场景验证行业集中度控制
+  - 验证缩减比例计算的正确性
+  - MockSecurities 类增强，支持 Fundamentals 数据模拟
+
+- **代码架构工作流优化**：
+  - 建立 code-architect subagent 自动审查流程
+  - 实施"开发-审查-批准-执行"四阶段工作流
+  - 确保优化建议需用户批准后才执行
+  - 为未来的性能优化建立标准化流程
+  - 新增单腿异常检测测试（test_incomplete_pair_detection, test_isolated_position_detection）
   - 调整测试数据确保逻辑正确性
 
 ### 技术实现细节
 - 配对回撤计算：`(h1.UnrealizedProfit + h2.UnrealizedProfit) / total_cost`
 - 单边回撤计算：`h.UnrealizedProfit / abs(h.HoldingsCost)`（不区分方向）
-- 触发优先级：单边止损 > 配对整体止损
+- 触发优先级：单边止损 > 配对整体止损 > 单腿异常
+- 单腿检测逻辑：遍历持仓 → 查找配对 → 检查完整性 → 生成平仓
 
 ## [v1.0.0_CPM-v1-PC意图管理@20250812] (feature/cpm-development分支)
 ### CentralPairManager v1版本 - PC交互功能实现

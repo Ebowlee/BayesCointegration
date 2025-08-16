@@ -152,9 +152,6 @@ class BayesianCointegrationAlphaModel(AlphaModel):
             # 使用配对分析器执行完整的配对分析流程
             analysis_result = self.pair_analyzer.analyze(symbols)
             
-            # 清理过期配对中的持仓资产
-            self._liquidate_obsolete_positions(analysis_result['modeled_pairs'])
-            
             # 保存建模结果
             if analysis_result['modeled_pairs']:
                 # 更新配对记录：保存旧配对，更新新配对
@@ -206,37 +203,3 @@ class BayesianCointegrationAlphaModel(AlphaModel):
             self.algorithm.Debug(f"[AlphaModel] 总计生成{len(insights)}个Insights")
         return insights
     
-    def _liquidate_obsolete_positions(self, new_modeled_pairs: List[Dict]):
-        """
-        清理过期配对中的持仓资产
-        
-        Args:
-            new_modeled_pairs: 新的配对列表
-        """
-        # 获取旧配对
-        old_pairs = self.state.persistent.get('previous_modeled_pairs', [])
-        if not old_pairs:
-            return
-        
-        # 构建新配对集合（使用排序的元组作为key，确保顺序一致）
-        new_pair_set = set()
-        for pair in new_modeled_pairs:
-            pair_key = tuple(sorted([pair['symbol1'], pair['symbol2']]))
-            new_pair_set.add(pair_key)
-        
-        # 找出过期的配对并清理其资产
-        for old_pair in old_pairs:
-            pair_key = tuple(sorted([old_pair['symbol1'], old_pair['symbol2']]))
-            
-            # 如果这个配对不在新配对中，说明过期了
-            if pair_key not in new_pair_set:
-                # 清理该配对的两个资产（如果有持仓）
-                symbol1, symbol2 = old_pair['symbol1'], old_pair['symbol2']
-                
-                if self.algorithm.Portfolio[symbol1].Invested:
-                    self.algorithm.Liquidate(symbol1)
-                    self.algorithm.Debug(f"[AlphaModel] 清理过期配对资产: {symbol1.Value} (from {symbol1.Value}&{symbol2.Value})")
-                
-                if self.algorithm.Portfolio[symbol2].Invested:
-                    self.algorithm.Liquidate(symbol2)
-                    self.algorithm.Debug(f"[AlphaModel] 清理过期配对资产: {symbol2.Value} (from {symbol1.Value}&{symbol2.Value})")

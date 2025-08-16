@@ -32,6 +32,11 @@ class MockCentralPairManager:
     def clear_expired_pairs(self):
         self.expired_pairs = []
     
+    def get_pairs_with_holding_info(self):
+        """Mock method for holding time check"""
+        # Return empty list since we don't have entry_time in tests
+        return []
+    
     def add_active_pair(self, symbol1, symbol2):
         """Helper method for tests to add active pairs"""
         self.active_pairs.append({
@@ -77,7 +82,9 @@ class TestRiskManagement(unittest.TestCase):
             'max_holding_days': 30,
             'cooldown_days': 7,
             'max_pair_drawdown': 0.20,  # 更新为20%
-            'max_single_drawdown': 0.30   # 更新为30%
+            'max_single_drawdown': 0.30,   # 更新为30%
+            'sector_exposure_threshold': 0.50,  # 行业集中度50%
+            'sector_reduction_factor': 0.75     # 缩减到75%
         }
         
         self.risk_manager = BayesianCointegrationRiskManagementModel(
@@ -375,6 +382,84 @@ class TestRiskManagement(unittest.TestCase):
         # 验证是否检测到异常配对
         abnormal_pairs = self.order_tracker.get_abnormal_pairs()
         self.assertEqual(len(abnormal_pairs), 1)
+    
+    def test_incomplete_pair_detection(self):
+        """测试单腿异常检测"""
+        # 设置配对
+        self.central_pair_manager.add_active_pair(self.symbol1, self.symbol2)
+        self.central_pair_manager.add_active_pair(self.symbol3, self.symbol4)
+        
+        # 场景1：配对缺腿 - symbol1有持仓，symbol2没有
+        self.algorithm.Portfolio[self.symbol1] = MockHolding(
+            self.symbol1, True, 100, 100, 100  # 有持仓
+        )
+        self.algorithm.Portfolio[self.symbol2] = MockHolding(
+            self.symbol2, False, 0, 0, 100  # 无持仓
+        )
+        
+        # 场景2：正常配对 - symbol3和symbol4都有持仓
+        self.algorithm.Portfolio[self.symbol3] = MockHolding(
+            self.symbol3, True, 100, 100, 100  # 有持仓
+        )
+        self.algorithm.Portfolio[self.symbol4] = MockHolding(
+            self.symbol4, True, -50, 50, 50  # 有持仓（做空）
+        )
+        
+        # 执行风控检查
+        targets = []
+        risk_adjusted_targets = self.risk_manager.ManageRisk(self.algorithm, targets)
+        
+        # 应该只平仓单腿持仓的symbol1
+        target_symbols = [t.Symbol for t in risk_adjusted_targets]
+        self.assertIn(self.symbol1, target_symbols)  # symbol1应该被平仓
+        self.assertNotIn(self.symbol3, target_symbols)  # symbol3不应该被平仓
+        self.assertNotIn(self.symbol4, target_symbols)  # symbol4不应该被平仓
+        
+        # 验证风控触发记录
+        self.assertGreater(len(self.risk_manager.risk_triggers['incomplete_pairs']), 0)
+    
+    def test_isolated_position_detection(self):
+        """测试孤立持仓检测"""
+        # 只设置一个配对
+        self.central_pair_manager.add_active_pair(self.symbol1, self.symbol2)
+        
+        # symbol1和symbol2是正常配对
+        self.algorithm.Portfolio[self.symbol1] = MockHolding(
+            self.symbol1, True, 100, 100, 100
+        )
+        self.algorithm.Portfolio[self.symbol2] = MockHolding(
+            self.symbol2, True, -50, 50, 50
+        )
+        
+        # symbol3是孤立持仓（不在任何配对中）
+        self.algorithm.Portfolio[self.symbol3] = MockHolding(
+            self.symbol3, True, 100, 100, 100  # 有持仓但不在配对中
+        )
+        self.algorithm.Portfolio[self.symbol4] = MockHolding(
+            self.symbol4, False, 0, 0, 100  # 无持仓
+        )
+        
+        # 执行风控检查
+        targets = []
+        risk_adjusted_targets = self.risk_manager.ManageRisk(self.algorithm, targets)
+        
+        # 应该只平仓孤立持仓的symbol3
+        target_symbols = [t.Symbol for t in risk_adjusted_targets]
+        self.assertIn(self.symbol3, target_symbols)  # symbol3应该被平仓（孤立持仓）
+        self.assertNotIn(self.symbol1, target_symbols)  # symbol1不应该被平仓
+        self.assertNotIn(self.symbol2, target_symbols)  # symbol2不应该被平仓
+        
+        # 验证风控触发记录
+        incomplete_triggers = self.risk_manager.risk_triggers['incomplete_pairs']
+        self.assertGreater(len(incomplete_triggers), 0)
+        
+        # 检查是否记录为孤立持仓
+        isolated_found = False
+        for trigger in incomplete_triggers:
+            if trigger.get('type') == 'isolated_position' and trigger.get('symbol') == 'GOOGL':
+                isolated_found = True
+                break
+        self.assertTrue(isolated_found, "应该检测到GOOGL为孤立持仓")
         
     # test_create_liquidation_targets 已移除 - 该方法在新版RiskManagement中不存在
     
@@ -443,6 +528,87 @@ class TestRiskManagement(unittest.TestCase):
         self.assertEqual(len(risk_adjusted_targets), 0)
         
         # 验证没有触发配对止损（通过检查targets为空）
+
+
+    def test_sector_concentration_control(self):
+        """测试行业集中度控制"""
+        # 模拟MorningstarSectorCode
+        class MockMorningstarSectorCode:
+            Technology = 311
+            Healthcare = 206
+        
+        MorningstarSectorCode = MockMorningstarSectorCode()
+        
+        # 创建sector_code_to_name映射
+        self.risk_manager.sector_code_to_name = {
+            MorningstarSectorCode.Technology: "Technology",
+            MorningstarSectorCode.Healthcare: "Healthcare"
+        }
+        
+        # 设置3个Technology配对，1个Healthcare配对
+        # Technology占75%，Healthcare占25%，触发50%阈值
+        self.central_pair_manager.add_active_pair(self.symbol1, self.symbol2)  # Tech pair 1
+        self.central_pair_manager.add_active_pair(self.symbol3, self.symbol4)  # Tech pair 2
+        
+        # 设置持仓 - Technology占75%
+        # Pair 1: 30% of portfolio
+        self.algorithm.Portfolio[self.symbol1] = MockHolding(
+            self.symbol1, True, 100, 100, 100, holdings_value=15000  # 15%
+        )
+        self.algorithm.Portfolio[self.symbol2] = MockHolding(
+            self.symbol2, True, -50, 50, 50, holdings_value=-15000  # -15%
+        )
+        
+        # Pair 2: 45% of portfolio (使Technology总计75%)
+        self.algorithm.Portfolio[self.symbol3] = MockHolding(
+            self.symbol3, True, 100, 100, 100, holdings_value=22500  # 22.5%
+        )
+        self.algorithm.Portfolio[self.symbol4] = MockHolding(
+            self.symbol4, True, -50, 50, 50, holdings_value=-22500  # -22.5%
+        )
+        
+        # 设置总投资组合价值
+        self.algorithm.Portfolio.TotalPortfolioValue = 100000
+        
+        # 设置股票的行业信息（模拟Fundamentals）
+        # 需要为Securities添加Fundamentals
+        for symbol in [self.symbol1, self.symbol2, self.symbol3, self.symbol4]:
+            security = self.algorithm.Securities[symbol]
+            # 创建mock fundamentals
+            security.Fundamentals = type('Fundamentals', (), {
+                'AssetClassification': type('AssetClassification', (), {
+                    'MorningstarSectorCode': MorningstarSectorCode.Technology
+                })()
+            })()
+        
+        # 执行风控检查
+        targets = []
+        risk_adjusted_targets = self.risk_manager.ManageRisk(self.algorithm, targets)
+        
+        # 应该生成缩减targets（每个股票缩减到75%）
+        # Technology暴露 = |15000| + |15000| + |22500| + |22500| = 75000
+        # 占比 = 75000 / 75000 = 100% > 50%阈值
+        # 所以应该触发缩减
+        self.assertGreater(len(risk_adjusted_targets), 0)
+        
+        # 验证是否记录了风控触发
+        self.assertGreater(len(self.risk_manager.risk_triggers['sector_concentration']), 0)
+        
+        # 验证缩减比例
+        # 每个target的权重应该是原权重的75%
+        for target in risk_adjusted_targets:
+            if target.Symbol == self.symbol1:
+                # 原权重15%，缩减后应该是11.25%
+                self.assertAlmostEqual(target.Quantity, 0.1125, places=4)
+            elif target.Symbol == self.symbol2:
+                # 原权重-15%，缩减后应该是-11.25%
+                self.assertAlmostEqual(target.Quantity, -0.1125, places=4)
+            elif target.Symbol == self.symbol3:
+                # 原权重22.5%，缩减后应该是16.875%
+                self.assertAlmostEqual(target.Quantity, 0.16875, places=4)
+            elif target.Symbol == self.symbol4:
+                # 原权重-22.5%，缩减后应该是-16.875%
+                self.assertAlmostEqual(target.Quantity, -0.16875, places=4)
 
 
 if __name__ == '__main__':

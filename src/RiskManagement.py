@@ -43,7 +43,8 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
         # 风控参数
         self.max_pair_drawdown = self.config.get('max_pair_drawdown', 0.10)  # 配对最大回撤10%
         self.max_single_drawdown = self.config.get('max_single_drawdown', 0.15)  # 单边最大回撤15%
-        self.sector_exposure_threshold = self.config.get('sector_exposure_threshold', 0.30)  # 行业集中度30%
+        self.sector_exposure_threshold = self.config.get('sector_exposure_threshold', 0.50)  # 行业集中度50%
+        self.sector_reduction_factor = self.config.get('sector_reduction_factor', 0.75)  # 超限时缩减到75%
         
         # 时间管理参数
         self.loss_cutoff_days = 15  # 15天仍亏损则全部平仓
@@ -87,20 +88,21 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
         # 2. 时间管理检查
         targets = self._check_holding_time(targets)
         
-        # 3. 行业集中度检查
+        # 3. 单腿异常检查（提前处理）
+        targets = self._check_incomplete_pairs(targets)
+        
+        # 4. 行业集中度检查
         targets = self._check_sector_concentration(targets)
         
-        # 4. 市场异常检查
+        # 5. 市场异常检查
         targets = self._check_market_condition(targets)
-        
-        # 5. 单腿异常检查
-        targets = self._check_incomplete_pairs(targets)
         
         # 输出风控触发汇总
         self._log_risk_summary()
         
         return targets
     
+    # ----------------------------------------------------------------------
     def _check_expired_pairs(self, targets: List[PortfolioTarget]) -> List[PortfolioTarget]:
         """
         检查并处理过期配对
@@ -161,6 +163,7 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
         
         return targets
     
+    # ----------------------------------------------------------------------
     def _check_pair_drawdown(self, targets: List[PortfolioTarget]) -> List[PortfolioTarget]:
         """
         检查配对整体回撤和单边回撤
@@ -263,6 +266,7 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
         
         return targets
     
+    # ----------------------------------------------------------------------
     def _check_holding_time(self, targets: List[PortfolioTarget]) -> List[PortfolioTarget]:
         """
         分级时间管理
@@ -272,26 +276,207 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
         - 20天：无论盈亏减仓50%
         - 30天：强制全部平仓
         
+        注意：当前依赖 entry_time 字段，需要 Execution 模块完成后填充
+        
         Args:
             targets: 当前目标仓位
             
         Returns:
             调整后的目标仓位
         """
-        # TODO: 实现时间管理逻辑
-        # 1. 获取所有配对的建仓时间
-        # 2. 计算持仓天数
-        # 3. 根据规则生成相应的调整
+        if not self.central_pair_manager:
+            return targets
         
-        self.algorithm.Debug("[RiskManagement] 时间管理检查 - 待实现")
+        # 获取配对持仓信息（只返回有 entry_time 的配对）
+        pairs_info = self.central_pair_manager.get_pairs_with_holding_info()
+        if not pairs_info:
+            # 暂时没有 entry_time 数据，等待 Execution 模块完成
+            return targets
+        
+        # 构建Symbol查找字典
+        symbols_dict = {s.Value: s for s in self.algorithm.Securities.Keys}
+        
+        for pair_info in pairs_info:
+            pair_key = pair_info['pair_key']
+            holding_days = pair_info['holding_days']
+            symbol1_value, symbol2_value = pair_key
+            
+            # 查找Symbol对象
+            symbol1 = symbols_dict.get(symbol1_value)
+            symbol2 = symbols_dict.get(symbol2_value)
+            
+            if not symbol1 or not symbol2:
+                continue
+            
+            # 获取持仓信息
+            h1 = self.algorithm.Portfolio[symbol1]
+            h2 = self.algorithm.Portfolio[symbol2]
+            
+            if not h1.Invested or not h2.Invested:
+                continue
+            
+            # 计算配对盈亏
+            total_pnl = h1.UnrealizedProfit + h2.UnrealizedProfit
+            pair_str = f"{symbol1_value}&{symbol2_value}"
+            
+            # 分级时间管理逻辑
+            if holding_days >= self.max_holding_days:
+                # 30天强制平仓
+                targets.extend([
+                    PortfolioTarget.Percent(self.algorithm, symbol1, 0),
+                    PortfolioTarget.Percent(self.algorithm, symbol2, 0)
+                ])
+                self.risk_triggers['holding_time'].append({
+                    'pair': pair_str,
+                    'type': 'max_holding',
+                    'days': holding_days
+                })
+                self.algorithm.Debug(f"[RiskManagement] 持仓超时强制平仓: {pair_str}, 已持有{holding_days}天")
+                
+            elif holding_days >= self.partial_exit_days:
+                # 20天减仓50%
+                current_value1 = h1.HoldingsValue
+                current_value2 = h2.HoldingsValue
+                total_value = self.algorithm.Portfolio.TotalPortfolioValue
+                
+                if total_value > 0:
+                    targets.extend([
+                        PortfolioTarget.Percent(self.algorithm, symbol1, (current_value1 / total_value) * 0.5),
+                        PortfolioTarget.Percent(self.algorithm, symbol2, (current_value2 / total_value) * 0.5)
+                    ])
+                    self.risk_triggers['holding_time'].append({
+                        'pair': pair_str,
+                        'type': 'partial_exit',
+                        'days': holding_days
+                    })
+                    self.algorithm.Debug(f"[RiskManagement] 持仓{holding_days}天减仓50%: {pair_str}")
+                
+            elif holding_days >= self.loss_cutoff_days and total_pnl < 0:
+                # 15天仍亏损则平仓
+                targets.extend([
+                    PortfolioTarget.Percent(self.algorithm, symbol1, 0),
+                    PortfolioTarget.Percent(self.algorithm, symbol2, 0)
+                ])
+                self.risk_triggers['holding_time'].append({
+                    'pair': pair_str,
+                    'type': 'loss_cutoff',
+                    'days': holding_days,
+                    'pnl': total_pnl
+                })
+                self.algorithm.Debug(
+                    f"[RiskManagement] 持仓{holding_days}天仍亏损平仓: {pair_str}, 亏损${total_pnl:.2f}"
+                )
+        
         return targets
     
+    # ----------------------------------------------------------------------
+    def _check_incomplete_pairs(self, targets: List[PortfolioTarget]) -> List[PortfolioTarget]:
+        """
+        单腿异常检查
+        
+        检测和处理不完整的配对持仓：
+        - 配对中只有一腿有持仓
+        - 孤立持仓（不在任何配对中）
+        
+        Args:
+            targets: 当前目标仓位
+            
+        Returns:
+            调整后的目标仓位
+        """
+        if not self.central_pair_manager:
+            return targets
+        
+        # 1. 获取所有有持仓的股票（symbol.Value集合）
+        invested_symbols = set()
+        for symbol in self.algorithm.Securities.Keys:
+            if self.algorithm.Portfolio[symbol].Invested:
+                invested_symbols.add(symbol.Value)
+        
+        if not invested_symbols:
+            return targets
+        
+        # 2. 获取所有活跃配对（CPM认为应该有持仓的）
+        active_pairs = self.central_pair_manager.get_active_pairs_with_position()
+        
+        # 3. 收集需要平仓的股票
+        symbols_to_liquidate = set()
+        paired_symbols = set()  # 记录所有在配对中的股票
+        
+        # 检查每个配对的完整性
+        for pair_info in active_pairs:
+            pair_key = pair_info['pair_key']
+            symbol1_value, symbol2_value = pair_key
+            
+            # 记录这两个股票在配对中
+            paired_symbols.add(symbol1_value)
+            paired_symbols.add(symbol2_value)
+            
+            # 检查两边是否都有持仓
+            has_s1 = symbol1_value in invested_symbols
+            has_s2 = symbol2_value in invested_symbols
+            
+            # 如果只有一边有持仓（单腿异常）
+            if has_s1 != has_s2:
+                # 找出有持仓的那一边
+                if has_s1:
+                    symbols_to_liquidate.add(symbol1_value)
+                    self.algorithm.Debug(
+                        f"[RiskManagement] 检测到单腿持仓: {symbol1_value} "
+                        f"(缺失配对: {symbol2_value})"
+                    )
+                    self.risk_triggers['incomplete_pairs'].append({
+                        'type': 'incomplete_pair',
+                        'symbol': symbol1_value,
+                        'pair_key': pair_key
+                    })
+                else:
+                    symbols_to_liquidate.add(symbol2_value)
+                    self.algorithm.Debug(
+                        f"[RiskManagement] 检测到单腿持仓: {symbol2_value} "
+                        f"(缺失配对: {symbol1_value})"
+                    )
+                    self.risk_triggers['incomplete_pairs'].append({
+                        'type': 'incomplete_pair',
+                        'symbol': symbol2_value,
+                        'pair_key': pair_key
+                    })
+        
+        # 4. 检查孤立持仓（有持仓但不在任何配对中）
+        isolated_positions = invested_symbols - paired_symbols
+        for symbol_value in isolated_positions:
+            symbols_to_liquidate.add(symbol_value)
+            self.algorithm.Debug(
+                f"[RiskManagement] 检测到孤立持仓: {symbol_value} (不在任何配对中)"
+            )
+            self.risk_triggers['incomplete_pairs'].append({
+                'type': 'isolated_position',
+                'symbol': symbol_value
+            })
+        
+        # 5. 生成平仓指令
+        if symbols_to_liquidate:
+            # 构建Symbol查找字典
+            symbols_dict = {s.Value: s for s in self.algorithm.Securities.Keys}
+            
+            for symbol_value in symbols_to_liquidate:
+                symbol = symbols_dict.get(symbol_value)
+                if symbol:
+                    targets.append(PortfolioTarget.Percent(self.algorithm, symbol, 0))
+            
+            self.algorithm.Debug(
+                f"[RiskManagement] 单腿异常平仓: {len(symbols_to_liquidate)}个持仓"
+            )
+        
+        return targets
+    
+    # ----------------------------------------------------------------------
     def _check_sector_concentration(self, targets: List[PortfolioTarget]) -> List[PortfolioTarget]:
         """
         行业集中度控制
         
         监控各行业的仓位占比，防止单一行业过度暴露。
-        当某行业超过30%时，平掉该行业最早的配对。
+        当某行业超过阈值（如50%）时，该行业所有配对同比例缩减。
         
         Args:
             targets: 当前目标仓位
@@ -299,15 +484,105 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
         Returns:
             调整后的目标仓位
         """
-        # TODO: 实现行业集中度检查
-        # 1. 统计各行业的当前暴露
-        # 2. 识别超限的行业
-        # 3. 找出该行业最早的配对
-        # 4. 生成平仓target
+        if not self.central_pair_manager:
+            return targets
         
-        self.algorithm.Debug("[RiskManagement] 行业集中度检查 - 待实现")
+        # 1. 获取有持仓的活跃配对
+        active_pairs = self.central_pair_manager.get_active_pairs_with_position()
+        if not active_pairs:
+            return targets
+        
+        total_portfolio_value = self.algorithm.Portfolio.TotalPortfolioValue
+        if total_portfolio_value <= 0:
+            return targets
+        
+        # 2. 一次遍历收集所有信息
+        from collections import defaultdict
+        sector_data = defaultdict(lambda: {'exposure': 0, 'pairs': []})
+        symbols_dict = {s.Value: s for s in self.algorithm.Securities.Keys}
+        
+        for pair_info in active_pairs:
+            pair_key = pair_info['pair_key']
+            symbol1_value, symbol2_value = pair_key
+            
+            # 获取Symbol对象
+            symbol1 = symbols_dict.get(symbol1_value)
+            symbol2 = symbols_dict.get(symbol2_value)
+            if not symbol1 or not symbol2:
+                continue
+            
+            # 获取持仓信息（一次获取，后续复用）
+            h1 = self.algorithm.Portfolio[symbol1]
+            h2 = self.algorithm.Portfolio[symbol2]
+            
+            # 计算暴露（无需检查Invested，0值自然处理）
+            pair_exposure = abs(h1.HoldingsValue) + abs(h2.HoldingsValue)
+            if pair_exposure == 0:  # 跳过无实际持仓的配对
+                continue
+            
+            # 获取行业（只需查一只股票）
+            try:
+                security = self.algorithm.Securities[symbol1]
+                if not security.Fundamentals:
+                    continue
+                sector_code = security.Fundamentals.AssetClassification.MorningstarSectorCode
+            except:
+                continue
+            
+            # 预计算权重，存储所有信息
+            sector_data[sector_code]['exposure'] += pair_exposure
+            sector_data[sector_code]['pairs'].append({
+                'pair_key': pair_key,
+                'symbol1': symbol1,
+                'symbol2': symbol2,
+                'weight1': h1.HoldingsValue / total_portfolio_value,
+                'weight2': h2.HoldingsValue / total_portfolio_value
+            })
+        
+        # 3. 处理超限行业（只有有数据时才处理）
+        if not sector_data:
+            return targets
+            
+        total_exposure = sum(d['exposure'] for d in sector_data.values())
+        
+        # 4. 检查每个行业的暴露
+        for sector_code, data in sector_data.items():
+            exposure_ratio = data['exposure'] / total_exposure
+            
+            if exposure_ratio > self.sector_exposure_threshold:
+                sector_name = self.sector_code_to_name.get(sector_code, str(sector_code))
+                
+                self.algorithm.Debug(
+                    f"[RiskManagement] 行业集中度超限: {sector_name} "
+                    f"暴露{exposure_ratio:.1%} > 阈值{self.sector_exposure_threshold:.1%}, "
+                    f"缩减到{self.sector_reduction_factor:.1%}"
+                )
+                
+                # 使用预存的信息生成targets
+                for pair_data in data['pairs']:
+                    new_weight1 = pair_data['weight1'] * self.sector_reduction_factor
+                    new_weight2 = pair_data['weight2'] * self.sector_reduction_factor
+                    
+                    targets.append(PortfolioTarget.Percent(self.algorithm, pair_data['symbol1'], new_weight1))
+                    targets.append(PortfolioTarget.Percent(self.algorithm, pair_data['symbol2'], new_weight2))
+                    
+                    # 记录风控触发
+                    symbol1_value, symbol2_value = pair_data['pair_key']
+                    self.risk_triggers['sector_concentration'].append({
+                        'sector': sector_name,
+                        'exposure_ratio': exposure_ratio,
+                        'pair': f"{symbol1_value}&{symbol2_value}",
+                        'action': 'reduce'
+                    })
+                
+                self.algorithm.Debug(
+                    f"[RiskManagement] {sector_name}行业{len(data['pairs'])}个配对"
+                    f"缩减到{self.sector_reduction_factor:.0%}"
+                )
+        
         return targets
     
+    # ----------------------------------------------------------------------
     def _check_market_condition(self, targets: List[PortfolioTarget]) -> List[PortfolioTarget]:
         """
         市场异常保护
@@ -330,28 +605,7 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
         self.algorithm.Debug("[RiskManagement] 市场异常检查 - 待实现")
         return targets
     
-    def _check_incomplete_pairs(self, targets: List[PortfolioTarget]) -> List[PortfolioTarget]:
-        """
-        单腿异常检查
-        
-        检测和处理不完整的配对持仓：
-        - 配对中只有一腿有持仓
-        - 订单执行后出现单腿
-        
-        Args:
-            targets: 当前目标仓位
-            
-        Returns:
-            调整后的目标仓位
-        """
-        # TODO: 实现单腿检查
-        # 1. 检查所有持仓
-        # 2. 识别单腿持仓（没有配对的另一边）
-        # 3. 生成平仓target
-        
-        self.algorithm.Debug("[RiskManagement] 单腿异常检查 - 待实现")
-        return targets
-    
+    # ----------------------------------------------------------------------
     def _log_risk_summary(self):
         """
         输出风控触发汇总日志

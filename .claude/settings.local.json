@@ -24,5 +24,6 @@
       "Bash(git stash:*)"
     ],
     "deny": []
-  }
+  },
+  "outputStyle": "Explanatory"
 }

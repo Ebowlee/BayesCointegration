@@ -28,6 +28,9 @@ class CentralPairManager:
         self.instance_counters = {}    # 实例计数器（永不回退）
         self.daily_intent_cache = {}   # 日去重缓存
         self.cache_date = None         # 缓存日期
+        
+        # === 风控支持 ===
+        self.expired_pairs = []        # 过期配对列表
     
     # === v0 Alpha交互（保持不变）===
     def submit_modeled_pairs(self, cycle_id: int, pairs: List[Dict]) -> None:
@@ -71,15 +74,21 @@ class CentralPairManager:
                 self.algorithm.Debug(f"[CPM] Cycle {cycle_id} 幂等重复提交，忽略")
                 return
         
-        # 3. 清理旧配对（仅在新cycle时）
+        # 3. 清理旧配对并识别过期配对（仅在新cycle时）
+        self.expired_pairs = []  # 重置过期配对列表
         if self.last_cycle_id is not None:
             to_remove = []
             for pair_key in self.current_active:
                 if pair_key not in new_keys:
                     if self._has_open_instance(pair_key):
-                        # 跨期持仓，保留但标记不活跃
+                        # 跨期持仓，保留但标记不活跃，加入过期列表
                         self.current_active[pair_key]['eligible_in_cycle'] = False
-                        self.algorithm.Debug(f"[CPM] 保留跨期持仓: {pair_key}")
+                        self.expired_pairs.append({
+                            'pair_key': pair_key,
+                            'cycle_id': self.current_active[pair_key]['cycle_id'],
+                            'reason': 'expired'
+                        })
+                        self.algorithm.Debug(f"[CPM] 识别过期配对(有持仓): {pair_key}")
                     else:
                         # 无持仓，删除
                         to_remove.append(pair_key)
@@ -253,6 +262,86 @@ class CentralPairManager:
         
         self.algorithm.Debug(f"[CPM] 创建实例: {pair_key} #instance_{instance_id}")
         return instance_id
+    
+    # === 风控查询接口 ===
+    def get_risk_alerts(self) -> Dict:
+        """
+        供RiskManagement查询的统一接口
+        
+        Returns:
+            Dict: 包含各类风控警报信息
+                - expired_pairs: 过期配对列表
+                - long_holding_pairs: 长期持仓配对（未来实现）
+                - single_leg_instances: 单腿实例（未来实现）
+        """
+        alerts = {
+            'expired_pairs': self.expired_pairs.copy(),  # 返回副本避免外部修改
+        }
+        
+        # 未来可以添加更多风控信息
+        # alerts['long_holding_pairs'] = self._get_long_holding_pairs()
+        # alerts['single_leg_instances'] = self._get_incomplete_instances()
+        
+        return alerts
+    
+    def clear_expired_pairs(self):
+        """清空过期配对列表（RiskManagement处理完后调用）"""
+        self.expired_pairs = []
+    
+    def get_active_pairs_with_position(self) -> List[Dict]:
+        """
+        获取有持仓的活跃配对
+        
+        Returns:
+            List[Dict]: 活跃配对列表，每项包含：
+                - pair_key: 配对键
+                - beta: 对冲比率
+                - quality_score: 质量分数
+                - instance_id: 实例ID
+                - cycle_id: 所属周期
+        """
+        active_pairs = []
+        
+        for pair_key, info in self.current_active.items():
+            # 只返回本周期活跃且有持仓的配对
+            if info.get('eligible_in_cycle', True) and pair_key in self.open_instances:
+                active_pairs.append({
+                    'pair_key': pair_key,
+                    'beta': info.get('beta', 1.0),
+                    'quality_score': info.get('quality_score', 0.5),
+                    'instance_id': self.open_instances[pair_key].get('instance_id'),
+                    'cycle_id': info.get('cycle_id')
+                })
+        
+        return active_pairs
+    
+    def get_pairs_with_holding_info(self) -> List[Dict]:
+        """
+        获取配对的持仓信息，包括持仓时间
+        
+        Returns:
+            List[Dict]: 配对信息列表，每项包含：
+                - pair_key: 配对键
+                - holding_days: 持仓天数
+                - instance_info: 实例信息
+        
+        注意：只返回有 entry_time 的配对（需要 Execution 模块填充）
+        """
+        pairs_info = []
+        current_time = self.algorithm.Time
+        
+        for pair_key, instance in self.open_instances.items():
+            # 严格使用 entry_time（未来由 Execution 模块填充）
+            entry_time = instance.get('entry_time')
+            if entry_time:  # 只有当 entry_time 存在时才计算
+                holding_days = (current_time.date() - entry_time.date()).days
+                pairs_info.append({
+                    'pair_key': pair_key,
+                    'holding_days': holding_days,
+                    'instance_info': instance
+                })
+        
+        return pairs_info
     
     # === 未来Execution接口（占位）===
     def on_execution_filled(self, symbol: str, quantity: float, fill_time) -> None:
