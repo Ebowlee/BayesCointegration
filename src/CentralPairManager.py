@@ -31,6 +31,9 @@ class CentralPairManager:
         
         # === 风控支持 ===
         self.expired_pairs = []        # 过期配对列表
+        
+        # === OOE支持 ===
+        self.closed_instances = {}     # 历史实例（用于统计）
     
     # === v0 Alpha交互（保持不变）===
     def submit_modeled_pairs(self, cycle_id: int, pairs: List[Dict]) -> None:
@@ -343,17 +346,118 @@ class CentralPairManager:
         
         return pairs_info
     
-    # === 未来Execution接口（占位）===
-    def on_execution_filled(self, symbol: str, quantity: float, fill_time) -> None:
+    # === OOE接口（v1.4实现）===
+    def on_pair_entry_complete(self, pair_key: Tuple[str, str], entry_time) -> bool:
         """
-        处理成交回报（v2实现）
+        标记配对入场完成
         
-        TODO:
-        - 检测两腿都成，更新entry_time
-        - 找到对应的prepare_open意图（通过pair_key + instance_id），标记fulfilled=True
-        - 检测两腿归零，计算exit_time/holding_days/pnl
-        - 找到对应的prepare_close意图（通过pair_key + instance_id），标记fulfilled=True
-        - 落history_log
-        - 从open_instances删除该pair_key（关键！）
+        Args:
+            pair_key: 配对键
+            entry_time: 入场时间
+            
+        Returns:
+            bool: 是否成功更新
         """
-        pass
+        # 规范化pair_key
+        if isinstance(pair_key, tuple) and len(pair_key) == 2:
+            pair_key = self._make_pair_key(str(pair_key[0]), str(pair_key[1]))
+        else:
+            self.algorithm.Error(f"[CPM] on_pair_entry_complete: 无效的pair_key格式: {pair_key}")
+            return False
+        
+        # 更新open_instances中的entry_time
+        if pair_key in self.open_instances:
+            self.open_instances[pair_key]['entry_time'] = entry_time
+            self.open_instances[pair_key]['last_exec_state'] = 'entry_completed'
+            self.algorithm.Debug(f"[CPM] 配对入场完成: {pair_key} at {entry_time}")
+            return True
+        else:
+            self.algorithm.Debug(f"[CPM] on_pair_entry_complete: {pair_key} 不在open_instances中")
+            return False
+    
+    def on_pair_exit_complete(self, pair_key: Tuple[str, str], exit_time) -> bool:
+        """
+        标记配对出场完成
+        
+        Args:
+            pair_key: 配对键
+            exit_time: 出场时间
+            
+        Returns:
+            bool: 是否成功处理
+        """
+        # 规范化pair_key
+        if isinstance(pair_key, tuple) and len(pair_key) == 2:
+            pair_key = self._make_pair_key(str(pair_key[0]), str(pair_key[1]))
+        else:
+            self.algorithm.Error(f"[CPM] on_pair_exit_complete: 无效的pair_key格式: {pair_key}")
+            return False
+        
+        # 处理平仓完成
+        if pair_key in self.open_instances:
+            instance = self.open_instances[pair_key]
+            
+            # 计算持仓天数
+            entry_time = instance.get('entry_time')
+            holding_days = None
+            if entry_time and exit_time:
+                holding_days = (exit_time.date() - entry_time.date()).days
+            
+            # 移到closed_instances
+            self.closed_instances[pair_key] = {
+                'instance_id': instance.get('instance_id'),
+                'cycle_id': instance.get('cycle_id_start'),
+                'entry_time': entry_time,
+                'exit_time': exit_time,
+                'holding_days': holding_days,
+                'last_exec_state': 'exit_completed'
+            }
+            
+            # 从open_instances删除
+            del self.open_instances[pair_key]
+            
+            # 从current_active中移除（如果已过期）
+            if pair_key in self.current_active:
+                if not self.current_active[pair_key].get('eligible_in_cycle', True):
+                    # 过期配对，完全移除
+                    del self.current_active[pair_key]
+                    self.algorithm.Debug(f"[CPM] 移除过期配对: {pair_key}")
+            
+            self.algorithm.Debug(
+                f"[CPM] 配对出场完成: {pair_key} at {exit_time}, "
+                f"持仓{holding_days}天"
+            )
+            return True
+        else:
+            self.algorithm.Debug(f"[CPM] on_pair_exit_complete: {pair_key} 不在open_instances中")
+            return False
+    
+    def get_all_active_pairs(self) -> Set[Tuple[str, str]]:
+        """
+        获取所有活跃配对键
+        
+        Returns:
+            Set[Tuple[str, str]]: 所有在open_instances中的配对键
+        """
+        return set(self.open_instances.keys())
+    
+    def get_pair_state(self, pair_key: Tuple[str, str]) -> str:
+        """
+        获取配对状态
+        
+        Args:
+            pair_key: 配对键
+            
+        Returns:
+            str: 'open' | 'closed' | 'unknown'
+        """
+        # 规范化pair_key
+        if isinstance(pair_key, tuple) and len(pair_key) == 2:
+            pair_key = self._make_pair_key(str(pair_key[0]), str(pair_key[1]))
+        
+        if pair_key in self.open_instances:
+            return 'open'
+        elif pair_key in self.closed_instances:
+            return 'closed'
+        else:
+            return 'unknown'
