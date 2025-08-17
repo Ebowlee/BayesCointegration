@@ -72,7 +72,9 @@ class StrategyConfig:
             'max_position_per_pair': 0.15,                  # 单对最大仓位15%
             'min_position_per_pair': 0.05,                  # 单对最小仓位5%
             'cash_buffer': 0.05,                            # 现金缓冲5%
-            'cooldown_days': 7                              # 冷却期天数（避免频繁进出）
+            'cooldown_days': 7,                             # 冷却期天数（避免频繁进出）
+            'market_severe_threshold': 0.05,                # SPY单日跌5%触发市场冷静期
+            'market_cooldown_days': 14                      # 市场冷静期14天
         }
         
         # RiskManagement 配置 - 风险管理模块参数

@@ -4,6 +4,34 @@
 
 ---
 
+## [v1.3.0_架构重构与市场冷静期@20250117] (feature/cpm-development分支)
+### 架构重构：市场风险管理职责迁移
+- **RiskManagement简化**：
+  - 删除 `_check_market_condition` 方法
+  - 从5个风控机制精简为4个核心机制
+  - 专注于现有持仓的风险控制
+  - 删除市场相关参数和触发记录
+
+- **PortfolioConstruction增强**：
+  - 新增市场冷静期机制（Market Cooldown）
+  - SPY单日跌5%触发14天冷静期
+  - 冷静期内暂停所有新建仓操作
+  - 延迟初始化SPY，避免影响其他模块
+  - 使用Daily分辨率数据，符合策略整体设计
+
+- **架构优化理由**：
+  - 职责分离：RM负责风险控制，PC负责建仓决策
+  - 逻辑更清晰：市场条件是建仓决策的一部分
+  - 实现更简单：在源头控制比末端过滤更优雅
+  - 避免重复：个股和配对已有止损，无需市场止损
+
+- **配置更新**：
+  - config.py: 市场参数移至portfolio_construction配置
+  - market_severe_threshold: 0.05（5%触发阈值）
+  - market_cooldown_days: 14（冷静期天数）
+
+## [v1.2.0_行业集中度控制@20250117] (feature/cpm-development分支)
+
 ## [v1.1.0_风险管理优化@20250116] (feature/cpm-development分支)
 ### RiskManagement 止损逻辑优化与修正
 - **止损阈值调整**：

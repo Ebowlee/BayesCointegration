@@ -9,12 +9,11 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
     贝叶斯协整策略风险管理模型
     
     负责实时监控和管理策略风险，作为独立的风控层运行。
-    包含五大风控机制：
+    包含四大风控机制：
     1. 配对止损 - 监控配对整体回撤
     2. 时间管理 - 分级持仓时间控制
-    3. 行业集中度 - 防止单一行业过度暴露
-    4. 市场异常 - 系统性风险保护
-    5. 单腿检查 - 防止非对冲风险
+    3. 单腿检查 - 防止非对冲风险
+    4. 行业集中度 - 防止单一行业过度暴露
     
     前置风控（已在其他模块实现）：
     - AlphaModel: 配对过期清理、持仓检查、Z-score极端值控制
@@ -51,10 +50,6 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
         self.partial_exit_days = 20  # 20天减仓50%
         self.max_holding_days = 30  # 30天强制平仓
         
-        # 市场异常参数
-        self.market_crash_threshold = 0.03  # 市场单日跌3%触发
-        self.market_severe_threshold = 0.05  # 市场单日跌5%触发
-        
         # 内部状态
         self.risk_triggers = {}  # 记录风控触发情况
         
@@ -74,9 +69,8 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
             'expired_pairs': [],     # 新增：过期配对
             'pair_drawdown': [],
             'holding_time': [],
-            'sector_concentration': [],
-            'market_condition': [],
-            'incomplete_pairs': []
+            'incomplete_pairs': [],
+            'sector_concentration': []
         }
         
         # 0. 过期配对检查（最高优先级）
@@ -93,9 +87,6 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
         
         # 4. 行业集中度检查
         targets = self._check_sector_concentration(targets)
-        
-        # 5. 市场异常检查
-        targets = self._check_market_condition(targets)
         
         # 输出风控触发汇总
         self._log_risk_summary()
@@ -580,29 +571,6 @@ class BayesianCointegrationRiskManagementModel(RiskManagementModel):
                     f"缩减到{self.sector_reduction_factor:.0%}"
                 )
         
-        return targets
-    
-    # ----------------------------------------------------------------------
-    def _check_market_condition(self, targets: List[PortfolioTarget]) -> List[PortfolioTarget]:
-        """
-        市场异常保护
-        
-        监控市场整体状况（如SPY），在系统性风险时采取保护措施：
-        - 单日跌3%：暂停新建仓
-        - 单日跌5%：所有仓位减半
-        
-        Args:
-            targets: 当前目标仓位
-            
-        Returns:
-            调整后的目标仓位
-        """
-        # TODO: 实现市场异常检查
-        # 1. 获取SPY或市场指数数据
-        # 2. 计算单日涨跌幅
-        # 3. 根据阈值调整targets
-        
-        self.algorithm.Debug("[RiskManagement] 市场异常检查 - 待实现")
         return targets
     
     # ----------------------------------------------------------------------

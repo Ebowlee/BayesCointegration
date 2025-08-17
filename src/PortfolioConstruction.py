@@ -82,6 +82,12 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         self.cooldown_days = config.get('cooldown_days', 7)  # 冷却期天数
         self.cooldown_records = {}  # {(symbol1, symbol2): exit_time}
         
+        # 市场冷静期管理
+        self.spy_symbol = None  # SPY符号，延迟初始化
+        self.market_severe_threshold = config.get('market_severe_threshold', 0.05)  # SPY单日跌5%触发
+        self.market_cooldown_days = config.get('market_cooldown_days', 14)  # 市场冷静期天数
+        self.market_cooldown_until = None  # 冷静期结束日期
+        
         self.algorithm.Debug(f"[PortfolioConstruction] 初始化完成 (保证金率: {self.margin_rate}, "
                            f"单对仓位: {self.min_position_per_pair*100}%-{self.max_position_per_pair*100}%, "
                            f"现金缓冲: {self.cash_buffer*100}%, 冷却期: {self.cooldown_days}天)")
@@ -94,12 +100,13 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         作为智能Target生成器，进行合理性判断后生成目标。
         
         处理流程:
-        1. 按GroupId分组Insights (确保配对同时处理)
-        2. 解析每个配对的信号参数
-        3. 分类信号 (建仓 vs 平仓)
-        4. 处理平仓信号，记录冷却期
-        5. 过滤冷却期内和低质量的建仓信号
-        6. 动态分配资金给过滤后的建仓信号
+        1. 检查市场冷静期（新增）
+        2. 按GroupId分组Insights (确保配对同时处理)
+        3. 解析每个配对的信号参数
+        4. 分类信号 (建仓 vs 平仓)
+        5. 处理平仓信号，记录冷却期
+        6. 过滤冷却期内和低质量的建仓信号
+        7. 动态分配资金给过滤后的建仓信号
         
         Args:
             algorithm: QuantConnect算法实例
@@ -108,6 +115,14 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         Returns:
             List[PortfolioTarget]: 目标持仓列表，每个元素指定一只股票的目标权重
         """
+        # 1. 市场冷静期检查（新增）
+        if self._is_market_in_cooldown():
+            self.algorithm.Debug("[PC] 市场冷静期中，暂停所有新建仓")
+            return []  # 冷静期内不建仓
+        
+        # 2. 检查并更新市场状态
+        self._check_market_condition()
+        
         # 按 GroupId 分组
         grouped_insights = defaultdict(list)
         for insight in insights:
@@ -513,3 +528,58 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
             shortable = security.ShortableProvider.ShortableQuantity(symbol, self.algorithm.Time)
             return shortable is not None and shortable > 0
         return True  # 回测环境默认可做空
+    
+    def _check_market_condition(self):
+        """
+        检查市场条件，判断是否需要启动冷静期
+        
+        当SPY单日下跌超过阈值（默认5%）时，启动市场冷静期。
+        使用Daily分辨率数据，比较前一交易日的涨跌幅。
+        """
+        # 初始化SPY（延迟初始化，避免影响其他模块）
+        if self.spy_symbol is None:
+            self.spy_symbol = self.algorithm.AddEquity("SPY", Resolution.Daily).Symbol
+            self.algorithm.Debug("[PC] 初始化SPY监控")
+        
+        try:
+            # 获取最近2天的历史数据
+            history = self.algorithm.History(self.spy_symbol, 2, Resolution.Daily)
+            
+            if history.empty or len(history) < 2:
+                return  # 数据不足，跳过检查
+            
+            # 计算前一交易日的涨跌幅
+            prev_close = history['close'].iloc[-2]
+            last_close = history['close'].iloc[-1]
+            
+            if prev_close > 0:
+                daily_change = (last_close - prev_close) / prev_close
+                
+                # 检查是否触发冷静期
+                if daily_change <= -self.market_severe_threshold:
+                    from datetime import timedelta
+                    self.market_cooldown_until = self.algorithm.Time.date() + timedelta(days=self.market_cooldown_days)
+                    
+                    self.algorithm.Debug(
+                        f"[PC] 市场风险预警: SPY单日下跌{-daily_change:.2%}，"
+                        f"启动{self.market_cooldown_days}天冷静期至{self.market_cooldown_until}"
+                    )
+                    
+        except Exception as e:
+            self.algorithm.Debug(f"[PC] 市场检查失败: {str(e)}")
+    
+    def _is_market_in_cooldown(self) -> bool:
+        """
+        检查是否在市场冷静期内
+        
+        Returns:
+            bool: True表示在冷静期内，应暂停新建仓
+        """
+        if self.market_cooldown_until and self.algorithm.Time.date() <= self.market_cooldown_until:
+            from datetime import timedelta
+            days_remaining = (self.market_cooldown_until - self.algorithm.Time.date()).days
+            self.algorithm.Debug(
+                f"[PC] 市场冷静期还剩{days_remaining}天（至{self.market_cooldown_until}）"
+            )
+            return True
+        return False
