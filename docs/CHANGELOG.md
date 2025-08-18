@@ -4,6 +4,32 @@
 
 ---
 
+## [v1.9.0_集中风控到Alpha层删除PC-CPM交互@20250118] (feature/cpm-development分支)
+### 架构优化：单一职责原则
+- **删除PC冷却期管理**：
+  - 删除cooldown_records和相关逻辑
+  - 冷却期统一由Alpha层通过CPM查询实现
+  - 避免重复过滤，提高效率
+  
+- **市场风控移至Alpha层**：
+  - 将SPY跌幅检查从PC移到SignalGenerator
+  - 新增_check_market_condition()和_is_market_in_cooldown()
+  - 从源头控制：极端市场不生成建仓信号
+  - 避免无效信号的下游处理
+  
+- **删除PC-CPM交互**：
+  - 完全删除submit_intent()及相关方法
+  - 删除意图管理数据结构（intents_log, daily_intent_cache）
+  - 删除_check_open_eligibility()和_create_open_instance()
+  - PC现在纯粹负责资金管理
+  
+- **架构简化效果**：
+  - 代码减少约200行
+  - 每个模块职责更加清晰
+  - Alpha：信号生成和风控
+  - PC：纯粹的资金管理
+  - CPM：配对生命周期管理
+
 ## [v1.8.0_简化CPM逻辑优化接口@20250118] (feature/cpm-development分支)
 ### 移除幂等性并优化查询接口
 - **移除幂等性检查**：

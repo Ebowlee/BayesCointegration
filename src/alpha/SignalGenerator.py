@@ -76,6 +76,12 @@ class SignalGenerator:
         # EMA平滑系数：0.8表示80%权重给当前值，20%给历史值
         # 较高的alpha值使信号对新数据更敏感，较低则更平滑
         self.ema_alpha = 0.8
+        
+        # 市场风控参数
+        self.market_severe_threshold = config.get('market_severe_threshold', 0.05)  # SPY单日跌5%触发
+        self.market_cooldown_days = config.get('market_cooldown_days', 14)  # 市场冷静期天数
+        self.market_cooldown_until = None  # 冷静期结束日期
+        self.spy_symbol = None  # SPY符号，延迟初始化
     
     def _make_pair_key(self, symbol1_value: str, symbol2_value: str) -> tuple:
         """生成规范化的pair_key（与CPM保持一致）"""
@@ -85,12 +91,21 @@ class SignalGenerator:
         """
         为所有建模配对生成交易信号
         """
+        # 检查并更新市场状态
+        self._check_market_condition()
+        
+        # 判断是否在市场冷静期
+        is_market_cooldown = self._is_market_in_cooldown()
+        if is_market_cooldown:
+            self.algorithm.Debug("[SignalGenerator] 市场冷静期中，只生成平仓信号")
+        
         insights = []
         
         for pair in modeled_pairs:
             pair_with_zscore = self._calculate_zscore(pair, data)
             if pair_with_zscore:
-                pair_insights = self._generate_pair_signals(pair_with_zscore)
+                # 在市场冷静期内，只生成平仓信号
+                pair_insights = self._generate_pair_signals(pair_with_zscore, is_market_cooldown)
                 # Insight.Group可能返回特殊对象，需要正确处理
                 if pair_insights:
                     insights.extend(pair_insights)
@@ -257,3 +272,56 @@ class SignalGenerator:
             return []
         
         return []
+    
+    def _check_market_condition(self):
+        """
+        检查市场条件，判断是否需要启动冷静期
+        
+        当SPY单日下跌超过阈值（默认5%）时，启动市场冷静期。
+        """
+        # 初始化SPY（延迟初始化）
+        if self.spy_symbol is None:
+            try:
+                self.spy_symbol = self.algorithm.AddEquity("SPY", Resolution.Daily).Symbol
+                self.algorithm.Debug("[SignalGenerator] 初始化SPY市场监控")
+            except:
+                return  # 无法添加SPY，跳过市场检查
+        
+        try:
+            # 获取最近2天的历史数据
+            history = self.algorithm.History(self.spy_symbol, 2, Resolution.Daily)
+            
+            if history.empty or len(history) < 2:
+                return  # 数据不足，跳过检查
+            
+            # 计算前一交易日的涨跌幅
+            prev_close = history['close'].iloc[-2]
+            last_close = history['close'].iloc[-1]
+            
+            if prev_close > 0:
+                daily_change = (last_close - prev_close) / prev_close
+                
+                # 检查是否触发冷静期
+                if daily_change <= -self.market_severe_threshold:
+                    from datetime import timedelta
+                    self.market_cooldown_until = self.algorithm.Time.date() + timedelta(days=self.market_cooldown_days)
+                    
+                    self.algorithm.Debug(
+                        f"[SignalGenerator] 市场风险预警: SPY单日下跌{-daily_change:.2%}，"
+                        f"启动{self.market_cooldown_days}天冷静期至{self.market_cooldown_until}"
+                    )
+                    
+        except Exception as e:
+            # 市场检查失败不影响正常交易
+            pass
+    
+    def _is_market_in_cooldown(self) -> bool:
+        """
+        检查是否在市场冷静期内
+        
+        Returns:
+            bool: True表示在冷静期内，不应生成建仓信号
+        """
+        if self.market_cooldown_until and self.algorithm.Time.date() <= self.market_cooldown_until:
+            return True
+        return False
