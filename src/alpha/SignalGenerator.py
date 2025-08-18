@@ -96,19 +96,28 @@ class SignalGenerator:
         
         # 判断是否在市场冷静期
         is_market_cooldown = self._is_market_in_cooldown()
-        if is_market_cooldown:
-            self.algorithm.Debug("[SignalGenerator] 市场冷静期中，只生成平仓信号")
         
         insights = []
+        flat_count = 0  # 统计平仓信号数量
         
         for pair in modeled_pairs:
             pair_with_zscore = self._calculate_zscore(pair, data)
             if pair_with_zscore:
-                # 在市场冷静期内，只生成平仓信号
+                # 生成信号（市场冷静期会强制平仓）
                 pair_insights = self._generate_pair_signals(pair_with_zscore, is_market_cooldown)
                 # Insight.Group可能返回特殊对象，需要正确处理
                 if pair_insights:
                     insights.extend(pair_insights)
+                    # 统计平仓信号
+                    if len(pair_insights) >= 2 and pair_insights[0].Direction == InsightDirection.Flat:
+                        flat_count += 1
+        
+        # 输出市场冷静期汇总信息
+        if is_market_cooldown and flat_count > 0:
+            self.algorithm.Debug(
+                f"[SignalGenerator] 市场冷静期：强制平仓{flat_count}对配对，"
+                f"剩余冷静期至{self.market_cooldown_until}"
+            )
                     
         return insights
     
@@ -215,6 +224,11 @@ class SignalGenerator:
         """
         基于z-score为单个配对生成信号
         
+        市场冷静期行为：
+        - 强制平仓所有现有持仓
+        - 不生成任何建仓信号
+        - 持续14天保护期
+        
         Args:
             pair: 配对信息字典
             is_market_cooldown: 是否处于市场冷静期
@@ -230,8 +244,33 @@ class SignalGenerator:
         quality_score = pair.get('quality_score', 0.5)  # 默认0.5如果没有
         tag = f"{symbol1.Value}&{symbol2.Value}|{pair['alpha_mean']:.4f}|{pair['beta_mean']:.4f}|{zscore:.2f}|{quality_score:.3f}"
         
+        # ===== 市场冷静期：强制平仓所有持仓 =====
+        if is_market_cooldown:
+            pair_key = self._make_pair_key(symbol1.Value, symbol2.Value)
+            trading_pairs = self.cpm.get_trading_pairs() if self.cpm else set()
+            
+            # 如果有持仓，立即生成平仓信号
+            if pair_key in trading_pairs:
+                self.algorithm.Debug(
+                    f"[SignalGenerator-市场风控] 强制平仓: {symbol1.Value}&{symbol2.Value} "
+                    f"(z-score={zscore:.2f})"
+                )
+                return self._create_insight_group(
+                    symbol1, symbol2,
+                    InsightDirection.Flat, InsightDirection.Flat,
+                    self.flat_signal_duration_days, tag
+                )
+            # 无持仓则不生成任何信号
+            return []
+        
+        # ===== 正常市场条件下的信号生成 =====
+        
         # 风险检查 - 极端偏离
         if abs(zscore) > self.upper_limit:
+            self.algorithm.Debug(
+                f"[SignalGenerator-极端偏离] 平仓: {symbol1.Value}&{symbol2.Value} "
+                f"(z-score={zscore:.2f} 超过±{self.upper_limit})"
+            )
             return self._create_insight_group(
                 symbol1, symbol2, 
                 InsightDirection.Flat, InsightDirection.Flat,
@@ -239,8 +278,7 @@ class SignalGenerator:
             )
         
         # 建仓信号 - 价格偏离超过阈值
-        # 注意：在市场冷静期内不生成建仓信号
-        if abs(zscore) > self.entry_threshold and not is_market_cooldown:
+        if abs(zscore) > self.entry_threshold:
             # 使用CPM统一查询接口检查配对是否可交易
             pair_key = self._make_pair_key(symbol1.Value, symbol2.Value)
             excluded_pairs = self.cpm.get_excluded_pairs() if self.cpm else set()
