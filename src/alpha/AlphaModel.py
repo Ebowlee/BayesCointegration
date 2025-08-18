@@ -18,6 +18,11 @@ class BayesianCointegrationAlphaModel(AlphaModel):
     该模型是整个配对交易系统的大脑，负责从原始市场数据到交易信号的
     完整处理流程。采用模块化设计，将复杂的策略分解为独立的功能模块。
     
+    重要：Alpha层现在负责所有风控过滤，包括：
+    - 配对冷却期管理（通过CPM查询）
+    - 市场风控机制（SPY监控）
+    - 重复建仓检查
+    
     整体架构:
     ┌─────────────┐     ┌──────────────────┐     ┌─────────────────┐
     │DataProcessor│ --> │CointegrationAnaly│ --> │BayesianModeler  │
@@ -63,7 +68,8 @@ class BayesianCointegrationAlphaModel(AlphaModel):
     
     与其他模块的交互:
     - UniverseSelection: 提供候选股票列表
-    - PortfolioConstruction: 接收Insights构建持仓
+    - CentralPairManager: 提交建模配对、查询配对状态
+    - PortfolioConstruction: 接收已过滤的Insights进行资金分配
     - RiskManagement: 信号可能被风险规则修改
     - Execution: 最终执行交易指令
     
@@ -161,7 +167,7 @@ class BayesianCointegrationAlphaModel(AlphaModel):
                 self.algorithm.Debug(
                     f"[AlphaModel] 配对分析完成: {len(analysis_result['modeled_pairs'])}个配对"
                 )
-                # 提交配对到CPM
+                # 提交配对到CPM（中央配对管理器）
                 if self.central_pair_manager:
                     try:
                         # 生成cycle_id (yyyymmdd格式)
@@ -190,6 +196,7 @@ class BayesianCointegrationAlphaModel(AlphaModel):
             self.state.clear_temporary()
         
         # 日常信号生成 - 基于实时价格生成交易信号
+        # 注意：信号生成器会进行所有风控过滤
         modeled_pairs = self.state.persistent['modeled_pairs']
         if modeled_pairs:
             self.algorithm.Debug(f"[AlphaModel] 生成信号: 跟踪{len(modeled_pairs)}对配对")

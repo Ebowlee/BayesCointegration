@@ -4,6 +4,25 @@
 
 ---
 
+## [v1.9.1_更新所有模块注释@20250118] (feature/cpm-development分支)
+### 文档优化
+- **更新模块注释**：
+  - CPM类文档移除"PC意图管理"相关描述
+  - PC类文档强调其作为"纯粹资金管理器"的角色
+  - Alpha层文档明确说明承担所有风控过滤职责
+  - SignalGenerator新增市场风控方法的详细注释
+  
+- **视觉优化**：
+  - CPM中模块交互部分使用增强的分隔符
+  - 删除所有过时的版本引用（如"v1实现"）
+  - 确保注释与代码功能完全一致
+  
+- **影响文件**：
+  - src/CentralPairManager.py: 30行修改
+  - src/PortfolioConstruction.py: 53行修改
+  - src/alpha/AlphaModel.py: 11行修改
+  - src/alpha/SignalGenerator.py: 17行修改
+
 ## [v1.9.0_集中风控到Alpha层删除PC-CPM交互@20250118] (feature/cpm-development分支)
 ### 架构优化：单一职责原则
 - **删除PC冷却期管理**：

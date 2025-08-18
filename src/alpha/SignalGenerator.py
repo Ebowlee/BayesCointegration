@@ -211,9 +211,16 @@ class SignalGenerator:
                          None, None, None, None, tag)
         )
     
-    def _generate_pair_signals(self, pair: Dict) -> List:
+    def _generate_pair_signals(self, pair: Dict, is_market_cooldown: bool = False) -> List:
         """
         基于z-score为单个配对生成信号
+        
+        Args:
+            pair: 配对信息字典
+            is_market_cooldown: 是否处于市场冷静期
+        
+        Returns:
+            List: Insight列表
         """
         symbol1, symbol2 = pair['symbol1'], pair['symbol2']
         zscore = pair['zscore']
@@ -232,7 +239,8 @@ class SignalGenerator:
             )
         
         # 建仓信号 - 价格偏离超过阈值
-        if abs(zscore) > self.entry_threshold:
+        # 注意：在市场冷静期内不生成建仓信号
+        if abs(zscore) > self.entry_threshold and not is_market_cooldown:
             # 使用CPM统一查询接口检查配对是否可交易
             pair_key = self._make_pair_key(symbol1.Value, symbol2.Value)
             excluded_pairs = self.cpm.get_excluded_pairs() if self.cpm else set()
@@ -278,6 +286,7 @@ class SignalGenerator:
         检查市场条件，判断是否需要启动冷静期
         
         当SPY单日下跌超过阈值（默认5%）时，启动市场冷静期。
+        这是Alpha层的市场风控机制，避免在市场剧烈波动时建仓。
         """
         # 初始化SPY（延迟初始化）
         if self.spy_symbol is None:
@@ -318,6 +327,10 @@ class SignalGenerator:
     def _is_market_in_cooldown(self) -> bool:
         """
         检查是否在市场冷静期内
+        
+        市场冷静期是Alpha层实施的风控机制，在此期间：
+        - 只生成平仓信号，不生成建仓信号
+        - 避免在市场极端波动时增加风险敷口
         
         Returns:
             bool: True表示在冷静期内，不应生成建仓信号

@@ -7,10 +7,16 @@ from datetime import timedelta
 
 class CentralPairManager:
     """
-    中央配对管理器 - v1版本（Alpha交互 + PC意图管理）
+    中央配对管理器 - 统一的配对生命周期管理
     
-    v0功能：处理Alpha在选股日提交的活跃配对
-    v1新增：处理PC提交的交易意图，管理运行期实例
+    核心职责:
+    1. Alpha交互: 接收和管理建模配对
+    2. OOE交互: 跟踪实际成交状态
+    3. 查询服务: 为各模块提供统一的配对状态查询
+    
+    配对生命周期:
+    current_pairs -> legacy_pairs -> retired_pairs
+    (本轮活跃)    -> (遗留持仓)   -> (已退休)
     """
     
     def __init__(self, algorithm, config=None):
@@ -30,7 +36,9 @@ class CentralPairManager:
         # === 状态记录 ===
         self.history_log = []          # 历史日志（预留）
     
-    # ==================== Alpha交互 ====================
+    # ========================================
+    # =============== Alpha交互 ===============
+    # ========================================
     def submit_modeled_pairs(self, cycle_id: int, pairs: List[Dict]) -> None:
         """
         接收Alpha模型提交的当轮活跃配对
@@ -93,7 +101,7 @@ class CentralPairManager:
         return tuple(sorted([symbol1_value, symbol2_value]))
     
     def _has_open_instance(self, pair_key: Tuple[str, str]) -> bool:
-        """检查配对是否有未平仓实例（v1实现）"""
+        """检查配对是否有未平仓实例"""
         return pair_key in self.open_instances
     
     def _retire_pair(self, pair_key: Tuple[str, str]) -> None:
@@ -148,7 +156,9 @@ class CentralPairManager:
             'total_tracked': len(self.current_pairs) + len(self.legacy_pairs)
         }
     
-    # ==================== 风控查询接口 ====================
+    # ========================================
+    # ============ 风控查询接口 ==============
+    # ========================================
     def get_risk_alerts(self) -> Dict:
         """
         供RiskManagement查询的统一接口
@@ -245,7 +255,9 @@ class CentralPairManager:
         
         return pairs_info
     
-    # ==================== OOE接口 ====================
+    # ========================================
+    # =============== OOE接口 ================
+    # ========================================
     def on_pair_entry_complete(self, pair_key: Tuple[str, str], entry_time) -> bool:
         """
         标记配对入场完成
@@ -361,7 +373,9 @@ class CentralPairManager:
         else:
             return 'unknown'
     
-    # ==================== Alpha查询接口 ====================
+    # ========================================
+    # ============ Alpha查询接口 =============
+    # ========================================
     def get_trading_pairs(self) -> Set[Tuple[str, str]]:
         """
         获取所有正在持仓的配对
