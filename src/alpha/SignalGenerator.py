@@ -53,7 +53,7 @@ class SignalGenerator:
     - 极端z-score可能预示模型失效
     """
     
-    def __init__(self, algorithm, config: dict, state: AlphaModelState):
+    def __init__(self, algorithm, config: dict, state: AlphaModelState, cpm=None):
         """
         初始化信号生成器
         
@@ -61,6 +61,7 @@ class SignalGenerator:
             algorithm: QuantConnect算法实例
             config: 包含信号生成相关配置的字典
             state: AlphaModel的状态管理对象
+            cpm: CentralPairManager实例（可选）
         """
         self.algorithm = algorithm
         self.entry_threshold = config['entry_threshold']
@@ -70,10 +71,15 @@ class SignalGenerator:
         self.flat_signal_duration_days = config.get('flat_signal_duration_days', 1)
         self.entry_signal_duration_days = config.get('entry_signal_duration_days', 2)
         self.state = state
+        self.cpm = cpm  # CentralPairManager引用
         
         # EMA平滑系数：0.8表示80%权重给当前值，20%给历史值
         # 较高的alpha值使信号对新数据更敏感，较低则更平滑
         self.ema_alpha = 0.8
+    
+    def _make_pair_key(self, symbol1_value: str, symbol2_value: str) -> tuple:
+        """生成规范化的pair_key（与CPM保持一致）"""
+        return tuple(sorted([symbol1_value, symbol2_value]))
     
     def generate_signals(self, modeled_pairs: List[Dict], data) -> List:
         """
@@ -212,8 +218,12 @@ class SignalGenerator:
         
         # 建仓信号 - 价格偏离超过阈值
         if abs(zscore) > self.entry_threshold:
-            # 持仓检查：两个资产都必须无持仓
-            if not self.algorithm.Portfolio[symbol1].Invested and not self.algorithm.Portfolio[symbol2].Invested:
+            # 使用CPM统一查询接口检查配对是否可交易
+            pair_key = self._make_pair_key(symbol1.Value, symbol2.Value)
+            excluded_pairs = self.cpm.get_excluded_pairs() if self.cpm else set()
+            
+            # 配对不在排除列表中才生成建仓信号
+            if pair_key not in excluded_pairs:
                 # 根据z-score方向确定交易方向
                 if zscore > 0:
                     # z>0: 股票1相对高估，做空1做多2
@@ -231,14 +241,19 @@ class SignalGenerator:
         
         # 平仓信号 - 价格回归均值
         if abs(zscore) < self.exit_threshold:
-            # 持仓检查：至少一个资产有持仓
-            if self.algorithm.Portfolio[symbol1].Invested or self.algorithm.Portfolio[symbol2].Invested:
+            # 使用CPM统一查询接口检查配对是否有持仓
+            pair_key = self._make_pair_key(symbol1.Value, symbol2.Value)
+            trading_pairs = self.cpm.get_trading_pairs() if self.cpm else set()
+            
+            # 只对有持仓的配对生成平仓信号
+            if pair_key in trading_pairs:
                 return self._create_insight_group(
                     symbol1, symbol2,
                     InsightDirection.Flat, InsightDirection.Flat,
                     self.flat_signal_duration_days, tag
                 )
-            # 如果都没有持仓，跳过平仓信号
+            
+            # 配对不在交易列表中，跳过平仓信号
             return []
         
         return []

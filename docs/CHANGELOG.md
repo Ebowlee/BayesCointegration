@@ -4,6 +4,81 @@
 
 ---
 
+## [v1.7.0_彻底重构移除兼容层@20250118] (feature/cpm-development分支)
+### 彻底重构，移除所有向后兼容代码
+- **兼容层完全移除**：
+  - 删除所有@property装饰器（current_active, expired_pairs）
+  - 删除_current_active_compat临时变量
+  - 删除所有过渡期验证代码
+  
+- **数据结构统一**：
+  - 统一使用新命名：current_pairs, legacy_pairs, retired_pairs
+  - 更新所有方法直接使用新数据结构
+  - get_current_active() → get_all_tracked_pairs()
+  
+- **代码清理**：
+  - SignalGenerator删除Portfolio直接检查的验证代码
+  - AlphaModel修复self.cpm为self.central_pair_manager
+  - CPM内部方法全部使用新数据结构
+  
+- **逻辑优化**：
+  - get_risk_alerts()动态生成expired_pairs列表
+  - clear_expired_pairs()实现真正的清理逻辑
+  - get_active_pairs_with_position()合并current和legacy配对
+  - on_pair_exit_complete()正确处理legacy_pairs
+  
+- **架构改进**：
+  - 彻底实现"单一真相源"原则
+  - 删除所有冗余的状态检查
+  - 代码更加简洁清晰
+
+## [v1.6.0_Alpha-CPM深度优化与命名重构@20250117] (feature/cpm-development分支)
+### 深度优化与数据结构重构
+- **平仓信号优化**：
+  - SignalGenerator平仓信号改用CPM.get_trading_pairs()
+  - 统一建仓和平仓的查询模式
+  - 保留过渡期验证机制
+  
+- **数据结构重构**：
+  - current_active → current_pairs（本轮活跃配对）
+  - expired_pairs → legacy_pairs（遗留持仓配对）
+  - 新增retired_pairs（已退休配对）
+  - 实现清晰的生命周期：current → legacy → retired
+  
+- **向后兼容设计**：
+  - 通过@property提供兼容性访问
+  - 外部代码无需立即修改
+  - 添加deprecation警告
+  
+- **配对迁移逻辑**：
+  - 新周期时自动迁移配对状态
+  - 有持仓的旧配对→legacy_pairs
+  - 已平仓的配对→retired_pairs
+  - 每个容器职责单一明确
+
+## [v1.5.0_Alpha-CPM交互优化@20250117] (feature/cpm-development分支)
+### Alpha与CPM交互优化
+- **CPM新增统一查询接口**：
+  - get_trading_pairs(): 获取正在持仓的配对
+  - get_recent_closed_pairs(days=7): 获取冷却期内的配对
+  - get_excluded_pairs(): 获取应排除的配对集合（统一接口）
+  
+- **Alpha集中状态查询**：
+  - SignalGenerator使用CPM.get_excluded_pairs()检查配对
+  - 替代原有的Portfolio.Invested直接检查
+  - 保留双重验证机制确保过渡期稳定性
+  
+- **架构改进**：
+  - 实现"单一真相源"原则：CPM统一管理配对状态
+  - 消除状态查询逻辑分散的问题
+  - 为未来添加新规则预留扩展点
+  - 提高代码可维护性和可测试性
+  
+- **实施策略**：
+  - 渐进式迁移：新接口工作，旧逻辑验证
+  - 保留TODO标记，明确未来清理点
+  - 向后兼容，不影响现有功能
+
 ## [v1.4.1_CPM架构分析与优化规划@20250117] (feature/cpm-development分支)
 ### 架构分析与优化规划
 - **CPM工作流程文档化**：

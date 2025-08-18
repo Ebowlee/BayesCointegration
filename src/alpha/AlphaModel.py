@@ -113,7 +113,7 @@ class BayesianCointegrationAlphaModel(AlphaModel):
         )
         
         # 创建信号生成器
-        self.signal_generator = SignalGenerator(self.algorithm, self.config, self.state)
+        self.signal_generator = SignalGenerator(self.algorithm, self.config, self.state, self.central_pair_manager)
         
         # 初始化不需要输出
     

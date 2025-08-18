@@ -1,6 +1,7 @@
 # region imports
 from AlgorithmImports import *
 from typing import Dict, List, Tuple, Set
+from datetime import timedelta
 # endregion
 
 
@@ -16,26 +17,27 @@ class CentralPairManager:
         """初始化CPM"""
         self.algorithm = algorithm
         
-        # === v0 容器 ===
-        self.current_active = {}       # {PairKey: {cycle_id, beta, quality_score, eligible_in_cycle}}
-        self.history_log = []          # 本阶段不写入
-        self.last_cycle_id = None
-        self.last_cycle_pairs = set()
+        # === 核心数据结构 ===
+        self.current_pairs = {}        # 本轮活跃配对 {PairKey: {cycle_id, beta, quality_score}}
+        self.legacy_pairs = {}         # 遗留持仓配对（上轮的但仍有持仓）
+        self.retired_pairs = {}        # 已退休配对（最近N天内平仓的）
         
-        # === v1 新增容器 ===
-        self.intents_log = []          # 意图日志
+        # === 运行期管理 ===
         self.open_instances = {}       # 运行期实例（仅未平）
+        self.closed_instances = {}     # 历史实例（用于统计）
         self.instance_counters = {}    # 实例计数器（永不回退）
+        
+        # === 意图管理 ===
+        self.intents_log = []          # 意图日志
         self.daily_intent_cache = {}   # 日去重缓存
         self.cache_date = None         # 缓存日期
         
-        # === 风控支持 ===
-        self.expired_pairs = []        # 过期配对列表
-        
-        # === OOE支持 ===
-        self.closed_instances = {}     # 历史实例（用于统计）
+        # === 状态记录 ===
+        self.last_cycle_id = None
+        self.last_cycle_pairs = set()
+        self.history_log = []          # 历史日志（预留）
     
-    # === v0 Alpha交互（保持不变）===
+    # === Alpha交互 ===
     def submit_modeled_pairs(self, cycle_id: int, pairs: List[Dict]) -> None:
         """
         接收Alpha模型提交的当轮活跃配对
@@ -67,7 +69,8 @@ class CentralPairManager:
                 # 集合相同，检查参数是否相同
                 for pair in pairs:
                     pair_key = self._make_pair_key(pair['symbol1_value'], pair['symbol2_value'])
-                    existing = self.current_active.get(pair_key)
+                    # 检查current_pairs和legacy_pairs
+                    existing = self.current_pairs.get(pair_key) or self.legacy_pairs.get(pair_key)
                     if existing and (existing['beta'] != pair['beta'] or 
                                     existing['quality_score'] != pair['quality_score']):
                         self.algorithm.Error(f"[CPM] 拒绝修改已冻结的cycle {cycle_id} 参数")
@@ -77,37 +80,38 @@ class CentralPairManager:
                 self.algorithm.Debug(f"[CPM] Cycle {cycle_id} 幂等重复提交，忽略")
                 return
         
-        # 3. 清理旧配对并识别过期配对（仅在新cycle时）
-        self.expired_pairs = []  # 重置过期配对列表
-        if self.last_cycle_id is not None:
-            to_remove = []
-            for pair_key in self.current_active:
+        # 3. 处理周期转换时的配对迁移（仅在新cycle时）
+        if self.last_cycle_id is not None and cycle_id != self.last_cycle_id:
+            # 3.1 迁移旧的current_pairs
+            for pair_key in list(self.current_pairs.keys()):
                 if pair_key not in new_keys:
                     if self._has_open_instance(pair_key):
-                        # 跨期持仓，保留但标记不活跃，加入过期列表
-                        self.current_active[pair_key]['eligible_in_cycle'] = False
-                        self.expired_pairs.append({
-                            'pair_key': pair_key,
-                            'cycle_id': self.current_active[pair_key]['cycle_id'],
-                            'reason': 'expired'
-                        })
-                        self.algorithm.Debug(f"[CPM] 识别过期配对(有持仓): {pair_key}")
+                        # 有持仓：迁移到legacy_pairs
+                        self.legacy_pairs[pair_key] = self.current_pairs[pair_key]
+                        self.algorithm.Debug(f"[CPM] 配对迁移到legacy: {pair_key}")
                     else:
-                        # 无持仓，删除
-                        to_remove.append(pair_key)
+                        # 无持仓：可能迁移到retired_pairs
+                        if pair_key in self.closed_instances:
+                            self._retire_pair(pair_key)
+                        self.algorithm.Debug(f"[CPM] 删除无持仓配对: {pair_key}")
+                    # 从current_pairs移除
+                    del self.current_pairs[pair_key]
             
-            for key in to_remove:
-                del self.current_active[key]
-                self.algorithm.Debug(f"[CPM] 删除无持仓配对: {key}")
+            # 3.2 清理已平仓的legacy_pairs
+            for pair_key in list(self.legacy_pairs.keys()):
+                if not self._has_open_instance(pair_key):
+                    self._retire_pair(pair_key)
+                    del self.legacy_pairs[pair_key]
+                    self.algorithm.Debug(f"[CPM] legacy配对已平仓，移至retired: {pair_key}")
         
-        # 4. Upsert新配对
+        # 4. 更新current_pairs（仅包含本轮活跃配对）
+        self.current_pairs.clear()  # 清空后重建
         for pair in pairs:
             pair_key = self._make_pair_key(pair['symbol1_value'], pair['symbol2_value'])
-            self.current_active[pair_key] = {
+            self.current_pairs[pair_key] = {
                 'cycle_id': cycle_id,
                 'beta': pair['beta'],
-                'quality_score': pair['quality_score'],
-                'eligible_in_cycle': True
+                'quality_score': pair['quality_score']
             }
         
         # 5. 更新状态
@@ -124,9 +128,29 @@ class CentralPairManager:
         """检查配对是否有未平仓实例（v1实现）"""
         return pair_key in self.open_instances
     
-    def get_current_active(self) -> Dict:
-        """获取当前活跃配对（供查询）"""
-        return self.current_active.copy()
+    def _retire_pair(self, pair_key: Tuple[str, str]) -> None:
+        """将配对移至retired_pairs"""
+        if pair_key in self.closed_instances:
+            exit_time = self.closed_instances[pair_key].get('exit_time')
+            self.retired_pairs[pair_key] = {
+                'retired_time': exit_time or self.algorithm.Time,
+                'cycle_id': self.closed_instances[pair_key].get('cycle_id')
+            }
+    
+    def get_all_tracked_pairs(self) -> Dict:
+        """获取所有被跟踪的配对（包括当前轮和遗留）
+        
+        Returns:
+            Dict: 包含current_pairs和legacy_pairs的合并字典
+                  每个配对包含is_current标记以区分来源
+        """
+        # 合并current_pairs和legacy_pairs
+        merged = {}
+        for k, v in self.current_pairs.items():
+            merged[k] = {**v, 'is_current': True}
+        for k, v in self.legacy_pairs.items():
+            merged[k] = {**v, 'is_current': False}
+        return merged
     
     # === v1 PC交互 ===
     def submit_intent(self, pair_key: Tuple[str, str], action: str, intent_date: int) -> str:
@@ -175,11 +199,13 @@ class CentralPairManager:
         instance_id = None
         
         if action == "prepare_open":
-            # 开仓：从current_active获取cycle_id
-            if pair_key in self.current_active:
-                cycle_id = self.current_active[pair_key].get('cycle_id')
+            # 开仓：从current_pairs或legacy_pairs获取cycle_id
+            if pair_key in self.current_pairs:
+                cycle_id = self.current_pairs[pair_key].get('cycle_id')
+            elif pair_key in self.legacy_pairs:
+                cycle_id = self.legacy_pairs[pair_key].get('cycle_id')
             else:
-                self.algorithm.Error(f"[CPM] 拒绝(NOT_ACTIVE): {pair_key} 不在当前活跃列表")
+                self.algorithm.Error(f"[CPM] 拒绝(NOT_ACTIVE): {pair_key} 不在活跃或遗留列表")
                 return "rejected"
             
             # 检查开仓资格
@@ -224,15 +250,19 @@ class CentralPairManager:
     
     def _check_open_eligibility(self, pair_key: Tuple[str, str]) -> Dict:
         """检查开仓资格（四个条件）"""
-        # 条件1: pair_key在current_active中（已在上层检查）
-        if pair_key not in self.current_active:
-            return {'eligible': False, 'reason': '配对不在当前活跃列表', 'code': 'NOT_ACTIVE'}
+        # 条件1: pair_key在current_pairs或legacy_pairs中（已在上层检查）
+        if pair_key in self.current_pairs:
+            pair_info = self.current_pairs[pair_key]
+            eligible_in_cycle = True
+        elif pair_key in self.legacy_pairs:
+            pair_info = self.legacy_pairs[pair_key]
+            eligible_in_cycle = False
+        else:
+            return {'eligible': False, 'reason': '配对不在活跃或遗留列表', 'code': 'NOT_ACTIVE'}
         
-        pair_info = self.current_active[pair_key]
-        
-        # 条件2: eligible_in_cycle == True
-        if not pair_info.get('eligible_in_cycle', False):
-            return {'eligible': False, 'reason': '配对非当轮活跃(跨期持仓)', 'code': 'NOT_ELIGIBLE'}
+        # 条件2: eligible_in_cycle == True（只有current_pairs中的才能新开仓）
+        if not eligible_in_cycle:
+            return {'eligible': False, 'reason': '配对非当轮活跃(遗留持仓)', 'code': 'NOT_ELIGIBLE'}
         
         # 条件3: cycle_id匹配（自动满足）
         
@@ -273,12 +303,21 @@ class CentralPairManager:
         
         Returns:
             Dict: 包含各类风控警报信息
-                - expired_pairs: 过期配对列表
+                - expired_pairs: 过期配对列表（从legacy_pairs中识别）
                 - long_holding_pairs: 长期持仓配对（未来实现）
                 - single_leg_instances: 单腿实例（未来实现）
         """
+        # 动态生成过期配对列表：legacy_pairs中没有持仓的配对
+        expired_pairs = []
+        for pair_key in list(self.legacy_pairs.keys()):
+            if not self._has_open_instance(pair_key):
+                expired_pairs.append({
+                    'pair_key': pair_key,
+                    'reason': 'expired_no_position'
+                })
+        
         alerts = {
-            'expired_pairs': self.expired_pairs.copy(),  # 返回副本避免外部修改
+            'expired_pairs': expired_pairs,
         }
         
         # 未来可以添加更多风控信息
@@ -288,8 +327,13 @@ class CentralPairManager:
         return alerts
     
     def clear_expired_pairs(self):
-        """清空过期配对列表（RiskManagement处理完后调用）"""
-        self.expired_pairs = []
+        """清理过期配对（RiskManagement处理完后调用）"""
+        # 清理已平仓的legacy_pairs
+        for pair_key in list(self.legacy_pairs.keys()):
+            if not self._has_open_instance(pair_key):
+                self._retire_pair(pair_key)
+                del self.legacy_pairs[pair_key]
+                self.algorithm.Debug(f"[CPM] 清理过期配对: {pair_key}")
     
     def get_active_pairs_with_position(self) -> List[Dict]:
         """
@@ -305,9 +349,12 @@ class CentralPairManager:
         """
         active_pairs = []
         
-        for pair_key, info in self.current_active.items():
-            # 只返回本周期活跃且有持仓的配对
-            if info.get('eligible_in_cycle', True) and pair_key in self.open_instances:
+        # 合并current_pairs和legacy_pairs中有持仓的配对
+        all_pairs = {**self.current_pairs, **self.legacy_pairs}
+        
+        for pair_key, info in all_pairs.items():
+            # 只返回有持仓的配对
+            if pair_key in self.open_instances:
                 active_pairs.append({
                     'pair_key': pair_key,
                     'beta': info.get('beta', 1.0),
@@ -416,12 +463,12 @@ class CentralPairManager:
             # 从open_instances删除
             del self.open_instances[pair_key]
             
-            # 从current_active中移除（如果已过期）
-            if pair_key in self.current_active:
-                if not self.current_active[pair_key].get('eligible_in_cycle', True):
-                    # 过期配对，完全移除
-                    del self.current_active[pair_key]
-                    self.algorithm.Debug(f"[CPM] 移除过期配对: {pair_key}")
+            # 从legacy_pairs中移除（如果存在）
+            if pair_key in self.legacy_pairs:
+                # 遗留配对平仓后，移至retired_pairs
+                self._retire_pair(pair_key)
+                del self.legacy_pairs[pair_key]
+                self.algorithm.Debug(f"[CPM] 移除遗留配对: {pair_key}")
             
             self.algorithm.Debug(
                 f"[CPM] 配对出场完成: {pair_key} at {exit_time}, "
@@ -461,3 +508,64 @@ class CentralPairManager:
             return 'closed'
         else:
             return 'unknown'
+    
+    # === Alpha查询接口（v1.5实现）===
+    def get_trading_pairs(self) -> Set[Tuple[str, str]]:
+        """
+        获取所有正在持仓的配对
+        
+        Returns:
+            Set[Tuple[str, str]]: 所有在open_instances中的配对键集合
+        """
+        return set(self.open_instances.keys())
+    
+    def get_recent_closed_pairs(self, days: int = 7) -> Set[Tuple[str, str]]:
+        """
+        获取最近N天内平仓的配对（用于冷却期控制）
+        
+        Args:
+            days: 冷却期天数，默认7天
+            
+        Returns:
+            Set[Tuple[str, str]]: 最近days天内平仓的配对集合
+        """
+        if not self.closed_instances:
+            return set()
+        
+        current_time = self.algorithm.Time
+        cutoff_time = current_time - timedelta(days=days)
+        recent_closed = set()
+        
+        for pair_key, info in self.closed_instances.items():
+            exit_time = info.get('exit_time')
+            if exit_time and exit_time > cutoff_time:
+                recent_closed.add(pair_key)
+        
+        self.algorithm.Debug(f"[CPM] 冷却期配对({days}天): {len(recent_closed)}个")
+        return recent_closed
+    
+    def get_excluded_pairs(self, cooldown_days: int = 7) -> Set[Tuple[str, str]]:
+        """
+        获取Alpha选股时应该排除的所有配对
+        
+        这是一个统一接口，返回所有不应该被选择的配对：
+        1. 正在持仓的配对（避免重复建仓）
+        2. 最近平仓的配对（冷却期机制）
+        
+        Args:
+            cooldown_days: 冷却期天数，默认7天
+            
+        Returns:
+            Set[Tuple[str, str]]: 应该被排除的配对集合
+        """
+        trading = self.get_trading_pairs()
+        recent_closed = self.get_recent_closed_pairs(cooldown_days)
+        excluded = trading | recent_closed
+        
+        if excluded:
+            self.algorithm.Debug(
+                f"[CPM] 排除配对总计: {len(excluded)}个 "
+                f"(持仓{len(trading)}个, 冷却期{len(recent_closed)}个)"
+            )
+        
+        return excluded
