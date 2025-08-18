@@ -33,8 +33,6 @@ class CentralPairManager:
         self.cache_date = None         # 缓存日期
         
         # === 状态记录 ===
-        self.last_cycle_id = None
-        self.last_cycle_pairs = set()
         self.history_log = []          # 历史日志（预留）
     
     # === Alpha交互 ===
@@ -46,67 +44,46 @@ class CentralPairManager:
             cycle_id: 轮次标识 (yyyymmdd格式)
             pairs: 配对列表，每项包含 {symbol1_value, symbol2_value, beta, quality_score}
         """
-        # 1. 批内去重校验
+        # 1. 批内去重校验（保留这个有价值的检查）
         seen_keys = set()
+        valid_pairs = []  # 只处理有效的配对
         for pair in pairs:
             pair_key = self._make_pair_key(pair['symbol1_value'], pair['symbol2_value'])
             if pair_key in seen_keys:
-                self.algorithm.Error(f"[CPM] 批内重复配对: {pair_key}")
-                raise ValueError(f"Duplicate pair_key in batch: {pair_key}")
+                self.algorithm.Error(f"[CPM] 批内重复配对，跳过: {pair_key}")
+                continue  # 跳过重复项继续处理
             seen_keys.add(pair_key)
+            valid_pairs.append(pair)
         
-        # 2. 幂等性处理（严格冻结）
+        # 2. 处理配对迁移
         new_keys = {self._make_pair_key(p['symbol1_value'], p['symbol2_value']) 
-                    for p in pairs}
+                    for p in valid_pairs}
         
-        if cycle_id == self.last_cycle_id:
-            # 同cycle重复提交 - 严格冻结，拒绝任何修改
-            if new_keys != self.last_cycle_pairs:
-                # 集合不同，拒绝
-                self.algorithm.Error(f"[CPM] 拒绝修改已冻结的cycle {cycle_id}")
-                return
-            else:
-                # 集合相同，检查参数是否相同
-                for pair in pairs:
-                    pair_key = self._make_pair_key(pair['symbol1_value'], pair['symbol2_value'])
-                    # 检查current_pairs和legacy_pairs
-                    existing = self.current_pairs.get(pair_key) or self.legacy_pairs.get(pair_key)
-                    if existing and (existing['beta'] != pair['beta'] or 
-                                    existing['quality_score'] != pair['quality_score']):
-                        self.algorithm.Error(f"[CPM] 拒绝修改已冻结的cycle {cycle_id} 参数")
-                        return
-                
-                # 完全相同，幂等返回
-                self.algorithm.Debug(f"[CPM] Cycle {cycle_id} 幂等重复提交，忽略")
-                return
+        # 2.1 迁移旧的current_pairs
+        for pair_key in list(self.current_pairs.keys()):
+            if pair_key not in new_keys:
+                if self._has_open_instance(pair_key):
+                    # 有持仓：迁移到legacy_pairs
+                    self.legacy_pairs[pair_key] = self.current_pairs[pair_key]
+                    self.algorithm.Debug(f"[CPM] 配对迁移到legacy: {pair_key}")
+                else:
+                    # 无持仓：可能迁移到retired_pairs
+                    if pair_key in self.closed_instances:
+                        self._retire_pair(pair_key)
+                    self.algorithm.Debug(f"[CPM] 删除无持仓配对: {pair_key}")
+                # 从current_pairs移除
+                del self.current_pairs[pair_key]
         
-        # 3. 处理周期转换时的配对迁移（仅在新cycle时）
-        if self.last_cycle_id is not None and cycle_id != self.last_cycle_id:
-            # 3.1 迁移旧的current_pairs
-            for pair_key in list(self.current_pairs.keys()):
-                if pair_key not in new_keys:
-                    if self._has_open_instance(pair_key):
-                        # 有持仓：迁移到legacy_pairs
-                        self.legacy_pairs[pair_key] = self.current_pairs[pair_key]
-                        self.algorithm.Debug(f"[CPM] 配对迁移到legacy: {pair_key}")
-                    else:
-                        # 无持仓：可能迁移到retired_pairs
-                        if pair_key in self.closed_instances:
-                            self._retire_pair(pair_key)
-                        self.algorithm.Debug(f"[CPM] 删除无持仓配对: {pair_key}")
-                    # 从current_pairs移除
-                    del self.current_pairs[pair_key]
-            
-            # 3.2 清理已平仓的legacy_pairs
-            for pair_key in list(self.legacy_pairs.keys()):
-                if not self._has_open_instance(pair_key):
-                    self._retire_pair(pair_key)
-                    del self.legacy_pairs[pair_key]
-                    self.algorithm.Debug(f"[CPM] legacy配对已平仓，移至retired: {pair_key}")
+        # 2.2 清理已平仓的legacy_pairs
+        for pair_key in list(self.legacy_pairs.keys()):
+            if not self._has_open_instance(pair_key):
+                self._retire_pair(pair_key)
+                del self.legacy_pairs[pair_key]
+                self.algorithm.Debug(f"[CPM] legacy配对已平仓，移至retired: {pair_key}")
         
-        # 4. 更新current_pairs（仅包含本轮活跃配对）
+        # 3. 更新current_pairs（仅包含本轮活跃配对）
         self.current_pairs.clear()  # 清空后重建
-        for pair in pairs:
+        for pair in valid_pairs:
             pair_key = self._make_pair_key(pair['symbol1_value'], pair['symbol2_value'])
             self.current_pairs[pair_key] = {
                 'cycle_id': cycle_id,
@@ -114,11 +91,7 @@ class CentralPairManager:
                 'quality_score': pair['quality_score']
             }
         
-        # 5. 更新状态
-        self.last_cycle_id = cycle_id
-        self.last_cycle_pairs = new_keys
-        
-        self.algorithm.Debug(f"[CPM] Cycle {cycle_id} 提交完成: {len(pairs)}个配对")
+        self.algorithm.Debug(f"[CPM] Cycle {cycle_id} 提交完成: {len(self.current_pairs)}个配对")
     
     def _make_pair_key(self, symbol1_value: str, symbol2_value: str) -> Tuple[str, str]:
         """生成规范化的pair_key"""
@@ -137,20 +110,48 @@ class CentralPairManager:
                 'cycle_id': self.closed_instances[pair_key].get('cycle_id')
             }
     
-    def get_all_tracked_pairs(self) -> Dict:
-        """获取所有被跟踪的配对（包括当前轮和遗留）
+    def get_current_pairs(self) -> Dict[Tuple[str, str], Dict]:
+        """
+        获取本轮活跃配对
         
         Returns:
-            Dict: 包含current_pairs和legacy_pairs的合并字典
-                  每个配对包含is_current标记以区分来源
+            Dict: current_pairs的副本，包含cycle_id, beta, quality_score
         """
-        # 合并current_pairs和legacy_pairs
-        merged = {}
-        for k, v in self.current_pairs.items():
-            merged[k] = {**v, 'is_current': True}
-        for k, v in self.legacy_pairs.items():
-            merged[k] = {**v, 'is_current': False}
-        return merged
+        return self.current_pairs.copy()
+    
+    def get_legacy_pairs(self) -> Dict[Tuple[str, str], Dict]:
+        """
+        获取遗留持仓配对
+        
+        Returns:
+            Dict: legacy_pairs的副本，包含cycle_id, beta, quality_score
+        """
+        return self.legacy_pairs.copy()
+    
+    def get_retired_pairs(self) -> Dict[Tuple[str, str], Dict]:
+        """
+        获取已退休配对
+        
+        Returns:
+            Dict: retired_pairs的副本，包含retired_time, cycle_id等
+        """
+        return self.retired_pairs.copy()
+    
+    def get_pairs_summary(self) -> Dict:
+        """
+        获取配对统计摘要
+        
+        Returns:
+            Dict: 各状态配对的数量统计
+        """
+        return {
+            'current_count': len(self.current_pairs),
+            'legacy_count': len(self.legacy_pairs),
+            'retired_count': len(self.retired_pairs),
+            'open_instances_count': len(self.open_instances),
+            'closed_instances_count': len(self.closed_instances),
+            'total_tracked': len(self.current_pairs) + len(self.legacy_pairs)
+        }
     
     # === v1 PC交互 ===
     def submit_intent(self, pair_key: Tuple[str, str], action: str, intent_date: int) -> str:

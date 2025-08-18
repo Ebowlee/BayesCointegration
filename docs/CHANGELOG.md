@@ -4,6 +4,26 @@
 
 ---
 
+## [v1.8.0_简化CPM逻辑优化接口@20250118] (feature/cpm-development分支)
+### 移除幂等性并优化查询接口
+- **移除幂等性检查**：
+  - 删除last_cycle_id和last_cycle_pairs状态变量
+  - 简化submit_modeled_pairs()方法，只保留批内去重
+  - 代码减少约40行，逻辑更直接
+  
+- **优化查询接口**：
+  - 删除get_all_tracked_pairs()合并接口
+  - 添加三个独立查询接口：
+    * get_current_pairs() - 获取本轮活跃配对
+    * get_legacy_pairs() - 获取遗留持仓配对
+    * get_retired_pairs() - 获取已退休配对
+  - 添加get_pairs_summary()统计接口
+  
+- **改进效果**：
+  - 接口语义更明确，调用者无需判断额外标记
+  - 每个方法职责单一，符合单一职责原则
+  - 批内去重改为跳过而非抛异常，更加健壮
+
 ## [v1.7.0_彻底重构移除兼容层@20250118] (feature/cpm-development分支)
 ### 彻底重构，移除所有向后兼容代码
 - **兼容层完全移除**：
