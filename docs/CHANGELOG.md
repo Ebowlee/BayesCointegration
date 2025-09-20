@@ -4,17 +4,29 @@
 
 ---
 
-## [v3.0.0_Alpha模块优化与架构分叉准备@20250120]
+## [v5.0.0_Alpha模块优化合并主线@20250120]
+
+### 重大架构升级
+- **版本跨越**：从v4.2.0直接升级到v5.0.0，标志着架构的重大改进
+- **分支合并**：将feature/cpm-development的Alpha优化成果合并到主线
 
 ### Alpha模块重构
 - **架构优化**：
   - 删除PairAnalyzer中间层（-73行）
   - AlphaModel直接调用三个独立模块
   - 流程从3步扩展为5步，职责更清晰
+  - 创建全面的Alpha_README.md文档（320行）
+
+- **模块拆分**：
+  - CointegrationAnalyzer.py：专注统计分析（150行）
+  - BayesianModeler.py：贝叶斯MCMC建模（198行）
+  - DataProcessor.py：数据处理（优化后115行）
+  - SignalGenerator.py：信号生成（优化后236行）
+  - AlphaModel.py：主控制器（精简至226行）
 
 - **策略逻辑集中**：
   - 质量评估和配对筛选移至AlphaModel
-  - CointegrationAnalyzer专注纯统计分析（-70行）
+  - CointegrationAnalyzer专注纯统计分析
   - 策略参数集中在AlphaModel管理
 
 - **配置管理修复**：
@@ -25,13 +37,83 @@
 
 ### 代码统计
 - 删除文件：src/alpha/PairAnalyzer.py（-73行）
-- 总代码量：约973行（优化前1009行）
-- 架构更清晰，维护性提升
+- 新增文档：src/alpha/Alpha_README.md（+320行）
+- 总代码量：Alpha模块约973行（优化前1009行）
+- 代码减少36行，可读性大幅提升
 
-### 下一步计划
-- 方案1：Algorithm Framework + TradingPair跨模块共享
-- 方案2：OnData集成 + TradingPair作为核心对象
-- 将在不同分支上实验两种架构
+### 实验分支计划
+- feature/framework-tradingpair：Algorithm Framework + TradingPair跨模块共享
+- feature/ondata-integration：OnData集成 + TradingPair作为核心对象
+- 两个分支将从v5.0.0起点进行不同架构实验
+
+---
+
+## [v4.2.0_PortfolioConstruction优化@20250809]
+### PortfolioConstruction模块重大优化
+- **智能Target生成器转型**：
+  - 从机械转换器升级为智能决策模块
+  - 移除冗余的信号验证（已在AlphaModel完成）
+  - 移除Tag中的reason字段解析
+  - 删除_validate_signal和_get_pair_position_status方法
+
+- **质量过滤机制**：
+  - 添加quality_score < 0.7的硬编码过滤
+  - 防止低质量信号进入交易执行
+  - 回测验证过滤70个低质量信号（AMZN&CMG等）
+
+- **冷却期管理内置**：
+  - PC内部实现7天冷却期追踪
+  - 使用tuple(sorted([symbol1, symbol2]))确保配对一致性
+  - 避免[A,B]和[B,A]被视为不同配对
+  - 回测验证冷却期正确生效（PG&WMT在第7天可重新交易）
+
+- **代码优化**：
+  - main.py清理：所有imports移至顶部region
+  - 启用真实PortfolioConstruction替代NullPortfolioConstructionModel
+  - 删除不必要的注释和TODO标记
+
+---
+
+## [v4.1.0_AlphaModel模块化重构@20250809]
+### AlphaModel模块化重构完成
+- **模块拆分**：
+  - 将1365行单文件拆分为5个独立模块
+  - AlphaState.py - 集中状态管理（persistent/temporary/control）
+  - DataProcessor.py - 数据处理逻辑
+  - PairAnalyzer.py - 配对分析整合（协整+贝叶斯）
+  - SignalGenerator.py - 信号生成逻辑
+  - AlphaModel.py - 主协调器
+
+- **风控前置机制**：
+  - 实现配对级别的过期资产清理
+  - SignalGenerator添加持仓前置检查
+  - 建仓信号：检查两资产都无持仓
+  - 平仓信号：检查至少一资产有持仓
+
+- **Bug修复**：
+  - 修复过期配对清理逻辑：从资产级别改为配对级别
+  - 解决AMZN&CMG→AMZN&GM时CMG未清理问题
+  - 防止无持仓生成平仓信号，有持仓生成建仓信号
+
+---
+
+## [v4.0.0_架构重构-删除PairRegistry@20250808]
+### 重大架构重构
+- **PairRegistry完全移除**：
+  - 删除 `src/PairRegistry.py` 文件
+  - 移除所有模块中的PairRegistry依赖
+  - AlphaModel、RiskManagement、OrderTracker均已更新
+  - 删除相关测试文件
+
+- **配置管理优化**：
+  - 创建独立配置文件 `src/config.py`
+  - 从main.py分离所有配置参数
+  - 支持多环境配置（production/test/development）
+
+- **CentralPairManager简化**：
+  - 移除所有预设方法骨架
+  - 保持为空白类，等待根据实际需求设计
+  - 遵循增量式重构原则
 
 ---
 
