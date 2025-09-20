@@ -1,202 +1,144 @@
 # region imports
 from AlgorithmImports import *
-from typing import List
+from typing import List, Dict
 from datetime import timedelta
+from collections import defaultdict
+import numpy as np
 from .AlphaState import AlphaModelState
-from .PairAnalyzer import PairAnalyzer
+from .DataProcessor import DataProcessor
+from .CointegrationAnalyzer import CointegrationAnalyzer
+from .BayesianModeler import BayesianModeler
 from .SignalGenerator import SignalGenerator
 # endregion
 
 
-# =============================================================================
-# 主Alpha模型 - BayesianCointegrationAlphaModel
-# =============================================================================
 class BayesianCointegrationAlphaModel(AlphaModel):
-    """
-    贝叶斯协整Alpha模型 - 配对交易策略的核心决策引擎
-    
-    该模型是整个配对交易系统的大脑，负责从原始市场数据到交易信号的
-    完整处理流程。采用模块化设计，将复杂的策略分解为独立的功能模块。
-    
-    重要：Alpha层现在负责所有风控过滤，包括：
-    - 配对冷却期管理（通过CPM查询）
-    - 市场风控机制（SPY监控）
-    - 重复建仓检查
-    
-    整体架构:
-    ┌─────────────┐     ┌──────────────────┐     ┌─────────────────┐
-    │DataProcessor│ --> │CointegrationAnaly│ --> │BayesianModeler  │
-    └─────────────┘     └──────────────────┘     └─────────────────┘
-           |                     |                         |
-           v                     v                         v
-      清洗后数据            协整配对列表              模型参数
-           |                     |                         |
-           └─────────────────────┴─────────────────────────┘
-                                 |
-                                 v
-                        ┌──────────────────┐
-                        │ SignalGenerator  │
-                        └──────────────────┘
-                                 |
-                                 v
-                            交易信号(Insights)
-    
-    工作流程:
-    1. 月度选股触发 (OnSecuritiesChanged)
-       - 接收UniverseSelection筛选的股票
-       - 标记为选股日，准备完整分析
-    
-    2. 数据处理 (DataProcessor)
-       - 下载252天历史数据
-       - 数据清洗和验证
-       - 输出高质量数据集
-    
-    3. 协整分析 (CointegrationAnalyzer)
-       - 行业内配对生成
-       - Engle-Granger协整检验
-       - 综合质量评分和筛选
-    
-    4. 贝叶斯建模 (BayesianModeler)
-       - MCMC参数估计
-       - 动态贝叶斯更新
-       - 不确定性量化
-    
-    5. 日常信号生成 (SignalGenerator)
-       - 实时z-score计算
-       - EMA平滑处理
-       - 阈值触发交易信号
-    
-    与其他模块的交互:
-    - UniverseSelection: 提供候选股票列表
-    - CentralPairManager: 提交建模配对、查询配对状态
-    - PortfolioConstruction: 接收已过滤的Insights进行资金分配
-    - RiskManagement: 信号可能被风险规则修改
-    - Execution: 最终执行交易指令
-    
-    配置要求:
-    必须提供完整的config字典, 包含所有子模块的参数配置。
-    详见各子模块的配置参数说明。
-    
-    性能优化:
-    - 月度批量处理，减少计算频率
-    - 数据缓存避免重复下载
-    - 向量化计算提升效率
-    
-    注意事项:
-    - 选股日会进行大量计算，可能影响性能
-    - 贝叶斯建模是计算瓶颈，已优化采样参数
-    - 所有模块都有独立的错误处理
-    """
-    
-    def __init__(self, algorithm, config: dict, sector_code_to_name: dict, central_pair_manager=None):
-        """
-        初始化Alpha模型
-        
-        Args:
-            algorithm: QuantConnect算法实例
-            config: 配置字典
-            sector_code_to_name: 行业代码到名称的映射
-            central_pair_manager: 中央配对管理器（可选）
-        """
+    """贝叶斯协整Alpha模型 - 配对交易策略的核心决策引擎"""
+
+    def __init__(self, algorithm, config: dict, sector_code_to_name: dict):
         super().__init__()
         self.algorithm = algorithm
         self.config = config
         self.sector_code_to_name = sector_code_to_name
-        self.central_pair_manager = central_pair_manager
-        
+
         # 信号持续时间配置
-        self.flat_signal_duration_days = config.get('flat_signal_duration_days', 5)
-        
+        self.flat_signal_duration_days = config['flat_signal_duration_days']
+
         # 使用集中的状态管理
         self.state = AlphaModelState()
-        
-        # 创建配对分析器（整合了数据处理、协整分析和贝叶斯建模）
-        self.pair_analyzer = PairAnalyzer(
-            self.algorithm, 
-            self.config, 
-            self.sector_code_to_name,
-            self.state
-        )
-        
+
+        # 配对质量评分权重（策略参数）
+        self.quality_weights = config['quality_weights']
+
+        # 配对筛选参数（策略规则）
+        self.max_symbol_repeats = config['max_symbol_repeats']
+        self.max_pairs = config['max_pairs']
+
+        # 直接创建三个独立的分析模块
+        self.data_processor = DataProcessor(self.algorithm, self.config)
+        self.cointegration_analyzer = CointegrationAnalyzer(self.algorithm, self.config)
+        self.bayesian_modeler = BayesianModeler(self.algorithm, self.config, self.state)
+
         # 创建信号生成器
-        self.signal_generator = SignalGenerator(self.algorithm, self.config, self.state, self.central_pair_manager)
-        
-        # 初始化不需要输出
-    
+        self.signal_generator = SignalGenerator(self.algorithm, self.config, self.state)
+
     def OnSecuritiesChanged(self, algorithm: QCAlgorithm, changes: SecurityChanges):
-        """
-        处理证券变更事件
-        步骤1: 解析选股结果
-        """
+        """处理证券变更事件"""
         self.state.update_control_state('is_selection_day', True)
-        
-        # 添加新股票（避免重复）
+
+        # 添加新股票
         current_symbols = self.state.control['symbols']
         current_symbols.extend([
-            s.Symbol for s in changes.AddedSecurities 
+            s.Symbol for s in changes.AddedSecurities
             if s.Symbol and s.Symbol not in current_symbols
         ])
-        
-        # 移除旧股票（保持列表更新）
+
+        # 移除旧股票
         self.state.update_control_state('symbols', [
-            s for s in current_symbols 
+            s for s in current_symbols
             if s not in [r.Symbol for r in changes.RemovedSecurities]
         ])
-        
-    
+
     def Update(self, algorithm: QCAlgorithm, data: Slice) -> List[Insight]:
-        """
-        主更新方法
-        """
+        """主更新方法"""
         symbols = self.state.control['symbols']
         if not symbols or len(symbols) < 2:
             return []
-        
-        insights = []  # 初始化insights列表
-        
+
+        insights = []
+
         if self.state.control['is_selection_day']:
-            # 使用配对分析器执行完整的配对分析流程
-            analysis_result = self.pair_analyzer.analyze(symbols)
-            
+            # 步骤1: 数据处理 - 获取和清洗历史数据
+            data_result = self.data_processor.process(symbols)
+            clean_data = data_result['clean_data']
+            valid_symbols = data_result['valid_symbols']
+
+            # 保存到状态供其他模块使用
+            self.state.update_temporary_data('clean_data', clean_data)
+            self.state.update_temporary_data('valid_symbols', valid_symbols)
+
+            # 检查有效股票数量
+            if len(valid_symbols) < 2:
+                self.algorithm.Debug("[AlphaModel] 数据处理后有效股票不足，跳过配对分析")
+                self.state.update_control_state('is_selection_day', False)
+                self.state.clear_temporary()
+                return []
+
+            # 步骤2: 协整检验 - 识别统计上稳定的配对
+            cointegration_result = self.cointegration_analyzer.find_cointegrated_pairs(
+                valid_symbols,
+                clean_data,
+                self.sector_code_to_name
+            )
+
+            raw_pairs = cointegration_result['raw_pairs']
+            if not raw_pairs:
+                self.algorithm.Debug("[AlphaModel] 未发现协整配对")
+                self.state.update_control_state('is_selection_day', False)
+                self.state.clear_temporary()
+                return []
+
+            self.algorithm.Debug(f"[AlphaModel] 步骤2完成: 发现{len(raw_pairs)}个协整对")
+
+            # 步骤3: 质量评估 - 计算每个配对的综合质量分数
+            scored_pairs = self._evaluate_pair_quality(raw_pairs)
+            self.algorithm.Debug(f"[AlphaModel] 步骤3完成: 质量评分完成")
+
+            # 步骤4: 配对筛选 - 根据策略规则选择最佳配对
+            selected_pairs = self._select_best_pairs(scored_pairs)
+            self.state.update_temporary_data('cointegrated_pairs', selected_pairs)
+
+            if not selected_pairs:
+                self.algorithm.Debug("[AlphaModel] 筛选后无合格配对")
+                self.state.update_control_state('is_selection_day', False)
+                self.state.clear_temporary()
+                return []
+
+            self.algorithm.Debug(f"[AlphaModel] 步骤4完成: 筛选出{len(selected_pairs)}个最佳配对")
+
+            # 步骤5: 贝叶斯建模 - 估计交易参数
+            modeling_result = self.bayesian_modeler.model_pairs(
+                selected_pairs,
+                clean_data
+            )
+
             # 保存建模结果
-            if analysis_result['modeled_pairs']:
-                # 更新配对记录：保存旧配对，更新新配对
-                self.state.update_persistent_data('previous_modeled_pairs', 
+            modeled_pairs = modeling_result['modeled_pairs']
+            if modeled_pairs:
+                self.state.update_persistent_data('previous_modeled_pairs',
                                                  self.state.persistent.get('modeled_pairs', []))
-                self.state.update_persistent_data('modeled_pairs', analysis_result['modeled_pairs'])
+                self.state.update_persistent_data('modeled_pairs', modeled_pairs)
                 self.algorithm.Debug(
-                    f"[AlphaModel] 配对分析完成: {len(analysis_result['modeled_pairs'])}个配对"
+                    f"[AlphaModel] 步骤5完成: {len(modeled_pairs)}个配对成功建模"
                 )
-                # 提交配对到CPM（中央配对管理器）
-                if self.central_pair_manager:
-                    try:
-                        # 生成cycle_id (yyyymmdd格式)
-                        cycle_id = int(self.algorithm.Time.strftime("%Y%m%d"))
-                        
-                        # 准备ModeledPair列表
-                        modeled_pairs = []
-                        for pair in analysis_result['modeled_pairs']:
-                            modeled_pairs.append({
-                                'symbol1_value': pair['symbol1'].Value if hasattr(pair['symbol1'], 'Value') else str(pair['symbol1']),
-                                'symbol2_value': pair['symbol2'].Value if hasattr(pair['symbol2'], 'Value') else str(pair['symbol2']),
-                                'beta': pair.get('beta', 1.0),
-                                'quality_score': pair.get('quality_score', 0.5)
-                            })
-                        
-                        # 提交给CPM
-                        self.central_pair_manager.submit_modeled_pairs(cycle_id, modeled_pairs)
-                        
-                    except Exception as e:
-                        self.algorithm.Error(f"[AlphaModel] CPM提交异常: {str(e)}")
-            
+
             # 重置选股标志
             self.state.update_control_state('is_selection_day', False)
-            
-            # 清理临时数据，释放内存
+
+            # 清理临时数据
             self.state.clear_temporary()
-        
-        # 日常信号生成 - 基于实时价格生成交易信号
-        # 注意：信号生成器会进行所有风控过滤
+
+        # 日常信号生成
         modeled_pairs = self.state.persistent['modeled_pairs']
         if modeled_pairs:
             self.algorithm.Debug(f"[AlphaModel] 生成信号: 跟踪{len(modeled_pairs)}对配对")
@@ -204,9 +146,77 @@ class BayesianCointegrationAlphaModel(AlphaModel):
             if daily_insights:
                 insights.extend(daily_insights)
                 self.algorithm.Debug(f"[AlphaModel] 生成{len(daily_insights)}个日常Insights")
-        
+
         # 返回所有insights
         if insights:
             self.algorithm.Debug(f"[AlphaModel] 总计生成{len(insights)}个Insights")
         return insights
-    
+
+    # ==================== 策略决策方法 ====================
+
+    def _evaluate_pair_quality(self, pairs: List[Dict]) -> List[Dict]:
+        """步骤3: 评估配对质量 - 策略核心决策逻辑"""
+        for pair in pairs:
+            # 计算各维度分数
+            statistical_score = 1 - pair['pvalue']  # p值越小越好
+            correlation_score = pair['correlation']  # 相关性越高越好
+            liquidity_score = pair.get('liquidity_match', 0.5)  # 流动性匹配度
+
+            # 加权综合计算质量分数
+            quality_score = (
+                self.quality_weights['statistical'] * statistical_score +
+                self.quality_weights['correlation'] * correlation_score +
+                self.quality_weights['liquidity'] * liquidity_score
+            )
+
+            pair['quality_score'] = float(quality_score)
+
+        # 输出质量分数统计
+        scores = [p['quality_score'] for p in pairs]
+        if scores:
+            self.algorithm.Debug(
+                f"[AlphaModel] 质量分数分布: 平均{np.mean(scores):.3f}, "
+                f"最高{max(scores):.3f}, 最低{min(scores):.3f}"
+            )
+
+        return pairs
+
+    def _select_best_pairs(self, scored_pairs: List[Dict]) -> List[Dict]:
+        """步骤4: 选择最佳配对 - 应用策略筛选规则"""
+        # 按质量分数排序
+        sorted_pairs = sorted(scored_pairs, key=lambda x: x['quality_score'], reverse=True)
+
+        # 应用筛选规则
+        symbol_count = defaultdict(int)
+        selected_pairs = []
+
+        for pair in sorted_pairs:
+            # 检查是否达到最大配对数
+            if len(selected_pairs) >= self.max_pairs:
+                break
+
+            symbol1, symbol2 = pair['symbol1'], pair['symbol2']
+
+            # 检查每个股票的出现次数限制
+            if (symbol_count[symbol1] < self.max_symbol_repeats and
+                symbol_count[symbol2] < self.max_symbol_repeats):
+                selected_pairs.append(pair)
+                symbol_count[symbol1] += 1
+                symbol_count[symbol2] += 1
+
+        # 输出筛选结果
+        if selected_pairs:
+            # 按行业分组输出
+            sector_pairs = defaultdict(list)
+            for pair in selected_pairs:
+                sector = pair.get('sector', 'Unknown')
+                symbol1 = pair['symbol1'].Value
+                symbol2 = pair['symbol2'].Value
+                quality_score = pair['quality_score']
+                sector_pairs[sector].append(f"({symbol1},{symbol2})/{quality_score:.3f}")
+
+            for sector, pairs in sorted(sector_pairs.items()):
+                pairs_str = ", ".join(pairs)
+                self.algorithm.Debug(f"[AlphaModel] {sector}: {pairs_str}")
+
+        return selected_pairs

@@ -60,12 +60,11 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
     TAG_DELIMITER = '|'
     WEIGHT_TOLERANCE = 0.01  # 权重验证容差: 允许总资金分配与预期相差1%以内
     
-    def __init__(self, algorithm, config, central_pair_manager=None):
-        super().__init__() 
+    def __init__(self, algorithm, config):
+        super().__init__()
         self.algorithm = algorithm
         self.margin_rate = config.get('margin_rate', 0.5)
         self.cash_buffer = config.get('cash_buffer', 0.05)
-        self.central_pair_manager = central_pair_manager  # CPM引用
         
         # 动态资金管理参数
         self.max_position_per_pair = config.get('max_position_per_pair', 0.10)  # 单对最大仓位10%

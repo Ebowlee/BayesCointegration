@@ -9,13 +9,15 @@ AlphaModel模块化包
 from .AlphaModel import BayesianCointegrationAlphaModel
 from .AlphaState import AlphaModelState
 from .DataProcessor import DataProcessor
-from .PairAnalyzer import PairAnalyzer
+from .CointegrationAnalyzer import CointegrationAnalyzer
+from .BayesianModeler import BayesianModeler
 from .SignalGenerator import SignalGenerator
 
 __all__ = [
     'BayesianCointegrationAlphaModel',
     'AlphaModelState',
     'DataProcessor',
-    'PairAnalyzer',
+    'CointegrationAnalyzer',
+    'BayesianModeler',
     'SignalGenerator'
 ]
