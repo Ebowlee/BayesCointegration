@@ -53,7 +53,8 @@ class MockSecurityIdentifier:
 class MockHolding:
     """模拟持仓信息"""
     def __init__(self, symbol: MockSymbol = None, invested: bool = False, 
-                 quantity: float = 0, average_price: float = 0, price: float = 100):
+                 quantity: float = 0, average_price: float = 0, price: float = 100,
+                 holdings_value: float = None):
         self.Symbol = symbol
         self.Invested = invested
         self.Quantity = quantity
@@ -61,6 +62,11 @@ class MockHolding:
         self.Price = price
         self.HoldingsCost = abs(quantity * average_price)
         self.UnrealizedProfit = self._calculate_unrealized_profit()
+        # 如果提供了holdings_value，直接使用；否则计算
+        if holdings_value is not None:
+            self.HoldingsValue = holdings_value
+        else:
+            self.HoldingsValue = quantity * price
         
     def _calculate_unrealized_profit(self) -> float:
         """计算未实现盈亏"""
@@ -141,12 +147,41 @@ class MockTransactions:
         return order
 
 
+class MockSecurities:
+    """模拟证券集合"""
+    def __init__(self):
+        self._symbols = []
+        self._securities = {}  # symbol -> security对象
+    
+    @property
+    def Keys(self):
+        """返回所有证券的Symbol列表"""
+        return self._symbols
+    
+    def add_symbol(self, symbol):
+        """添加证券Symbol"""
+        if symbol not in self._symbols:
+            self._symbols.append(symbol)
+            # 创建一个简单的security对象
+            self._securities[symbol] = type('Security', (), {
+                'Symbol': symbol,
+                'Fundamentals': None  # 默认没有基本面数据
+            })()
+    
+    def __getitem__(self, symbol):
+        """通过symbol获取security"""
+        if symbol not in self._securities:
+            self.add_symbol(symbol)
+        return self._securities[symbol]
+
+
 class MockAlgorithm:
     """模拟算法实例"""
     def __init__(self, start_time: datetime = None):
         self.Time = start_time or datetime(2024, 8, 1)
         self.Portfolio = MockPortfolio()
         self.Transactions = MockTransactions()
+        self.Securities = MockSecurities()
         self.debug_messages = []
         self.logs = []
         

@@ -4,6 +4,474 @@
 
 ---
 
+## [v3.0.0_Alpha模块优化与架构分叉准备@20250120]
+
+### Alpha模块重构
+- **架构优化**：
+  - 删除PairAnalyzer中间层（-73行）
+  - AlphaModel直接调用三个独立模块
+  - 流程从3步扩展为5步，职责更清晰
+
+- **策略逻辑集中**：
+  - 质量评估和配对筛选移至AlphaModel
+  - CointegrationAnalyzer专注纯统计分析（-70行）
+  - 策略参数集中在AlphaModel管理
+
+- **配置管理修复**：
+  - 修复所有config.get()默认值问题
+  - 确保config.py为唯一配置源
+  - 修复AlphaModel和SignalGenerator的配置引用
+  - 将市场风控参数移至alpha_model配置块
+
+### 代码统计
+- 删除文件：src/alpha/PairAnalyzer.py（-73行）
+- 总代码量：约973行（优化前1009行）
+- 架构更清晰，维护性提升
+
+### 下一步计划
+- 方案1：Algorithm Framework + TradingPair跨模块共享
+- 方案2：OnData集成 + TradingPair作为核心对象
+- 将在不同分支上实验两种架构
+
+---
+
+## [v2.1.0_代码优雅性重构@20250119]
+### 重构内容
+- **UniverseSelection模块优雅性重构**:
+  - 代码量从500+行精简到313行（约40%缩减）
+  - FINANCIAL_CRITERIA从类属性改为实例属性，提升灵活性
+  - 重新组织方法顺序：公开方法 → 主筛选 → 辅助方法 → 日志输出
+  - 统一代码注释风格，移除冗余docstring
+
+- **配置和主程序简化**:
+  - config.py简化debug_level为二元选择（0=不输出, 1=输出统计）
+  - main.py代码风格统一，注释精简
+  - 临时注释其他模块用于独立测试
+
+- **日志输出优化**:
+  - 保留关键统计信息，移除冗余输出
+  - 统一输出格式："第【N】次选股: 粗选X只 -> 最终Y只"
+  - 标点符号统一使用英文标点
+
+### 架构影响
+- 提升代码可维护性和可读性
+- 为后续模块重构建立标准模式
+- 保持功能完全不变，仅优化代码结构
+
+---
+
+## [v2.0.0_架构简化移除CPM和OnOrderEvent@20250119] (feature/cpm-development分支)
+### 重大重构：架构简化
+- **完全移除CentralPairManager**：
+  - 删除src/CentralPairManager.py及其所有相关代码
+  - 简化架构，减少约1000+行代码
+  - 直接基于Portfolio状态进行配对管理
+
+- **移除OnOrderEvent逻辑**：
+  - 删除main.py中的OnOrderEvent方法（约70行）
+  - 简化配对状态管理，直接使用Portfolio查询
+
+- **简化模块交互**：
+  - AlphaModel: 移除CPM交互，直接使用Portfolio查询持仓
+  - RiskManagement: 重写为简化版本，只保留核心风控功能
+  - PortfolioConstruction: 移除CPM依赖，专注于资金管理
+
+### 技术改进
+- **架构简化**：
+  - 从复杂的中央管理模式转为直接查询模式
+  - 每个模块职责更加清晰，耦合度更低
+  - 移除了复杂的状态管理和同步机制
+
+- **性能优化**：
+  - 减少内存占用（无需维护额外状态）
+  - 减少计算开销（无需状态同步）
+  - 简化数据流（直接查询而非中介管理）
+
+- **可维护性提升**：
+  - 代码量减少约30%（删除1300+行）
+  - 模块间依赖更加简单直接
+  - 更容易理解和调试
+
+### 代码变更
+- **删除文件**：
+  - src/CentralPairManager.py
+  - tests/unit/test_central_pair_manager.py
+  - tests/unit/test_cpm_v0.py
+  - tests/unit/test_cpm_v1.py
+  - tests/unit/test_market_cooldown.py
+  - tests/unit/test_risk_*.py (多个旧版本测试)
+
+- **修改文件**：
+  - main.py: 移除CPM初始化和OnOrderEvent方法
+  - src/alpha/AlphaModel.py: 移除CPM交互，简化构造函数
+  - src/alpha/SignalGenerator.py: 用Portfolio查询替代CPM查询
+  - src/RiskManagement.py: 完全重写为简化版本
+  - src/PortfolioConstruction.py: 移除CPM依赖
+  - src/config.py: 移除CPM配置参数
+
+### 功能保持
+- **所有核心功能保持不变**：
+  - 贝叶斯协整分析
+  - Z-score信号生成
+  - 配对交易逻辑
+  - 基本风险控制
+
+- **改进的风控机制**：
+  - Alpha层：市场风控、重复建仓检查
+  - RiskManagement层：極端亏损止损
+  - 直接、高效、易理解
+
+### 测试状态
+- **单元测试**：全部通过（简化后的45个测试）
+- **集成测试**：需要进一步验证
+- **回测测试**：待执行
+
+### 升级影响
+- **不兼容变更**：这是一个重大版本升级
+- **需要重新部署**：所有现有部署需要更新
+- **配置简化**：CPM相关配置参数已移除
+
+---
+
+## [v1.9.2_修复市场冷静期强制平仓逻辑@20250118] (feature/cpm-development分支)
+### 重要修复：市场风控机制
+- **修复市场冷静期逻辑缺陷**：
+  - 之前：市场冷静期只阻止建仓，不会主动平仓
+  - 现在：立即强制平仓所有持仓，真正实现风控目的
+  - 在`_generate_pair_signals`开头添加强制平仓逻辑
+  
+- **改进日志输出**：
+  - 区分"强制平仓"和"正常平仓"
+  - 汇总输出平仓数量和剩余冷静期
+  - 添加z-score值便于追踪
+  
+- **代码优化**：
+  - 移除冗余的`is_market_cooldown`检查
+  - 市场冷静期逻辑集中在方法开头处理
+  - 添加测试用例验证修复效果
+
+## [v1.9.1_更新所有模块注释@20250118] (feature/cpm-development分支)
+### 文档优化
+- **更新模块注释**：
+  - CPM类文档移除"PC意图管理"相关描述
+  - PC类文档强调其作为"纯粹资金管理器"的角色
+  - Alpha层文档明确说明承担所有风控过滤职责
+  - SignalGenerator新增市场风控方法的详细注释
+  
+- **视觉优化**：
+  - CPM中模块交互部分使用增强的分隔符
+  - 删除所有过时的版本引用（如"v1实现"）
+  - 确保注释与代码功能完全一致
+  
+- **影响文件**：
+  - src/CentralPairManager.py: 30行修改
+  - src/PortfolioConstruction.py: 53行修改
+  - src/alpha/AlphaModel.py: 11行修改
+  - src/alpha/SignalGenerator.py: 17行修改
+
+## [v1.9.0_集中风控到Alpha层删除PC-CPM交互@20250118] (feature/cpm-development分支)
+### 架构优化：单一职责原则
+- **删除PC冷却期管理**：
+  - 删除cooldown_records和相关逻辑
+  - 冷却期统一由Alpha层通过CPM查询实现
+  - 避免重复过滤，提高效率
+  
+- **市场风控移至Alpha层**：
+  - 将SPY跌幅检查从PC移到SignalGenerator
+  - 新增_check_market_condition()和_is_market_in_cooldown()
+  - 从源头控制：极端市场不生成建仓信号
+  - 避免无效信号的下游处理
+  
+- **删除PC-CPM交互**：
+  - 完全删除submit_intent()及相关方法
+  - 删除意图管理数据结构（intents_log, daily_intent_cache）
+  - 删除_check_open_eligibility()和_create_open_instance()
+  - PC现在纯粹负责资金管理
+  
+- **架构简化效果**：
+  - 代码减少约200行
+  - 每个模块职责更加清晰
+  - Alpha：信号生成和风控
+  - PC：纯粹的资金管理
+  - CPM：配对生命周期管理
+
+## [v1.8.0_简化CPM逻辑优化接口@20250118] (feature/cpm-development分支)
+### 移除幂等性并优化查询接口
+- **移除幂等性检查**：
+  - 删除last_cycle_id和last_cycle_pairs状态变量
+  - 简化submit_modeled_pairs()方法，只保留批内去重
+  - 代码减少约40行，逻辑更直接
+  
+- **优化查询接口**：
+  - 删除get_all_tracked_pairs()合并接口
+  - 添加三个独立查询接口：
+    * get_current_pairs() - 获取本轮活跃配对
+    * get_legacy_pairs() - 获取遗留持仓配对
+    * get_retired_pairs() - 获取已退休配对
+  - 添加get_pairs_summary()统计接口
+  
+- **改进效果**：
+  - 接口语义更明确，调用者无需判断额外标记
+  - 每个方法职责单一，符合单一职责原则
+  - 批内去重改为跳过而非抛异常，更加健壮
+
+## [v1.7.0_彻底重构移除兼容层@20250118] (feature/cpm-development分支)
+### 彻底重构，移除所有向后兼容代码
+- **兼容层完全移除**：
+  - 删除所有@property装饰器（current_active, expired_pairs）
+  - 删除_current_active_compat临时变量
+  - 删除所有过渡期验证代码
+  
+- **数据结构统一**：
+  - 统一使用新命名：current_pairs, legacy_pairs, retired_pairs
+  - 更新所有方法直接使用新数据结构
+  - get_current_active() → get_all_tracked_pairs()
+  
+- **代码清理**：
+  - SignalGenerator删除Portfolio直接检查的验证代码
+  - AlphaModel修复self.cpm为self.central_pair_manager
+  - CPM内部方法全部使用新数据结构
+  
+- **逻辑优化**：
+  - get_risk_alerts()动态生成expired_pairs列表
+  - clear_expired_pairs()实现真正的清理逻辑
+  - get_active_pairs_with_position()合并current和legacy配对
+  - on_pair_exit_complete()正确处理legacy_pairs
+  
+- **架构改进**：
+  - 彻底实现"单一真相源"原则
+  - 删除所有冗余的状态检查
+  - 代码更加简洁清晰
+
+## [v1.6.0_Alpha-CPM深度优化与命名重构@20250117] (feature/cpm-development分支)
+### 深度优化与数据结构重构
+- **平仓信号优化**：
+  - SignalGenerator平仓信号改用CPM.get_trading_pairs()
+  - 统一建仓和平仓的查询模式
+  - 保留过渡期验证机制
+  
+- **数据结构重构**：
+  - current_active → current_pairs（本轮活跃配对）
+  - expired_pairs → legacy_pairs（遗留持仓配对）
+  - 新增retired_pairs（已退休配对）
+  - 实现清晰的生命周期：current → legacy → retired
+  
+- **向后兼容设计**：
+  - 通过@property提供兼容性访问
+  - 外部代码无需立即修改
+  - 添加deprecation警告
+  
+- **配对迁移逻辑**：
+  - 新周期时自动迁移配对状态
+  - 有持仓的旧配对→legacy_pairs
+  - 已平仓的配对→retired_pairs
+  - 每个容器职责单一明确
+
+## [v1.5.0_Alpha-CPM交互优化@20250117] (feature/cpm-development分支)
+### Alpha与CPM交互优化
+- **CPM新增统一查询接口**：
+  - get_trading_pairs(): 获取正在持仓的配对
+  - get_recent_closed_pairs(days=7): 获取冷却期内的配对
+  - get_excluded_pairs(): 获取应排除的配对集合（统一接口）
+  
+- **Alpha集中状态查询**：
+  - SignalGenerator使用CPM.get_excluded_pairs()检查配对
+  - 替代原有的Portfolio.Invested直接检查
+  - 保留双重验证机制确保过渡期稳定性
+  
+- **架构改进**：
+  - 实现"单一真相源"原则：CPM统一管理配对状态
+  - 消除状态查询逻辑分散的问题
+  - 为未来添加新规则预留扩展点
+  - 提高代码可维护性和可测试性
+  
+- **实施策略**：
+  - 渐进式迁移：新接口工作，旧逻辑验证
+  - 保留TODO标记，明确未来清理点
+  - 向后兼容，不影响现有功能
+
+## [v1.4.1_CPM架构分析与优化规划@20250117] (feature/cpm-development分支)
+### 架构分析与优化规划
+- **CPM工作流程文档化**：
+  - 详细梳理CPM与各模块的交互流程
+  - 明确数据流向和状态转换
+  - 识别接口职责和调用时机
+  
+- **code-architect架构审查**：
+  - 识别5个主要优化点（按优先级）
+  - 接口冗余问题：多个查询接口功能重叠
+  - 状态管理复杂度：三层结构有概念重叠
+  - 单实例模型限制：不支持分批建仓但简化了管理
+  - 代码重复：pair_key规范化和Symbol查找
+  - 错误处理不一致：返回值和日志级别
+  
+- **4阶段优化计划制定**：
+  - 第一阶段：代码质量改进（工具类抽取、日志统一）
+  - 第二阶段：接口优化（简化为3个核心查询接口）
+  - 第三阶段：状态管理优化（分离过期配对、支持权重调整）
+  - 第四阶段：性能优化（查询缓存、Symbol查找优化）
+  
+- **架构决策记录**：
+  - 保持单实例模型：简化优于灵活
+  - 渐进式优化：避免大规模重构风险
+  - 保持CPM作为单一状态源的核心定位
+
+## [v1.4.0_完成Execution与OOE集成@20250117] (feature/cpm-development分支)
+### 交易执行架构完成
+- **Execution模块实现**：
+  - 极简权重执行设计（125行）
+  - 正确处理PortfolioTarget.Percent格式
+  - 使用SetHoldings自动处理权重到股数转换
+  - 过滤微小调整（< 0.1%）避免频繁交易
+  
+- **CPM与OOE集成**：
+  - 新增4个最小化OOE接口方法
+  - on_pair_entry_complete: 标记入场完成并记录entry_time
+  - on_pair_exit_complete: 标记出场完成并移至closed_instances
+  - get_all_active_pairs: 获取所有活跃配对
+  - get_pair_state: 查询配对状态
+  
+- **OnOrderEvent智能检测**：
+  - 通过持仓变化推断配对状态（事实驱动）
+  - 自动检测两腿都有持仓 → 入场完成
+  - 自动检测两腿都无持仓 → 出场完成
+  - 避免复杂的订单ID映射
+  
+- **框架集成完成**：
+  - main.py启用所有框架组件
+  - 正确的初始化顺序：Alpha → PC → Risk → Execution
+  - CPM作为核心状态管理器传递给所有模块
+  
+- **架构设计亮点**：
+  - 职责分离：Execution执行动作，OOE记录事实，CPM维护状态
+  - 接口最小化：仅暴露必要的4个方法，避免过度复杂
+  - 事实驱动：通过观察持仓变化推断状态，简化逻辑
+  
+## [v1.3.0_架构重构与市场冷静期@20250117] (feature/cpm-development分支)
+### 架构重构：市场风险管理职责迁移
+- **RiskManagement简化**：
+  - 删除 `_check_market_condition` 方法
+  - 从5个风控机制精简为4个核心机制
+  - 专注于现有持仓的风险控制
+  - 删除市场相关参数和触发记录
+
+- **PortfolioConstruction增强**：
+  - 新增市场冷静期机制（Market Cooldown）
+  - SPY单日跌5%触发14天冷静期
+  - 冷静期内暂停所有新建仓操作
+  - 延迟初始化SPY，避免影响其他模块
+  - 使用Daily分辨率数据，符合策略整体设计
+
+- **架构优化理由**：
+  - 职责分离：RM负责风险控制，PC负责建仓决策
+  - 逻辑更清晰：市场条件是建仓决策的一部分
+  - 实现更简单：在源头控制比末端过滤更优雅
+  - 避免重复：个股和配对已有止损，无需市场止损
+
+- **配置更新**：
+  - config.py: 市场参数移至portfolio_construction配置
+  - market_severe_threshold: 0.05（5%触发阈值）
+  - market_cooldown_days: 14（冷静期天数）
+
+## [v1.2.0_行业集中度控制@20250117] (feature/cpm-development分支)
+
+## [v1.1.0_风险管理优化@20250116] (feature/cpm-development分支)
+### RiskManagement 止损逻辑优化与修正
+- **止损阈值调整**：
+  - 配对整体止损：10% → 20%（给均值回归策略更多恢复空间）
+  - 单边止损：15% → 30%（作为最后防线，防止单腿失控）
+  - 双重保护机制：任一条件触发即双边平仓
+
+- **单边止损逻辑修正**：
+  - 修复做空时错误地对 UnrealizedProfit 取反的问题
+  - 根本原因：QuantConnect API 的 UnrealizedProfit 已内置方向考虑
+  - 统一计算公式：`drawdown = UnrealizedProfit / abs(HoldingsCost)`
+  - 影响：确保做空头寸的止损计算正确
+
+- **时间管理功能实现**：
+  - 实现 `_check_holding_time` 分级时间管理
+  - 15天仍亏损：全部平仓
+  - 20天无论盈亏：减仓50%
+  - 30天强制：全部平仓
+  - CentralPairManager 新增 `get_pairs_with_holding_info()` 支持
+
+- **单腿异常检测实现**：
+  - 实现 `_check_incomplete_pairs` 方法
+  - 检测配对缺腿：一边有持仓，另一边没有
+  - 检测孤立持仓：不在任何活跃配对中的持仓
+  - 自动生成平仓指令消除非对冲风险
+  - 记录到 risk_triggers['incomplete_pairs']
+
+- **风控执行顺序优化**：
+  - 调整为：过期配对→配对止损→时间管理→单腿异常→行业集中度→市场异常
+  - 单腿异常检查提前，优先处理紧急风险
+  - 物理重排方法顺序与执行顺序一致
+  - 添加70字符分隔线提升代码可读性
+
+- **代码质量优化**：
+  - 性能提升：Symbol 查找从 O(n*m) 循环优化到 O(n) 字典查找
+  - 代码精简：`_check_pair_drawdown` 方法从 110 行减到 80 行（-27%）
+  - 可读性提升：减少嵌套层级，提前计算布尔条件
+  - 消除重复：使用 `targets.extend()` 替代重复的平仓代码
+
+- **行业集中度控制实现**：
+  - 实现 `_check_sector_concentration` 方法
+  - 监控各行业的仓位占比，防止单一行业过度暴露
+  - 阈值设定：单行业暴露超过50%时触发
+  - 缩减策略：超限行业所有配对同比例缩减到75%
+  - 一次遍历收集所有信息，优化性能
+  - 使用 defaultdict 和预计算权重减少重复计算
+  - 记录到 risk_triggers['sector_concentration']
+
+- **测试完善**：
+  - 更新所有测试的阈值期望值（20%/30%）
+  - 修复 MockAlgorithm 缺少 Securities 属性问题
+  - 添加 MockSecurities 类支持测试
+  - 新增边界条件测试（29%/19%刚好不触发）
+  - 新增 test_sector_concentration_control 测试
+  - 模拟多配对场景验证行业集中度控制
+  - 验证缩减比例计算的正确性
+  - MockSecurities 类增强，支持 Fundamentals 数据模拟
+
+- **代码架构工作流优化**：
+  - 建立 code-architect subagent 自动审查流程
+  - 实施"开发-审查-批准-执行"四阶段工作流
+  - 确保优化建议需用户批准后才执行
+  - 为未来的性能优化建立标准化流程
+  - 新增单腿异常检测测试（test_incomplete_pair_detection, test_isolated_position_detection）
+  - 调整测试数据确保逻辑正确性
+
+### 技术实现细节
+- 配对回撤计算：`(h1.UnrealizedProfit + h2.UnrealizedProfit) / total_cost`
+- 单边回撤计算：`h.UnrealizedProfit / abs(h.HoldingsCost)`（不区分方向）
+- 触发优先级：单边止损 > 配对整体止损 > 单腿异常
+- 单腿检测逻辑：遍历持仓 → 查找配对 → 检查完整性 → 生成平仓
+
+## [v1.0.0_CPM-v1-PC意图管理@20250812] (feature/cpm-development分支)
+### CentralPairManager v1版本 - PC交互功能实现
+- **核心功能**：
+  - submit_intent方法处理prepare_open/prepare_close意图
+  - 自动确定cycle_id（开仓从current_active，平仓从open_instances）
+  - 日级去重缓存机制，防止同日重复提交
+  - 实例生命周期管理（创建、跟踪、删除）
+  - 四条件开仓资格检查（活跃、eligible、无实例）
+
+- **技术实现**：
+  - pair_key规范化：tuple(sorted([s1, s2]))
+  - instance_id永不回退的计数器机制
+  - 完整的拒绝码系统（NOT_ACTIVE, NOT_ELIGIBLE, HAS_OPEN_INSTANCE, CONFLICT_SAME_DAY）
+  - PortfolioConstruction集成，自动提交意图
+  - main.py传递CPM实例给PC
+
+- **测试覆盖**：
+  - 创建test_cpm_v1.py，10个单元测试全部通过
+  - 覆盖所有核心场景（接受、拒绝、去重、冲突、跨期）
+
+### 下一步计划
+- 实现v2的Execution交互（on_execution_filled）
+- 添加实际成交后的fulfilled标记
+- 完善history_log历史记录
+
 ## [v4.2.0_PortfolioConstruction优化@20250809]
 ### PortfolioConstruction模块重大优化
 - **智能Target生成器转型**：
@@ -267,346 +735,36 @@
 
 ## [v3.0.0_test-framework-and-ai-agents@20250804]
 ### 里程碑更新
-- 创建完整的测试框架，标志着策略开发进入专业化阶段
-- 建立 AI Agent 专家团队，提供全方位开发支持
-- 新增核心管理模块，完善策略架构
+- 创建完整的测试框架，37个测试全部通过
+- 建立 AI Agent 专家团队（测试工程师、代码架构师、策略医生）
+- 新增 OrderTracker、PairRegistry 核心模块
 
-### 测试框架
-- **测试覆盖**：37个测试全部通过
-  - 单元测试：26个（OrderTracker 11个、PairRegistry 10个、RiskManagement 11个）
-  - 集成测试：5个（完整生命周期、异常处理、止损触发、多配对管理、边界情况）
-- **测试基础设施**：
-  - 创建 Mock QuantConnect 框架（Symbol、Order、Portfolio 等）
-  - 独立的测试环境，无需 LEAN 引擎
-  - 测试运行脚本 run_tests.py
-  - 详细的测试文档和使用指南
-
-### 核心模块新增
-- **OrderTracker**：订单生命周期跟踪
-  - 记录建仓/平仓时间
-  - 识别异常订单（单边成交）
-  - 计算持仓天数
-  - 支持冷却期检查
-- **PairRegistry**：配对关系中央管理
-  - 统一管理所有活跃配对
-  - 提供配对查询接口
-  - 支持配对状态追踪
-- **RiskCalculator**：风险计算工具（预留接口）
-
-### 问题修复
-- **RiskManagement._find_paired_symbol**：
-  - 原问题：通过持仓方向猜测配对关系
-  - 修复：改用 PairRegistry.get_paired_symbol() 精确查询
-- **冷却期过滤逻辑**：
-  - 原问题：无持仓时跳过冷却期检查
-  - 修复：确保始终执行冷却期过滤
-
-### AI Agent 团队
-- **测试工程师** (quantconnect-test-engineer)：
-  - 负责创建和维护测试套件
-  - 提供测试覆盖率分析
-- **代码架构师** (code-architect)：
-  - 升级自原代码优化 Agent
-  - 负责架构设计和性能优化
-- **策略医生** (strategy-doctor)：
-  - 负责问题诊断和回测分析
-  - 提供根因分析和解决方案
-
-### 架构改进
-- 模块间依赖关系更清晰：PairRegistry → OrderTracker → RiskManagement
-- 测试驱动开发(TDD)基础建立
-- 代码质量保证机制完善
-
-### 下一步计划
-- 使用新的测试框架进行更多边界测试
-- 利用 AI Agent 团队持续优化策略
-- 基于测试发现继续改进架构
+### 技术细节
+- Mock QuantConnect 框架，独立测试环境
+- 修复配对关系查询和冷却期检查逻辑
 
 ---
 
 ## [v2.17.0_risk-management-implementation@20250802]
 ### 工作内容
-- 实现完整的Risk Management风控模块，建立三层风险控制体系
-- 简化PairLedger时间跟踪机制，采用"首次发现持仓"的记录方式
-- 移除OnOrderEvent方法，避免风控时点的复杂跳动
-- 添加配对完整性检查，识别并处理异常持仓
+- 实现完整的Risk Management风控模块
+- 简化PairLedger时间跟踪机制
+- 移除OnOrderEvent方法
 
 ### 技术细节
-- **风控模块核心功能**：
-  - 持仓时间管理：超过60天强制平仓
-  - 配对回撤监控：配对整体亏损超过10%止损
-  - 单边回撤监控：单只股票亏损超过20%止损  
-  - 配对完整性检查：检测同向持仓和单边持仓异常
-- **简化实现**：
-  - ManageRisk方法每日自动调用，无需OnData触发
-  - 利用Portfolio实时状态，无需复杂的订单跟踪
-  - PairLedger只记录"首次发现持仓"时间，接受约1天误差
-- **代码优化**：
-  - 删除main.py中的OnOrderEvent方法
-  - 简化PairLedger.get_position_status方法
-  - 风控模块使用Resolution.Daily确保每日执行
-
-### 架构影响
-- 建立了清晰的风控架构：独立于信号生成，主动监控所有持仓
-- 大幅简化了实现复杂度：避免了Order Tag和OnOrderEvent的复杂追踪
-- 提高了系统可靠性：依赖框架保证的调用机制，而非手动触发
-- 完成了完整的交易流程：选股→信号→仓位→风控的闭环
-
-### 下一步计划
-- 基于新的风控模块进行回测验证
-- 监控风控触发频率和效果
-- 评估持仓时间限制和回撤阈值的合理性
-- 根据实际运行结果进一步优化风控参数
+- 三层风控：60天持仓限制、10%配对止损、20%单边止损
+- ManageRisk每日自动调用，依赖框架机制
+- 完成交易闭环：选股→信号→仓位→风控
 
 ---
 
-## [v2.15.0_configuration-optimization@20250802]
-### 工作内容
-- 将quality score权重配置化，提升策略灵活性
-- 优化仓位配置和选股参数
-- 清理冗余代码和未使用的配置
-- 同步所有代码注释与最新配置
-
-### 配置更新
-- **选股参数调整**：
-  - min_price: 10 → 20 (提高最低价格要求)
-  - max_pe: 80 → 100 (放宽PE限制)
-- **AlphaModel参数**：
-  - max_symbol_repeats: 2 → 3 (允许每只股票出现3次)
-  - max_pairs: 5 → 20 (增加最大配对数)
-  - entry_threshold: 1.0 → 1.2 (提高建仓门槛)
-  - quality_weights配置化:
-    - statistical: 0.4 (40%)
-    - correlation: 0.3 → 0.2 (降低到20%)
-    - liquidity: 0.3 → 0.4 (提高到40%)
-- **PortfolioConstruction参数**：
-  - min_position_per_pair: 0.10 → 0.05 (恢复5%最小仓位)
-  - 仓位范围: 10%-15% → 5%-15%
-
-### 代码优化
-- **移除冗余功能**：
-  - 删除未使用的pair_reentry_cooldown_days配置
-  - 移除无用的_can_open_new_position方法
-- **注释改进**：
-  - 明确反向信号只做平仓，不做反向建仓
-  - 为WEIGHT_TOLERANCE添加解释(权重验证容差1%)
-  - 更新所有类文档字符串匹配最新配置
-
-### 影响分析
-- 提高了策略配置的灵活性和可维护性
-- 通过配置化quality_weights便于后续优化调整
-- 代码更加简洁，移除了未使用的功能
-- 扩大了策略容量(max_pairs: 5→20)
-
----
-
-## [v2.14.3_fix-insight-group@20250802]
-### 工作内容
-- 修复Insight.Group使用问题，解决配对交易无法执行的关键bug
-- 添加GroupId诊断功能，便于追踪问题
-- 优化insights处理逻辑
-
-### 技术细节
-- **Insight.Group修复**：
-  - 移除list()包装，保持框架原生返回类型
-  - 让QuantConnect框架自动处理GroupId设置
-  - 修复_generate_pair_signals返回类型声明
-- **诊断增强**：
-  - PC模块输出没有GroupId的Insight警告
-  - 显示GroupId分组结果数量
-  - 帮助快速定位配对关系问题
-- **兼容性处理**：
-  - SignalGenerator增加try-except处理不同返回类型
-  - 确保insights.extend()能正确处理各种情况
-
-### 影响分析
-- 解决了PC模块无法识别配对关系的核心问题
-- 恢复了配对交易信号的正常执行
-- 提高了代码对框架API变化的适应性
-
----
-
-## [v2.14.2_diagnostics-and-optimization@20250802]
-### 工作内容
-- 添加信号生成诊断功能，追踪交易信号缺失原因
-- 优化日志输出，提升系统可观察性
-- 完善PortfolioConstruction模块文档
-- 调整信号生成阈值，提高触发概率
-
-### 技术细节
-- **信号诊断系统**：
-  - SignalGenerator输出每个配对的实时z-score值
-  - AlphaModel记录跟踪配对数量和Insights生成情况
-  - PC模块记录收到的Insights数量
-  - 降低entry_threshold从1.2到1.0
-- **日志优化**：
-  - UniverseSelection：移除重复的行业"候选→选择"日志
-  - PairLedger：合并输出格式"本轮新发现[...], 持续追踪[...]"
-  - PC模块：添加资金使用情况监控
-- **代码质量**：
-  - 删除PC模块中注释的弃用代码
-  - 为所有PC模块方法添加详细文档注释
-  - 完善类级别的架构说明
-
-### 影响分析
-- 诊断能力提升：可追踪信号生成全流程，快速定位问题
-- 日志更清晰：避免重复信息，突出关键状态变化
-- 代码可维护性提高：详细文档便于理解和修改
-- 触发概率提升：更容易生成交易信号进行策略验证
-
----
-
-## [v2.14.1_quality-score-optimization@20250802]
-### 工作内容
-- 优化quality_score使用机制，复用AlphaModel的综合评分系统
-- 修正信号Tag格式，确保quality_score正确传递
-- 避免在PC模块重复计算质量分数
-
-### 技术细节
-- **AlphaModel质量评分系统**：
-  - 统计显著性(40%)：基于协整检验p-value
-  - 相关性(30%)：Pearson相关系数
-  - 流动性匹配(30%)：成交额比率
-  - 综合评分范围：0-1之间
-- **信号传递优化**：
-  - Tag格式更新：'symbol1&symbol2|alpha|beta|zscore|quality_score'
-  - 贝叶斯建模器传递quality_score到信号生成器
-  - PC模块直接解析使用，无需重新计算
-
-### 影响分析
-- 质量评分更准确：使用综合多维度评分，而非简单z-score
-- 系统一致性提升：全流程使用统一的质量评分
-- 计算效率提高：避免重复计算，复用已有结果
-
----
-
-## [v2.14.0_dynamic-capital-allocation@20250802]
-### 工作内容
-- 实现PortfolioConstruction模块动态资金管理
-- 移除固定最大配对数限制，改用基于可用资金的动态分配
-- 整合框架RiskManagementModel，删除自定义风控系统
-- 优化信号质量评估，基于z-score计算quality_score
-
-### 技术细节
-- **动态资金管理**：
-  - 单对仓位范围：5%-10%，根据信号质量动态调整
-  - 基于z-score计算quality_score，优先分配资金给高质量信号
-  - 实时计算可用资金，自动停止分配当资金不足
-  - 移除max_pairs限制，让市场机会和资金可用性决定配对数量
-- **框架集成**：
-  - 删除CustomRiskManager，改用框架的RiskManagementModel
-  - ManageRisk方法每个Resolution步自动调用，确保持续风控
-  - PairLedger使用实时Portfolio查询，无需缓存状态
-  - 移除OnData和OnOrderEvent，完全依赖框架机制
-- **代码优化**：
-  - 新增_parse_tag_params方法解析信号参数和质量
-  - 新增_allocate_capital_and_create_targets实现动态分配
-  - 清理所有risk_triggered相关代码
-  - 更新配置参数支持动态资金管理
-
-### 影响分析
-- 资金利用率提升：不再受固定配对数限制，充分利用可用资金
-- 风险控制改善：框架自动调用风控，更可靠稳定
-- 信号质量优先：高质量信号获得更多资金分配
-- 架构更简洁：删除自定义风控系统，减少代码复杂度
-
----
-
-## [v2.13.0_pairledger-risk-control@20250801]
-### 工作内容
-- 创建独立的PairLedger模块，实现配对状态跨周期管理
-- 创建自定义风控系统CustomRiskManager，确保每日风控检查
-- 重构架构，统一配对状态管理，解耦各模块依赖
-- 启用PortfolioConstruction模块，实现完整的交易流程
-
-### 技术细节
-- **PairLedger模块**：
-  - 集中管理所有配对的发现状态和持仓状态
-  - 自动跟踪持仓时间，支持风控决策
-  - 提供统一的状态查询接口供各模块使用
-  - 实现风控标记机制，协调PC和风控模块
-- **CustomRiskManager模块**：
-  - 通过OnData确保每日执行风控检查
-  - 支持持仓超时、止损、可选止盈三种风控类型
-  - 通过OnOrderEvent自动更新配对持仓状态
-  - 风控触发后标记配对，避免重复执行
-- **架构优化**：
-  - AlphaModel：负责更新配对发现状态
-  - PortfolioConstruction：检查风控状态后生成交易指令
-  - CustomRiskManager：执行风控并更新持仓状态
-  - 数据流：选股→信号→交易→风控，各司其职
-
-### 影响分析
-- 状态管理更清晰：所有配对状态集中在PairLedger
-- 风控更可靠：保证每日检查，不依赖其他模块调用频率
-- 系统更稳定：模块间解耦，降低相互影响
-- 扩展性更好：便于添加新的风控规则和状态跟踪
-
----
-
-## [v2.12.0_alpha-model-enhancement@20250801]
-### 工作内容
-- 实现AlphaModel综合质量评分系统，提升配对筛选质量
-- 全面增强模块文档，提高代码可读性和维护性
-- 删除AlphaModel中重复的波动率筛选功能
-- 恢复upper limit极端偏离风险控制
-- 消除UniverseSelection中的硬编码，提升配置灵活性
-
-### 技术细节
-- **综合评分系统**：
-  - 统计显著性(40%)：基于协整检验p值
-  - 相关性(30%)：价格序列Pearson相关系数
-  - 流动性匹配(30%)：基于252天平均成交额比率
-  - 替代原有单一p值排序，提供更全面的配对质量评估
-- **文档增强**：
   - 为所有类添加详细的架构说明和工作流程
-  - 增强关键方法的参数和返回值文档
-  - 添加内联注释解释核心算法逻辑
 - **功能优化**：
-  - 删除AlphaModel中的波动率筛选，避免与UniverseSelection重复
-  - 恢复z-score > 3.0时的强制平仓逻辑
-  - 将数据完整性检查比例改为可配置(98%)
-
-### 影响分析
-- 配对质量提升：综合评分系统能更准确识别高质量配对
-- 代码可维护性提升：详细文档便于团队协作和后续优化
-- 性能改进：删除重复筛选减少计算开销
-- 风险控制加强：恢复极端偏离保护机制
+  - 删除AlphaModel中的波动率计算(已在UniverseSelection处理)
+  - 恢复upper_limit=3.0，防止极端偏离情况
 
 ---
 
-## [v2.11.0_universe-selection-optimization@20250731]
-### 工作内容
-- 重构UniverseSelection模块选股逻辑，从单一市值排序改为多维度综合评分
-- 新增波动率预筛选功能，在选股阶段剔除高风险股票
-- 改用成交量替代成交金额进行流动性评估，更准确反映交易活跃度
-- 放宽财务筛选标准，容纳更多类型股票（成长股、转型股、中小盘等）
-
-### 技术细节
-- **流动性筛选优化**：
-  - 使用`Volume`替代`DollarVolume`，排除价格因素干扰
-  - 设置最小成交量阈值1000万股，确保充足流动性
-  - 降低最低价格至10美元，扩大股票池覆盖面
-- **财务指标调整**：
-  - PE < 50（原30）- 容纳高成长股
-  - ROE > 0（原5%）- 容纳转型期公司
-  - 资产负债率 < 80%（原60%）- 适应不同行业特性
-  - 财务杠杆 < 8（原5）- 容纳金融等高杠杆行业
-- **波动率筛选实现**：
-  - 新增`_apply_volatility_filter`方法计算252天历史波动率
-  - 剔除年化波动率超过60%的股票
-  - 将波动率检查从AlphaModel前移，减少后续计算负担
-- **多层次排序机制**：
-  - 实现`_group_and_sort_by_sector`替代简单市值排序
-  - 第一优先级：波动率升序（稳定性）
-  - 第二优先级：成交量降序（流动性）
-  - 每个行业综合评分选取最优股票
-
-### 效果预期
-- 提高配对候选股票质量，优先选择"稳定+流动"组合
-- 扩大股票池覆盖面，从价值股扩展到成长股等多种类型
-- 降低策略整体风险，通过波动率预筛选避免极端波动
-- 提升配对成功率，选股阶段就考虑配对交易特性
 
 ---
 
@@ -647,44 +805,6 @@
 - 考虑实施动态风控阈值，根据市场状况调整参数
 - 进一步优化其他模块的代码结构
 
-## [v2.9.11_portfolio-construction-optimization@20250730]
-### 工作内容
-- 重构PortfolioConstruction.py，消除代码重复
-- 提取辅助方法，提升代码可维护性
-- 添加类型注解，增强代码可读性
-
-### 技术细节
-- **提取的辅助方法**：
-  - `_calculate_pair_weights()`: 统一Up/Down方向的权重计算
-  - `_validate_weight_allocation()`: 集中验证权重分配
-  - `_determine_position_direction()`: 简化持仓方向判断
-  - `_validate_new_position()`: 分离新建仓验证逻辑
-  - `_create_flat_targets()`: 统一平仓目标创建
-  - `_parse_beta_from_tag()`: 提取beta解析逻辑
-  - `_get_trade_actions()`: 获取交易动作描述
-  - `_can_execute_trade()`: 检查是否可执行交易
-- **代码优化**：
-  - 消除90%的重复逻辑
-  - 代码行数保持不变（重构后功能更多）
-  - 添加完整的类型注解
-  - 提取常量到类级别
-- **性能影响**：保持交易行为100%一致，略微提升执行效率
-
-## [v2.9.10_remove-diagnostic-logs@20250730]
-### 工作内容
-- 清理诊断日志，提升运行效率
-- 移除测试性打印输出
-
-### 技术细节
-- **移除的诊断日志**：
-  - Residual计算日志：不再输出实际std与sigma均值对比
-  - Z-score原始值：简化输出，仅保留平滑后的z-score值
-- **性能提升**：减少日志输出，提高回测速度
-
-## [v2.9.9_optimize-ema-thresholds@20250730]
-### 工作内容
-- 基于回测结果优化EMA参数和阈值设置
-- 移除upper_limit限制
 
 ### 技术细节
 - **EMA优化**：
@@ -1490,67 +1610,6 @@
 - 简化UniverseSelection配置逻辑，移除向后兼容代码
 - 对AlphaModel进行配置化改造，集成贝叶斯模型的所有参数
 
-## [v2.4.9_universe-config-volatility@20250720]
-### 工作内容
-- 实施UniverseSelection参数配置化架构
-- 新增波动率筛选功能（60%年化上限）
-- 完善错误处理机制和详细日志输出
-- 支持灵活的选股参数调整和验证
-
-### 技术细节
-- 重构`MyUniverseSelectionModel.__init__()`方法，将所有硬编码参数改为配置参数
-- 新增8个可配置参数：`num_candidates`, `min_price`, `min_volume`, `min_ipo_days`, `max_pe`, `min_roe`, `max_debt_to_assets`, `max_leverage_ratio`
-- 实现波动率筛选逻辑：计算过去252天的年化波动率，过滤超过60%的股票
-- 增强错误处理：对财务数据异常情况添加try-catch和详细日志记录
-- 改进日志格式：统一使用`[UniverseSelection]`前缀，提供筛选过程的详细统计信息
-
-### 架构影响
-- 首次引入配置化概念，为后续StrategyConfig架构奠定基础
-- 提高选股模块的灵活性，支持不同市场环境下的参数调优
-- 建立了错误处理和日志记录的标准模式
-
-### 新增功能
-- 波动率筛选：基于历史价格数据计算年化波动率，提升选股质量
-- 参数验证：对配置参数进行基本的有效性检查
-- 详细统计：提供每个筛选步骤的通过/过滤股票数量统计
-
-### 下一步计划
-- 建立StrategyConfig类，实现所有模块的集中配置管理
-- 扩展配置化架构到AlphaModel和PortfolioConstruction模块
-
-## [v2.4.8_strategy-optimize@20250720]
-### 工作内容
-- 优化主策略初始化流程和模块集成
-- 完善AlphaModel贝叶斯协整检验参数
-- 改进UniverseSelection选股筛选条件
-- 修复.gitignore文件编码问题并完善忽略规则
-
-### 技术细节
-- 优化`BayesianCointegrationStrategy.Initialize()`方法的模块初始化顺序和参数设置
-- 调整AlphaModel中的关键参数：协整检验p值阈值(0.025)、MCMC采样参数(1500 burn-in + 1500 draws)
-- 完善UniverseSelection的财务筛选条件：PE比率、ROE、债务比率等指标的阈值优化
-- 修复.gitignore文件编码问题(BOM头)，增加Python项目相关的忽略规则
-- 改进模块间的调度机制，确保月度选股和日度信号生成的协调
-
-### 架构影响
-- 建立了更稳定的模块初始化和运行流程
-- 优化了策略的整体性能和稳定性
-- 为后续配置化改造提供了更清晰的参数基准
-
-### 问题修复
-- 解决了.gitignore文件编码导致的版本控制问题
-- 修复了模块间数据传递的潜在同步问题
-- 完善了错误处理和异常情况的处理逻辑
-
-### 下一步计划
-- 实施UniverseSelection的参数配置化，引入波动率筛选功能
-- 建立统一的配置管理架构，为所有模块的配置化奠定基础
-
-## [v2.4.7.1] 
-- (之前的提交记录)
-
-## [v2.4.7]
-- (之前的提交记录)
 
 ---
 

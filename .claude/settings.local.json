@@ -21,8 +21,12 @@
       "Bash(del test_integration.py test_integration_simple.py)",
       "Bash(del:*)",
       "Bash(git rm:*)",
-      "Bash(git merge:*)"
+      "Bash(git merge:*)",
+      "Bash(git stash:*)",
+      "Bash(git checkout:*)",
+      "Bash(git pull:*)"
     ],
     "deny": []
-  }
+  },
+  "outputStyle": "Explanatory"
 }

@@ -6,26 +6,23 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is a **Bayesian Cointegration** pairs trading strategy built for the QuantConnect platform. The strategy uses advanced statistical methods including Bayesian inference with MCMC sampling to identify and trade mean-reverting relationships between securities within the same industry sectors.
 
-## Architecture Pattern
+## Architecture Pattern (v2.0.0 Simplified)
 
-The strategy follows QuantConnect's **Algorithm Framework** with modular design:
+The strategy follows QuantConnect's **Algorithm Framework** with simplified modular design:
 
 - **main.py**: Central orchestrator using `BayesianCointegrationStrategy(QCAlgorithm)`
 - **UniverseSelection**: Multi-stage fundamental screening with sector-based selection (20 stocks per sector)
 - **AlphaModel**: Core Bayesian cointegration engine using PyMC for MCMC sampling
 - **PortfolioConstruction**: Beta-neutral position sizing with margin considerations
-- **RiskManagement**: Multi-layered risk controls (max 4 pairs globally, 30-day holding limit)
+- **RiskManagement**: Simplified risk controls with extreme loss protection
 - **Execution**: Atomic pair execution (currently unused)
 
-### Supporting Modules
-- **OrderTracker**: Tracks order lifecycle and pair states, enforces cooldown periods
-- **PairRegistry**: Maintains active pair mappings and provides fast lookups
-- **RiskCalculator**: Computes pair drawdowns and position metrics (planned)
-
-Key architectural principles:
-- **Intra-industry pairing only** - securities are paired within the same Morningstar sector
-- **Global pair limit** - maximum 4 active pairs across entire portfolio
+Key architectural principles (post v2.0.0):
+- **Direct query model** - No central manager, modules query Portfolio directly
+- **Intra-industry pairing only** - Securities paired within same Morningstar sector
+- **Global pair limit** - Maximum 4 active pairs across entire portfolio
 - **Leverage** - 2x through InteractiveBrokers margin account
+- **Simplified state management** - ~30% less code after removing CentralPairManager
 
 ## Development Commands
 
@@ -52,12 +49,12 @@ python run_tests.py
 # Run only unit tests
 python run_tests.py --unit
 
-# Run only integration tests  
+# Run only integration tests
 python run_tests.py --integration
 
 # Run specific test module
 python run_tests.py test_order_tracker
-python run_tests.py test_pair_registry  
+python run_tests.py test_central_pair_manager
 python run_tests.py test_risk_management
 python run_tests.py test_strategy_flow
 
@@ -70,6 +67,12 @@ python -m unittest tests.unit.test_risk_management.TestRiskManagement.test_singl
 python -m unittest tests.unit.test_order_tracker.TestOrderTracker.test_pair_entry_tracking
 python -m unittest tests.integration.test_strategy_flow.TestStrategyFlow.test_complete_pair_lifecycle
 ```
+
+### Test Environment Setup
+The project uses a custom test environment that mocks QuantConnect components:
+- **Test Environment**: Tests run independently of QuantConnect using `tests/mocks/mock_quantconnect.py`
+- **Environment Setup**: `tests/setup_test_env.py` configures the mock environment
+- **Mock Framework**: Replaces AlgorithmImports with mock implementations for isolated testing
 
 ### Cloud Operations
 ```bash
@@ -94,7 +97,7 @@ lean cloud status
 # Commit format: v<major>.<minor>.<patch>[_description][@date]
 git commit -m "v2.4.8_strategy-optimize@20250720"
 
-# Update CHANGELOG.md after each commit with format:
+# Update docs/CHANGELOG.md after each commit with format:
 ## [v2.4.8_strategy-optimize@20250720]
 - Description of changes
 ```
@@ -104,10 +107,10 @@ git commit -m "v2.4.8_strategy-optimize@20250720"
 ### 1. main.py - Strategy Orchestrator
 - **Purpose**: Central configuration and framework setup
 - **Key Components**:
-  - `StrategyConfig`: Centralized parameter management
   - `BayesianCointegrationStrategy`: Main algorithm class
   - Framework module initialization
-- **Configuration**: All strategy parameters in `StrategyConfig` class
+  - Direct portfolio state management
+- **Configuration**: All parameters in `src/config.py` via `StrategyConfig` class
 
 ### 2. UniverseSelection.py - Stock Selection
 - **Purpose**: Two-stage filtering (Coarse → Fine) for tradeable universe
@@ -117,31 +120,37 @@ git commit -m "v2.4.8_strategy-optimize@20250720"
   - `_group_and_sort_by_sector()`: Sector-based grouping
 - **Triggers**: Monthly via `Schedule.On()` → `TriggerSelection()`
 
-### 3. AlphaModel.py - Signal Generation
+### 3. AlphaModel - Signal Generation (Modular Architecture)
 - **Purpose**: Bayesian cointegration analysis and trading signals
-- **Components**:
-  - `DataProcessor`: Historical data handling
-  - `CointegrationAnalyzer`: Statistical pair testing
-  - `BayesianRegressor`: MCMC parameter estimation
-  - `SignalGenerator`: Z-score based signal creation
+- **Module Structure** (src/alpha/):
+  - `AlphaModel.py`: Main coordinator
+  - `AlphaState.py`: Centralized state management
+  - `DataProcessor.py`: Historical data handling
+  - `PairAnalyzer.py`: Integrated cointegration testing and Bayesian modeling
+  - `SignalGenerator.py`: Z-score based signal creation with Portfolio queries
 - **Signal Types**: Up/Down (entry), Flat (exit)
+- **Direct Portfolio Integration**: Queries active positions directly without intermediary
 
 ### 4. PortfolioConstruction.py - Position Management
 - **Purpose**: Convert signals to position targets
 - **Key Features**:
   - Dynamic position sizing (5-15% per pair)
   - Beta-neutral hedging
-  - Quality score based allocation
+  - Quality score based allocation (filters < 0.7)
+  - Direct portfolio state management
 - **Signal Processing**: Parses Insight.Tag for parameters
+- **Simplified State**: No external dependency, direct portfolio queries
 
-### 5. RiskManagement.py - Risk Control
-- **Purpose**: Independent risk monitoring and control
-- **Risk Limits**:
-  - Max holding period: 30 days (reduced from 60)
-  - Pair drawdown: 10%
-  - Single asset drawdown: 20%
-  - Cooldown period: 7 days after exit
-- **Execution**: Daily automatic checks via `ManageRisk()`
+### 5. RiskManagement.py - Risk Control (v2.0.0 Simplified)
+- **Purpose**: Extreme loss protection
+- **Key Features**:
+  - Simplified implementation (~100 lines)
+  - Focus on critical risk scenarios
+  - Direct portfolio queries for position state
+- **Risk Monitoring**:
+  - Extreme loss detection (>50% portfolio loss)
+  - Automatic position liquidation when triggered
+- **Execution**: Real-time checks via `ManageRisk()`
 
 ## Critical Implementation Details
 
@@ -163,13 +172,14 @@ git commit -m "v2.4.8_strategy-optimize@20250720"
 - **Margin**: 100% requirement for short positions
 - **Cash buffer**: 5% for operational needs
 
-## Cross-Module Communication
+## Cross-Module Communication (v2.0.0 Simplified)
 
 ### Data Flow
 1. UniverseSelection → AlphaModel: `changes.AddedSecurities/RemovedSecurities`
 2. AlphaModel → PortfolioConstruction: `Insight.Tag` contains `"symbol1&symbol2|alpha|beta|zscore|quality_score"`
-3. Scheduling: `Schedule.On()` triggers universe reselection monthly
-4. Direct state access: Modules can access each other via `self.algorithm`
+3. All modules → Portfolio: Direct queries for position state
+4. Scheduling: `Schedule.On()` triggers universe reselection monthly
+5. Direct state access: Modules access each other via `self.algorithm`
 
 ### State Management
 - **Global state**: No external state files; all state in module instances
@@ -236,14 +246,16 @@ risk_stats = self.algorithm.risk_manager.risk_triggers
 ## Configuration Management
 
 ### Current Approach
-- All parameters hard-coded in `StrategyConfig` class in main.py
+- All parameters centralized in `src/config.py` via `StrategyConfig` class
 - Module-specific parameters passed via config dictionary
-- No external configuration files
+- QuantConnect configuration in `config.json` (cloud-id, org-id)
+- No external parameter files - all hardcoded for deterministic backtesting
 
-### Future Optimization
-- Consider moving to JSON/YAML configuration
-- Implement parameter optimization framework
-- Add runtime parameter validation
+### Environment Configuration
+- **Development**: Local LEAN CLI with Visual Studio Code integration
+- **Testing**: Isolated mock environment independent of QuantConnect
+- **Production**: QuantConnect cloud with InteractiveBrokers live trading
+- **Debugging**: Configurable debug levels (0-3) in `src/config.py:main['debug_level']`
 
 ## Testing Infrastructure
 
@@ -252,20 +264,18 @@ risk_stats = self.algorithm.risk_manager.risk_triggers
 - **Integration tests**: `tests/integration/` - Test cross-module interactions
 - **Mock framework**: `tests/mocks/` - Simulated QuantConnect environment
 
-### Key Test Coverage
-- **OrderTracker**: Order lifecycle, pair matching, cooldown tracking
-- **PairRegistry**: Active pair management, symbol lookups
-- **RiskManagement**: Stop-loss triggers, holding limits, drawdown calculations
+### Key Test Coverage (v2.0.0 Updated)
+- **RiskManagement**: Simplified extreme loss detection tests
 - **Strategy Flow**: End-to-end pair lifecycle simulation
+- **AlphaModel**: Signal generation and portfolio query tests
+- **PortfolioConstruction**: Position sizing and state management tests
 
 ## Recent Optimization History
 
-- **v3.1.0**: Critical fixes - signal duration optimization (5 days flat, 3 days entry), holding time calculation fix, architecture refactoring with dependency injection
-- **v3.0.0**: Added comprehensive test framework and AI agent system
-- **v2.17.0**: Implemented complete RiskManagement module with 3-layer risk controls
-- **v2.16.0**: Verified PortfolioConstruction module functionality
-- **v2.15.0**: Made quality score weights configurable
-- **Module simplification**: Used `quantconnect-code-simplifier` agent for cleaner code
+- **v2.0.0**: Major architecture simplification - removed CentralPairManager entirely (~30% code reduction)
+- **v1.9.2**: Fixed market cooldown logic to force close positions immediately
+- **v1.9.1**: Updated module documentation to reflect architecture changes
+- **v1.9.0**: Architecture optimization - centralized risk control to Alpha layer
 
 ## Files to Avoid Modifying
 
@@ -273,6 +283,27 @@ risk_stats = self.algorithm.risk_manager.risk_triggers
 - **backtests/**: Historical backtest results and logs (gitignored but tracked for reference)
 - **.gitignore**: Properly configured for Python/QuantConnect projects
 - **.claude/agents/**: AI agent definitions (managed separately)
+
+## Project File Organization
+
+- **src/**: Source code modules
+  - **alpha/**: AlphaModel modular components (5 specialized modules)
+  - **config.py**: Centralized configuration via StrategyConfig class
+  - **UniverseSelection.py**: Multi-stage stock filtering
+  - **PortfolioConstruction.py**: Position management
+  - **RiskManagement.py**: Simplified risk controls
+  - **Execution.py**: Order execution (unused)
+- **tests/**: Test suite with comprehensive coverage
+  - **unit/**: Individual module tests with mock framework
+  - **integration/**: Cross-module interaction tests
+  - **mocks/**: QuantConnect framework mocks for isolated testing
+  - **setup_test_env.py**: Test environment configuration
+  - **run_tests.py**: Test runner script
+- **docs/**: Documentation and version history
+  - **CHANGELOG.md**: Complete version history with detailed change tracking
+- **research/**: Jupyter notebooks for strategy research and analysis
+- **backtests/**: Local backtest results (gitignored, for reference only)
+- **main.py**: Strategy entry point and framework orchestrator
 
 ## AI Agents for Development Support
 

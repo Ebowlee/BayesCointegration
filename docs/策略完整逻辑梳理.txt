@@ -1,0 +1,262 @@
+ 贝叶斯协整配对交易策略 - 完整逻辑梳理
+
+  一、策略初始化（main.py）
+
+  启动时设置：
+  1. 加载配置文件（src/config.py）包含所有参数
+  2. 设置回测时间：2024-04-01 到 2024-12-31
+  3. 初始资金：100万美元
+  4. 账户类型：InteractiveBrokers保证金账户（2倍杠杆）
+  5. 数据分辨率：Daily（日线级别）
+
+  框架模块初始化：
+  - UniverseSelection：月度选股模块
+  - AlphaModel：信号生成模块
+  - PortfolioConstruction：仓位构建模块
+  - RiskManagement：当前使用NullRiskManagementModel（实际Risk模块已编写但未启用）
+  - Execution：使用框架默认执行模块
+
+  调度设置：
+  - 每月第一个交易日09:10触发选股（Schedule.On调用TriggerSelection）
+
+  ---
+  二、月度选股流程（UniverseSelection.py）
+
+  触发时机：每月第一个交易日09:10
+
+  第一步：粗选（CoarseSelection）
+  - 价格过滤：股价 > 20美元（排除低价股）
+  - 流动性过滤：日成交额 > 500万美元（确保流动性）
+  - 成熟度过滤：上市时间 > 3年（排除新股）
+  - 数据有效性：必须有价格数据
+  - 输出：约500-1000只股票进入细选
+
+  第二步：细选（FineSelection）
+  - 基本面过滤：
+    - 市盈率PE < 100（排除高估值）
+    - 净资产收益率ROE > 0%（必须盈利）
+    - 债务资产比 < 80%（财务健康）
+    - 杠杆率 < 8倍（风险可控）
+  - 波动率过滤：年化波动率 < 60%（排除过度波动）
+  - 行业分组：按Morningstar 8个主要行业分组
+    - 每个行业最多保留30只股票
+    - 行业内按市值降序排序
+    - 如果某行业不足3只则整个行业剔除
+  - 输出：48-81只股票（分布在多个行业）
+
+  重要细节：
+  - 选股结果会触发AlphaModel的OnSecuritiesChanged
+  - AddedSecurities包含新选入的股票
+  - RemovedSecurities包含被剔除的股票
+
+  ---
+  三、配对分析与建模（AlphaModel模块群）
+
+  触发时机：选股完成后立即执行（月度）
+
+  3.1 数据准备（DataProcessor）
+
+  - 下载每只股票252个交易日的历史价格
+  - 数据验证：检查缺失值、异常值
+  - 数据对齐：确保所有股票时间序列对齐
+  - 输出：干净的价格数据DataFrame
+
+  3.2 协整检测（PairAnalyzer - 第一阶段）
+
+  - 配对生成规则：
+    - 只在同一行业内配对（跨行业配对被禁止）
+    - 两两组合生成候选配对
+  - 协整检验：
+    - 使用Engle-Granger两步法
+    - 第一步：OLS回归得到残差
+    - 第二步：ADF检验残差平稳性
+    - 筛选条件：p-value < 0.05
+  - 数量限制：
+    - 最多分析20个配对（性能考虑）
+    - 每只股票最多参与1个配对
+  - pair_key规范：使用tuple(sorted([symbol1, symbol2]))确保唯一性
+
+  3.3 贝叶斯建模（PairAnalyzer - 第二阶段）
+
+  - 模型设定：
+  price1 = alpha + beta * price2 + epsilon
+  其中：
+  - alpha: 截距项（均值回归水平）
+  - beta: 对冲比率（协整系数）
+  - epsilon: 残差（服从正态分布）
+  - MCMC采样参数：
+    - 使用PyMC库
+    - burn-in: 1000次（预热）
+    - 采样: 1000次
+    - 链数: 2条
+    - 采样器：NUTS（No-U-Turn Sampler）
+  - 质量评分计算：
+    - 基于参数后验分布的稳定性
+    - 基于残差的标准差
+    - 基于历史z-score的分布
+    - 综合评分范围：0-1
+  - 参数存储：
+    - 保存到self.state.posterior_params
+    - 格式：{pair_key: {'alpha': value, 'beta': value, 'quality_score': value}}
+
+  3.4 状态管理（AlphaState）
+
+  - 持久化状态：
+    - symbols: 当前universe中的股票列表
+    - posterior_params: 所有建模参数
+    - previous_modeled_pairs: 上一轮的配对列表
+  - 控制状态：
+    - is_selection_day: 是否为选股日
+    - last_selection_time: 上次选股时间
+  - 过期配对清理：
+    - 检测不在新配对列表中的旧配对
+    - 从posterior_params中删除过期配对
+
+  ---
+  四、日常信号生成（SignalGenerator）
+
+  触发时机：每个交易日（包括选股日）
+
+  4.1 Z-Score计算
+
+  - 遍历所有已建模配对（在posterior_params中）
+  - 计算公式：
+  实际价差 = price1_current - (alpha + beta * price2_current)
+  z_score = 实际价差 / 历史标准差
+  - EMA平滑：
+    - 使用5天EMA平滑z-score
+    - 减少噪音，避免频繁交易
+    - 存储格式：zscore_ema[pair_key]
+
+  4.2 信号触发阈值
+
+  - 建仓信号：
+    - 条件：|z_score| > 1.2
+    - 方向：z_score > 1.2 做空spread，z_score < -1.2 做多spread
+    - 前置检查：两只股票都无持仓
+  - 平仓信号：
+    - 条件：|z_score| < 0.3（回归均值）
+    - 或：|z_score| > 3.0（止损，偏离过大）
+    - 前置检查：至少一只股票有持仓
+  - 信号持续时间：
+    - Flat信号（平仓）：5天
+    - Entry信号（建仓）：3天
+
+  4.3 Insight生成
+
+  - Insight属性：
+    - Symbol: 股票代码
+    - Direction: Up/Down（根据z_score符号和股票位置）
+    - Weight: 信号强度
+    - GroupId: 配对标识（确保配对同时处理）
+    - SourceModel: "BayesianCointegrationAlpha"
+    - Tag: "symbol1&symbol2|alpha|beta|zscore|quality_score"
+        - 例如："AAPL&MSFT|0.5|0.98|-1.5|0.85"
+
+  ---
+  五、仓位构建（PortfolioConstruction）
+
+  智能Target生成器逻辑：
+
+  5.1 信号解析
+
+  - 按GroupId分组Insights（确保配对一起处理）
+  - 解析Tag字符串提取参数：
+    - 配对股票：symbol1, symbol2
+    - 对冲比率：beta
+    - 质量分数：quality_score
+    - z-score值
+
+  5.2 信号分类与过滤
+
+  - 平仓信号处理（Direction = Flat）：
+    - 生成权重为0的PortfolioTarget
+    - 记录退出时间到cooldown_records
+    - pair_key使用sorted tuple记录
+  - 建仓信号过滤：
+    - 质量过滤：quality_score < 0.7的信号被丢弃
+    - 冷却期检查：7天内平仓的配对不能重新建仓
+    - 持仓检查：已有持仓的配对跳过
+
+  5.3 资金分配
+
+  - 可用资金计算：
+  可投资资金 = 总资产 * (1 - cash_buffer)
+  其中cash_buffer = 5%
+  - 动态仓位计算：
+    - 基础分配：1 / max(4, 活跃配对数)
+    - 范围限制：5% - 15%每个配对
+    - 质量加权：高质量配对获得更多资金
+
+  5.4 Beta中性对冲
+
+  - 做多腿（z_score < 0时）：
+    - symbol1权重 = +分配比例
+    - symbol2权重 = -分配比例 * |beta|
+  - 做空腿（z_score > 0时）：
+    - symbol1权重 = -分配比例
+    - symbol2权重 = +分配比例 * |beta|
+  - 保证金考虑：做空需要100%保证金
+
+  ---
+  六、风险管理（RiskManagement - 已编写但未启用）
+
+  6.1 T+0实时检查
+
+  - Level 1 - 个股止损：
+    - 触发条件：单边回撤 > 15%
+    - 计算方式：(当前价 - 成本价) / 成本价
+  - Level 2 - 配对止损：
+    - 触发条件：配对整体回撤 > 10%
+    - 计算方式：(总盈亏) / (总成本)
+  - Level 4 - 行业集中度：
+    - 触发条件：单行业暴露 > 30%总资产
+    - 处理：平仓该行业最早的配对
+
+  6.2 T+1历史检查
+
+  - 持仓时间限制：超过30天强制平仓
+  - 配对完整性：检测单边持仓、同向持仓等异常
+  - 注：由于OrderTracker已删除，持仓时间计算简化为0
+
+  6.3 风控输出
+
+  - 生成权重为0的PortfolioTarget实现平仓
+  - 过滤冷却期内的新建仓信号
+
+  ---
+  七、订单执行与事件处理
+
+  7.1 执行流程
+
+  - Framework自动将PortfolioTarget转换为市价订单
+  - 订单在开盘时执行（Market On Open）
+
+  7.2 OnOrderEvent
+
+  - 当前简化版本：仅记录成交信息
+  - 输出格式："[Order] AAPL filled: 100 @ 150.5"
+
+  ---
+  八、关键业务规则总结
+
+  1. 选股规则：
+    - 月度执行，universe约50-80只股票
+    - 必须满足所有基本面和技术面条件
+  2. 配对规则：
+    - 只能同行业配对
+    - 必须通过协整检验(p<0.05)
+    - 每只股票最多参与1个配对
+  3. 交易规则：
+    - 建仓：|z_score| > 1.2
+    - 平仓：|z_score| < 0.3 或 > 3.0
+    - 7天冷却期
+    - 质量分数 > 0.7
+  4. 风控规则：
+    - 单配对仓位：5%-15%
+    - 现金缓冲：5%
+    - Beta中性对冲
+    - 最多4个配对同时持有（隐含在资金分配中）
+  5. 数据规范：
+    - pair_key统一使用tuple(sorted([s1, s2]))
+    - 防止[A,B]和[B,A]的混淆

@@ -6,25 +6,24 @@ from typing import Tuple, Optional, List, Dict
 
 class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel):
     """
-    贝叶斯协整投资组合构建模型 - 智能Target生成器
+    贝叶斯协整投资组合构建模型 - 纯粹资金管理器
     
-    该模型是配对交易系统的执行转换层，负责将AlphaModel生成的交易信号
-    转化为具体的投资组合目标。作为智能Target生成器，不仅机械转换信号，
-    还进行合理性判断，避免频繁交易和低质量建仓。
+    该模型是配对交易系统的资金管理层，负责将AlphaModel生成的交易信号
+    转化为具体的投资组合目标。专注于资金分配和仓位管理，
+    所有风控过滤已在Alpha层完成。
     
     核心功能:
     1. 信号解析: 从Insight.Tag中提取交易参数
     2. 质量过滤: 跳过quality_score < 0.7的低质量信号
-    3. 冷却期管理: 同一配对7天内不重复建仓
-    4. 动态资金管理: 基于信号质量分配5%-15%的资金
-    5. Beta中性对冲: 根据协整关系计算对冲比率
+    3. 动态资金管理: 基于信号质量分配5%-15%的资金
+    4. Beta中性对冲: 根据协整关系计算对冲比率
     
     工作流程:
     1. 接收AlphaModel的Insights (按GroupId配对)
     2. 解析每个配对的参数 (alpha, beta, z-score, quality_score)
     3. 分类信号为平仓或建仓
-    4. 处理平仓信号并记录冷却期
-    5. 过滤冷却期内和低质量的建仓信号
+    4. 处理平仓信号
+    5. 过滤低质量的建仓信号
     6. 动态分配资金并生成PortfolioTarget
     
     资金管理策略:
@@ -33,26 +32,20 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
     - 现金缓冲: 5% (应对追加保证金和滑点)
     - 优先级: quality_score高的配对优先分配资金
     
-    冷却期机制:
-    - 平仓后7天内不接受同配对的建仓信号
-    - 使用sorted tuple确保配对标识一致性
-    - 自动清理过期的冷却期记录
-    
     信号处理:
     - Up信号: symbol1做多, symbol2做空 (beta加权)
     - Down信号: symbol1做空, symbol2做多 (beta加权)
-    - Flat信号: 两只股票都平仓，记录冷却期
-    - 完全信任AlphaModel的前置过滤
+    - Flat信号: 两只股票都平仓
+    - 完全信任AlphaModel的风控过滤
     
     配置参数:
     - margin_rate: 保证金率 (默认1.0)
     - min_position_per_pair: 最小仓位 (默认5%)
     - max_position_per_pair: 最大仓位 (默认15%)
     - cash_buffer: 现金缓冲 (默认5%)
-    - cooldown_days: 冷却期天数 (默认7天)
     
     与其他模块的交互:
-    - AlphaModel: 提供交易信号(Insights)
+    - AlphaModel: 提供已经过滤的交易信号(Insights)
     - RiskManagement: 生成的targets可能被风控调整
     - Portfolio: 查询当前持仓和可用资金
     
@@ -67,38 +60,33 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
     TAG_DELIMITER = '|'
     WEIGHT_TOLERANCE = 0.01  # 权重验证容差: 允许总资金分配与预期相差1%以内
     
-    def __init__(self, algorithm, config, central_pair_manager=None):
-        super().__init__() 
+    def __init__(self, algorithm, config):
+        super().__init__()
         self.algorithm = algorithm
         self.margin_rate = config.get('margin_rate', 0.5)
         self.cash_buffer = config.get('cash_buffer', 0.05)
-        self.central_pair_manager = central_pair_manager  # 新增：中央配对管理器
         
         # 动态资金管理参数
         self.max_position_per_pair = config.get('max_position_per_pair', 0.10)  # 单对最大仓位10%
         self.min_position_per_pair = config.get('min_position_per_pair', 0.05)  # 单对最小仓位5%
         
-        # 冷却期管理
-        self.cooldown_days = config.get('cooldown_days', 7)  # 冷却期天数
-        self.cooldown_records = {}  # {(symbol1, symbol2): exit_time}
-        
         self.algorithm.Debug(f"[PortfolioConstruction] 初始化完成 (保证金率: {self.margin_rate}, "
                            f"单对仓位: {self.min_position_per_pair*100}%-{self.max_position_per_pair*100}%, "
-                           f"现金缓冲: {self.cash_buffer*100}%, 冷却期: {self.cooldown_days}天)")
+                           f"现金缓冲: {self.cash_buffer*100}%)")
                            
     def create_targets(self, algorithm, insights) -> List[PortfolioTarget]:
         """
         创建投资组合目标 - 主入口方法
         
         该方法将AlphaModel生成的交易信号转化为具体的持仓目标。
-        作为智能Target生成器，进行合理性判断后生成目标。
+        作为纯粹的资金管理器，只负责资金分配和仓位计算。
         
         处理流程:
         1. 按GroupId分组Insights (确保配对同时处理)
         2. 解析每个配对的信号参数
         3. 分类信号 (建仓 vs 平仓)
-        4. 处理平仓信号，记录冷却期
-        5. 过滤冷却期内和低质量的建仓信号
+        4. 处理平仓信号
+        5. 过滤低质量的建仓信号
         6. 动态分配资金给过滤后的建仓信号
         
         Args:
@@ -108,6 +96,8 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         Returns:
             List[PortfolioTarget]: 目标持仓列表，每个元素指定一只股票的目标权重
         """
+        # 所有风控过滤（市场条件、冷却期）已在Alpha层完成
+        
         # 按 GroupId 分组
         grouped_insights = defaultdict(list)
         for insight in insights:
@@ -120,6 +110,8 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         # 收集所有建仓信号
         new_position_signals = []
         flat_signals = []
+        
+        # 解析配对参数
         
         for group_id, group in grouped_insights.items():
             if len(group) != 2:
@@ -152,30 +144,9 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         for symbol1, symbol2 in flat_signals:
             targets.extend(self._handle_flat_signal(symbol1, symbol2))
         
-        # 清理过期的冷却期记录
-        self._cleanup_expired_cooldowns()
-        
-        # 过滤处于冷却期的配对
-        filtered_signals = []
-        cooldown_filtered = 0
-        
-        for signal in new_position_signals:
-            pair_key = tuple(sorted([signal['symbol1'], signal['symbol2']]))
-            
-            # 检查是否在冷却期内
-            if pair_key in self.cooldown_records:
-                exit_time = self.cooldown_records[pair_key]
-                days_since_exit = (self.algorithm.Time - exit_time).days
-                
-                if days_since_exit < self.cooldown_days:
-                    cooldown_filtered += 1
-                    self.algorithm.Debug(
-                        f"[PC-冷却期] 跳过{signal['symbol1'].Value}&{signal['symbol2'].Value}, "
-                        f"距离上次平仓{days_since_exit}天 (需要{self.cooldown_days}天)"
-                    )
-                    continue
-            
-            filtered_signals.append(signal)
+        # 动态分配资金给新建仓信号
+        # 注意：所有风控过滤已在Alpha层完成，这里只负责资金分配
+        filtered_signals = new_position_signals
         
         # 动态分配资金并处理过滤后的新建仓信号
         if filtered_signals:
@@ -341,7 +312,6 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
                 PortfolioTarget.Percent(self.algorithm, signal['symbol2'], symbol2_weight)
             ])
             
-            # 注意：不在这里调用register_entry
             # CPM状态更新将在OnOrderEvent中基于实际成交进行
             
             # 更新可用资金
@@ -357,34 +327,12 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
                 self.algorithm.Debug(f"[PC-资金] 新建{allocated_count}对配对, 资金使用率{total_used:.1%}")
         return targets
     
-    def _cleanup_expired_cooldowns(self):
-        """
-        清理过期的冷却期记录
-        
-        定期清理超过冷却期的记录，避免内存泄漏。
-        """
-        current_time = self.algorithm.Time
-        expired_pairs = []
-        
-        for pair_key, exit_time in self.cooldown_records.items():
-            days_since_exit = (current_time - exit_time).days
-            if days_since_exit >= self.cooldown_days:
-                expired_pairs.append(pair_key)
-        
-        # 清理过期记录
-        for pair_key in expired_pairs:
-            del self.cooldown_records[pair_key]
-        
-        # 如果有清理，输出日志
-        if expired_pairs:
-            self.algorithm.Debug(f"[PC-清理] 清理{len(expired_pairs)}个过期冷却期记录")
     
     def _handle_flat_signal(self, symbol1: Symbol, symbol2: Symbol) -> List[PortfolioTarget]:
         """
         处理平仓信号
         
         生成两只股票都平仓的目标(权重=0)。
-        同时记录平仓时间用于冷却期管理。
         
         Args:
             symbol1, symbol2: 配对股票
@@ -392,11 +340,7 @@ class BayesianCointegrationPortfolioConstructionModel(PortfolioConstructionModel
         Returns:
             List[PortfolioTarget]: 两个权重为0的目标
         """
-        # 记录平仓时间（使用排序后的元组作为key，确保顺序一致）
-        pair_key = tuple(sorted([symbol1, symbol2]))
-        self.cooldown_records[pair_key] = self.algorithm.Time
-        
-        self.algorithm.Debug(f"[PC-平仓] {symbol1.Value}&{symbol2.Value} (进入{self.cooldown_days}天冷却期)")
+        self.algorithm.Debug(f"[PC-平仓] {symbol1.Value}&{symbol2.Value}")
         return [
             PortfolioTarget.Percent(self.algorithm, symbol1, 0),
             PortfolioTarget.Percent(self.algorithm, symbol2, 0)
