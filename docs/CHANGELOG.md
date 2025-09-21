@@ -4,6 +4,43 @@
 
 ---
 
+## [v6.0.0_OnData架构重构@20250121]
+
+### 架构转型
+- **架构模式**：从 Algorithm Framework 转向 OnData 驱动架构
+- **分支**：feature/ondata-integration 实验性开发
+
+### 核心组件重构
+- **新增 Pairs 类**（312行）：
+  - 配对交易的核心数据对象
+  - 无状态设计，通过订单历史查询状态
+  - 完整的生命周期管理（信号生成、持仓查询、冷却期）
+  - 标准化订单标签系统
+
+- **分析模块迁移**：
+  - 从 src/alpha/ 迁移至 src/analysis/
+  - 保持原有五个模块结构
+  - 配置引用从 alpha_model 改为 analysis
+
+- **配置重构**：
+  - 删除 alpha_model 配置节
+  - 新增 pairs_trading 配置节（交易阈值、冷却期）
+  - 新增 analysis 配置节（统计分析参数）
+  - main.py 配置引用同步更新
+
+### 删除的组件
+- 移除 Algorithm Framework 组件（Execution, PortfolioConstruction, RiskManagement）
+- 删除旧的 alpha 模块目录
+- 移除测试框架（待后续重建）
+
+### 代码统计
+- 新增：src/Pairs.py（312行）
+- 新增：src/analysis/（5个模块，约1000行）
+- 删除：Algorithm Framework 组件（约500行）
+- 删除：测试代码（约2000行）
+
+---
+
 ## [v5.0.0_Alpha模块优化合并主线@20250120]
 
 ### 重大架构升级

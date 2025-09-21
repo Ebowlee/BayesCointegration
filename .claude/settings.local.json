@@ -24,7 +24,8 @@
       "Bash(git merge:*)",
       "Bash(git stash:*)",
       "Bash(git checkout:*)",
-      "Bash(git pull:*)"
+      "Bash(git pull:*)",
+      "WebSearch"
     ],
     "deny": []
   },

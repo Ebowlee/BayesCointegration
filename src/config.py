@@ -38,8 +38,28 @@ class StrategyConfig:
             'volatility_data_completeness_ratio': 0.98
         }
 
-        # ========== Alpha模块配置 ==========
-        self.alpha_model = {
+        # ========== 配对交易配置 ==========
+        self.pairs_trading = {
+            # 交易阈值
+            'entry_threshold': 1.2,              # 建仓Z-score阈值
+            'exit_threshold': 0.3,               # 平仓Z-score阈值
+            'stop_threshold': 3.0,               # 止损Z-score阈值
+            'cooldown_days': 14,                 # 配对冷却期（天）
+
+            # 质量评分权重
+            'quality_weights': {
+                'statistical': 0.4,
+                'correlation': 0.2,
+                'liquidity': 0.4
+            },
+
+            # 信号持续时间
+            'flat_signal_duration_days': 5,
+            'entry_signal_duration_days': 3
+        }
+
+        # ========== 分析模块配置 ==========
+        self.analysis = {
             'pvalue_threshold': 0.05,            # 协整p值阈值
             'correlation_threshold': 0.7,        # 相关性阈值
             'max_symbol_repeats': 1,             # 单股最多配对数
@@ -48,20 +68,9 @@ class StrategyConfig:
             'mcmc_warmup_samples': 1000,
             'mcmc_posterior_samples': 1000,
             'mcmc_chains': 2,
-            'entry_threshold': 1.2,              # 建仓Z-score阈值
-            'exit_threshold': 0.3,               # 平仓Z-score阈值
-            'upper_limit': 3.0,                  # Z-score上限
-            'lower_limit': -3.0,                 # Z-score下限
-            'flat_signal_duration_days': 5,
-            'entry_signal_duration_days': 3,
             'min_data_completeness_ratio': 0.98,
-            # 配对质量权重
-            'quality_weights': {
-                'statistical': 0.4,
-                'correlation': 0.2,
-                'liquidity': 0.4
-            },
-            # 市场风控参数（SignalGenerator使用）
+
+            # 市场风控参数
             'market_severe_threshold': 0.05,     # 市场剧烈波动阈值
             'market_cooldown_days': 14          # 市场冷静期
         }
@@ -71,16 +80,14 @@ class StrategyConfig:
             'margin_rate': 1.0,
             'max_position_per_pair': 0.15,      # 单对最大仓位
             'min_position_per_pair': 0.05,      # 单对最小仓位
-            'cash_buffer': 0.05,                # 现金缓冲
-            'cooldown_days': 7,                 # 冷却期
-            'market_severe_threshold': 0.05,    # 市场剧烈波动阈值
+            'cash_buffer': 0.05,                 # 现金缓冲
+            'market_severe_threshold': 0.05,   # 市场剧烈波动阈值
             'market_cooldown_days': 14          # 市场冷静期
         }
 
         # ========== 风险管理配置 ==========
         self.risk_management = {
             'max_holding_days': 30,             # 最大持仓天数
-            'cooldown_days': 7,
             'max_pair_drawdown': 0.20,          # 配对最大回撤
             'max_single_drawdown': 0.30,        # 单边最大回撤
             'sector_exposure_threshold': 0.30   # 行业集中度阈值

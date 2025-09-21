@@ -3,44 +3,30 @@ from AlgorithmImports import *
 from System import Action
 from src.config import StrategyConfig
 from src.UniverseSelection import MyUniverseSelectionModel
-from src.alpha import BayesianCointegrationAlphaModel
-from src.PortfolioConstruction import BayesianCointegrationPortfolioConstructionModel
-from src.RiskManagement import BayesianCointegrationRiskManagementModel
-from src.Execution import BayesianCointegrationExecutionModel
+from src.Pairs import Pairs
 # endregion
 
 
 class BayesianCointegrationStrategy(QCAlgorithm):
-    """贝叶斯协整配对交易策略"""
+    """基于OnData的贝叶斯协整策略"""
 
     def Initialize(self):
         """初始化策略"""
-        # 加载配置
+        # === 加载配置 ===
         self.config = StrategyConfig()
-
-        # 调试级别: 0=不输出, 1=输出详细统计
         self.debug_level = self.config.main['debug_level']
 
-        # 设置基本参数
-        self._setup_basic_parameters()
-
-        # 设置框架模块
-        self._setup_framework_modules()
-
-    def _setup_basic_parameters(self):
-        """设置基本参数"""
-        # 时间范围
+        # === 设置基本参数 ===
         self.SetStartDate(*self.config.main['start_date'])
         self.SetEndDate(*self.config.main['end_date'])
         self.SetCash(self.config.main['cash'])
-
-        # 分辨率和账户
         self.UniverseSettings.Resolution = self.config.main['resolution']
-        self.SetBrokerageModel(self.config.main['brokerage_name'], self.config.main['account_type'])
+        self.SetBrokerageModel(
+            self.config.main['brokerage_name'],
+            self.config.main['account_type']
+        )
 
-    def _setup_framework_modules(self):
-        """设置框架模块"""
-        # 选股模块
+        # === 初始化选股模块（保持不变）===
         self.universe_selector = MyUniverseSelectionModel(
             self,
             self.config.universe_selection,
@@ -49,35 +35,140 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         )
         self.SetUniverseSelection(self.universe_selector)
 
-        # 定期触发选股
-        self._setup_schedule()
-
-        # ========== 仅测试选股模块，其他模块暂时注释 ==========
-        # # Alpha模块
-        # self.SetAlpha(BayesianCointegrationAlphaModel(
-        #     self,
-        #     self.config.alpha_model,
-        #     self.config.sector_code_to_name
-        # ))
-
-        # # 仓位构建模块
-        # self.SetPortfolioConstruction(BayesianCointegrationPortfolioConstructionModel(
-        #     self,
-        #     self.config.portfolio_construction
-        # ))
-
-        # # 风险管理模块
-        # self.risk_manager = BayesianCointegrationRiskManagementModel(
-        #     self,
-        #     self.config.risk_management
-        # )
-        # self.SetRiskManagement(self.risk_manager)
-
-        # # 执行模块
-        # self.SetExecution(BayesianCointegrationExecutionModel(self))
-
-    def _setup_schedule(self):
-        """设置调度任务"""
+        # 定期触发选股（保持原有调度）
         date_rule = getattr(self.DateRules, self.config.main['schedule_frequency'])()
         time_rule = self.TimeRules.At(*self.config.main['schedule_time'])
         self.Schedule.On(date_rule, time_rule, Action(self.universe_selector.TriggerSelection))
+
+        # === 初始化分析工具 ===
+        from src.analysis.DataProcessor import DataProcessor
+        from src.analysis.CointegrationAnalyzer import CointegrationAnalyzer
+        from src.analysis.BayesianModeler import BayesianModeler
+        from src.analysis.PairSelector import PairSelector
+        from src.analysis.PairsFactory import PairsFactory
+
+        self.data_processor = DataProcessor(self, self.config.analysis)
+        self.cointegration_analyzer = CointegrationAnalyzer(self, self.config.analysis)
+        self.bayesian_modeler = BayesianModeler(self, self.config.analysis, None)  # state参数暂时为None
+        self.pair_selector = PairSelector(self, self.config.analysis)
+        self.pairs_factory = PairsFactory(self, self.config.pairs_trading)
+
+        # === 初始化核心数据结构 ===
+        self.pairs = {}  # {pair_id: Pairs对象}
+        self.symbols = []  # 当前选中的股票列表
+
+        # === 初始化状态管理 ===
+        self.is_analyzing = False  # 是否正在分析
+        self.last_analysis_time = None  # 上次分析时间
+
+        self.Debug("[Initialize] 策略初始化完成")
+    
+
+
+    def OnSecuritiesChanged(self, changes: SecurityChanges):
+        """处理证券变更事件 - 触发配对分析"""
+
+        # 添加新股票
+        for security in changes.AddedSecurities:
+            if security.Symbol not in self.symbols:
+                self.symbols.append(security.Symbol)
+
+        # 移除旧股票
+        removed_symbols = [s.Symbol for s in changes.RemovedSecurities]
+        self.symbols = [s for s in self.symbols if s not in removed_symbols]
+
+        # === 触发配对分析 ===
+        if len(self.symbols) >= 2:
+            self.Debug(f"[OnSecuritiesChanged] 当前股票池{len(self.symbols)}只，开始配对分析")
+
+            # 标记正在分析
+            self.is_analyzing = True
+            self.last_analysis_time = self.Time
+
+            # 执行分析流程
+            self._analyze_and_create_pairs()
+
+            # 分析完成
+            self.is_analyzing = False
+        else:
+            self.Debug(f"[OnSecuritiesChanged] 股票数量不足({len(self.symbols)}只)，跳过分析")
+
+
+
+    def _analyze_and_create_pairs(self):
+        """执行配对分析流程（步骤1-5）"""
+
+        # === 步骤1: 数据处理 ===
+        data_result = self.data_processor.process(self.symbols)
+        clean_data = data_result['clean_data']
+        valid_symbols = data_result['valid_symbols']
+
+        if len(valid_symbols) < 2:
+            self.Debug(f"[配对分析] 有效股票不足({len(valid_symbols)}只)，结束分析")
+            return
+
+        self.Debug(f"[配对分析] 步骤1完成: {len(valid_symbols)}只股票数据有效")
+
+        # === 步骤2: 协整检验 ===
+        cointegration_result = self.cointegration_analyzer.find_cointegrated_pairs(
+            valid_symbols,
+            clean_data,
+            self.config.sector_code_to_name
+        )
+        raw_pairs = cointegration_result['raw_pairs']
+
+        if not raw_pairs:
+            self.Debug("[配对分析] 未发现协整配对，结束分析")
+            return
+
+        self.Debug(f"[配对分析] 步骤2完成: 发现{len(raw_pairs)}个协整配对")
+
+        # === 步骤3&4: 质量评估和配对筛选 ===
+        selected_pairs = self.pair_selector.evaluate_and_select(raw_pairs, clean_data)
+        self.Debug(f"[配对分析] 步骤3&4完成: 评估并筛选出{len(selected_pairs)}个最佳配对")
+
+        if not selected_pairs:
+            self.Debug("[配对分析] 筛选后无合格配对，结束分析")
+            return
+
+        # 显示前3个配对
+        for pair in selected_pairs[:3]:
+            self.Debug(f"  - {pair['symbol1'].Value}&{pair['symbol2'].Value}: "f"质量分数{pair['quality_score']:.3f}")
+
+        # === 步骤5: 贝叶斯建模 ===
+        modeling_result = self.bayesian_modeler.model_pairs(selected_pairs, clean_data)
+        modeled_pairs = modeling_result['modeled_pairs']
+
+        if not modeled_pairs:
+            self.Debug("[配对分析] 建模失败，结束分析")
+            return
+
+        self.Debug(f"[配对分析] 步骤5完成: {len(modeled_pairs)}个配对建模成功")
+
+        # === 步骤6: 创建Pairs对象 ===
+        self.pairs = self.pairs_factory.create_pairs(modeled_pairs)
+        self.Debug(f"[配对分析] 完成: 创建{len(self.pairs)}个Pairs对象")
+    
+    
+
+    def OnData(self, data: Slice):
+        """处理实时数据 - OnData架构的核心"""
+
+        # 如果正在分析，跳过
+        if self.is_analyzing:
+            return
+
+        # 如果没有配对，跳过
+        if not self.pairs:
+            # 暂时不做任何操作，等Pairs类实现后补充
+            return
+
+        # === OnData的核心职责（待实现）===
+        # 1. 更新所有Pairs的实时价格和Z-score
+        # 2. 生成交易信号
+        # 3. 风险控制检查
+        # 4. 执行交易
+        # 5. 更新持仓状态
+
+        # 这部分将在Pairs类设计完成后实现
+        pass

@@ -4,20 +4,19 @@ import numpy as np
 import pymc as pm
 from typing import Dict, List, Tuple
 from collections import defaultdict
-from .AlphaState import AlphaModelState
 # endregion
 
 
 class BayesianModeler:
     """贝叶斯建模器 - 使用MCMC方法估计配对交易参数"""
 
-    def __init__(self, algorithm, config: dict, state: AlphaModelState):
+    def __init__(self, algorithm, config: dict, state=None):
         self.algorithm = algorithm
         self.mcmc_warmup_samples = config['mcmc_warmup_samples']
         self.mcmc_posterior_samples = config['mcmc_posterior_samples']
         self.mcmc_chains = config['mcmc_chains']
         self.lookback_period = config['lookback_period']
-        self.state = state
+        self.state = state  # 现在是可选的，OnData架构不使用
 
     def model_pairs(self, cointegrated_pairs: List[Dict], clean_data: Dict) -> Dict:
         """对所有协整对进行贝叶斯建模"""
@@ -78,7 +77,7 @@ class BayesianModeler:
         """获取历史后验参数"""
         pair_key = tuple(sorted([symbol1, symbol2]))
 
-        historical_posteriors = self.state.persistent['historical_posteriors']
+        historical_posteriors = self.state.persistent['historical_posteriors'] if self.state else {}
         if pair_key not in historical_posteriors:
             return None
 
@@ -180,10 +179,11 @@ class BayesianModeler:
         pair_key = tuple(sorted([symbol1, symbol2]))
 
         keys_to_save = ['alpha_mean', 'alpha_std', 'beta_mean', 'beta_std', 'sigma_mean', 'sigma_std']
-        self.state.persistent['historical_posteriors'][pair_key] = {
-            **{k: stats[k] for k in keys_to_save},
-            'update_time': self.algorithm.Time
-        }
+        if self.state:  # 仅在state存在时保存
+            self.state.persistent['historical_posteriors'][pair_key] = {
+                **{k: stats[k] for k in keys_to_save},
+                'update_time': self.algorithm.Time
+            }
 
     def _log_statistics(self, statistics: dict):
         """输出建模统计信息"""
