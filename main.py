@@ -45,16 +45,17 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         from src.analysis.CointegrationAnalyzer import CointegrationAnalyzer
         from src.analysis.BayesianModeler import BayesianModeler
         from src.analysis.PairSelector import PairSelector
-        from src.analysis.PairsFactory import PairsFactory
+        from src.PairsManager import PairsManager
 
         self.data_processor = DataProcessor(self, self.config.analysis)
         self.cointegration_analyzer = CointegrationAnalyzer(self, self.config.analysis)
         self.bayesian_modeler = BayesianModeler(self, self.config.analysis, None)  # state参数暂时为None
         self.pair_selector = PairSelector(self, self.config.analysis)
-        self.pairs_factory = PairsFactory(self, self.config.pairs_trading)
+
+        # === 初始化配对管理器 ===
+        self.pairs_manager = PairsManager(self, self.config.pairs_trading)
 
         # === 初始化核心数据结构 ===
-        self.pairs = {}  # {pair_id: Pairs对象}
         self.symbols = []  # 当前选中的股票列表
 
         # === 初始化状态管理 ===
@@ -145,9 +146,9 @@ class BayesianCointegrationStrategy(QCAlgorithm):
 
         self.Debug(f"[配对分析] 步骤5完成: {len(modeled_pairs)}个配对建模成功")
 
-        # === 步骤6: 创建Pairs对象 ===
-        self.pairs = self.pairs_factory.create_pairs(modeled_pairs)
-        self.Debug(f"[配对分析] 完成: 创建{len(self.pairs)}个Pairs对象")
+        # === 步骤6: 创建并管理Pairs对象 ===
+        self.pairs_manager.create_and_update_pairs(modeled_pairs)
+        self.Debug(f"[配对分析] 完成: PairsManager管理{len(self.pairs_manager.all_pairs)}个配对")
     
     
 
@@ -158,17 +159,15 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         if self.is_analyzing:
             return
 
-        # 如果没有配对，跳过
-        if not self.pairs:
-            # 暂时不做任何操作，等Pairs类实现后补充
+        # 如果没有可交易配对，跳过
+        if not self.pairs_manager.has_tradeable_pairs():
             return
 
-        # === OnData的核心职责（待实现）===
-        # 1. 更新所有Pairs的实时价格和Z-score
-        # 2. 生成交易信号
-        # 3. 风险控制检查
-        # 4. 执行交易
-        # 5. 更新持仓状态
+        # 获取可交易配对
+        tradeable_pairs = self.pairs_manager.get_all_tradeable_pairs()
 
-        # 这部分将在Pairs类设计完成后实现
-        pass
+        # TODO: 实现交易逻辑
+        # - 遍历配对，计算z-score
+        # - 生成交易信号
+        # - 执行订单
+        # - 检查风控

@@ -4,6 +4,44 @@
 
 ---
 
+## [v6.1.0_PairsManager架构优化@20250126]
+
+### 架构优化
+- **PairsFactory合并**：将PairsFactory功能整合到PairsManager，简化架构层次
+- **智能管理器升级**：PairsManager从"批量包装器"转型为"智能管理器"
+
+### 核心改进
+- **迭代器接口实现**：
+  - 添加@property装饰器的生成器接口
+  - active_pairs、legacy_pairs、tradeable_pairs等优雅访问
+  - 支持Pythonic的迭代和列表推导式
+
+- **集合级分析方法**：
+  - get_portfolio_metrics()：组合级指标汇总
+  - get_risk_summary()：多维度风险评估
+  - get_concentration_analysis()：集中度分析
+  - get_sector_concentrations()：行业分布分析
+
+- **全局约束与协调**：
+  - can_open_new_position()：全局容量检查
+  - close_risky_positions()：智能批量风控
+  - transition_legacy_to_dormant()：状态批量转换
+  - get_capacity_status()：容量状态监控
+
+### 代码优化
+- **删除冗余方法**：移除7个简单的批量包装方法（-80行）
+- **代码精简**：通过迭代器模式减少重复代码
+- **遵循设计原则**：单一职责、开闭原则、DIP、LoD
+
+### 文件变更
+- 修改：src/PairsManager.py（核心重构）
+- 修改：main.py（移除Factory依赖）
+- 删除：src/analysis/PairsFactory.py
+- 修改：src/config.py（添加pairs_trading配置）
+- 新增：src/example_usage.py（使用示例）
+
+---
+
 ## [v6.0.0_OnData架构重构@20250121]
 
 ### 架构转型

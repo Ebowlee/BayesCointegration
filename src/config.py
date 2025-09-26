@@ -46,6 +46,11 @@ class StrategyConfig:
             'stop_threshold': 3.0,               # 止损Z-score阈值
             'cooldown_days': 14,                 # 配对冷却期（天）
 
+            # 风控参数
+            'max_active_pairs': 4,               # 最大活跃配对数
+            'max_holding_days': 30,              # 最大持仓天数
+            'max_pair_concentration': 0.25,      # 单个配对最大集中度
+
             # 质量评分权重
             'quality_weights': {
                 'statistical': 0.4,
@@ -90,7 +95,9 @@ class StrategyConfig:
             'max_holding_days': 30,             # 最大持仓天数
             'max_pair_drawdown': 0.20,          # 配对最大回撤
             'max_single_drawdown': 0.30,        # 单边最大回撤
-            'sector_exposure_threshold': 0.30   # 行业集中度阈值
+            'sector_exposure_threshold': 0.30,  # 行业集中度阈值
+            'max_active_pairs': 10,             # 最大活跃配对数
+            'max_pair_concentration': 0.25      # 单个配对最大集中度
         }
 
         # ========== 行业映射 ==========

@@ -34,22 +34,36 @@ class Pairs:
         self.exit_threshold = config['exit_threshold']
         self.stop_threshold = config['stop_threshold']
 
-        # === 交易状态 ===
-        self.entry_zscore = None
-        self.spread_history = []  # 初始化spread历史列表
-
         # === 冷却设置 ===
         self.cooldown_days = config['cooldown_days']  # 从config读取
+
+        # === 风控参数 ===
+        self.max_holding_days = config.get('max_holding_days', 30)  # 最大持仓天数
+        self.max_concentration = config.get('max_pair_concentration', 0.25)  # 最大集中度
 
         # === 历史追踪 ===
         self.creation_time = algorithm.Time  # 首次创建时间
         self.reactivation_count = 0  # 重新激活次数（配对消失又出现）
-        self.trade_history = []  # 每次交易的记录
-        self.total_pnl = 0  # 累计盈亏
+
+
+    def update_params(self, model_data):
+        """
+        更新统计参数（当配对重新出现时调用）
+        """
+        # 更新统计参数
+        self.alpha_mean = model_data['alpha_mean']
+        self.beta_mean = model_data['beta_mean']
+        self.spread_mean = model_data['spread_mean']
+        self.spread_std = model_data['spread_std']
+        self.quality_score = model_data['quality_score']
+
+        # 记录重新激活
+        self.reactivation_count += 1
+        self.algorithm.Debug(f"[Pairs] {self.pair_id} 重新激活，第{self.reactivation_count}次")
 
 
 
-    # ===== 核心计算方法 =====
+    # ===== 1. 核心计算 =====
 
     def get_price(self, data):
         """
@@ -89,7 +103,7 @@ class Pairs:
 
 
 
-    # ===== 主要业务方法 =====
+    # ===== 2. 交易信号与执行 =====
 
     def get_signal(self, data):
         """
@@ -127,11 +141,37 @@ class Pairs:
             return "HOLD"
 
 
+    def create_order_tag(self, action):
+        """
+        创建标准化的订单Tag
+        action: "OPEN" 或 "CLOSE"
+        返回格式: "('AAPL', 'MSFT')_OPEN_20240101"
+        """
+        return f"{self.pair_id}_{action}_{self.algorithm.Time.strftime('%Y%m%d')}"
 
-    # ===== 持仓状态查询 =====
+
+    def has_pending_orders(self):
+        """
+        检查哪个symbol有未完成的订单
+        返回: Symbol对象 或 None
+        """
+        transactions = self.algorithm.Transactions
+
+        if len(transactions.GetOpenOrders(self.symbol1)) > 0:
+            return self.symbol1
+        if len(transactions.GetOpenOrders(self.symbol2)) > 0:
+            return self.symbol2
+        return None
+
+
+
+    # ===== 3. 持仓管理 =====
 
     def get_position_status(self):
-        # 获取持仓状态的完整信息
+        """
+        获取持仓状态的完整信息
+        返回: {'status': 'NORMAL'/'PARTIAL'/'NO POSITION', ...}
+        """
         portfolio = self.algorithm.Portfolio
         invested1 = portfolio[self.symbol1].Invested
         invested2 = portfolio[self.symbol2].Invested
@@ -154,7 +194,7 @@ class Pairs:
             }
         else:
             return {
-                'status': 'NONE'
+                'status': 'NO POSITION'
             }
 
 
@@ -179,6 +219,18 @@ class Pairs:
             return None
 
 
+    def get_position_value(self) -> float:
+        """获取当前持仓市值（包括部分持仓）"""
+        portfolio = self.algorithm.Portfolio
+
+        # 分别计算两腿的市值（使用绝对值）
+        value1 = abs(portfolio[self.symbol1].HoldingsValue) if portfolio[self.symbol1].Invested else 0
+        value2 = abs(portfolio[self.symbol2].HoldingsValue) if portfolio[self.symbol2].Invested else 0
+
+        # 返回总市值（即使只有一腿）
+        return value1 + value2
+
+
     def get_position_age(self):
         """
         获取持仓时长（天数）
@@ -194,47 +246,45 @@ class Pairs:
         return None  # 无法获取入场时间
 
 
-
-    # ===== 异常检测方法 =====
-
-    def has_pending_orders(self):
+    def get_position_pnl(self) -> float:
         """
-        检查哪个symbol有未完成的订单
-        返回: Symbol对象 或 None
+        计算当前持仓的未实现盈亏
+        返回: 盈亏金额 或 0
         """
-        transactions = self.algorithm.Transactions
+        portfolio = self.algorithm.Portfolio
 
-        if len(transactions.GetOpenOrders(self.symbol1)) > 0:
-            return self.symbol1
-        if len(transactions.GetOpenOrders(self.symbol2)) > 0:
-            return self.symbol2
-        return None
+        # 获取两腿的未实现盈亏
+        pnl1 = portfolio[self.symbol1].UnrealizedProfit if portfolio[self.symbol1].Invested else 0
+        pnl2 = portfolio[self.symbol2].UnrealizedProfit if portfolio[self.symbol2].Invested else 0
+
+        # 返回总盈亏
+        return pnl1 + pnl2
 
 
-
-    # ===== 生命周期管理 =====
-
-    def get_entry_time(self):
-        # 从订单历史获取最近的入场时间
-        open_orders = self.algorithm.Transactions.GetOrders(
+    def _get_order_time(self, action_type: str):
+        """
+        内部方法：获取指定类型的订单时间
+        action_type: "OPEN" 或 "CLOSE"
+        """
+        # 查询指定类型的订单
+        orders = self.algorithm.Transactions.GetOrders(
             lambda x: str(self.pair_id) in x.Tag
-                     and "OPEN" in x.Tag
+                     and action_type in x.Tag
                      and x.Status == OrderStatus.Filled
         )
 
-        if not open_orders:
+        if not orders:
             return None
 
         # 按时间排序，获取最近的
-        open_orders.sort(key=lambda x: x.Time, reverse=True)
+        orders.sort(key=lambda x: x.Time, reverse=True)
 
         # 确保两腿都成交，取较晚的时间
-        # 查找最近一组的两个symbol订单
         latest_pair_time = None
-        for i in range(len(open_orders)):
+        for i in range(len(orders)):
             # 获取同一天的订单（tag中日期相同）
-            date = open_orders[i].Tag.split('_')[-1]
-            same_date_orders = [o for o in open_orders if date in o.Tag]
+            date = orders[i].Tag.split('_')[-1]
+            same_date_orders = [o for o in orders if date in o.Tag]
 
             # 检查是否有两个symbol的订单
             has_symbol1 = any(o.Symbol == self.symbol1 for o in same_date_orders)
@@ -247,20 +297,15 @@ class Pairs:
 
         return latest_pair_time
 
+
+    def get_entry_time(self):
+        """获取最近的入场时间"""
+        return self._get_order_time("OPEN")
+
+
     def get_exit_time(self):
-        # 从订单历史获取最近的退出时间
-        close_orders = self.algorithm.Transactions.GetOrders(
-            lambda x: str(self.pair_id) in x.Tag
-                     and "CLOSE" in x.Tag
-                     and x.Status == OrderStatus.Filled
-        )
-
-        if not close_orders:
-            return None
-
-        # 最近的平仓时间
-        close_orders.sort(key=lambda x: x.Time, reverse=True)
-        return close_orders[0].Time
+        """获取最近的退出时间"""
+        return self._get_order_time("CLOSE")
 
 
     def is_in_cooldown(self):
@@ -283,29 +328,34 @@ class Pairs:
 
 
 
-    # ===== 参数维护 =====
+    # ===== 4. 风控与维护 =====
 
-    def update_params(self, model_data):
-        """
-        更新统计参数（当配对重新出现时调用）
-        """
-        # 更新统计参数
-        self.alpha_mean = model_data['alpha_mean']
-        self.beta_mean = model_data['beta_mean']
-        self.spread_mean = model_data['spread_mean']
-        self.spread_std = model_data['spread_std']
-        self.quality_score = model_data['quality_score']
+    def needs_stop_loss(self, data) -> bool:
+        """检查是否需要止损（Z-score超过阈值）"""
+        if self.get_position_status()['status'] != 'NORMAL':
+            return False
 
-        # 记录重新激活
-        self.reactivation_count += 1
-        self.algorithm.Debug(f"[Pairs] {self.pair_id} 重新激活，第{self.reactivation_count}次")
+        zscore = self.get_zscore(data)
+        return zscore is not None and abs(zscore) > self.stop_threshold
 
 
+    def is_position_expired(self) -> bool:
+        """检查持仓是否超期"""
+        age = self.get_position_age()
+        return age is not None and age > self.max_holding_days
 
-    # ===== 工具方法 =====
 
-    def create_order_tag(self, action):
-        # 创建标准化的订单Tag
-        # action: "OPEN" 或 "CLOSE"
-        # 返回格式: "('AAPL', 'MSFT')_OPEN_20240101"
-        return f"{self.pair_id}_{action}_{self.algorithm.Time.strftime('%Y%m%d')}"
+    def is_above_concentration_limit(self) -> bool:
+        """检查配对是否超过集中度限制"""
+        position_value = self.get_position_value()
+        portfolio_value = self.algorithm.Portfolio.TotalPortfolioValue
+
+        if portfolio_value > 0:
+            concentration = position_value / portfolio_value
+            return concentration > self.max_concentration
+        return False
+
+
+    def get_sector(self) -> str:
+        """获取配对所属行业"""
+        return self.sector

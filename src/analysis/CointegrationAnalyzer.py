@@ -78,7 +78,10 @@ class CointegrationAnalyzer:
         cointegrated_pairs = []
 
         # 生成所有可能的配对组合
-        for symbol1, symbol2 in itertools.combinations(symbols, 2):
+        for sym1, sym2 in itertools.combinations(symbols, 2):
+            # 确保顺序一致：按字母顺序排序
+            symbol1, symbol2 = sorted([sym1, sym2], key=lambda x: x.Value)
+
             prices1 = clean_data[symbol1]['close']
             prices2 = clean_data[symbol2]['close']
 

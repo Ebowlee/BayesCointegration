@@ -44,6 +44,12 @@ class BayesianModeler:
         try:
             symbol1, symbol2 = pair['symbol1'], pair['symbol2']
 
+            # 验证顺序（防御性编程）
+            if symbol1.Value > symbol2.Value:
+                self.algorithm.Debug(f"[警告] 配对顺序异常: {symbol1.Value} > {symbol2.Value}")
+                # 自动修正顺序
+                symbol1, symbol2 = symbol2, symbol1
+
             # 提取价格数据
             prices1 = clean_data[symbol1]['close'].values
             prices2 = clean_data[symbol2]['close'].values
@@ -60,7 +66,7 @@ class BayesianModeler:
                 'symbol1': symbol1,
                 'symbol2': symbol2,
                 'sector': pair['sector'],
-                'quality_score': pair.get('quality_score', 0.5),
+                'quality_score': pair['quality_score'],  # 必须存在，由 PairSelector 提供
                 'modeling_type': 'dynamic' if prior_params else 'full',
                 'modeling_time': self.algorithm.Time
             }
