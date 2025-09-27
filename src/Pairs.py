@@ -111,7 +111,7 @@ class Pairs:
         一步到位的接口，内部自动计算所需信息
         """
         # 先检查冷却期（仅在无持仓时检查）
-        if self.get_position_status()['status'] != 'NORMAL' and self.is_in_cooldown():
+        if self.get_position_status() != 'NORMAL' and self.is_in_cooldown():
             return "COOLDOWN"
 
         # 内部计算zscore
@@ -120,7 +120,7 @@ class Pairs:
             return "NO_DATA"
 
         # 内部检查持仓
-        has_position = self.get_position_status()['status'] == 'NORMAL'
+        has_position = self.get_position_status() == 'NORMAL'
 
         # 生成信号
         if not has_position:
@@ -167,35 +167,57 @@ class Pairs:
 
     # ===== 3. 持仓管理 =====
 
-    def get_position_status(self):
+    def get_position_info(self) -> Dict:
         """
-        获取持仓状态的完整信息
-        返回: {'status': 'NORMAL'/'PARTIAL'/'NO POSITION', ...}
+        获取完整的持仓信息（一次获取，避免重复查询）
+        返回所有持仓相关信息
         """
         portfolio = self.algorithm.Portfolio
+
+        # 一次性获取所有需要的数据
+        qty1 = portfolio[self.symbol1].Quantity
+        qty2 = portfolio[self.symbol2].Quantity
         invested1 = portfolio[self.symbol1].Invested
         invested2 = portfolio[self.symbol2].Invested
+        value1 = abs(portfolio[self.symbol1].HoldingsValue) if invested1 else 0
+        value2 = abs(portfolio[self.symbol2].HoldingsValue) if invested2 else 0
 
+        # 判断状态
         if invested1 and invested2:
-            return {
-                'status': 'NORMAL',
-            }
+            status = 'NORMAL'
         elif invested1 and not invested2:
-            return {
-                'status': 'PARTIAL',
-                'invested': self.symbol1,
-                'missing': self.symbol2
-            }
+            status = 'PARTIAL'
         elif not invested1 and invested2:
-            return {
-                'status': 'PARTIAL',
-                'invested': self.symbol2,
-                'missing': self.symbol1
-            }
+            status = 'PARTIAL'
         else:
-            return {
-                'status': 'NO POSITION'
-            }
+            status = 'NO POSITION'
+
+
+        # 判断方向
+        direction = None
+        if qty1 > 0 and qty2 < 0:
+            direction = "long_spread"
+        elif qty1 < 0 and qty2 > 0:
+            direction = "short_spread"
+        elif (qty1 < 0 and qty2 < 0) or (qty1 > 0 and qty2 > 0):
+            direction = "same_direction"
+
+        return {
+            'status': status,
+            'direction': direction,
+            'qty1': qty1,
+            'qty2': qty2,
+            'value1': value1,
+            'value2': value2
+        }
+
+    def get_position_status(self):
+        """
+        获取持仓状态
+        返回: 'NORMAL'/'PARTIAL'/'NO POSITION'
+        """
+        info = self.get_position_info()
+        return info['status']
 
 
     def get_position_direction(self):
@@ -203,40 +225,22 @@ class Pairs:
         获取持仓方向
         返回: "long_spread", "short_spread", "same_direction" 或 None
         """
-        if self.get_position_status()['status'] != 'NORMAL':
-            return None
-
-        qty1 = self.algorithm.Portfolio[self.symbol1].Quantity
-        qty2 = self.algorithm.Portfolio[self.symbol2].Quantity
-
-        if qty1 > 0 and qty2 < 0:
-            return "long_spread"  # 做多spread (买symbol1卖symbol2)
-        elif qty1 < 0 and qty2 > 0:
-            return "short_spread"  # 做空spread (卖symbol1买symbol2)
-        elif (qty1 < 0 and qty2 < 0) or (qty1 > 0 and qty2 > 0):
-            return "same_direction"
-        else:
-            return None
+        info = self.get_position_info()
+        return info['direction']
 
 
     def get_position_value(self) -> float:
         """获取当前持仓市值（包括部分持仓）"""
-        portfolio = self.algorithm.Portfolio
-
-        # 分别计算两腿的市值（使用绝对值）
-        value1 = abs(portfolio[self.symbol1].HoldingsValue) if portfolio[self.symbol1].Invested else 0
-        value2 = abs(portfolio[self.symbol2].HoldingsValue) if portfolio[self.symbol2].Invested else 0
-
-        # 返回总市值（即使只有一腿）
-        return value1 + value2
+        info = self.get_position_info()
+        return info['value1'] + info['value2']
 
 
-    def get_position_age(self):
+    def get_pair_holding_days(self):
         """
         获取持仓时长（天数）
         返回: 天数 或 None
         """
-        if self.get_position_status()['status'] != 'NORMAL':
+        if self.get_position_status() != 'NORMAL':
             return None
 
         entry_time = self.get_entry_time()
@@ -245,6 +249,33 @@ class Pairs:
 
         return None  # 无法获取入场时间
 
+
+    def reduce_position(self, reduction_ratio: float) -> bool:
+        """
+        按比例减少持仓
+        reduction_ratio: 保留比例(0.8表示保留80%，减仓20%)
+        """
+        info = self.get_position_info()
+
+        if info['status'] != 'NORMAL':
+            return False
+
+        # 计算减仓数量
+        reduce_qty1 = int(info['qty1'] * (1 - reduction_ratio))
+        reduce_qty2 = int(info['qty2'] * (1 - reduction_ratio))
+
+        # 执行减仓（方向正确的操作）
+        if reduce_qty1 != 0:
+            self.algorithm.MarketOrder(self.symbol1, -reduce_qty1)
+        if reduce_qty2 != 0:
+            self.algorithm.MarketOrder(self.symbol2, -reduce_qty2)
+
+        self.algorithm.Debug(
+            f"[Pairs.reduce] {self.pair_id} {info['direction']} "
+            f"减仓{(1-reduction_ratio)*100:.1f}%"
+        )
+
+        return True
 
     def get_position_pnl(self) -> float:
         """
@@ -332,17 +363,12 @@ class Pairs:
 
     def needs_stop_loss(self, data) -> bool:
         """检查是否需要止损（Z-score超过阈值）"""
-        if self.get_position_status()['status'] != 'NORMAL':
+        if self.get_position_status() != 'NORMAL':
             return False
 
         zscore = self.get_zscore(data)
         return zscore is not None and abs(zscore) > self.stop_threshold
 
-
-    def is_position_expired(self) -> bool:
-        """检查持仓是否超期"""
-        age = self.get_position_age()
-        return age is not None and age > self.max_holding_days
 
 
     def is_above_concentration_limit(self) -> bool:

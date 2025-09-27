@@ -4,6 +4,39 @@
 
 ---
 
+## [v6.2.0_配对风控体系实现@20250127]
+
+### 风控体系完善
+- **配对层面风控框架**：在OnData中实现完整的配对风控检查流程
+- **Portfolio与Pair双层风控**：形成组合层面和配对层面的完整风险管理体系
+
+### 配对风控实现
+- **持仓超期检查**：
+  - 使用get_pair_holding_days()获取持仓天数
+  - 超过max_holding_days（30天）强制平仓
+
+- **异常持仓检查**：
+  - 单边持仓检测（PARTIAL状态）
+  - 方向相同检测（same_direction）
+  - 统一处理逻辑，发现异常立即清仓
+
+- **配对回撤检查**：
+  - 实现high_water_mark机制追踪历史最高净值
+  - 计算从最高点的回撤比例
+  - 回撤超过20%触发清仓并重置记录
+
+### 代码变更
+- 修改：main.py（添加配对风控逻辑）
+- 修改：src/Pairs.py（重命名get_position_age为get_pair_holding_days）
+- 修改：src/config.py（风控参数配置）
+
+### 技术细节
+- 在Initialize中添加pair_high_water_marks字典
+- OnData中按优先级执行风控检查
+- 风控触发后使用continue跳过后续处理
+
+---
+
 ## [v6.1.0_PairsManager架构优化@20250126]
 
 ### 架构优化

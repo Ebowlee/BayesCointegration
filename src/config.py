@@ -47,7 +47,7 @@ class StrategyConfig:
             'cooldown_days': 14,                 # 配对冷却期（天）
 
             # 风控参数
-            'max_active_pairs': 4,               # 最大活跃配对数
+            'max_tradeable_pairs': 5,             # 最大可交易配对数（包含active和legacy）
             'max_holding_days': 30,              # 最大持仓天数
             'max_pair_concentration': 0.25,      # 单个配对最大集中度
 
@@ -92,11 +92,19 @@ class StrategyConfig:
 
         # ========== 风险管理配置 ==========
         self.risk_management = {
+            # Portfolio层面风控
+            'blowup_threshold': 0.3,              # 爆仓线：剩余30%
+            'blowup_cooldown_days': 36500,        # 爆仓冷却：100年（等同永久）
+            'drawdown_threshold': 0.3,            # 回撤线：30%
+            'drawdown_cooldown_days': 30,         # 回撤冷却：30天
+
+            # 配对层面风控
             'max_holding_days': 30,             # 最大持仓天数
             'max_pair_drawdown': 0.20,          # 配对最大回撤
             'max_single_drawdown': 0.30,        # 单边最大回撤
-            'sector_exposure_threshold': 0.30,  # 行业集中度阈值
-            'max_active_pairs': 10,             # 最大活跃配对数
+            'sector_exposure_threshold': 0.60,  # 行业集中度触发线：60%
+            'sector_target_exposure': 0.50,     # 行业集中度目标：50%
+            'max_tradeable_pairs': 5,             # 最大可交易配对数（包含active和legacy）
             'max_pair_concentration': 0.25      # 单个配对最大集中度
         }
 
