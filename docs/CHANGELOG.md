@@ -4,6 +4,52 @@
 
 ---
 
+## [v6.3.0_完整交易系统实现@20250127]
+
+### 风控体系重构
+- **RiskManagement模块化**：将风控逻辑从main.py抽离到独立模块
+- **双层风控架构**：
+  - PortfolioLevelRiskManager：组合层面风控（爆仓、回撤、市场波动、行业集中）
+  - PairLevelRiskManager：配对层面风控（持仓超期、异常持仓、配对回撤）
+- **生成器模式**：配对风控使用yield优雅过滤风险配对
+
+### 交易执行系统
+- **完整的开平仓逻辑**：
+  - 平仓处理：CLOSE信号（正常平仓）、STOP_LOSS信号（止损）
+  - 开仓处理：LONG_SPREAD、SHORT_SPREAD信号，支持Beta对冲
+- **资金管理系统**：
+  - 5%永久现金缓冲
+  - 动态仓位分配：10% + quality_score × 15%
+  - 最小/最大仓位限制（10%-25%初始资金）
+- **执行优化**：
+  - 分离有持仓/无持仓配对处理
+  - 质量分数优先的开仓顺序
+  - 纯执行方法设计（职责单一）
+
+### 代码优化
+- **Pairs类方法重组**：
+  - 分为3类：核心交易功能、持仓查询功能、基础属性
+  - close_position/open_position简化为纯执行方法
+- **PairsManager类方法重组**：
+  - 分为3类：核心管理功能、查询访问功能、迭代器属性
+  - 新增get_pairs_with_position/get_pairs_without_position方法
+- **配置优化**：
+  - 资金管理参数移至Initialize一次性计算
+  - 避免OnData中重复计算固定值
+
+### 架构更新
+- **CLAUDE.md全面更新**：
+  - 更新至v6.2.0 OnData Architecture
+  - 添加Trading Execution Flow详细说明
+  - 更新所有模块文档反映当前架构
+
+### 技术改进
+- 移除0.5倍min_allocation的模糊判断
+- manage_pair_risks重命名为manage_position_risks语义更清晰
+- 资金不足时直接停止开仓，逻辑更简洁
+
+---
+
 ## [v6.2.0_配对风控体系实现@20250127]
 
 ### 风控体系完善

@@ -6,23 +6,24 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is a **Bayesian Cointegration** pairs trading strategy built for the QuantConnect platform. The strategy uses advanced statistical methods including Bayesian inference with MCMC sampling to identify and trade mean-reverting relationships between securities within the same industry sectors.
 
-## Architecture Pattern (v2.0.0 Simplified)
+## Architecture Pattern (v6.2.0 OnData Architecture)
 
-The strategy follows QuantConnect's **Algorithm Framework** with simplified modular design:
+The strategy uses **OnData-driven architecture** (migrated from Algorithm Framework in v6.0.0):
 
-- **main.py**: Central orchestrator using `BayesianCointegrationStrategy(QCAlgorithm)`
-- **UniverseSelection**: Multi-stage fundamental screening with sector-based selection (20 stocks per sector)
-- **AlphaModel**: Core Bayesian cointegration engine using PyMC for MCMC sampling
-- **PortfolioConstruction**: Beta-neutral position sizing with margin considerations
-- **RiskManagement**: Simplified risk controls with extreme loss protection
-- **Execution**: Atomic pair execution (currently unused)
+- **main.py**: Central orchestrator using `BayesianCointegrationStrategy(QCAlgorithm)` with OnData event handling
+- **UniverseSelection**: Multi-stage fundamental screening with sector-based selection
+- **Pairs**: Core pair trading object encapsulating signal generation and trade execution
+- **PairsManager**: Lifecycle manager for all pairs (active, legacy, dormant states)
+- **RiskManagement**: Two-tier risk control system (Portfolio + Pair level)
+- **Analysis modules**: DataProcessor, CointegrationAnalyzer, BayesianModeler, PairSelector
 
-Key architectural principles (post v2.0.0):
-- **Direct query model** - No central manager, modules query Portfolio directly
-- **Intra-industry pairing only** - Securities paired within same Morningstar sector
-- **Global pair limit** - Maximum 4 active pairs across entire portfolio
-- **Leverage** - 2x through InteractiveBrokers margin account
-- **Simplified state management** - ~30% less code after removing CentralPairManager
+Key architectural principles (v6.2.0):
+- **OnData-driven** - All trading logic flows through OnData method, no Framework modules
+- **Object-oriented pairs** - Pairs class encapsulates all pair-specific logic
+- **Two-tier risk management** - Portfolio-level and Pair-level risk controls
+- **Smart lifecycle management** - PairsManager tracks pairs through active/legacy/dormant states
+- **Intra-industry pairing** - Securities paired within same Morningstar sector
+- **Global constraints** - Max 5 tradeable pairs, 5% cash buffer, dynamic position sizing
 
 ## Development Commands
 
@@ -102,63 +103,111 @@ git commit -m "v2.4.8_strategy-optimize@20250720"
 - Description of changes
 ```
 
-## Module Architecture and Interaction
+## Core Module Architecture
 
 ### 1. main.py - Strategy Orchestrator
-- **Purpose**: Central configuration and framework setup
+- **Purpose**: Central orchestration via OnData event handling
 - **Key Components**:
   - `BayesianCointegrationStrategy`: Main algorithm class
-  - Framework module initialization
-  - Direct portfolio state management
+  - `OnData()`: Core trading logic execution
+  - `OnSecuritiesChanged()`: Triggers pair analysis
+  - Risk management coordination
+  - Trade execution logic
 - **Configuration**: All parameters in `src/config.py` via `StrategyConfig` class
 
-### 2. UniverseSelection.py - Stock Selection
-- **Purpose**: Two-stage filtering (Coarse → Fine) for tradeable universe
+### 2. Pairs.py - Pair Trading Object
+- **Purpose**: Encapsulates all pair-specific logic
 - **Key Methods**:
-  - `_select_coarse()`: Price/volume/IPO filtering
-  - `_select_fine()`: Financial metrics and volatility filtering
-  - `_group_and_sort_by_sector()`: Sector-based grouping
+  - `get_signal()`: Generate trading signals (LONG_SPREAD, SHORT_SPREAD, CLOSE, STOP_LOSS, HOLD)
+  - `get_zscore()`: Calculate current Z-score
+  - `open_position()`: Execute beta-hedged opening trades
+  - `close_position()`: Execute closing trades
+  - `get_position_info()`: Query position status
+- **Features**: Cooldown management, beta hedging, position tracking
+
+### 3. PairsManager.py - Lifecycle Management
+- **Purpose**: Manage all pairs through their lifecycle
+- **State Management**:
+  - **Active pairs**: Currently passing cointegration tests
+  - **Legacy pairs**: Have positions but failed recent tests
+  - **Dormant pairs**: No positions and failed tests
+- **Key Methods**:
+  - `create_pairs_from_models()`: Create new Pairs objects
+  - `get_pairs_with_position()`: Filter pairs with positions
+  - `get_pairs_without_position()`: Filter pairs without positions
+  - `can_open_new_position()`: Check global position limits
+  - `get_sector_concentration()`: Calculate industry exposure
+
+### 4. RiskManagement.py - Two-Tier Risk Control
+- **Purpose**: Portfolio and pair level risk management
+- **PortfolioLevelRiskManager**:
+  - Account blowup protection (< 20% initial capital)
+  - Maximum drawdown control (> 15% from high water mark)
+  - Market volatility detection (SPY daily movement > 5%)
+  - Sector concentration limits (> 40% in single sector)
+- **PairLevelRiskManager** (Generator pattern):
+  - Holding period timeout (> 30 days)
+  - Position anomaly detection (partial/same-direction)
+  - Pair-specific drawdown (> 20% from pair HWM)
+
+### 5. UniverseSelection.py - Stock Selection
+- **Purpose**: Monthly universe refresh
+- **Two-stage filtering**:
+  - Coarse: Price > $20, Volume > $5M, IPO > 3 years
+  - Fine: PE < 100, ROE > 0%, Debt/Assets < 80%
+- **Sector-based selection**: Top stocks per Morningstar sector
 - **Triggers**: Monthly via `Schedule.On()` → `TriggerSelection()`
 
-### 3. AlphaModel - Signal Generation (Modular Architecture)
-- **Purpose**: Bayesian cointegration analysis and trading signals
-- **Module Structure** (src/alpha/):
-  - `AlphaModel.py`: Main coordinator
-  - `AlphaState.py`: Centralized state management
-  - `DataProcessor.py`: Historical data handling
-  - `PairAnalyzer.py`: Integrated cointegration testing and Bayesian modeling
-  - `SignalGenerator.py`: Z-score based signal creation with Portfolio queries
-- **Signal Types**: Up/Down (entry), Flat (exit)
-- **Direct Portfolio Integration**: Queries active positions directly without intermediary
+### 6. Analysis Modules (src/analysis/)
+- **DataProcessor**: Clean and prepare historical data
+- **CointegrationAnalyzer**: Engle-Granger cointegration tests
+- **BayesianModeler**: PyMC MCMC parameter estimation
+- **PairSelector**: Quality scoring and pair selection
 
-### 4. PortfolioConstruction.py - Position Management
-- **Purpose**: Convert signals to position targets
-- **Key Features**:
-  - Dynamic position sizing (5-15% per pair)
-  - Beta-neutral hedging
-  - Quality score based allocation (filters < 0.7)
-  - Direct portfolio state management
-- **Signal Processing**: Parses Insight.Tag for parameters
-- **Simplified State**: No external dependency, direct portfolio queries
+## Trading Execution Flow (OnData)
 
-### 5. RiskManagement.py - Risk Control (v2.0.0 Simplified)
-- **Purpose**: Extreme loss protection
-- **Key Features**:
-  - Simplified implementation (~100 lines)
-  - Focus on critical risk scenarios
-  - Direct portfolio queries for position state
-- **Risk Monitoring**:
-  - Extreme loss detection (>50% portfolio loss)
-  - Automatic position liquidation when triggered
-- **Execution**: Real-time checks via `ManageRisk()`
+### Execution Priority
+1. **Strategy Cooldown Check**: Skip if in global cooldown period
+2. **Portfolio Risk Management**: Check and handle portfolio-level risks
+3. **Pair Risk Management**: Filter risky pairs with positions
+4. **Position Management**:
+   - Close positions for pairs with exit/stop signals
+   - Open new positions for pairs with entry signals
+
+### Closing Logic (Pairs with Positions)
+```python
+# Only process pairs that have positions
+pairs_with_position = pairs_manager.get_pairs_with_position()
+for safe_pair in pair_level_risk_manager.manage_position_risks(pairs_with_position):
+    signal = safe_pair.get_signal(data)
+    if signal in ["CLOSE", "STOP_LOSS"]:
+        safe_pair.close_position()
+```
+
+### Opening Logic (Pairs without Positions)
+```python
+# Process pairs without positions
+pairs_without_position = pairs_manager.get_pairs_without_position()
+# Collect signals, sort by quality_score
+# Calculate available cash (Portfolio.Cash - 5% buffer)
+# Allocate funds: 10% + quality_score * 15%
+# Execute beta-hedged trades via pair.open_position()
+```
+
+### Position Sizing
+- **Cash Buffer**: 5% of initial capital permanently reserved
+- **Min Position**: 10% of initial capital
+- **Max Position**: 25% of initial capital
+- **Dynamic Allocation**: `allocation = min_pct + quality_score * (max_pct - min_pct)`
+- **Beta Hedging**: `value1 = allocation / (1 + 1/|beta|)`
 
 ## Critical Implementation Details
 
-### Statistical Engine (AlphaModel)
+### Statistical Engine
 - **Cointegration testing**: Engle-Granger test with p-value < 0.05
 - **Bayesian modeling**: PyMC with 1000 burn-in + 1000 draws, 2 chains
-- **Signal thresholds**: Entry ±1.2σ, Exit ±0.3σ, Safety limits ±3.0σ
-- **Risk controls**: Max 20 pairs analyzed, each stock in max 1 pair
+- **Signal thresholds**: Entry ±1.2σ, Exit ±0.3σ, Stop ±3.0σ
+- **Cooldown Period**: 7 days after closing a pair
 
 ### Universe Selection Logic
 1. **Coarse filtering**: Price > $20, Volume > $5M, IPO > 3 years  
@@ -172,20 +221,21 @@ git commit -m "v2.4.8_strategy-optimize@20250720"
 - **Margin**: 100% requirement for short positions
 - **Cash buffer**: 5% for operational needs
 
-## Cross-Module Communication (v2.0.0 Simplified)
+## Cross-Module Communication (v6.2.0 OnData)
 
 ### Data Flow
-1. UniverseSelection → AlphaModel: `changes.AddedSecurities/RemovedSecurities`
-2. AlphaModel → PortfolioConstruction: `Insight.Tag` contains `"symbol1&symbol2|alpha|beta|zscore|quality_score"`
-3. All modules → Portfolio: Direct queries for position state
-4. Scheduling: `Schedule.On()` triggers universe reselection monthly
-5. Direct state access: Modules access each other via `self.algorithm`
+1. **Universe Changes**: `OnSecuritiesChanged()` → triggers pair analysis
+2. **Analysis Pipeline**: DataProcessor → CointegrationAnalyzer → BayesianModeler → PairSelector
+3. **Pair Creation**: PairsManager.create_pairs_from_models() → creates Pairs objects
+4. **Trading Flow**: OnData → RiskManagement → Pairs.get_signal() → Trade execution
+5. **State Updates**: PairsManager maintains pair lifecycle states
 
 ### State Management
-- **Global state**: No external state files; all state in module instances
-- **Module states**: Each maintains independent state (`self.symbols`, `self.posterior_params`)
-- **Position tracking**: Direct portfolio queries, no complex order tracking
-- **Lifecycle**: Selection periods vs. daily operations
+- **Pair States**: Active (tradeable), Legacy (position only), Dormant (inactive)
+- **Position Tracking**: Direct Portfolio queries via Pairs.get_position_info()
+- **Risk State**: High water marks tracked in RiskManagement classes
+- **Cooldown Tracking**: Per-pair cooldown managed in Pairs objects
+- **Global Constraints**: Max pairs, cash buffer tracked in main.py
 
 ## Key Dependencies
 
@@ -272,10 +322,11 @@ risk_stats = self.algorithm.risk_manager.risk_triggers
 
 ## Recent Optimization History
 
-- **v2.0.0**: Major architecture simplification - removed CentralPairManager entirely (~30% code reduction)
-- **v1.9.2**: Fixed market cooldown logic to force close positions immediately
-- **v1.9.1**: Updated module documentation to reflect architecture changes
-- **v1.9.0**: Architecture optimization - centralized risk control to Alpha layer
+- **v6.2.0**: Complete two-tier risk management system with Portfolio and Pair level controls
+- **v6.1.0**: PairsManager architecture optimization - merged PairsFactory functionality
+- **v6.0.0**: Major architecture migration from Algorithm Framework to OnData-driven design
+- **v5.0.0**: Merged Alpha module optimization from feature branch
+- **v2.0.0**: Architecture simplification - removed CentralPairManager (~30% code reduction)
 
 ## Files to Avoid Modifying
 

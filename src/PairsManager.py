@@ -8,6 +8,8 @@ from typing import Dict, Set, List
 class PairsManager:
     """管理整个回测周期内所有配对的生命周期"""
 
+    # ========== 1. 核心管理功能 ==========
+
     def __init__(self, algorithm, config):
         """
         初始化配对管理器
@@ -33,8 +35,6 @@ class PairsManager:
         self.update_count = 0  # 更新次数（选股轮次）
         self.last_update_time = None  # 上次更新时间
 
-
-    # ========== 核心配对管理流程 ==========
 
     def create_pairs_from_models(self, modeled_pairs):
         """
@@ -158,55 +158,49 @@ class PairsManager:
         return cleared_pairs
 
 
-
-    # ========== 迭代器接口 ==========
-
-    @property
-    def active_pairs(self):
-        """活跃配对生成器（可以开仓）"""
-        for pair_id in self.active_ids:
-            yield self.all_pairs[pair_id]
-
-    @property
-    def legacy_pairs(self):
-        """遗留配对生成器（只能平仓）"""
-        for pair_id in self.legacy_ids:
-            yield self.all_pairs[pair_id]
-
-    @property
-    def tradeable_pairs(self):
-        """所有可交易配对生成器（active + legacy）"""
-        for pair_id in (self.active_ids | self.legacy_ids):
-            yield self.all_pairs[pair_id]
-
-    @property
-    def dormant_pairs(self):
-        """休眠配对生成器（仅供查询）"""
-        for pair_id in self.dormant_ids:
-            yield self.all_pairs[pair_id]
-
-    @property
-    def all_pairs_iter(self):
-        """所有配对的生成器"""
-        for pair in self.all_pairs.values():
-            yield pair
+    def log_statistics(self):
+        """输出统计信息"""
+        self.algorithm.Debug(
+            f"[PairsManager] 第{self.update_count}轮更新完成: "
+            f"活跃={len(self.active_ids)}, "
+            f"遗留={len(self.legacy_ids)}, "
+            f"休眠={len(self.dormant_ids)}, "
+            f"总计={len(self.all_pairs)}"
+        )
 
 
-
-    # ========== 查询接口 ==========
+    # ========== 2. 查询与访问功能 ==========
 
     def has_tradeable_pairs(self) -> bool:
         """检查是否有可交易的配对"""
         return len(self.active_ids | self.legacy_ids) > 0
+
+
+    def get_pairs_with_position(self) -> Dict:
+        """
+        获取所有有持仓的可交易配对
+        返回: {pair_id: Pairs对象} 字典
+        """
+        tradeable_pairs = self.get_all_tradeable_pairs()
+        return {pid: pair for pid, pair in tradeable_pairs.items()
+                if pair.get_position_status() != 'NO POSITION'}
+
+
+    def get_pairs_without_position(self) -> Dict:
+        """
+        获取所有无持仓的可交易配对（用于开仓逻辑）
+        返回: {pair_id: Pairs对象} 字典
+        """
+        tradeable_pairs = self.get_all_tradeable_pairs()
+        return {pid: pair for pid, pair in tradeable_pairs.items()
+                if pair.get_position_status() == 'NO POSITION'}
+
 
     def get_all_tradeable_pairs(self) -> Dict:
         """获取所有需要管理的配对字典（保留用于兼容）"""
         tradeable_ids = self.active_ids | self.legacy_ids
         return {pid: self.all_pairs[pid] for pid in tradeable_ids}
 
-
-
-    # ========== 全局约束和协调方法 ==========
 
     def can_open_new_position(self) -> bool:
         """
@@ -268,15 +262,38 @@ class PairsManager:
         return result
 
 
+    # ========== 3. 迭代器属性 ==========
 
-    # ========== 辅助方法 ==========
+    @property
+    def active_pairs(self):
+        """活跃配对生成器（可以开仓）"""
+        for pair_id in self.active_ids:
+            yield self.all_pairs[pair_id]
 
-    def log_statistics(self):
-        """输出统计信息"""
-        self.algorithm.Debug(
-            f"[PairsManager] 第{self.update_count}轮更新完成: "
-            f"活跃={len(self.active_ids)}, "
-            f"遗留={len(self.legacy_ids)}, "
-            f"休眠={len(self.dormant_ids)}, "
-            f"总计={len(self.all_pairs)}"
-        )
+
+    @property
+    def legacy_pairs(self):
+        """遗留配对生成器（只能平仓）"""
+        for pair_id in self.legacy_ids:
+            yield self.all_pairs[pair_id]
+
+
+    @property
+    def tradeable_pairs(self):
+        """所有可交易配对生成器（active + legacy）"""
+        for pair_id in (self.active_ids | self.legacy_ids):
+            yield self.all_pairs[pair_id]
+
+
+    @property
+    def dormant_pairs(self):
+        """休眠配对生成器（仅供查询）"""
+        for pair_id in self.dormant_ids:
+            yield self.all_pairs[pair_id]
+
+
+    @property
+    def all_pairs_iter(self):
+        """所有配对的生成器"""
+        for pair in self.all_pairs.values():
+            yield pair

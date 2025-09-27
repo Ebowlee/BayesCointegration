@@ -6,6 +6,8 @@ from AlgorithmImports import *
 class Pairs:
     """配对交易的核心数据对象"""
 
+    # ===== 1. 核心交易功能 =====
+
     def __init__(self, algorithm, model_data, config):
         """
         从贝叶斯建模结果初始化
@@ -62,49 +64,6 @@ class Pairs:
         self.algorithm.Debug(f"[Pairs] {self.pair_id} 重新激活，第{self.reactivation_count}次")
 
 
-
-    # ===== 1. 核心计算 =====
-
-    def get_price(self, data):
-        """
-        从data slice获取最新价格
-        返回: (price1, price2) 或 None
-        """
-        if self.symbol1 in data and self.symbol2 in data:
-            price1 = data[self.symbol1].Close
-            price2 = data[self.symbol2].Close
-            return (price1, price2)
-        return None
-
-
-    def get_zscore(self, data):
-        """
-        计算Z-score，包含spread计算
-        需要传入data来获取价格
-        返回: Z-score值 或 None
-        """
-        # 获取价格
-        prices = self.get_price(data)
-        if prices is None:
-            return None
-
-        price1, price2 = prices
-
-        # 计算spread
-        spread = price1 - (self.beta_mean * price2 + self.alpha_mean)
-
-        # 计算zscore
-        if self.spread_std > 0:
-            zscore = (spread - self.spread_mean) / self.spread_std
-        else:
-            zscore = 0
-
-        return zscore
-
-
-
-    # ===== 2. 交易信号与执行 =====
-
     def get_signal(self, data):
         """
         获取交易信号
@@ -141,6 +100,115 @@ class Pairs:
             return "HOLD"
 
 
+    def get_zscore(self, data):
+        """
+        计算Z-score，包含spread计算
+        需要传入data来获取价格
+        返回: Z-score值 或 None
+        """
+        # 获取价格
+        prices = self.get_price(data)
+        if prices is None:
+            return None
+
+        price1, price2 = prices
+
+        # 计算spread
+        spread = price1 - (self.beta_mean * price2 + self.alpha_mean)
+
+        # 计算zscore
+        if self.spread_std > 0:
+            zscore = (spread - self.spread_mean) / self.spread_std
+        else:
+            zscore = 0
+
+        return zscore
+
+
+    def get_price(self, data):
+        """
+        从data slice获取最新价格
+        返回: (price1, price2) 或 None
+        """
+        if self.symbol1 in data and self.symbol2 in data:
+            price1 = data[self.symbol1].Close
+            price2 = data[self.symbol2].Close
+            return (price1, price2)
+        return None
+
+
+    def open_position(self, signal: str, allocation_amount: float):
+        """
+        开仓该配对
+        纯执行方法，不做任何检查
+
+        Args:
+            signal: "LONG_SPREAD" 或 "SHORT_SPREAD"
+            allocation_amount: 分配给该配对的资金量
+        """
+        # 获取当前价格
+        portfolio = self.algorithm.Portfolio
+        price1 = portfolio[self.symbol1].Price
+        price2 = portfolio[self.symbol2].Price
+
+        # 计算两腿的市值分配
+        # 目标: |value1| = |value2 * beta|，确保beta中性
+        # 分配策略: value1 + value2 = allocation_amount
+        # 推导: value1 = allocation_amount / (1 + 1/abs(beta))
+
+        abs_beta = abs(self.beta_mean)
+        if abs_beta == 0:
+            abs_beta = 1  # 防止除零
+
+        value1 = allocation_amount / (1 + 1/abs_beta)
+        value2 = allocation_amount - value1
+
+        # 计算股数
+        if signal == "LONG_SPREAD":
+            # 做多spread = 做多symbol1，做空symbol2
+            qty1 = int(value1 / price1)
+            qty2 = -int(value2 / price2)
+        else:  # SHORT_SPREAD
+            # 做空spread = 做空symbol1，做多symbol2
+            qty1 = -int(value1 / price1)
+            qty2 = int(value2 / price2)
+
+        # 创建订单Tag
+        tag = self.create_order_tag("OPEN")
+
+        # 执行下单
+        self.algorithm.MarketOrder(self.symbol1, qty1, tag=tag)
+        self.algorithm.MarketOrder(self.symbol2, qty2, tag=tag)
+
+        # 记录开仓信息
+        self.algorithm.Debug(
+            f"[Pairs.open] {self.pair_id} {signal} "
+            f"资金:{allocation_amount:.0f} "
+            f"数量:({qty1:+d}/{qty2:+d}) "
+            f"Beta:{self.beta_mean:.3f}"
+        )
+
+
+    def close_position(self):
+        """
+        平仓该配对的所有持仓
+        纯执行方法，不做任何检查
+        """
+        # 创建平仓Tag
+        tag = self.create_order_tag("CLOSE")
+
+        # 执行平仓
+        self.algorithm.Liquidate(self.symbol1, tag=tag)
+        self.algorithm.Liquidate(self.symbol2, tag=tag)
+
+        # 记录平仓信息
+        info = self.get_position_info()
+        self.algorithm.Debug(
+            f"[Pairs.close] {self.pair_id} 执行平仓 "
+            f"持仓:({info['qty1']:.0f}/{info['qty2']:.0f})"
+        )
+
+
     def create_order_tag(self, action):
         """
         创建标准化的订单Tag
@@ -150,22 +218,35 @@ class Pairs:
         return f"{self.pair_id}_{action}_{self.algorithm.Time.strftime('%Y%m%d')}"
 
 
-    def has_pending_orders(self):
+    def reduce_position(self, reduction_ratio: float) -> bool:
         """
-        检查哪个symbol有未完成的订单
-        返回: Symbol对象 或 None
+        按比例减少持仓
+        reduction_ratio: 保留比例(0.8表示保留80%，减仓20%)
         """
-        transactions = self.algorithm.Transactions
+        info = self.get_position_info()
 
-        if len(transactions.GetOpenOrders(self.symbol1)) > 0:
-            return self.symbol1
-        if len(transactions.GetOpenOrders(self.symbol2)) > 0:
-            return self.symbol2
-        return None
+        if info['status'] != 'NORMAL':
+            return False
+
+        # 计算减仓数量
+        reduce_qty1 = int(info['qty1'] * (1 - reduction_ratio))
+        reduce_qty2 = int(info['qty2'] * (1 - reduction_ratio))
+
+        # 执行减仓（方向正确的操作）
+        if reduce_qty1 != 0:
+            self.algorithm.MarketOrder(self.symbol1, -reduce_qty1)
+        if reduce_qty2 != 0:
+            self.algorithm.MarketOrder(self.symbol2, -reduce_qty2)
+
+        self.algorithm.Debug(
+            f"[Pairs.reduce] {self.pair_id} {info['direction']} "
+            f"减仓{(1-reduction_ratio)*100:.1f}%"
+        )
+
+        return True
 
 
-
-    # ===== 3. 持仓管理 =====
+    # ===== 2. 持仓查询功能 =====
 
     def get_position_info(self) -> Dict:
         """
@@ -211,6 +292,7 @@ class Pairs:
             'value2': value2
         }
 
+
     def get_position_status(self):
         """
         获取持仓状态
@@ -250,46 +332,33 @@ class Pairs:
         return None  # 无法获取入场时间
 
 
-    def reduce_position(self, reduction_ratio: float) -> bool:
+    def is_in_cooldown(self):
         """
-        按比例减少持仓
-        reduction_ratio: 保留比例(0.8表示保留80%，减仓20%)
+        检查是否在冷却期内
+        返回: True（在冷却期）/ False（可以交易）
         """
-        info = self.get_position_info()
+        # 获取最近的退出时间
+        exit_time = self.get_exit_time()
 
-        if info['status'] != 'NORMAL':
+        # 如果没有退出时间，不在冷却期
+        if exit_time is None:
             return False
 
-        # 计算减仓数量
-        reduce_qty1 = int(info['qty1'] * (1 - reduction_ratio))
-        reduce_qty2 = int(info['qty2'] * (1 - reduction_ratio))
+        # 计算距离上次退出的时间
+        days_since_exit = (self.algorithm.Time - exit_time).days
 
-        # 执行减仓（方向正确的操作）
-        if reduce_qty1 != 0:
-            self.algorithm.MarketOrder(self.symbol1, -reduce_qty1)
-        if reduce_qty2 != 0:
-            self.algorithm.MarketOrder(self.symbol2, -reduce_qty2)
+        # 判断是否在冷却期（使用config中的冷却天数）
+        return days_since_exit < self.cooldown_days
 
-        self.algorithm.Debug(
-            f"[Pairs.reduce] {self.pair_id} {info['direction']} "
-            f"减仓{(1-reduction_ratio)*100:.1f}%"
-        )
 
-        return True
+    def get_entry_time(self):
+        """获取最近的入场时间"""
+        return self._get_order_time("OPEN")
 
-    def get_position_pnl(self) -> float:
-        """
-        计算当前持仓的未实现盈亏
-        返回: 盈亏金额 或 0
-        """
-        portfolio = self.algorithm.Portfolio
 
-        # 获取两腿的未实现盈亏
-        pnl1 = portfolio[self.symbol1].UnrealizedProfit if portfolio[self.symbol1].Invested else 0
-        pnl2 = portfolio[self.symbol2].UnrealizedProfit if portfolio[self.symbol2].Invested else 0
-
-        # 返回总盈亏
-        return pnl1 + pnl2
+    def get_exit_time(self):
+        """获取最近的退出时间"""
+        return self._get_order_time("CLOSE")
 
 
     def _get_order_time(self, action_type: str):
@@ -329,57 +398,11 @@ class Pairs:
         return latest_pair_time
 
 
-    def get_entry_time(self):
-        """获取最近的入场时间"""
-        return self._get_order_time("OPEN")
+    # ===== 3. 基础属性 =====
 
-
-    def get_exit_time(self):
-        """获取最近的退出时间"""
-        return self._get_order_time("CLOSE")
-
-
-    def is_in_cooldown(self):
-        """
-        检查是否在冷却期内
-        返回: True（在冷却期）/ False（可以交易）
-        """
-        # 获取最近的退出时间
-        exit_time = self.get_exit_time()
-
-        # 如果没有退出时间，不在冷却期
-        if exit_time is None:
-            return False
-
-        # 计算距离上次退出的时间
-        days_since_exit = (self.algorithm.Time - exit_time).days
-
-        # 判断是否在冷却期（使用config中的冷却天数）
-        return days_since_exit < self.cooldown_days
-
-
-
-    # ===== 4. 风控与维护 =====
-
-    def needs_stop_loss(self, data) -> bool:
-        """检查是否需要止损（Z-score超过阈值）"""
-        if self.get_position_status() != 'NORMAL':
-            return False
-
-        zscore = self.get_zscore(data)
-        return zscore is not None and abs(zscore) > self.stop_threshold
-
-
-
-    def is_above_concentration_limit(self) -> bool:
-        """检查配对是否超过集中度限制"""
-        position_value = self.get_position_value()
-        portfolio_value = self.algorithm.Portfolio.TotalPortfolioValue
-
-        if portfolio_value > 0:
-            concentration = position_value / portfolio_value
-            return concentration > self.max_concentration
-        return False
+    def get_quality_score(self) -> float:
+        """获取配对的质量分数"""
+        return self.quality_score
 
 
     def get_sector(self) -> str:

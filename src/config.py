@@ -60,7 +60,12 @@ class StrategyConfig:
 
             # 信号持续时间
             'flat_signal_duration_days': 5,
-            'entry_signal_duration_days': 3
+            'entry_signal_duration_days': 3,
+
+            # 资金管理参数
+            'cash_buffer_ratio': 0.05,           # 5%永久预留现金
+            'min_position_pct': 0.10,            # 最小仓位占初始资金比例
+            'max_position_pct': 0.25             # 最大仓位占初始资金比例
         }
 
         # ========== 分析模块配置 ==========
