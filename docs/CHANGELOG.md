@@ -4,6 +4,27 @@
 
 ---
 
+## [v6.3.1_配置文件清理优化@20250128]
+
+### 配置优化
+- **删除未使用参数**：
+  - main section: portfolio_max_drawdown, portfolio_max_sector_exposure
+  - pairs_trading section: flat_signal_duration_days, entry_signal_duration_days
+  - risk_management section: max_single_drawdown
+- **移除历史遗留配置**：
+  - 完全删除portfolio_construction section（Algorithm Framework遗留）
+- **参数整合**：
+  - 将重复参数（max_tradeable_pairs, max_holding_days, max_pair_concentration）统一保留在pairs_trading section
+  - 从risk_management删除重复定义
+- **代码精简**：配置文件减少约20%代码量，结构更清晰
+
+### 技术改进
+- 消除参数重复定义，降低维护成本
+- 配置结构与OnData架构完全对齐
+- 保留备份文件config_backup_20250128.py供参考
+
+---
+
 ## [v6.3.0_完整交易系统实现@20250127]
 
 ### 风控体系重构

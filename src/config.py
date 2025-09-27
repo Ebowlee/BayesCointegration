@@ -18,8 +18,6 @@ class StrategyConfig:
             'account_type': AccountType.Margin,
             'schedule_frequency': 'MonthStart',  # 每月初
             'schedule_time': (9, 10),            # 9:10 AM
-            'portfolio_max_drawdown': 0.1,       # 组合最大回撤10%
-            'portfolio_max_sector_exposure': 0.3, # 行业最大暴露30%
             'debug_level': 1                     # 0=不输出, 1=输出详细统计
         }
 
@@ -58,10 +56,6 @@ class StrategyConfig:
                 'liquidity': 0.4
             },
 
-            # 信号持续时间
-            'flat_signal_duration_days': 5,
-            'entry_signal_duration_days': 3,
-
             # 资金管理参数
             'cash_buffer_ratio': 0.05,           # 5%永久预留现金
             'min_position_pct': 0.10,            # 最小仓位占初始资金比例
@@ -85,16 +79,6 @@ class StrategyConfig:
             'market_cooldown_days': 14          # 市场冷静期
         }
 
-        # ========== 仓位构建配置 ==========
-        self.portfolio_construction = {
-            'margin_rate': 1.0,
-            'max_position_per_pair': 0.15,      # 单对最大仓位
-            'min_position_per_pair': 0.05,      # 单对最小仓位
-            'cash_buffer': 0.05,                 # 现金缓冲
-            'market_severe_threshold': 0.05,   # 市场剧烈波动阈值
-            'market_cooldown_days': 14          # 市场冷静期
-        }
-
         # ========== 风险管理配置 ==========
         self.risk_management = {
             # Portfolio层面风控
@@ -104,13 +88,9 @@ class StrategyConfig:
             'drawdown_cooldown_days': 30,         # 回撤冷却：30天
 
             # 配对层面风控
-            'max_holding_days': 30,             # 最大持仓天数
             'max_pair_drawdown': 0.20,          # 配对最大回撤
-            'max_single_drawdown': 0.30,        # 单边最大回撤
             'sector_exposure_threshold': 0.60,  # 行业集中度触发线：60%
-            'sector_target_exposure': 0.50,     # 行业集中度目标：50%
-            'max_tradeable_pairs': 5,             # 最大可交易配对数（包含active和legacy）
-            'max_pair_concentration': 0.25      # 单个配对最大集中度
+            'sector_target_exposure': 0.50      # 行业集中度目标：50%
         }
 
         # ========== 行业映射 ==========
