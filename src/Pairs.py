@@ -37,11 +37,10 @@ class Pairs:
         self.stop_threshold = config['stop_threshold']
 
         # === 冷却设置 ===
-        self.cooldown_days = config['cooldown_days']  # 从config读取
+        self.cooldown_days = config['pair_cooldown_days']  # 从config读取
 
         # === 风控参数 ===
         self.max_holding_days = config.get('max_holding_days', 30)  # 最大持仓天数
-        self.max_concentration = config.get('max_pair_concentration', 0.25)  # 最大集中度
 
         # === 历史追踪 ===
         self.creation_time = algorithm.Time  # 首次创建时间
@@ -61,7 +60,7 @@ class Pairs:
 
         # 记录重新激活
         self.reactivation_count += 1
-        self.algorithm.Debug(f"[Pairs] {self.pair_id} 重新激活，第{self.reactivation_count}次")
+        self.algorithm.Debug(f"[Pairs] {self.pair_id} 重新激活，第{self.reactivation_count}次", 2)
 
 
     def get_signal(self, data):
@@ -185,7 +184,7 @@ class Pairs:
             f"[Pairs.open] {self.pair_id} {signal} "
             f"资金:{allocation_amount:.0f} "
             f"数量:({qty1:+d}/{qty2:+d}) "
-            f"Beta:{self.beta_mean:.3f}"
+            f"Beta:{self.beta_mean:.3f}", 1
         )
 
 
@@ -205,7 +204,7 @@ class Pairs:
         info = self.get_position_info()
         self.algorithm.Debug(
             f"[Pairs.close] {self.pair_id} 执行平仓 "
-            f"持仓:({info['qty1']:.0f}/{info['qty2']:.0f})"
+            f"持仓:({info['qty1']:.0f}/{info['qty2']:.0f})", 1
         )
 
 
@@ -240,7 +239,7 @@ class Pairs:
 
         self.algorithm.Debug(
             f"[Pairs.reduce] {self.pair_id} {info['direction']} "
-            f"减仓{(1-reduction_ratio)*100:.1f}%"
+            f"减仓{(1-reduction_ratio)*100:.1f}%", 1
         )
 
         return True

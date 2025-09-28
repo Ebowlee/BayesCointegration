@@ -46,7 +46,7 @@ class BayesianModeler:
 
             # 验证顺序（防御性编程）
             if symbol1.Value > symbol2.Value:
-                self.algorithm.Debug(f"[警告] 配对顺序异常: {symbol1.Value} > {symbol2.Value}")
+                self.algorithm.Debug(f"[警告] 配对顺序异常: {symbol1.Value} > {symbol2.Value}", 1)
                 # 自动修正顺序
                 symbol1, symbol2 = symbol2, symbol1
 
@@ -178,6 +178,9 @@ class BayesianModeler:
 
         stats['residual_std'] = float(np.std(actual_residuals))
 
+        # 保存残差序列供后续分析（如半衰期计算）
+        stats['residuals_array'] = actual_residuals
+
         return stats
 
     def _save_posterior(self, symbol1: Symbol, symbol2: Symbol, stats: Dict):
@@ -200,5 +203,5 @@ class BayesianModeler:
 
         self.algorithm.Debug(
             f"[AlphaModel.Bayesian] 建模完成: 成功{successful}对, 失败{failed}对 "
-            f"(完全建模{full}对, 动态更新{dynamic}对)"
+            f"(完全建模{full}对, 动态更新{dynamic}对)", 2
         )

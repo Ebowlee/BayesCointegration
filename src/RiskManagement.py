@@ -36,29 +36,31 @@ class PortfolioLevelRiskManager:
 
     def _check_account_blowup(self) -> bool:
         """
-        检查账户爆仓风险 - 基于初始资金
+        检查账户爆仓风险 - 基于初始资金的亏损比例
         返回: True=触发爆仓线, False=安全
         """
         portfolio_value = self.algorithm.Portfolio.TotalPortfolioValue
         initial_capital = self.config.main['cash']
-        remaining_ratio = portfolio_value / initial_capital
+
+        # 计算亏损比例（而不是剩余比例）
+        loss_ratio = (initial_capital - portfolio_value) / initial_capital
 
         # 从配置读取阈值
         BLOWUP_THRESHOLD = self.config.risk_management['blowup_threshold']
 
-        if remaining_ratio < BLOWUP_THRESHOLD:
+        if loss_ratio > BLOWUP_THRESHOLD:  # 如果亏损超过阈值
             self.algorithm.Debug(
                 f"[爆仓风控] 触发！"
                 f"当前:{portfolio_value:,.0f} "
                 f"初始:{initial_capital:,.0f} "
-                f"剩余:{remaining_ratio:.1%}"
+                f"亏损:{loss_ratio:.1%}", 1  # 显示亏损比例
             )
             # 清仓所有持仓
             self.algorithm.Liquidate()
             # 设置永久冷却
             cooldown_days = self.config.risk_management['blowup_cooldown_days']
             self.algorithm.strategy_cooldown_until = self.algorithm.Time + timedelta(days=cooldown_days)
-            self.algorithm.Debug(f"[爆仓风控] 策略将冷却{cooldown_days}天至{self.algorithm.strategy_cooldown_until.date()}")
+            self.algorithm.Debug(f"[爆仓风控] 策略将冷却{cooldown_days}天至{self.algorithm.strategy_cooldown_until.date()}", 1)
             return True
 
         return False
@@ -86,14 +88,14 @@ class PortfolioLevelRiskManager:
                 f"[回撤风控] 触发！"
                 f"最高点:{self.portfolio_high_water_mark:,.0f} "
                 f"当前:{portfolio_value:,.0f} "
-                f"回撤:{drawdown:.1%}"
+                f"回撤:{drawdown:.1%}", 1
             )
             # 清仓所有持仓
             self.algorithm.Liquidate()
             # 设置冷却期
             cooldown_days = self.config.risk_management['drawdown_cooldown_days']
             self.algorithm.strategy_cooldown_until = self.algorithm.Time + timedelta(days=cooldown_days)
-            self.algorithm.Debug(f"[回撤风控] 策略将冷却{cooldown_days}天至{self.algorithm.strategy_cooldown_until.date()}")
+            self.algorithm.Debug(f"[回撤风控] 策略将冷却{cooldown_days}天至{self.algorithm.strategy_cooldown_until.date()}", 1)
             return True
 
         return False
@@ -116,17 +118,17 @@ class PortfolioLevelRiskManager:
         daily_volatility = (spy.High - spy.Low) / spy.Open
 
         # 从配置读取阈值
-        MARKET_SEVERE_THRESHOLD = self.config.analysis['market_severe_threshold']
+        MARKET_SEVERE_THRESHOLD = self.config.risk_management['market_severe_threshold']
 
         if daily_volatility > MARKET_SEVERE_THRESHOLD:
             self.algorithm.Debug(
                 f"[市场波动风控] 触发！"
-                f"SPY日内波动:{daily_volatility:.2%} > 阈值:{MARKET_SEVERE_THRESHOLD:.2%}"
+                f"SPY日内波动:{daily_volatility:.2%} > 阈值:{MARKET_SEVERE_THRESHOLD:.2%}", 1
             )
             # 设置冷却期
-            cooldown_days = self.config.analysis['market_cooldown_days']
+            cooldown_days = self.config.risk_management['market_cooldown_days']
             self.algorithm.strategy_cooldown_until = self.algorithm.Time + timedelta(days=cooldown_days)
-            self.algorithm.Debug(f"[市场波动风控] 冷却新开仓至{self.algorithm.strategy_cooldown_until.date()}")
+            self.algorithm.Debug(f"[市场波动风控] 冷却新开仓至{self.algorithm.strategy_cooldown_until.date()}", 1)
             # 注意：不return True，继续执行
 
     def _check_sector_concentration(self):
@@ -142,7 +144,7 @@ class PortfolioLevelRiskManager:
             if info['concentration'] > threshold:
                 self.algorithm.Debug(
                     f"[行业集中度风控] {sector}行业超限! "
-                    f"集中度:{info['concentration']:.1%} > {threshold:.0%}"
+                    f"集中度:{info['concentration']:.1%} > {threshold:.0%}", 1
                 )
 
                 # 计算减仓比例
@@ -154,7 +156,7 @@ class PortfolioLevelRiskManager:
 
                 self.algorithm.Debug(
                     f"[行业集中度风控] {sector}行业{info['pair_count']}个配对 "
-                    f"同比例减仓至{target:.0%}"
+                    f"同比例减仓至{target:.0%}", 1
                 )
 
 
@@ -197,7 +199,7 @@ class PairLevelRiskManager:
         if holding_days is not None and holding_days > pair.max_holding_days:
             self.algorithm.Debug(
                 f"[配对风控] {pair.pair_id} 持仓{holding_days}天"
-                f"超过限制{pair.max_holding_days}天，执行清仓"
+                f"超过限制{pair.max_holding_days}天，执行清仓", 1
             )
             # 直接使用Liquidate
             self.algorithm.Liquidate(pair.symbol1)
@@ -218,7 +220,7 @@ class PairLevelRiskManager:
             else:
                 reason = f"两腿方向相同({position_info['qty1']:+.0f}/{position_info['qty2']:+.0f})"
 
-            self.algorithm.Debug(f"[配对风控] {pair.pair_id} 发现{reason}，执行清仓")
+            self.algorithm.Debug(f"[配对风控] {pair.pair_id} 发现{reason}，执行清仓", 1)
             # 直接使用Liquidate
             self.algorithm.Liquidate(pair.symbol1)
             self.algorithm.Liquidate(pair.symbol2)
@@ -251,7 +253,7 @@ class PairLevelRiskManager:
             if drawdown > MAX_PAIR_DD:
                 self.algorithm.Debug(
                     f"[配对风控] {pair.pair_id} 回撤{drawdown:.1%}"
-                    f"超过限制{MAX_PAIR_DD:.0%}（HWM:{hwm:.0f}→{pair_value:.0f}），执行清仓"
+                    f"超过限制{MAX_PAIR_DD:.0%}（HWM:{hwm:.0f}→{pair_value:.0f}），执行清仓", 1
                 )
                 # 直接使用Liquidate
                 self.algorithm.Liquidate(pair.symbol1)

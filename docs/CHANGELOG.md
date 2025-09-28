@@ -4,6 +4,47 @@
 
 ---
 
+## [v6.4.0_质量评分与风控优化@20250128]
+
+### 质量评分系统优化
+- **指标替换**：
+  - 移除correlation指标（与statistical重复）
+  - 新增half_life指标（均值回归速度，5-30天归一化）
+  - 新增volatility_ratio指标（spread波动/股票波动比）
+- **流动性计算修复**：
+  - 修复使用不存在字段的问题
+  - 改为基于成交额（volume × close）计算
+  - 归一化阈值调整至$50M
+- **权重重新分配**：
+  - statistical: 30%（协整强度）
+  - half_life: 30%（回归速度）
+  - volatility_ratio: 20%（稳定性）
+  - liquidity: 20%（流动性）
+
+### 风控参数优化
+- **爆仓线计算逻辑改进**：
+  - 从"剩余比例"改为"亏损比例"
+  - blowup_threshold=0.3现表示亏损30%触发（更直观）
+  - 与drawdown概念统一
+- **行业集中度调整**：
+  - sector_exposure_threshold: 60% → 40%
+  - sector_target_exposure: 50% → 30%
+- **回撤线优化**：drawdown_threshold: 30% → 15%
+
+### 配置结构优化
+- **参数重组**：
+  - min_position_pct/max_position_pct从main移到pairs_trading
+  - cash_buffer_ratio保留在main（全局资金管理）
+- **参数重命名**：cooldown_days → pair_cooldown_days（更准确）
+- **删除未使用参数**：max_pair_concentration（从未被引用）
+
+### 代码清理
+- 删除config_backup_20250128.py备份文件
+- 删除CLAUDE.local.md（内容已整合）
+- 清理Python缓存目录（__pycache__）
+
+---
+
 ## [v6.3.1_配置文件清理优化@20250128]
 
 ### 配置优化

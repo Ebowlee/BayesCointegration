@@ -25,7 +25,16 @@
       "Bash(git stash:*)",
       "Bash(git checkout:*)",
       "Bash(git pull:*)",
-      "WebSearch"
+      "WebSearch",
+      "mcp__quantconnect__read_file",
+      "mcp__quantconnect__update_file_contents",
+      "mcp__quantconnect__create_file",
+      "mcp__quantconnect__create_compile",
+      "mcp__quantconnect__read_compile",
+      "mcp__quantconnect__read_backtest",
+      "mcp__quantconnect__create_backtest",
+      "mcp__quantconnect__read_backtest_orders",
+      "mcp__quantconnect__list_backtests"
     ],
     "deny": []
   },

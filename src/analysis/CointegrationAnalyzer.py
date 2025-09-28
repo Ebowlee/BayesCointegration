@@ -52,7 +52,7 @@ class CointegrationAnalyzer:
         if all_cointegrated_pairs:
             self.algorithm.Debug(
                 f"[AlphaModel.Coint] 发现{len(all_cointegrated_pairs)}个协整对 "
-                f"(测试{statistics['total_pairs_tested']}对)"
+                f"(测试{statistics['total_pairs_tested']}对)", 2
             )
 
         return {

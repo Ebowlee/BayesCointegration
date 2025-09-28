@@ -73,7 +73,7 @@ class DataProcessor:
         try:
             return self.algorithm.History(symbols, self.lookback_period, Resolution.Daily)
         except Exception as e:
-            self.algorithm.Debug(f"[错误] 数据下载失败: {str(e)}")
+            self.algorithm.Debug(f"[错误] 数据下载失败: {str(e)}", 1)
             return None
 
     def _validate_data(self, data: pd.DataFrame) -> Tuple[bool, str]:
@@ -111,5 +111,5 @@ class DataProcessor:
         ]
 
         self.algorithm.Debug(
-            f"[AlphaModel.Data] 数据处理: {stats['total']}→{stats['final_valid']}只 ({', '.join(failed_details)})"
+            f"[AlphaModel.Data] 数据处理: {stats['total']}→{stats['final_valid']}只 ({', '.join(failed_details)})", 2
         )

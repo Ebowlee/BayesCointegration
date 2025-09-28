@@ -75,11 +75,24 @@ class BayesianCointegrationStrategy(QCAlgorithm):
 
         # === 资金管理参数（一次性计算）===
         self.initial_cash = self.config.main['cash']
-        self.cash_buffer = self.initial_cash * self.config.pairs_trading['cash_buffer_ratio']
+        self.cash_buffer = self.initial_cash * self.config.main['cash_buffer_ratio']
         self.min_allocation = self.initial_cash * self.config.pairs_trading['min_position_pct']
 
-        self.Debug("[Initialize] 策略初始化完成")
-    
+        self.Debug("[Initialize] 策略初始化完成", 1)
+
+
+    def Debug(self, message: str, level: int = 2):
+        """
+        统一的Debug输出方法，支持分级控制
+        Args:
+            message: 要输出的消息
+            level: 消息级别
+                0 - 静默（不会输出）
+                1 - 关键信息（交易执行、风控触发、重要错误）
+                2 - 详细信息（分析过程、统计信息等）
+        """
+        if level <= self.debug_level:
+            QCAlgorithm.Debug(self, message)
 
 
     def OnSecuritiesChanged(self, changes: SecurityChanges):
@@ -100,7 +113,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
 
         # === 触发配对分析 ===
         if len(self.symbols) >= 2:
-            self.Debug(f"[OnSecuritiesChanged] 当前股票池{len(self.symbols)}只，开始配对分析")
+            self.Debug(f"[OnSecuritiesChanged] 当前股票池{len(self.symbols)}只，开始配对分析", 2)
 
             # 标记正在分析
             self.is_analyzing = True
@@ -112,7 +125,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
             # 分析完成
             self.is_analyzing = False
         else:
-            self.Debug(f"[OnSecuritiesChanged] 股票数量不足({len(self.symbols)}只)，跳过分析")
+            self.Debug(f"[OnSecuritiesChanged] 股票数量不足({len(self.symbols)}只)，跳过分析", 2)
 
 
 
@@ -125,10 +138,10 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         valid_symbols = data_result['valid_symbols']
 
         if len(valid_symbols) < 2:
-            self.Debug(f"[配对分析] 有效股票不足({len(valid_symbols)}只)，结束分析")
+            self.Debug(f"[配对分析] 有效股票不足({len(valid_symbols)}只)，结束分析", 2)
             return
 
-        self.Debug(f"[配对分析] 步骤1完成: {len(valid_symbols)}只股票数据有效")
+        self.Debug(f"[配对分析] 步骤1完成: {len(valid_symbols)}只股票数据有效", 2)
 
         # === 步骤2: 协整检验 ===
         cointegration_result = self.cointegration_analyzer.find_cointegrated_pairs(
@@ -139,36 +152,36 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         raw_pairs = cointegration_result['raw_pairs']
 
         if not raw_pairs:
-            self.Debug("[配对分析] 未发现协整配对，结束分析")
+            self.Debug("[配对分析] 未发现协整配对，结束分析", 2)
             return
 
-        self.Debug(f"[配对分析] 步骤2完成: 发现{len(raw_pairs)}个协整配对")
+        self.Debug(f"[配对分析] 步骤2完成: 发现{len(raw_pairs)}个协整配对", 2)
 
         # === 步骤3&4: 质量评估和配对筛选 ===
         selected_pairs = self.pair_selector.evaluate_and_select(raw_pairs, clean_data)
-        self.Debug(f"[配对分析] 步骤3&4完成: 评估并筛选出{len(selected_pairs)}个最佳配对")
+        self.Debug(f"[配对分析] 步骤3&4完成: 评估并筛选出{len(selected_pairs)}个最佳配对", 2)
 
         if not selected_pairs:
-            self.Debug("[配对分析] 筛选后无合格配对，结束分析")
+            self.Debug("[配对分析] 筛选后无合格配对，结束分析", 2)
             return
 
         # 显示前3个配对
         for pair in selected_pairs[:3]:
-            self.Debug(f"  - {pair['symbol1'].Value}&{pair['symbol2'].Value}: "f"质量分数{pair['quality_score']:.3f}")
+            self.Debug(f"  - {pair['symbol1'].Value}&{pair['symbol2'].Value}: "f"质量分数{pair['quality_score']:.3f}", 2)
 
         # === 步骤5: 贝叶斯建模 ===
         modeling_result = self.bayesian_modeler.model_pairs(selected_pairs, clean_data)
         modeled_pairs = modeling_result['modeled_pairs']
 
         if not modeled_pairs:
-            self.Debug("[配对分析] 建模失败，结束分析")
+            self.Debug("[配对分析] 建模失败，结束分析", 2)
             return
 
-        self.Debug(f"[配对分析] 步骤5完成: {len(modeled_pairs)}个配对建模成功")
+        self.Debug(f"[配对分析] 步骤5完成: {len(modeled_pairs)}个配对建模成功", 2)
 
         # === 步骤6: 创建并管理Pairs对象 ===
         self.pairs_manager.create_pairs_from_models(modeled_pairs)
-        self.Debug(f"[配对分析] 完成: PairsManager管理{len(self.pairs_manager.all_pairs)}个配对")
+        self.Debug(f"[配对分析] 完成: PairsManager管理{len(self.pairs_manager.all_pairs)}个配对", 2)
     
 
 
@@ -182,7 +195,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
                 return
             else:
                 # 冷却期结束，重置状态
-                self.Debug(f"[风控恢复] 冷却期结束，恢复正常交易")
+                self.Debug(f"[风控恢复] 冷却期结束，恢复正常交易", 1)
                 self.strategy_cooldown_until = None
 
         # 如果正在分析，跳过
@@ -214,12 +227,12 @@ class BayesianCointegrationStrategy(QCAlgorithm):
             # 处理平仓信号
             if signal == "CLOSE":
                 # 正常平仓（Z-score回归）
-                self.Debug(f"[OnData] {safe_pair.pair_id} 收到平仓信号(Z-score回归)")
+                self.Debug(f"[OnData] {safe_pair.pair_id} 收到平仓信号(Z-score回归)", 1)
                 safe_pair.close_position()
 
             elif signal == "STOP_LOSS":
                 # 止损平仓（Z-score超限）
-                self.Debug(f"[OnData] {safe_pair.pair_id} 收到止损信号(Z-score超限)")
+                self.Debug(f"[OnData] {safe_pair.pair_id} 收到止损信号(Z-score超限)", 1)
                 safe_pair.close_position()
 
             # HOLD信号不需要处理，继续持仓
@@ -247,7 +260,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
                         best_pair, signal, score = opening_signals[0]
                         self.Debug(
                             f"[OnData] 资金不足，全部分配给最优配对 {best_pair.pair_id} "
-                            f"(score:{score:.3f})"
+                            f"(score:{score:.3f})", 2
                         )
                         best_pair.open_position(signal, available_cash)
                     else:
@@ -255,7 +268,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
                         for pair, signal, score in opening_signals:
                             # 检查是否还能开新仓
                             if not self.pairs_manager.can_open_new_position():
-                                self.Debug("[OnData] 达到最大配对数限制，停止开仓")
+                                self.Debug("[OnData] 达到最大配对数限制，停止开仓", 2)
                                 break
 
                             # 动态计算分配比例：10% + score*(25%-10%)
@@ -272,7 +285,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
                             # 检查剩余资金
                             if allocation > available_cash:
                                 # 剩余资金不足，停止开仓
-                                self.Debug("[OnData] 剩余资金不足，停止开仓")
+                                self.Debug("[OnData] 剩余资金不足，停止开仓", 2)
                                 break
 
                             # 执行开仓
@@ -281,10 +294,10 @@ class BayesianCointegrationStrategy(QCAlgorithm):
                             self.Debug(
                                 f"[OnData] 开仓成功 {pair.pair_id} "
                                 f"分配:{allocation:.0f} "
-                                f"剩余:{available_cash:.0f}"
+                                f"剩余:{available_cash:.0f}", 1
                             )
 
                             # 检查剩余资金是否太少
                             if available_cash < self.min_allocation:
-                                self.Debug("[OnData] 剩余资金不足，停止开仓")
+                                self.Debug("[OnData] 剩余资金不足，停止开仓", 2)
                                 break

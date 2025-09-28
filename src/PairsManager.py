@@ -64,7 +64,7 @@ class PairsManager:
             pair = Pairs(self.algorithm, pair_data, self.config)
             new_pairs_dict[pair.pair_id] = pair
 
-            self.algorithm.Debug(f"  创建配对: {pair.pair_id}, 质量分数: {pair.quality_score:.3f}")
+            self.algorithm.Debug(f"  创建配对: {pair.pair_id}, 质量分数: {pair.quality_score:.3f}", 2)
 
         # 调用原有的update_pairs方法进行管理
         self.update_pairs(new_pairs_dict)
@@ -99,11 +99,11 @@ class PairsManager:
                     'quality_score': new_pair.quality_score
                 }
                 self.all_pairs[pair_id].update_params(model_data)
-                self.algorithm.Debug(f"[PairsManager] 更新配对 {pair_id}")
+                self.algorithm.Debug(f"[PairsManager] 更新配对 {pair_id}", 2)
             else:
                 # 新配对：直接添加
                 self.all_pairs[pair_id] = new_pair
-                self.algorithm.Debug(f"[PairsManager] 添加新配对 {pair_id}")
+                self.algorithm.Debug(f"[PairsManager] 添加新配对 {pair_id}", 2)
 
         # 第二步：重新分类所有配对
         self.reclassify_pairs(current_pair_ids)
@@ -153,7 +153,7 @@ class PairsManager:
                 cleared_pairs.append(pair_id)
                 self.legacy_ids.remove(pair_id)
                 self.dormant_ids.add(pair_id)
-                self.algorithm.Debug(f"[PairsManager] {pair_id} 清仓完成，移至dormant")
+                self.algorithm.Debug(f"[PairsManager] {pair_id} 清仓完成，移至dormant", 2)
 
         return cleared_pairs
 
@@ -165,7 +165,7 @@ class PairsManager:
             f"活跃={len(self.active_ids)}, "
             f"遗留={len(self.legacy_ids)}, "
             f"休眠={len(self.dormant_ids)}, "
-            f"总计={len(self.all_pairs)}"
+            f"总计={len(self.all_pairs)}", 2
         )
 
 
@@ -215,7 +215,7 @@ class PairsManager:
 
         if not can_open:
             self.algorithm.Debug(
-                f"[PairsManager] 达到最大配对限制 {positions_count}/{self.max_tradeable_pairs}"
+                f"[PairsManager] 达到最大配对限制 {positions_count}/{self.max_tradeable_pairs}", 2
             )
 
         return can_open
