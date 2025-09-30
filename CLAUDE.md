@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is a **Bayesian Cointegration** pairs trading strategy built for the QuantConnect platform. The strategy uses advanced statistical methods including Bayesian inference with MCMC sampling to identify and trade mean-reverting relationships between securities within the same industry sectors.
 
-## Architecture Pattern (v6.2.0 OnData Architecture)
+## Architecture Pattern (v6.4.0 OnData Architecture)
 
 The strategy uses **OnData-driven architecture** (migrated from Algorithm Framework in v6.0.0):
 
@@ -14,16 +14,16 @@ The strategy uses **OnData-driven architecture** (migrated from Algorithm Framew
 - **UniverseSelection**: Multi-stage fundamental screening with sector-based selection
 - **Pairs**: Core pair trading object encapsulating signal generation and trade execution
 - **PairsManager**: Lifecycle manager for all pairs (active, legacy, dormant states)
-- **RiskManagement**: Two-tier risk control system (Portfolio + Pair level)
+- **RiskManagement**: Two-tier risk control system with separation of concerns (detection vs execution)
 - **Analysis modules**: DataProcessor, CointegrationAnalyzer, BayesianModeler, PairSelector
 
-Key architectural principles (v6.2.0):
+Key architectural principles (v6.4.0):
 - **OnData-driven** - All trading logic flows through OnData method, no Framework modules
 - **Object-oriented pairs** - Pairs class encapsulates all pair-specific logic
-- **Two-tier risk management** - Portfolio-level and Pair-level risk controls
+- **Separation of concerns** - Risk managers detect risks, main.py executes actions
 - **Smart lifecycle management** - PairsManager tracks pairs through active/legacy/dormant states
 - **Intra-industry pairing** - Securities paired within same Morningstar sector
-- **Global constraints** - Max 5 tradeable pairs, 5% cash buffer, dynamic position sizing
+- **Natural fund constraints** - Position limits determined by available capital, not hard caps
 
 ## Development Commands
 
@@ -41,39 +41,6 @@ lean report
 # Check LEAN CLI help
 lean backtest --help
 ```
-
-### Testing Framework
-```bash
-# Run all tests
-python run_tests.py
-
-# Run only unit tests
-python run_tests.py --unit
-
-# Run only integration tests
-python run_tests.py --integration
-
-# Run specific test module
-python run_tests.py test_order_tracker
-python run_tests.py test_central_pair_manager
-python run_tests.py test_risk_management
-python run_tests.py test_strategy_flow
-
-# Run with verbose output
-python run_tests.py -v
-python run_tests.py --verbose
-
-# Run specific test method directly
-python -m unittest tests.unit.test_risk_management.TestRiskManagement.test_single_stop_loss
-python -m unittest tests.unit.test_order_tracker.TestOrderTracker.test_pair_entry_tracking
-python -m unittest tests.integration.test_strategy_flow.TestStrategyFlow.test_complete_pair_lifecycle
-```
-
-### Test Environment Setup
-The project uses a custom test environment that mocks QuantConnect components:
-- **Test Environment**: Tests run independently of QuantConnect using `tests/mocks/mock_quantconnect.py`
-- **Environment Setup**: `tests/setup_test_env.py` configures the mock environment
-- **Mock Framework**: Replaces AlgorithmImports with mock implementations for isolated testing
 
 ### Cloud Operations
 ```bash
@@ -139,16 +106,17 @@ git commit -m "v2.4.8_strategy-optimize@20250720"
   - `get_sector_concentration()`: Calculate industry exposure
 
 ### 4. RiskManagement.py - Two-Tier Risk Control
-- **Purpose**: Portfolio and pair level risk management
+- **Purpose**: Risk detection only (execution handled by main.py)
+- **Design Principle**: Separation of concerns - risk managers detect, main.py executes
 - **PortfolioLevelRiskManager**:
-  - Account blowup protection (< 20% initial capital)
-  - Maximum drawdown control (> 15% from high water mark)
-  - Market volatility detection (SPY daily movement > 5%)
-  - Sector concentration limits (> 40% in single sector)
-- **PairLevelRiskManager** (Generator pattern):
-  - Holding period timeout (> 30 days)
-  - Position anomaly detection (partial/same-direction)
-  - Pair-specific drawdown (> 20% from pair HWM)
+  - `is_account_blowup()`: Detects loss > 30% of initial capital
+  - `is_excessive_drawdown()`: Detects drawdown > 15% from high water mark
+  - `is_high_market_volatility()`: Detects SPY 20-day annualized volatility > 30%
+  - `check_sector_concentration()`: Returns sectors exceeding 40% exposure
+- **PairLevelRiskManager**:
+  - `check_holding_timeout()`: Detects positions held > 30 days
+  - `check_position_anomaly()`: Detects partial or same-direction positions
+  - `check_pair_drawdown()`: Detects pair drawdown > 20% from pair HWM
 
 ### 5. UniverseSelection.py - Stock Selection
 - **Purpose**: Monthly universe refresh
@@ -159,83 +127,100 @@ git commit -m "v2.4.8_strategy-optimize@20250720"
 - **Triggers**: Monthly via `Schedule.On()` → `TriggerSelection()`
 
 ### 6. Analysis Modules (src/analysis/)
-- **DataProcessor**: Clean and prepare historical data
-- **CointegrationAnalyzer**: Engle-Granger cointegration tests
-- **BayesianModeler**: PyMC MCMC parameter estimation
-- **PairSelector**: Quality scoring and pair selection
+- **DataProcessor**: Clean and prepare historical data (252-day lookback)
+- **CointegrationAnalyzer**: Engle-Granger cointegration tests (p-value < 0.05)
+- **BayesianModeler**: PyMC MCMC parameter estimation (500 warmup + 500 samples, 2 chains)
+- **PairSelector**: Quality scoring using 4 weighted metrics:
+  - **statistical** (30%): Cointegration strength (p-value based)
+  - **half_life** (30%): Mean reversion speed (5-30 days optimal)
+  - **volatility_ratio** (20%): Spread stability (spread_vol/stock_vol)
+  - **liquidity** (20%): Trading volume (dollar volume based)
 
 ## Trading Execution Flow (OnData)
 
 ### Execution Priority
 1. **Strategy Cooldown Check**: Skip if in global cooldown period
-2. **Portfolio Risk Management**: Check and handle portfolio-level risks
-3. **Pair Risk Management**: Filter risky pairs with positions
-4. **Position Management**:
-   - Close positions for pairs with exit/stop signals
-   - Open new positions for pairs with entry signals
+2. **Portfolio Risk Management**: Detect and handle portfolio-level risks (blowup, drawdown, sector concentration)
+3. **Market Environment Check**: Check market volatility before opening new positions
+4. **Pair Risk Management**: Detect and handle pair-level risks (timeout, anomaly, drawdown)
+5. **Position Management**:
+   - Close positions for pairs with exit/stop signals or risk triggers
+   - Open new positions using intelligent fund allocation
 
 ### Closing Logic (Pairs with Positions)
 ```python
-# Only process pairs that have positions
+# Process pairs with positions
 pairs_with_position = pairs_manager.get_pairs_with_position()
-for safe_pair in pair_level_risk_manager.manage_position_risks(pairs_with_position):
-    signal = safe_pair.get_signal(data)
-    if signal in ["CLOSE", "STOP_LOSS"]:
-        safe_pair.close_position()
+for pair in pairs_with_position.values():
+    # Check pair-level risks (main.py executes liquidation)
+    if pair_level_risk_manager.check_holding_timeout(pair):
+        algorithm.Liquidate(pair.symbol1)
+        algorithm.Liquidate(pair.symbol2)
+        continue
+
+    # Check for trading signals
+    signal = pair.get_signal(data)
+    if signal in [TradingSignal.CLOSE, TradingSignal.STOP_LOSS]:
+        pair.close_position()
 ```
 
 ### Opening Logic (Pairs without Positions)
 ```python
-# Process pairs without positions
-pairs_without_position = pairs_manager.get_pairs_without_position()
-# Collect signals, sort by quality_score
-# Calculate available cash (Portfolio.Cash - 5% buffer)
-# Allocate funds: 10% + quality_score * 15%
-# Execute beta-hedged trades via pair.open_position()
+# Get entry candidates sorted by quality
+entry_candidates = pairs_manager.get_entry_candidates(data)
+
+# Calculate dynamic cash buffer (5% of total portfolio value)
+cash_buffer = Portfolio.TotalPortfolioValue * 0.05
+
+# Smart allocation: ensure buffer + min_investment after all entries
+# Remove low-quality pairs if fund constraint violated
+permitted_pairs = filter_by_fund_constraint(entry_candidates, cash_buffer)
+
+# Execute entries with dynamic allocation
+for pair, signal, quality_score, planned_pct in permitted_pairs:
+    allocation = available_cash * planned_pct  # min_pct + quality_score * range
+    pair.open_position(signal, allocation, data)
 ```
 
-### Position Sizing
-- **Cash Buffer**: 5% of initial capital permanently reserved
+### Position Sizing (v6.4.0)
+- **No Hard Pair Limit**: Removed max_holding_pairs constraint (was 5 in v6.2.0)
+- **Natural Fund Constraints**: Position count limited by available capital
+- **Cash Buffer**: 5% of total portfolio value (dynamic, not fixed to initial capital)
 - **Min Position**: 10% of initial capital
-- **Max Position**: 25% of initial capital
-- **Dynamic Allocation**: `allocation = min_pct + quality_score * (max_pct - min_pct)`
+- **Max Position**: 30% of initial capital (increased from 25%)
+- **Quality-Based Allocation**: `allocation_pct = min_pct + quality_score * (max_pct - min_pct)`
+- **Smart Removal**: When funds insufficient, remove lowest quality pairs first
 - **Beta Hedging**: `value1 = allocation / (1 + 1/|beta|)`
 
 ## Critical Implementation Details
 
 ### Statistical Engine
 - **Cointegration testing**: Engle-Granger test with p-value < 0.05
-- **Bayesian modeling**: PyMC with 1000 burn-in + 1000 draws, 2 chains
-- **Signal thresholds**: Entry ±1.2σ, Exit ±0.3σ, Stop ±3.0σ
-- **Cooldown Period**: 7 days after closing a pair
+- **Bayesian modeling**: PyMC with 500 warmup + 500 posterior samples, 2 chains
+- **Signal thresholds**: Entry ±1.0σ, Exit ±0.3σ, Stop ±3.0σ
+- **Cooldown Period**: 10 days after closing a pair (updated in v6.4.0)
 
 ### Universe Selection Logic
-1. **Coarse filtering**: Price > $20, Volume > $5M, IPO > 3 years  
-2. **Sector grouping**: 8 major sectors with 30 stocks each by market cap
-3. **Fundamental filters**: PE < 100, ROE > 0%, Debt-to-Assets < 80%, Leverage < 8x
-4. **Volatility filter**: Annual volatility < 60%
+1. **Coarse filtering**: Price > $20, Volume > $5M, IPO > 3 years
+2. **Sector grouping**: 8 major sectors with 15 stocks each by market cap (updated in v6.4.0)
+3. **Fundamental filters**: PE < 100, ROE > 0%, Debt-to-Assets < 70%, Leverage < 5x
+4. **Volatility filter**: Annual volatility < 50%
 
-### Position Sizing (PortfolioConstruction)
-- **Equal allocation**: Dynamic sizing based on number of active pairs
-- **Beta hedging**: Long = 1.0, Short = |β| from Bayesian regression
-- **Margin**: 100% requirement for short positions
-- **Cash buffer**: 5% for operational needs
-
-## Cross-Module Communication (v6.2.0 OnData)
+## Cross-Module Communication (v6.4.0 OnData)
 
 ### Data Flow
 1. **Universe Changes**: `OnSecuritiesChanged()` → triggers pair analysis
 2. **Analysis Pipeline**: DataProcessor → CointegrationAnalyzer → BayesianModeler → PairSelector
-3. **Pair Creation**: PairsManager.create_pairs_from_models() → creates Pairs objects
-4. **Trading Flow**: OnData → RiskManagement → Pairs.get_signal() → Trade execution
-5. **State Updates**: PairsManager maintains pair lifecycle states
+3. **Pair Creation**: Direct Pairs object creation → PairsManager.update_pairs()
+4. **Trading Flow**: OnData → Risk detection → main.py execution → Pairs.get_signal() → Trade execution
+5. **State Updates**: PairsManager maintains pair lifecycle states (active/legacy/dormant)
 
 ### State Management
 - **Pair States**: Active (tradeable), Legacy (position only), Dormant (inactive)
 - **Position Tracking**: Direct Portfolio queries via Pairs.get_position_info()
 - **Risk State**: High water marks tracked in RiskManagement classes
 - **Cooldown Tracking**: Per-pair cooldown managed in Pairs objects
-- **Global Constraints**: Max pairs, cash buffer tracked in main.py
+- **Fund Constraints**: Dynamic cash buffer and allocation tracked in main.py
 
 ## Key Dependencies
 
@@ -281,8 +266,9 @@ risk_stats = self.algorithm.risk_manager.risk_triggers
 
 ## Performance Considerations
 
-- **MCMC optimization**: Limited to 2 chains × 1000 samples for production speed
-- **History requests**: 252-day lookback optimizes accuracy vs. performance  
+- **MCMC optimization**: Limited to 2 chains × 500 samples (warmup + posterior) for production speed
+- **History requests**: 252-day lookback optimizes accuracy vs. performance
+- **Market volatility**: 20-day rolling window with deque to avoid repeated History() calls
 - **Selective processing**: Skip failed cointegration tests early
 - **Memory management**: Clear outdated references during universe reselection
 
@@ -307,26 +293,13 @@ risk_stats = self.algorithm.risk_manager.risk_triggers
 - **Production**: QuantConnect cloud with InteractiveBrokers live trading
 - **Debugging**: Configurable debug levels (0-3) in `src/config.py:main['debug_level']`
 
-## Testing Infrastructure
-
-### Test Structure
-- **Unit tests**: `tests/unit/` - Test individual modules in isolation
-- **Integration tests**: `tests/integration/` - Test cross-module interactions
-- **Mock framework**: `tests/mocks/` - Simulated QuantConnect environment
-
-### Key Test Coverage (v2.0.0 Updated)
-- **RiskManagement**: Simplified extreme loss detection tests
-- **Strategy Flow**: End-to-end pair lifecycle simulation
-- **AlphaModel**: Signal generation and portfolio query tests
-- **PortfolioConstruction**: Position sizing and state management tests
-
 ## Recent Optimization History
 
+- **v6.4.0** (Jan 2025): Risk management refactor with separation of concerns, removed hard pair limits, intelligent fund allocation
+- **v6.3.1** (Jan 2025): Quality scoring system overhaul - replaced correlation with half_life and volatility_ratio, optimized risk parameters
 - **v6.2.0**: Complete two-tier risk management system with Portfolio and Pair level controls
 - **v6.1.0**: PairsManager architecture optimization - merged PairsFactory functionality
 - **v6.0.0**: Major architecture migration from Algorithm Framework to OnData-driven design
-- **v5.0.0**: Merged Alpha module optimization from feature branch
-- **v2.0.0**: Architecture simplification - removed CentralPairManager (~30% code reduction)
 
 ## Files to Avoid Modifying
 
@@ -338,23 +311,17 @@ risk_stats = self.algorithm.risk_manager.risk_triggers
 ## Project File Organization
 
 - **src/**: Source code modules
-  - **alpha/**: AlphaModel modular components (5 specialized modules)
+  - **analysis/**: Data processing and statistical analysis (DataProcessor, CointegrationAnalyzer, BayesianModeler, PairSelector)
   - **config.py**: Centralized configuration via StrategyConfig class
   - **UniverseSelection.py**: Multi-stage stock filtering
-  - **PortfolioConstruction.py**: Position management
-  - **RiskManagement.py**: Simplified risk controls
-  - **Execution.py**: Order execution (unused)
-- **tests/**: Test suite with comprehensive coverage
-  - **unit/**: Individual module tests with mock framework
-  - **integration/**: Cross-module interaction tests
-  - **mocks/**: QuantConnect framework mocks for isolated testing
-  - **setup_test_env.py**: Test environment configuration
-  - **run_tests.py**: Test runner script
+  - **Pairs.py**: Pair trading object with signal generation and execution
+  - **PairsManager.py**: Lifecycle management for all pairs
+  - **RiskManagement.py**: Two-tier risk detection system
 - **docs/**: Documentation and version history
   - **CHANGELOG.md**: Complete version history with detailed change tracking
 - **research/**: Jupyter notebooks for strategy research and analysis
 - **backtests/**: Local backtest results (gitignored, for reference only)
-- **main.py**: Strategy entry point and framework orchestrator
+- **main.py**: Strategy entry point and OnData orchestrator
 
 ## AI Agents for Development Support
 

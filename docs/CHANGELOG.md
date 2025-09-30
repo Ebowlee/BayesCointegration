@@ -4,6 +4,49 @@
 
 ---
 
+## [v6.4.1_保证金架构重构与代码清理@20250130]
+
+### 保证金分配架构重构
+- **动态缩放机制**：实现公平的保证金动态分配
+  - 记录初始保证金快照：`initial_margin = Portfolio.MarginRemaining - buffer`
+  - 应用缩放公式：`margin_allocated = current_margin × pct × (initial/current)`
+  - 确保每个配对获得的分配比例基于相同的初始基准
+- **反向计算方法**：新增 `Pairs.calculate_values_from_margin()`
+  - 从保证金占用反推AB两腿的市值
+  - LONG_SPREAD: `value_B = margin / (margin_long × beta + margin_short)`
+  - SHORT_SPREAD: `value_B = margin / (margin_short × beta + margin_long)`
+- **方法签名重构**：`Pairs.open_position()` 参数变更
+  - 旧签名：`open_position(signal, allocation_amount, data)`
+  - 新签名：`open_position(signal, value1, value2, data)`
+  - 体现"先计算再分配"的新架构思路
+
+### 代码组织优化
+- **Pairs.py 重构**（~601行 → 565行，净减36行）：
+  - 删除旧架构方法：`calculate_required_margin()`, `can_open_position()`
+  - 按功能分组为8个模块：初始化、信号生成、持仓查询、交易执行、保证金计算、风控、时间追踪、辅助方法
+- **PairsManager.py 重构**（~211行 → 224行，新增13行）：
+  - 新增缺失方法：`get_pair_by_id()` (main.py:350有调用但未实现)
+  - 按功能分组为5个模块：初始化、核心管理、查询接口、风险分析、日志统计
+
+### 配置管理优化
+- **消除硬编码参数**：
+  - 移除 `Pairs.calculate_values_from_margin()` 中的硬编码 0.5/1.5
+  - 使用配置参数：`self.margin_long`, `self.margin_short`
+  - 配置来源：`config.py:104-105` (margin_requirement_long/short)
+- **删除冗余配置**：移除 `config.py` 中已废弃的 `cash_buffer_ratio`
+
+### Bug修复
+- **main.py:337 语法错误**：修复 `continue` 语句在非循环中使用
+  - 改为条件嵌套结构：`if initial_margin >= min_investment: ... else: ...`
+- **缺失方法补充**：实现 `PairsManager.get_pair_by_id()` 避免运行时错误
+
+### 命名优化
+- **语义化重命名**：`get_entry_candidates()` → `get_sequenced_entry_candidates()`
+  - 更准确表达方法行为：获取候选并按质量分数排序
+  - 同步更新调用点：main.py:326
+
+---
+
 ## [v6.4.0_整体代码优化待测试@20250130]
 
 ### 风险管理架构重构

@@ -8,7 +8,7 @@ from typing import Dict, Set, List
 class PairsManager:
     """管理整个回测周期内所有配对的生命周期"""
 
-    # ========== 1. 核心管理功能 ==========
+    # ===== 1. 初始化 =====
 
     def __init__(self, algorithm, config):
         """
@@ -18,21 +18,22 @@ class PairsManager:
             config: 风控配置字典
         """
         self.algorithm = algorithm
-        self.config = config  # 保存完整配置，创建Pairs时需要
+        self.config = config  # 保存完整配置,创建Pairs时需要
 
-        # 主存储：所有曾经出现过的配对
+        # 主存储:所有曾经出现过的配对
         self.all_pairs = {}  # {pair_id: Pairs对象}
 
-        # 分类索引（只存储pair_id）
+        # 分类索引(只存储pair_id)
         self.active_ids = set()    # 本轮通过协整检验的配对
         self.legacy_ids = set()    # 未通过协整但有持仓的配对
         self.dormant_ids = set()   # 未通过协整且无持仓的配对
 
         # 统计信息
-        self.update_count = 0  # 更新次数（选股轮次）
+        self.update_count = 0  # 更新次数(选股轮次)
         self.last_update_time = None  # 上次更新时间
 
 
+    # ===== 2. 核心管理 =====
 
     def update_pairs(self, new_pairs_dict: Dict):
         """
@@ -45,18 +46,18 @@ class PairsManager:
         # 记录本轮出现的配对
         current_pair_ids = set(new_pairs_dict.keys())
 
-        # 第一步：处理本轮出现的配对
+        # 第一步:处理本轮出现的配对
         for pair_id, new_pair in new_pairs_dict.items():
             if pair_id in self.all_pairs:
-                # 已存在的配对：直接传递new_pair对象更新参数
+                # 已存在的配对:直接传递new_pair对象更新参数
                 self.all_pairs[pair_id].update_params(new_pair)
                 self.algorithm.Debug(f"[PairsManager] 更新配对 {pair_id}", 2)
             else:
-                # 新配对：直接添加
+                # 新配对:直接添加
                 self.all_pairs[pair_id] = new_pair
                 self.algorithm.Debug(f"[PairsManager] 添加新配对 {pair_id}", 2)
 
-        # 第二步：重新分类所有配对
+        # 第二步:重新分类所有配对
         self.reclassify_pairs(current_pair_ids)
 
         # 输出统计
@@ -66,7 +67,7 @@ class PairsManager:
     def reclassify_pairs(self, current_pair_ids: Set):
         """
         重新分类所有配对
-        current_pair_ids: 本轮建模成功的pair_id集合（已通过协整检验、质量筛选和贝叶斯建模）
+        current_pair_ids: 本轮建模成功的pair_id集合(已通过协整检验、质量筛选和贝叶斯建模)
         """
         # 清空分类
         self.active_ids.clear()
@@ -80,7 +81,7 @@ class PairsManager:
                 self.active_ids.add(pair_id)
             else:
                 # 本轮未建模成功的配对
-                # 有持仓（任何形式）
+                # 有持仓(任何形式)
                 if pair.has_position():
                     self.legacy_ids.add(pair_id)
                 else:
@@ -88,23 +89,17 @@ class PairsManager:
                     self.dormant_ids.add(pair_id)
 
 
-
-    def log_statistics(self):
-        """输出统计信息"""
-        self.algorithm.Debug(
-            f"[PairsManager] 第{self.update_count}轮更新完成: "
-            f"活跃={len(self.active_ids)}, "
-            f"遗留={len(self.legacy_ids)}, "
-            f"休眠={len(self.dormant_ids)}, "
-            f"总计={len(self.all_pairs)}", 2
-        )
-
-
-    # ========== 2. 查询与访问功能 ==========
+    # ===== 3. 查询接口 =====
 
     def has_tradeable_pairs(self) -> bool:
         """检查是否有可交易的配对"""
         return len(self.active_ids | self.legacy_ids) > 0
+
+
+    def get_all_tradeable_pairs(self) -> Dict:
+        """获取所有需要管理的配对字典(保留用于兼容)"""
+        tradeable_ids = self.active_ids | self.legacy_ids
+        return {pid: self.all_pairs[pid] for pid in tradeable_ids}
 
 
     def get_pairs_with_position(self) -> Dict:
@@ -119,7 +114,7 @@ class PairsManager:
 
     def get_pairs_without_position(self) -> Dict:
         """
-        获取所有无持仓的可交易配对（用于开仓逻辑）
+        获取所有无持仓的可交易配对(用于开仓逻辑)
         返回: {pair_id: Pairs对象} 字典
         """
         tradeable_pairs = self.get_all_tradeable_pairs()
@@ -127,15 +122,20 @@ class PairsManager:
                 if not pair.has_position()}
 
 
-    def get_all_tradeable_pairs(self) -> Dict:
-        """获取所有需要管理的配对字典（保留用于兼容）"""
-        tradeable_ids = self.active_ids | self.legacy_ids
-        return {pid: self.all_pairs[pid] for pid in tradeable_ids}
-
-
-    def get_entry_candidates(self, data) -> List:
+    def get_pair_by_id(self, pair_id):
         """
-        获取所有有开仓信号的配对，按质量分数降序排序
+        通过pair_id获取Pairs对象
+        Args:
+            pair_id: 配对ID元组 (symbol1, symbol2)
+        Returns:
+            Pairs对象 或 None
+        """
+        return self.all_pairs.get(pair_id)
+
+
+    def get_sequenced_entry_candidates(self, data) -> List:
+        """
+        获取所有有开仓信号的配对,按质量分数降序排序
         返回: [(pair, signal, quality_score, planned_pct), ...]
         """
         candidates = []
@@ -153,20 +153,7 @@ class PairsManager:
         return candidates
 
 
-    def check_concentration_warning(self) -> None:
-        """
-        软警告：配对数量过多时提醒（非强制限制）
-        改为资金自然约束后，这只是一个提醒功能
-        """
-        positions_count = sum(1 for pair in self.get_all_tradeable_pairs().values()
-                             if pair.has_position())
-
-        if positions_count > 15:  # 软上限，只是提醒
-            self.algorithm.Debug(
-                f"[PairsManager] 注意：配对数量较多({positions_count})，"
-                f"建议关注资金分散情况", 2
-            )
-
+    # ===== 4. 风控分析 =====
 
     def get_sector_concentration(self) -> Dict[str, Dict]:
         """
@@ -208,3 +195,30 @@ class PairsManager:
 
         return result
 
+
+    def check_concentration_warning(self) -> None:
+        """
+        软警告:配对数量过多时提醒(非强制限制)
+        改为资金自然约束后,这只是一个提醒功能
+        """
+        positions_count = sum(1 for pair in self.get_all_tradeable_pairs().values()
+                             if pair.has_position())
+
+        if positions_count > 15:  # 软上限,只是提醒
+            self.algorithm.Debug(
+                f"[PairsManager] 注意:配对数量较多({positions_count}),"
+                f"建议关注资金分散情况", 2
+            )
+
+
+    # ===== 5. 日志与统计 =====
+
+    def log_statistics(self):
+        """输出统计信息"""
+        self.algorithm.Debug(
+            f"[PairsManager] 第{self.update_count}轮更新完成: "
+            f"活跃={len(self.active_ids)}, "
+            f"遗留={len(self.legacy_ids)}, "
+            f"休眠={len(self.dormant_ids)}, "
+            f"总计={len(self.all_pairs)}", 2
+        )

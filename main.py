@@ -71,6 +71,10 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # 最小投资额是固定的
         self.min_investment = self.initial_cash * self.config.main['min_investment_ratio']
 
+        # === 订单去重机制 ===
+        self.daily_processed_signals = {}  # 每日已处理信号
+        self._last_processing_date = None  # 上次处理日期
+
         self.Debug("[Initialize] 策略初始化完成", 1)
 
 
@@ -189,6 +193,13 @@ class BayesianCointegrationStrategy(QCAlgorithm):
     def OnData(self, data: Slice):
         """处理实时数据 - OnData架构的核心"""
 
+        # === 每日去重机制重置 ===
+        current_date = self.Time.date()
+        if self._last_processing_date != current_date:
+            self.daily_processed_signals = {}
+            self._last_processing_date = current_date
+            self.Debug(f"[OnData] 新的一天: {current_date}, 重置信号去重", 2)
+
         # === 检查策略冷却状态 ===
         if self.strategy_cooldown_until and self.Time < self.strategy_cooldown_until:
             return
@@ -249,12 +260,23 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # === Pair层面风控流程 ===
         for pair in pairs_with_position.values():
 
+            # 0. 持仓完整性检查 (最优先)
+            is_valid, error_msg = pair.check_position_integrity()
+            if not is_valid:
+                self.Debug(f"[持仓检查] {pair.pair_id} {error_msg}", 0)
+
+                # 单边持仓直接清算
+                if "单边持仓" in error_msg or "持仓方向错误" in error_msg:
+                    self.Debug(f"[持仓检查] 强制清算异常持仓", 0)
+                    pair.close_position()
+                    self.pair_level_risk_manager.clear_pair_history(pair.pair_id)
+                    continue
+
             # 1. 持仓超期检查（最高优先级）
             if self.pair_level_risk_manager.check_holding_timeout(pair):
                 holding_days = pair.get_pair_holding_days()
                 self.Debug(f"[Pair超期] {pair.pair_id} 持仓{holding_days}天超过{pair.max_holding_days}天限制，执行清仓", 1)
-                self.Liquidate(pair.symbol1)
-                self.Liquidate(pair.symbol2)
+                pair.close_position()  # 统一使用Pairs的close_position方法,确保cooldown生效
                 self.pair_level_risk_manager.clear_pair_history(pair.pair_id)
                 continue
 
@@ -262,16 +284,14 @@ class BayesianCointegrationStrategy(QCAlgorithm):
             is_anomaly, anomaly_desc = self.pair_level_risk_manager.check_position_anomaly(pair)
             if is_anomaly:
                 self.Debug(f"[Pair异常] {pair.pair_id} {anomaly_desc}，执行清仓", 1)
-                self.Liquidate(pair.symbol1)
-                self.Liquidate(pair.symbol2)
+                pair.close_position()  # 统一使用Pairs的close_position方法,确保cooldown生效
                 self.pair_level_risk_manager.clear_pair_history(pair.pair_id)
                 continue
 
             # 3. 回撤超限检查
             if self.pair_level_risk_manager.check_pair_drawdown(pair):
                 self.Debug(f"[Pair回撤] {pair.pair_id} 超过最大回撤{self.config.risk_management['max_pair_drawdown']:.0%}，执行清仓", 1)
-                self.Liquidate(pair.symbol1)
-                self.Liquidate(pair.symbol2)
+                pair.close_position()  # 统一使用Pairs的close_position方法,确保cooldown生效
                 self.pair_level_risk_manager.clear_pair_history(pair.pair_id)
                 continue
 
@@ -300,79 +320,87 @@ class BayesianCointegrationStrategy(QCAlgorithm):
 
 
         # === 3. 处理无持仓配对（开仓）===
-        if pairs_without_position:  # 移除is_below_max_pairs检查
+        if pairs_without_position: 
 
             # 获取所有开仓候选（已按质量降序）
-            entry_candidates = self.pairs_manager.get_entry_candidates(data)
+            entry_candidates = self.pairs_manager.get_sequenced_entry_candidates(data)
 
             if entry_candidates:
-                # 计算动态cash buffer
-                portfolio_value = self.Portfolio.TotalPortfolioValue
-                cash_buffer = portfolio_value * self.config.main['cash_buffer_ratio']
+                # === 记录初始保证金 ===
+                buffer = self.Portfolio.TotalPortfolioValue * self.config.pairs_trading['margin_safety_buffer']
+                initial_margin = self.Portfolio.MarginRemaining - buffer
 
-                # 当前可用现金
-                available_cash = self.Portfolio.Cash
+                # 检查是否低于最小阈值
+                if initial_margin >= self.min_investment:
+                    # 保证金充足,继续开仓流程
 
-                # 计算所有候选的累积比例
-                total_planned_pct = sum(pct for _, _, _, pct in entry_candidates)
+                    # 提取候选信息 (entry_candidates已按质量降序)
+                    planned_allocations = {}  # {pair_id: pct}
+                    opening_signals = {}      # {pair_id: signal}
 
-                # 检查是否全部可投
-                remaining_after_all = available_cash * (1 - total_planned_pct)
+                    for pair, signal, score, pct in entry_candidates:
+                        planned_allocations[pair.pair_id] = pct
+                        opening_signals[pair.pair_id] = signal
 
-                # 初始化允许开仓的配对列表
-                permitted_entry_pairs = []
+                    # === 逐个开仓 (动态缩放保持公平) ===
+                    actual_opened = 0
+                    for pair_id, pct in planned_allocations.items():
+                        pair = self.pairs_manager.get_pair_by_id(pair_id)
+                        signal = opening_signals[pair_id]
 
-                if remaining_after_all >= cash_buffer + self.min_investment:
-                    # 资金充足，全部可以开仓
-                    permitted_entry_pairs = entry_candidates
-                    self.Debug(f"[开仓] 资金充足，允许全部{len(entry_candidates)}个配对开仓", 2)
-                else:
-                    # 资金不足，需要剔除低质量配对
-                    permitted_entry_pairs = entry_candidates.copy()
-
-                    while permitted_entry_pairs:
-                        # 计算当前选中配对的累积比例
-                        current_total_pct = sum(pct for _, _, _, pct in permitted_entry_pairs)
-                        remaining = available_cash * (1 - current_total_pct)
-
-                        if remaining >= cash_buffer + self.min_investment:
-                            # 满足约束，停止剔除
+                        # 动态缩放计算
+                        current_margin = self.Portfolio.MarginRemaining - buffer
+                        if current_margin <= 0:
+                            self.Debug(f"[开仓] 保证金已耗尽,停止开仓", 1)
                             break
 
-                        # 移除质量最差的配对（列表最后一个）
-                        removed = permitted_entry_pairs.pop()
-                        self.Debug(f"[开仓] 资金约束，剔除配对 {removed[0].pair_id} (质量:{removed[2]:.3f})", 2)
+                        scale_factor = initial_margin / current_margin
+                        margin_allocated = current_margin * pct * scale_factor  # = initial_margin * pct
 
-                    self.Debug(f"[开仓] 资金受限，从{len(entry_candidates)}个缩减至{len(permitted_entry_pairs)}个", 1)
-
-                # 执行开仓
-                if permitted_entry_pairs:
-                    actual_opened = 0
-                    for pair, signal, score, planned_pct in permitted_entry_pairs:
-                        allocation = available_cash * planned_pct
-
-                        # 最终安全检查
-                        if allocation < self.min_investment:
-                            self.Debug(f"[开仓] {pair.pair_id} 分配金额{allocation:.0f}不足最小投资额，跳过", 2)
+                        # 检查1: 是否已处理过该信号
+                        signal_key = (pair_id, signal, current_date)
+                        if signal_key in self.daily_processed_signals:
+                            self.Debug(f"[开仓] {pair_id} 今日已处理过该信号,跳过", 2)
                             continue
 
+                        # 检查2: 最小投资额
+                        if margin_allocated < self.min_investment:
+                            self.Debug(f"[开仓] {pair_id} 分配保证金{margin_allocated:.0f}不足最小投资额,跳过", 2)
+                            continue
+
+                        # 检查3: 保证金是否仍足够 (理论上应该足够,但保险起见)
+                        if margin_allocated > current_margin:
+                            self.Debug(f"[开仓] {pair_id} 保证金不足(需要{margin_allocated:.0f},剩余{current_margin:.0f}),跳过", 1)
+                            continue
+
+                        # 反推市值
+                        value1, value2 = pair.calculate_values_from_margin(margin_allocated, signal)
+
                         # 执行开仓
-                        pair.open_position(signal, allocation, data)
+                        pair.open_position(signal, value1, value2, data)
                         actual_opened += 1
 
+                        # 标记已处理
+                        self.daily_processed_signals[signal_key] = self.Time
+
+                        # 获取质量分数用于日志
+                        score = pair.get_quality_score()
                         self.Debug(
-                            f"[开仓] #{actual_opened} {pair.pair_id} "
-                            f"质量:{score:.3f} "
-                            f"比例:{planned_pct:.1%} "
-                            f"金额:{allocation:.0f}", 1
+                            f"[开仓] #{actual_opened} {pair_id} "
+                            f"保证金:{margin_allocated:.0f} "
+                            f"市值:({value1:.0f}/{value2:.0f}) "
+                            f"质量:{score:.3f}", 1
                         )
 
-                    # 执行结果对比
-                    expected_count = len(permitted_entry_pairs)
+                    # 执行结果
+                    expected_count = len(entry_candidates)
                     if actual_opened < expected_count:
                         skipped_count = expected_count - actual_opened
-                        self.Debug(f"[开仓] 执行结果: 计划{expected_count}个，实际{actual_opened}个，跳过{skipped_count}个", 1)
+                        self.Debug(f"[开仓] 执行结果: 计划{expected_count}个,实际{actual_opened}个,跳过{skipped_count}个", 1)
                     else:
-                        self.Debug(f"[开仓] 成功开仓{actual_opened}个配对",1)
+                        self.Debug(f"[开仓] 成功开仓{actual_opened}个配对", 1)
+
                 else:
-                    self.Debug("[开仓] 资金约束过紧，无法开仓", 1)
+                    # 保证金不足,输出日志并跳过
+                    if self.config.main['debug_level'] >= 1:
+                        self.Debug(f"[开仓] 可用保证金${initial_margin:,.0f}低于最小投资${self.min_investment:,.0f},本轮跳过")

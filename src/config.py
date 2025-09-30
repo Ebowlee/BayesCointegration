@@ -21,7 +21,6 @@ class StrategyConfig:
             'debug_level': 1,                    # 0=静默, 1=关键信息(交易/风控), 2=详细信息(分析过程)
 
             # 资金管理
-            'cash_buffer_ratio': 0.05,           # 动态buffer：总资产的5%
             'min_investment_ratio': 0.10         # 最小投资：初始资金的10%
         }
 
@@ -99,7 +98,12 @@ class StrategyConfig:
 
             # 仓位管理参数
             'min_position_pct': 0.10,            # 最小仓位占初始资金比例
-            'max_position_pct': 0.30             # 最大仓位占初始资金比例
+            'max_position_pct': 0.30,            # 最大仓位占初始资金比例
+
+            # 保证金管理 (美股规则)
+            'margin_requirement_long': 0.5,      # 多头保证金率: 50%
+            'margin_requirement_short': 1.5,     # 空头保证金率: 150% (100%借券+50%保证金)
+            'margin_safety_buffer': 0.10         # 保证金安全缓冲: 10%总资产
         }
 
         # ========== 风险管理配置 ==========
