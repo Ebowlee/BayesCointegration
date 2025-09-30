@@ -4,7 +4,47 @@
 
 ---
 
-## [v6.4.0_质量评分与风控优化@20250128]
+## [v6.4.0_整体代码优化待测试@20250130]
+
+### 风险管理架构重构
+- **职责分离**：将风险检测与执行分离，风控只负责检测，main.py负责执行
+- **Portfolio级别风控**：
+  - is_account_blowup()：爆仓检测
+  - is_excessive_drawdown()：回撤检测
+  - is_high_market_volatility()：市场波动检测
+  - check_sector_concentration()：行业集中度检测
+- **Pair级别风控**：
+  - check_holding_timeout()：持仓超期检测
+  - check_position_anomaly()：持仓异常检测
+  - check_pair_drawdown()：配对回撤检测
+
+### 市场波动率优化
+- 实现20日滚动窗口历史波动率计算
+- 使用deque避免重复History()调用
+- 年化波动率公式：`np.std(returns) * np.sqrt(252)`
+- 市场波动检测从portfolio风控移至开仓前置检查
+
+### 资金管理优化
+- **移除硬性限制**：取消max_holding_pairs配对数量限制
+- **自然资金约束**：通过资金可用性自然限制配对数量
+- **智能分配机制**：
+  - 基于质量分数的动态分配：min_pct + quality_score * (max_pct - min_pct)
+  - 累积百分比检查确保buffer和最小投资要求
+  - 从低质量配对开始剔除直到满足约束
+
+### 代码质量提升
+- **Pairs.get_planned_allocation_pct()**：
+  - 移除冗余的持仓和信号检查
+  - 简化为纯计算函数，保持单一职责
+- **PairsManager.get_entry_candidates()**：
+  - 承担所有业务逻辑判断
+  - 返回按质量分数排序的候选列表
+- **开仓执行反馈**：
+  - 添加执行结果对比（计划vs实际）
+  - 明确显示被跳过的配对数量
+
+### 版本历史重命名
+## [v6.3.1_质量评分与风控优化@20250128]
 
 ### 质量评分系统优化
 - **指标替换**：

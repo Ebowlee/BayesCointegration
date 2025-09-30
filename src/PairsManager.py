@@ -1,6 +1,6 @@
 # region imports
 from AlgorithmImports import *
-from src.Pairs import Pairs
+from src.Pairs import PositionMode, TradingSignal
 from typing import Dict, Set, List
 # endregion
 
@@ -20,9 +20,6 @@ class PairsManager:
         self.algorithm = algorithm
         self.config = config  # 保存完整配置，创建Pairs时需要
 
-        # 风控参数
-        self.max_tradeable_pairs = config['max_tradeable_pairs']
-
         # 主存储：所有曾经出现过的配对
         self.all_pairs = {}  # {pair_id: Pairs对象}
 
@@ -36,46 +33,11 @@ class PairsManager:
         self.last_update_time = None  # 上次更新时间
 
 
-    def create_pairs_from_models(self, modeled_pairs):
-        """
-        从贝叶斯建模结果创建配对对象
-        整合了原PairsFactory的功能
-
-        Args:
-            modeled_pairs: 贝叶斯建模结果列表
-        """
-        # 创建新配对字典
-        new_pairs_dict = {}
-
-        for model_result in modeled_pairs:
-            # 准备Pairs构造函数需要的数据（原Factory的_prepare_pair_data）
-            pair_data = {
-                'symbol1': model_result['symbol1'],
-                'symbol2': model_result['symbol2'],
-                'sector': model_result['sector'],
-                'alpha_mean': model_result['alpha_mean'],
-                'beta_mean': model_result['beta_mean'],
-                'spread_mean': model_result['residual_mean'],  # residual即为spread
-                'spread_std': model_result['residual_std'],     # residual_std即为spread_std
-                'quality_score': model_result['quality_score']
-            }
-
-            # 创建Pairs对象
-            pair = Pairs(self.algorithm, pair_data, self.config)
-            new_pairs_dict[pair.pair_id] = pair
-
-            self.algorithm.Debug(f"  创建配对: {pair.pair_id}, 质量分数: {pair.quality_score:.3f}", 2)
-
-        # 调用原有的update_pairs方法进行管理
-        self.update_pairs(new_pairs_dict)
-
 
     def update_pairs(self, new_pairs_dict: Dict):
         """
         每月选股后更新配对
-
-        Args:
-            new_pairs_dict: {pair_id: Pairs对象} 从PairsFactory创建的新配对
+        new_pairs_dict: {pair_id: Pairs对象} 外部创建的新配对字典
         """
         self.update_count += 1
         self.last_update_time = self.algorithm.Time
@@ -86,19 +48,8 @@ class PairsManager:
         # 第一步：处理本轮出现的配对
         for pair_id, new_pair in new_pairs_dict.items():
             if pair_id in self.all_pairs:
-                # 已存在的配对：更新参数
-                # 提取新配对的参数
-                model_data = {
-                    'symbol1': new_pair.symbol1,
-                    'symbol2': new_pair.symbol2,
-                    'sector': new_pair.sector,
-                    'alpha_mean': new_pair.alpha_mean,
-                    'beta_mean': new_pair.beta_mean,
-                    'spread_mean': new_pair.spread_mean,
-                    'spread_std': new_pair.spread_std,
-                    'quality_score': new_pair.quality_score
-                }
-                self.all_pairs[pair_id].update_params(model_data)
+                # 已存在的配对：直接传递new_pair对象更新参数
+                self.all_pairs[pair_id].update_params(new_pair)
                 self.algorithm.Debug(f"[PairsManager] 更新配对 {pair_id}", 2)
             else:
                 # 新配对：直接添加
@@ -115,9 +66,7 @@ class PairsManager:
     def reclassify_pairs(self, current_pair_ids: Set):
         """
         重新分类所有配对
-
-        Args:
-            current_pair_ids: 本轮通过协整检验的pair_id集合
+        current_pair_ids: 本轮建模成功的pair_id集合（已通过协整检验、质量筛选和贝叶斯建模）
         """
         # 清空分类
         self.active_ids.clear()
@@ -127,35 +76,17 @@ class PairsManager:
         # 遍历所有配对进行分类
         for pair_id, pair in self.all_pairs.items():
             if pair_id in current_pair_ids:
-                # 本轮通过协整检验
+                # 本轮建模成功的配对
                 self.active_ids.add(pair_id)
             else:
-                # 本轮未通过协整检验
-                status = pair.get_position_status()
-                if status == 'NORMAL' or status == 'PARTIAL':
-                    # 有持仓（完整或部分）
+                # 本轮未建模成功的配对
+                # 有持仓（任何形式）
+                if pair.has_position():
                     self.legacy_ids.add(pair_id)
                 else:
                     # 无持仓
                     self.dormant_ids.add(pair_id)
 
-
-    def transition_legacy_to_dormant(self):
-        """
-        状态转换：将已清仓的legacy配对移至dormant
-        返回已转换的配对ID列表
-        """
-        cleared_pairs = []
-
-        for pair_id in list(self.legacy_ids):  # 使用list()避免迭代时修改
-            pair = self.all_pairs[pair_id]
-            if pair.get_position_status() == 'NO POSITION':
-                cleared_pairs.append(pair_id)
-                self.legacy_ids.remove(pair_id)
-                self.dormant_ids.add(pair_id)
-                self.algorithm.Debug(f"[PairsManager] {pair_id} 清仓完成，移至dormant", 2)
-
-        return cleared_pairs
 
 
     def log_statistics(self):
@@ -183,7 +114,7 @@ class PairsManager:
         """
         tradeable_pairs = self.get_all_tradeable_pairs()
         return {pid: pair for pid, pair in tradeable_pairs.items()
-                if pair.get_position_status() != 'NO POSITION'}
+                if pair.has_position()}
 
 
     def get_pairs_without_position(self) -> Dict:
@@ -193,7 +124,7 @@ class PairsManager:
         """
         tradeable_pairs = self.get_all_tradeable_pairs()
         return {pid: pair for pid, pair in tradeable_pairs.items()
-                if pair.get_position_status() == 'NO POSITION'}
+                if not pair.has_position()}
 
 
     def get_all_tradeable_pairs(self) -> Dict:
@@ -202,23 +133,39 @@ class PairsManager:
         return {pid: self.all_pairs[pid] for pid in tradeable_ids}
 
 
-    def can_open_new_position(self) -> bool:
+    def get_entry_candidates(self, data) -> List:
         """
-        检查是否可以开新仓 - 全局约束检查
-        考虑最大配对数限制
+        获取所有有开仓信号的配对，按质量分数降序排序
+        返回: [(pair, signal, quality_score, planned_pct), ...]
         """
-        # 统计当前有持仓的配对数（包括完整和部分持仓）
-        positions_count = sum(1 for pair in self.tradeable_pairs
-                             if pair.get_position_status() != 'NO POSITION')
+        candidates = []
 
-        can_open = positions_count < self.max_tradeable_pairs
+        # 只检查无持仓的可交易配对
+        for pair in self.get_pairs_without_position().values():
+            signal = pair.get_signal(data)
+            if signal in [TradingSignal.LONG_SPREAD, TradingSignal.SHORT_SPREAD]:
+                # 计算计划分配比例
+                planned_pct = pair.get_planned_allocation_pct()
+                candidates.append((pair, signal, pair.quality_score, planned_pct))
 
-        if not can_open:
+        # 按质量分数降序排序
+        candidates.sort(key=lambda x: x[2], reverse=True)
+        return candidates
+
+
+    def check_concentration_warning(self) -> None:
+        """
+        软警告：配对数量过多时提醒（非强制限制）
+        改为资金自然约束后，这只是一个提醒功能
+        """
+        positions_count = sum(1 for pair in self.get_all_tradeable_pairs().values()
+                             if pair.has_position())
+
+        if positions_count > 15:  # 软上限，只是提醒
             self.algorithm.Debug(
-                f"[PairsManager] 达到最大配对限制 {positions_count}/{self.max_tradeable_pairs}", 2
+                f"[PairsManager] 注意：配对数量较多({positions_count})，"
+                f"建议关注资金分散情况", 2
             )
-
-        return can_open
 
 
     def get_sector_concentration(self) -> Dict[str, Dict]:
@@ -234,10 +181,10 @@ class PairsManager:
         sector_data = {}
 
         # 遍历所有可交易配对
-        for pair in self.tradeable_pairs:
-            info = pair.get_position_info()
-            if info['status'] == 'NO POSITION':
+        for pair in self.get_all_tradeable_pairs().values():
+            if not pair.has_position():
                 continue
+            info = pair.get_position_info()
 
             sector = pair.sector
             if sector not in sector_data:
@@ -261,39 +208,3 @@ class PairsManager:
 
         return result
 
-
-    # ========== 3. 迭代器属性 ==========
-
-    @property
-    def active_pairs(self):
-        """活跃配对生成器（可以开仓）"""
-        for pair_id in self.active_ids:
-            yield self.all_pairs[pair_id]
-
-
-    @property
-    def legacy_pairs(self):
-        """遗留配对生成器（只能平仓）"""
-        for pair_id in self.legacy_ids:
-            yield self.all_pairs[pair_id]
-
-
-    @property
-    def tradeable_pairs(self):
-        """所有可交易配对生成器（active + legacy）"""
-        for pair_id in (self.active_ids | self.legacy_ids):
-            yield self.all_pairs[pair_id]
-
-
-    @property
-    def dormant_pairs(self):
-        """休眠配对生成器（仅供查询）"""
-        for pair_id in self.dormant_ids:
-            yield self.all_pairs[pair_id]
-
-
-    @property
-    def all_pairs_iter(self):
-        """所有配对的生成器"""
-        for pair in self.all_pairs.values():
-            yield pair

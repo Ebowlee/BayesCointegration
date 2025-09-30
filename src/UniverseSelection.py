@@ -8,7 +8,7 @@ import numpy as np
 # endregion
 
 
-class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
+class SectorBasedUniverseSelection(FineFundamentalUniverseSelectionModel):
     """
     贝叶斯协整策略的股票选择模型
 
@@ -17,12 +17,12 @@ class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
     2. 精选: 财务指标、波动率、行业分组筛选
     """
 
-    def __init__(self, algorithm, config, sector_code_to_name, sector_name_to_code):
+    def __init__(self, algorithm):
         """初始化选股模型"""
         self.algorithm = algorithm
-        self.config = config
-        self.sector_code_to_name = sector_code_to_name
-        self.sector_name_to_code = sector_name_to_code
+        self.config = algorithm.config.universe_selection
+        self.sector_code_to_name = algorithm.config.sector_code_to_name
+        self.sector_name_to_code = algorithm.config.sector_name_to_code
 
         # 状态管理
         self.selection_on = False
@@ -57,7 +57,7 @@ class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
 
     # ========== 公开方法 ==========
 
-    def TriggerSelection(self):
+    def trigger_selection(self):
         """触发新一轮选股"""
         self.selection_on = True
 
@@ -180,7 +180,8 @@ class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
         stats = {'total': len(stocks), 'passed': 0, 'volatility_failed': 0, 'data_missing': 0}
 
         max_volatility = self.config['max_volatility']
-        lookback_days = self.config['volatility_lookback_days']
+        # 使用统一的analysis配置参数
+        lookback_days = self.algorithm.config.analysis['lookback_days']
 
         # 批量获取所有股票的历史数据以提升性能
         symbols = [stock.Symbol for stock in stocks]
@@ -209,7 +210,7 @@ class MyUniverseSelectionModel(FineFundamentalUniverseSelectionModel):
                     continue
 
                 # 数据完整性检查
-                min_required_days = lookback_days * self.config['volatility_data_completeness_ratio']
+                min_required_days = lookback_days * self.algorithm.config.analysis['data_completeness_ratio']
                 if history.empty or len(history) < min_required_days:
                     stats['data_missing'] += 1
                     continue

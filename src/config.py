@@ -21,42 +21,67 @@ class StrategyConfig:
             'debug_level': 1,                    # 0=静默, 1=关键信息(交易/风控), 2=详细信息(分析过程)
 
             # 资金管理
-            'cash_buffer_ratio': 0.05           # 5%永久预留现金
+            'cash_buffer_ratio': 0.05,           # 动态buffer：总资产的5%
+            'min_investment_ratio': 0.10         # 最小投资：初始资金的10%
         }
 
         # ========== 选股模块配置 ==========
         self.universe_selection = {
-            'max_stocks_per_sector': 15,         # 每行业最多20只
-            'min_price': 20,                     # 最低价$20
-            'min_volume': 5e6,                   # 最低成交量500万
-            'min_days_since_ipo': 1095,          # IPO满3年
-            'max_pe': 100,                       # PE上限
-            'min_roe': 0,                        # ROE下限
-            'max_debt_ratio': 0.7,               # 负债率上限 (总债务/总资产)
-            'max_leverage_ratio': 5,             # 杠杆率上限 (总资产/股东权益)
-            'max_volatility': 0.5,               # 年化波动率上限
-            'volatility_lookback_days': 252,
-            'volatility_data_completeness_ratio': 0.98
+            'max_stocks_per_sector': 15,               # 每行业最多15只
+            'min_price': 20,                           # 最低价$20
+            'min_volume': 5e6,                         # 最低成交量500万
+            'min_days_since_ipo': 1095,                # IPO满3年
+            'max_pe': 100,                             # PE上限
+            'min_roe': 0,                              # ROE下限
+            'max_debt_ratio': 0.7,                     # 负债率上限 (总债务/总资产)
+            'max_leverage_ratio': 5,                   # 杠杆率上限 (总资产/股东权益)
+            'max_volatility': 0.5                      # 年化波动率上限
         }
 
         # ========== 分析模块配置 ==========
         self.analysis = {
-            'pvalue_threshold': 0.05,            # 协整p值阈值
-            'correlation_threshold': 0.5,        # 相关性阈值
-            'max_symbol_repeats': 1,             # 单股最多配对数
-            'max_pairs': 20,                     # 最大配对数
-            'lookback_period': 252,
+            'pvalue_threshold': 0.05,                  # 协整p值阈值
+            'correlation_threshold': 0.5,              # 相关系数阈值
+            'max_symbol_repeats': 1,                   # 单股最多配对数
+            'max_pairs': 20,                           # 最大配对数
+            'lookback_days': 252,                      # 统一历史数据天数
             'mcmc_warmup_samples': 500,
             'mcmc_posterior_samples': 500,
             'mcmc_chains': 2,
-            'min_data_completeness_ratio': 0.98,
+            'data_completeness_ratio': 0.98,           # 统一数据完整性要求
+            'liquidity_benchmark': 5e8,                # 流动性评分基准（5亿美元）
 
             # 质量评分权重
             'quality_weights': {
-                'statistical': 0.30,       # 协整强度
-                'half_life': 0.30,         # 均值回归速度
-                'volatility_ratio': 0.20,  # 稳定性
-                'liquidity': 0.20          # 流动性（成交量）
+                'statistical': 0.30,                   # 协整强度
+                'half_life': 0.30,                     # 均值回归速度
+                'volatility_ratio': 0.20,              # 稳定性
+                'liquidity': 0.20                      # 流动性（成交量）
+            },
+
+            # 评分阈值
+            'scoring_thresholds': {
+                'half_life': {
+                    'optimal_days': 5,                 # 最优半衰期（天）→ 1.0分
+                    'max_acceptable_days': 30          # 最大可接受半衰期（天）→ 0分
+                },
+                'volatility_ratio': {
+                    'optimal_ratio': 0.2,              # 最优波动率比率 → 1.0分
+                    'max_acceptable_ratio': 1.0        # 最大可接受比率 → 0分
+                }
+            },
+
+            # 贝叶斯先验参数
+            'bayesian_priors': {
+                'uninformed': {                        # 无信息先验（首次建模）
+                    'alpha_sigma': 10,                 # 截距项的标准差
+                    'beta_sigma': 5,                   # 斜率项的标准差
+                    'sigma_sigma': 5.0                 # 噪声项的标准差
+                },
+                'informed': {                          # 信息先验（动态更新）
+                    'sigma_multiplier': 1.5,           # sigma的放大系数
+                    'sample_reduction_factor': 0.5     # 动态更新时的采样减少比例
+                }
             }
         }
 
@@ -69,7 +94,7 @@ class StrategyConfig:
             'pair_cooldown_days': 10,            # 配对冷却期（天）
 
             # 控制参数
-            'max_tradeable_pairs': 8,            # 最大可交易配对数（包含active和legacy）
+            # 'max_holding_pairs': 8,            # [已移除] 改为资金自然约束
             'max_holding_days': 30,              # 最大持仓天数
 
             # 仓位管理参数
@@ -91,7 +116,7 @@ class StrategyConfig:
             'sector_target_exposure': 0.3,       # 行业集中度目标：30%
 
             # 市场层面风控
-            'market_severe_threshold': 0.05,     # 市场剧烈波动阈值 (SPY日内振幅)
+            'market_volatility_threshold': 0.30, # 市场波动率阈值 (SPY 20日年化波动率)
             'market_cooldown_days': 14           # 市场冷静期
         }
 

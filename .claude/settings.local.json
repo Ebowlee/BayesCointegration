@@ -34,7 +34,8 @@
       "mcp__quantconnect__read_backtest",
       "mcp__quantconnect__create_backtest",
       "mcp__quantconnect__read_backtest_orders",
-      "mcp__quantconnect__list_backtests"
+      "mcp__quantconnect__list_backtests",
+      "mcp__quantconnect__list_projects"
     ],
     "deny": []
   },

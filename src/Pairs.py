@@ -1,6 +1,35 @@
 # region imports
 from AlgorithmImports import *
+import numpy as np
+from typing import Dict, Optional, Tuple
 # endregion
+
+
+# ===== 常量定义 =====
+class TradingSignal:
+    """交易信号常量"""
+    LONG_SPREAD = 'LONG_SPREAD'     # 做多价差（买入symbol1，卖出symbol2）
+    SHORT_SPREAD = 'SHORT_SPREAD'   # 做空价差（卖出symbol1，买入symbol2）
+    CLOSE = 'CLOSE'                 # 平仓信号
+    STOP_LOSS = 'STOP_LOSS'         # 止损信号
+    HOLD = 'HOLD'                   # 持有信号
+    WAIT = 'WAIT'                   # 等待信号
+    COOLDOWN = 'COOLDOWN'           # 冷却期
+    NO_DATA = 'NO_DATA'             # 无数据
+
+class PositionMode:
+    """持仓模式常量（整合状态+方向）"""
+    NONE = 'NONE'                    # 无持仓
+    LONG_SPREAD = 'LONG_SPREAD'      # 正常做多价差 (qty1>0, qty2<0)
+    SHORT_SPREAD = 'SHORT_SPREAD'    # 正常做空价差 (qty1<0, qty2>0)
+    PARTIAL_LEG1 = 'PARTIAL_LEG1'    # 只有第一腿
+    PARTIAL_LEG2 = 'PARTIAL_LEG2'    # 只有第二腿
+    ANOMALY_SAME = 'ANOMALY_SAME'    # 异常：同向持仓
+
+class OrderAction:
+    """订单动作常量"""
+    OPEN = 'OPEN'
+    CLOSE = 'CLOSE'
 
 
 class Pairs:
@@ -11,9 +40,7 @@ class Pairs:
     def __init__(self, algorithm, model_data, config):
         """
         从贝叶斯建模结果初始化
-        algorithm: QuantConnect算法实例
         model_data包含配对的统计参数和基础信息
-        config包含交易阈值参数
         """
         # === 算法引用 ===
         self.algorithm = algorithm
@@ -21,14 +48,16 @@ class Pairs:
         # === 基础信息 ===
         self.symbol1 = model_data['symbol1']
         self.symbol2 = model_data['symbol2']
-        self.pair_id = tuple(sorted([self.symbol1.Value, self.symbol2.Value]))
+        self.pair_id = (self.symbol1.Value, self.symbol2.Value)  
         self.sector = model_data['sector']
 
         # === 统计参数（从贝叶斯建模获得）===
-        self.alpha_mean = model_data['alpha_mean']  # 截距
-        self.beta_mean = model_data['beta_mean']    # 斜率
-        self.spread_mean = model_data['spread_mean']
-        self.spread_std = model_data['spread_std']
+        self.alpha_mean = model_data['alpha_mean']                              # 截距（对数空间）
+        self.beta_mean = model_data['beta_mean']                                # 斜率（对数空间）
+        self.residual_mean = model_data['residual_mean']                        # 残差均值（对数空间，理论上接近0）
+        self.residual_std = model_data['residual_std']                          # 残差标准差（对数空间）
+        self.sigma_mean = model_data.get('sigma_mean', self.residual_std)       # 模型误差项标准差
+        self.sigma_std = model_data.get('sigma_std', 0)                         # sigma的不确定性
         self.quality_score = model_data['quality_score']
 
         # === 交易阈值 ===
@@ -36,27 +65,28 @@ class Pairs:
         self.exit_threshold = config['exit_threshold']
         self.stop_threshold = config['stop_threshold']
 
-        # === 冷却设置 ===
-        self.cooldown_days = config['pair_cooldown_days']  # 从config读取
-
-        # === 风控参数 ===
-        self.max_holding_days = config.get('max_holding_days', 30)  # 最大持仓天数
+        # === 控制设置 ===
+        self.cooldown_days = config['pair_cooldown_days']  
+        self.max_holding_days = config['max_holding_days']         
 
         # === 历史追踪 ===
-        self.creation_time = algorithm.Time  # 首次创建时间
-        self.reactivation_count = 0  # 重新激活次数（配对消失又出现）
+        self.creation_time = algorithm.Time                                    # 首次创建时间
+        self.reactivation_count = 0                                            # 重新激活次数（配对消失又出现）
 
 
-    def update_params(self, model_data):
+    def update_params(self, new_pair):
         """
-        更新统计参数（当配对重新出现时调用）
+        从新的Pairs对象更新统计参数（当配对重新出现时调用）
+        只更新模型参数，不更新身份信息和配置
         """
-        # 更新统计参数
-        self.alpha_mean = model_data['alpha_mean']
-        self.beta_mean = model_data['beta_mean']
-        self.spread_mean = model_data['spread_mean']
-        self.spread_std = model_data['spread_std']
-        self.quality_score = model_data['quality_score']
+        # 只更新贝叶斯模型参数
+        self.alpha_mean = new_pair.alpha_mean
+        self.beta_mean = new_pair.beta_mean
+        self.residual_mean = new_pair.residual_mean
+        self.residual_std = new_pair.residual_std
+        self.sigma_mean = new_pair.sigma_mean
+        self.sigma_std = new_pair.sigma_std
+        self.quality_score = new_pair.quality_score
 
         # 记录重新激活
         self.reactivation_count += 1
@@ -69,41 +99,44 @@ class Pairs:
         一步到位的接口，内部自动计算所需信息
         """
         # 先检查冷却期（仅在无持仓时检查）
-        if self.get_position_status() != 'NORMAL' and self.is_in_cooldown():
-            return "COOLDOWN"
+        if not self.has_position() and self.is_in_cooldown():
+            return TradingSignal.COOLDOWN
 
         # 内部计算zscore
         zscore = self.get_zscore(data)
         if zscore is None:
-            return "NO_DATA"
+            return TradingSignal.NO_DATA
 
         # 内部检查持仓
-        has_position = self.get_position_status() == 'NORMAL'
+        has_position = self.has_normal_position()
 
         # 生成信号
         if not has_position:
+            # Z-score高，spread偏高，做空
             if zscore > self.entry_threshold:
-                return "SHORT_SPREAD"  # Z-score高，spread偏高，做空
+                return TradingSignal.SHORT_SPREAD  
+            
+            # Z-score低，spread偏低，做多
             elif zscore < -self.entry_threshold:
-                return "LONG_SPREAD"   # Z-score低，spread偏低，做多
+                return TradingSignal.LONG_SPREAD   
             else:
-                return "WAIT"          # 等待入场机会
+                return TradingSignal.WAIT        
         else:
             # 有持仓时的出场信号
             if abs(zscore) > self.stop_threshold:
-                return "STOP_LOSS"
+                return TradingSignal.STOP_LOSS
 
             if abs(zscore) < self.exit_threshold:
-                return "CLOSE"
+                return TradingSignal.CLOSE
 
-            return "HOLD"
+            return TradingSignal.HOLD
 
 
-    def get_zscore(self, data):
+    def get_zscore(self, data) -> Optional[float]:
         """
         计算Z-score，包含spread计算
-        需要传入data来获取价格
-        返回: Z-score值 或 None
+        需要传入data来获取最新价格，返回Z-score值或None
+        使用对数价格计算：log(price1) = alpha + beta * log(price2) + residual
         """
         # 获取价格
         prices = self.get_price(data)
@@ -112,12 +145,12 @@ class Pairs:
 
         price1, price2 = prices
 
-        # 计算spread
-        spread = price1 - (self.beta_mean * price2 + self.alpha_mean)
+        # 计算对数空间的残差（与贝叶斯模型一致）
+        log_residual = np.log(price1) - (self.alpha_mean + self.beta_mean * np.log(price2))
 
-        # 计算zscore
-        if self.spread_std > 0:
-            zscore = (spread - self.spread_mean) / self.spread_std
+        # 计算Z-score
+        if self.residual_std > 0:
+            zscore = (log_residual - self.residual_mean) / self.residual_std
         else:
             zscore = 0
 
@@ -136,19 +169,20 @@ class Pairs:
         return None
 
 
-    def open_position(self, signal: str, allocation_amount: float):
+    def open_position(self, signal: str, allocation_amount: float, data):
         """
         开仓该配对
         纯执行方法，不做任何检查
-
-        Args:
-            signal: "LONG_SPREAD" 或 "SHORT_SPREAD"
-            allocation_amount: 分配给该配对的资金量
+        signal: "LONG_SPREAD" 或 "SHORT_SPREAD"
+        allocation_amount: 分配给该配对的资金量
+        data: 数据切片，用于获取最新价格
         """
         # 获取当前价格
-        portfolio = self.algorithm.Portfolio
-        price1 = portfolio[self.symbol1].Price
-        price2 = portfolio[self.symbol2].Price
+        prices = self.get_price(data)
+        if prices is None:
+            self.algorithm.Debug(f"[Pairs.open] {self.pair_id} 无法获取价格，跳过开仓", 1)
+            return
+        price1, price2 = prices
 
         # 计算两腿的市值分配
         # 目标: |value1| = |value2 * beta|，确保beta中性
@@ -163,17 +197,22 @@ class Pairs:
         value2 = allocation_amount - value1
 
         # 计算股数
-        if signal == "LONG_SPREAD":
-            # 做多spread = 做多symbol1，做空symbol2
+        if signal == TradingSignal.LONG_SPREAD:
+            # 做多spread = 买入symbol1，卖出symbol2
             qty1 = int(value1 / price1)
             qty2 = -int(value2 / price2)
         else:  # SHORT_SPREAD
-            # 做空spread = 做空symbol1，做多symbol2
+            # 做空spread = 卖出symbol1，买入symbol2
             qty1 = -int(value1 / price1)
             qty2 = int(value2 / price2)
 
+        # 检查计算出的数量是否有效
+        if qty1 == 0 or qty2 == 0:
+            self.algorithm.Debug(f"[Pairs.open] {self.pair_id} 计算数量为0，跳过开仓", 1)
+            return
+
         # 创建订单Tag
-        tag = self.create_order_tag("OPEN")
+        tag = self.create_order_tag(OrderAction.OPEN)
 
         # 执行下单
         self.algorithm.MarketOrder(self.symbol1, qty1, tag=tag)
@@ -194,7 +233,7 @@ class Pairs:
         纯执行方法，不做任何检查
         """
         # 创建平仓Tag
-        tag = self.create_order_tag("CLOSE")
+        tag = self.create_order_tag(OrderAction.CLOSE)
 
         # 执行平仓
         self.algorithm.Liquidate(self.symbol1, tag=tag)
@@ -208,41 +247,56 @@ class Pairs:
         )
 
 
-    def create_order_tag(self, action):
+    def create_order_tag(self, action: str):
         """
         创建标准化的订单Tag
-        action: "OPEN" 或 "CLOSE"
+        action: OrderAction.OPEN 或 OrderAction.CLOSE
         返回格式: "('AAPL', 'MSFT')_OPEN_20240101"
         """
         return f"{self.pair_id}_{action}_{self.algorithm.Time.strftime('%Y%m%d')}"
 
 
-    def reduce_position(self, reduction_ratio: float) -> bool:
+    def adjust_position(self, target_ratio: float) -> bool:
         """
-        按比例减少持仓
-        reduction_ratio: 保留比例(0.8表示保留80%，减仓20%)
+        调整持仓到目标比例
+        target_ratio: 目标持仓比例 (1.0=保持不变, 0.5=减半, 2.0=翻倍)
         """
-        info = self.get_position_info()
-
-        if info['status'] != 'NORMAL':
+        # 参数验证
+        if target_ratio <= 0:
+            self.algorithm.Debug(f"[Pairs.adjust] {self.pair_id} 无效的目标比例: {target_ratio}", 1)
             return False
 
-        # 计算减仓数量
-        reduce_qty1 = int(info['qty1'] * (1 - reduction_ratio))
-        reduce_qty2 = int(info['qty2'] * (1 - reduction_ratio))
+        info = self.get_position_info()
 
-        # 执行减仓（方向正确的操作）
-        if reduce_qty1 != 0:
-            self.algorithm.MarketOrder(self.symbol1, -reduce_qty1)
-        if reduce_qty2 != 0:
-            self.algorithm.MarketOrder(self.symbol2, -reduce_qty2)
+        # 只有正常持仓才能调整
+        if info['position_mode'] not in [PositionMode.LONG_SPREAD, PositionMode.SHORT_SPREAD]:
+            return False
 
-        self.algorithm.Debug(
-            f"[Pairs.reduce] {self.pair_id} {info['direction']} "
-            f"减仓{(1-reduction_ratio)*100:.1f}%", 1
-        )
+        # 计算调整数量 (target_ratio - 1 表示变化比例)
+        # 正数表示加仓，负数表示减仓
+        adjust_qty1 = int(info['qty1'] * (target_ratio - 1))
+        adjust_qty2 = int(info['qty2'] * (target_ratio - 1))
+
+        # 执行调整
+        if adjust_qty1 != 0:
+            self.algorithm.MarketOrder(self.symbol1, adjust_qty1)
+        if adjust_qty2 != 0:
+            self.algorithm.MarketOrder(self.symbol2, adjust_qty2)
+
+        # 改进的Debug信息
+        if target_ratio < 1:
+            action = f"减仓{(1-target_ratio)*100:.1f}%"
+        elif target_ratio > 1:
+            action = f"加仓{(target_ratio-1)*100:.1f}%"
+        else:
+            action = "保持不变"
+
+        # 获取方向描述
+        direction_desc = "做多价差" if info['position_mode'] == PositionMode.LONG_SPREAD else "做空价差"
+        self.algorithm.Debug(f"[Pairs.adjust] {self.pair_id} {direction_desc} {action}", 1)
 
         return True
+
 
 
     # ===== 2. 持仓查询功能 =====
@@ -257,57 +311,48 @@ class Pairs:
         # 一次性获取所有需要的数据
         qty1 = portfolio[self.symbol1].Quantity
         qty2 = portfolio[self.symbol2].Quantity
-        invested1 = portfolio[self.symbol1].Invested
-        invested2 = portfolio[self.symbol2].Invested
-        value1 = abs(portfolio[self.symbol1].HoldingsValue) if invested1 else 0
-        value2 = abs(portfolio[self.symbol2].HoldingsValue) if invested2 else 0
+        value1 = abs(portfolio[self.symbol1].HoldingsValue) if qty1 != 0 else 0
+        value2 = abs(portfolio[self.symbol2].HoldingsValue) if qty2 != 0 else 0
 
-        # 判断状态
-        if invested1 and invested2:
-            status = 'NORMAL'
-        elif invested1 and not invested2:
-            status = 'PARTIAL'
-        elif not invested1 and invested2:
-            status = 'PARTIAL'
-        else:
-            status = 'NO POSITION'
-
-
-        # 判断方向
-        direction = None
-        if qty1 > 0 and qty2 < 0:
-            direction = "long_spread"
+        # 统一判断持仓模式（整合状态+方向）
+        if qty1 == 0 and qty2 == 0:
+            position_mode = PositionMode.NONE
+        elif qty1 > 0 and qty2 < 0:
+            position_mode = PositionMode.LONG_SPREAD
         elif qty1 < 0 and qty2 > 0:
-            direction = "short_spread"
-        elif (qty1 < 0 and qty2 < 0) or (qty1 > 0 and qty2 > 0):
-            direction = "same_direction"
+            position_mode = PositionMode.SHORT_SPREAD
+        elif qty1 != 0 and qty2 == 0:
+            position_mode = PositionMode.PARTIAL_LEG1
+            self.algorithm.Debug(f"[Pairs.WARNING] {self.pair_id} 单边持仓LEG1: qty1={qty1:+.0f}", 1)
+        elif qty1 == 0 and qty2 != 0:
+            position_mode = PositionMode.PARTIAL_LEG2
+            self.algorithm.Debug(f"[Pairs.WARNING] {self.pair_id} 单边持仓LEG2: qty2={qty2:+.0f}", 1)
+        else:  # 同向持仓
+            position_mode = PositionMode.ANOMALY_SAME
+            self.algorithm.Debug(
+                f"[Pairs.WARNING] {self.pair_id} 同向交易异常! "
+                f"qty1={qty1:+.0f}, qty2={qty2:+.0f}", 1
+            )
 
-        return {
-            'status': status,
-            'direction': direction,
-            'qty1': qty1,
-            'qty2': qty2,
-            'value1': value1,
-            'value2': value2
-        }
-
-
-    def get_position_status(self):
-        """
-        获取持仓状态
-        返回: 'NORMAL'/'PARTIAL'/'NO POSITION'
-        """
-        info = self.get_position_info()
-        return info['status']
+        return {'position_mode': position_mode, 'qty1': qty1, 'qty2': qty2, 'value1': value1, 'value2': value2}
 
 
-    def get_position_direction(self):
-        """
-        获取持仓方向
-        返回: "long_spread", "short_spread", "same_direction" 或 None
-        """
-        info = self.get_position_info()
-        return info['direction']
+    def has_position(self) -> bool:
+        """检查是否有持仓"""
+        mode = self.get_position_info()['position_mode']
+        return mode != PositionMode.NONE
+
+
+    def has_normal_position(self) -> bool:
+        """检查是否有正常持仓"""
+        mode = self.get_position_info()['position_mode']
+        return mode in [PositionMode.LONG_SPREAD, PositionMode.SHORT_SPREAD]
+
+
+    def has_anomaly(self) -> bool:
+        """检查是否有异常持仓"""
+        mode = self.get_position_info()['position_mode']
+        return mode in [PositionMode.PARTIAL_LEG1, PositionMode.PARTIAL_LEG2, PositionMode.ANOMALY_SAME]
 
 
     def get_position_value(self) -> float:
@@ -321,7 +366,7 @@ class Pairs:
         获取持仓时长（天数）
         返回: 天数 或 None
         """
-        if self.get_position_status() != 'NORMAL':
+        if not self.has_normal_position():
             return None
 
         entry_time = self.get_entry_time()
@@ -352,18 +397,18 @@ class Pairs:
 
     def get_entry_time(self):
         """获取最近的入场时间"""
-        return self._get_order_time("OPEN")
+        return self._get_order_time(OrderAction.OPEN)
 
 
     def get_exit_time(self):
         """获取最近的退出时间"""
-        return self._get_order_time("CLOSE")
+        return self._get_order_time(OrderAction.CLOSE)
 
 
     def _get_order_time(self, action_type: str):
         """
         内部方法：获取指定类型的订单时间
-        action_type: "OPEN" 或 "CLOSE"
+        action_type: OrderAction.OPEN 或 OrderAction.CLOSE
         """
         # 查询指定类型的订单
         orders = self.algorithm.Transactions.GetOrders(
@@ -375,26 +420,41 @@ class Pairs:
         if not orders:
             return None
 
-        # 按时间排序，获取最近的
+        # 转换为Python列表后再排序
+        orders = list(orders)
         orders.sort(key=lambda x: x.Time, reverse=True)
 
         # 确保两腿都成交，取较晚的时间
         latest_pair_time = None
-        for i in range(len(orders)):
-            # 获取同一天的订单（tag中日期相同）
-            date = orders[i].Tag.split('_')[-1]
-            same_date_orders = [o for o in orders if date in o.Tag]
 
-            # 检查是否有两个symbol的订单
+        # 步骤1: 按日期分组订单，提高查找效率
+        orders_by_date = {}
+        for order in orders:
+            # 从Tag中提取日期部分: "pair_id_ACTION_20250101" -> "20250101"
+            date = order.Tag.split('_')[-1]
+            if date not in orders_by_date:
+                orders_by_date[date] = []
+
+            # orders_by_date = {'20250101': [order1, order2, order3],  # 该日期的所有订单对象列表
+                               #'20250102': ......
+            orders_by_date[date].append(order) 
+
+        # 步骤2: 按日期倒序处理（最新日期优先）
+        for date in sorted(orders_by_date.keys(), reverse=True):
+            # 获取该日期的所有订单
+            same_date_orders = orders_by_date[date]
+
+            # 检查该日期是否同时有两个symbol的订单
             has_symbol1 = any(o.Symbol == self.symbol1 for o in same_date_orders)
             has_symbol2 = any(o.Symbol == self.symbol2 for o in same_date_orders)
 
             if has_symbol1 and has_symbol2:
-                # 找到这组订单的最晚时间
+                # 两腿都有订单，找到这组订单的最晚时间
                 latest_pair_time = max(o.Time for o in same_date_orders)
                 break
 
         return latest_pair_time
+
 
 
     # ===== 3. 基础属性 =====
@@ -402,6 +462,20 @@ class Pairs:
     def get_quality_score(self) -> float:
         """获取配对的质量分数"""
         return self.quality_score
+
+
+    def get_planned_allocation_pct(self) -> float:
+        """
+        计算基于质量分数的计划分配比例
+        纯计算方法，不进行任何业务逻辑判断
+
+        Returns:
+            计划分配比例 (min_position_pct 到 max_position_pct)
+        """
+        # 基于质量分数的线性插值计算
+        min_pct = self.config['min_position_pct']
+        max_pct = self.config['max_position_pct']
+        return min_pct + self.quality_score * (max_pct - min_pct)
 
 
     def get_sector(self) -> str:
