@@ -327,8 +327,8 @@ class BayesianCointegrationStrategy(QCAlgorithm):
 
             if entry_candidates:
                 # === 记录初始保证金 ===
-                buffer = self.Portfolio.TotalPortfolioValue * self.config.pairs_trading['margin_safety_buffer']
-                initial_margin = self.Portfolio.MarginRemaining - buffer
+                # 使用95%的MarginRemaining,保留5%作为动态缓冲
+                initial_margin = self.Portfolio.MarginRemaining * self.config.pairs_trading['margin_usage_ratio']
 
                 # 检查是否低于最小阈值
                 if initial_margin >= self.min_investment:
@@ -349,7 +349,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
                         signal = opening_signals[pair_id]
 
                         # 动态缩放计算
-                        current_margin = self.Portfolio.MarginRemaining - buffer
+                        current_margin = self.Portfolio.MarginRemaining * self.config.pairs_trading['margin_usage_ratio']
                         if current_margin <= 0:
                             self.Debug(f"[开仓] 保证金已耗尽,停止开仓", 1)
                             break
@@ -373,11 +373,8 @@ class BayesianCointegrationStrategy(QCAlgorithm):
                             self.Debug(f"[开仓] {pair_id} 保证金不足(需要{margin_allocated:.0f},剩余{current_margin:.0f}),跳过", 1)
                             continue
 
-                        # 反推市值
-                        value1, value2 = pair.calculate_values_from_margin(margin_allocated, signal)
-
-                        # 执行开仓
-                        pair.open_position(signal, value1, value2, data)
+                        # 执行开仓 (传入保证金,Pairs内部计算市值和数量)
+                        pair.open_position(signal, margin_allocated, data)
                         actual_opened += 1
 
                         # 标记已处理
@@ -388,7 +385,6 @@ class BayesianCointegrationStrategy(QCAlgorithm):
                         self.Debug(
                             f"[开仓] #{actual_opened} {pair_id} "
                             f"保证金:{margin_allocated:.0f} "
-                            f"市值:({value1:.0f}/{value2:.0f}) "
                             f"质量:{score:.3f}", 1
                         )
 

@@ -73,7 +73,6 @@ class Pairs:
         # === 保证金参数 ===
         self.margin_long = config['margin_requirement_long']
         self.margin_short = config['margin_requirement_short']
-        self.margin_buffer = config['margin_safety_buffer']
 
         # === 历史追踪 ===
         self.creation_time = algorithm.Time                                    # 首次创建时间
@@ -241,17 +240,22 @@ class Pairs:
 
     # ===== 4. 交易执行 =====
 
-    def open_position(self, signal: str, value1: float, value2: float, data):
+    def open_position(self, signal: str, margin_allocated: float, data):
         """
-        开仓该配对
-        纯执行方法,不做任何检查
+        开仓该配对,基于保证金分配
 
         参数:
             signal: "LONG_SPREAD" 或 "SHORT_SPREAD"
-            value1: symbol1 的目标市值
-            value2: symbol2 的目标市值
+            margin_allocated: 分配的保证金金额
             data: 数据切片,用于获取最新价格
         """
+        # 计算目标市值
+        value1, value2 = self.calculate_values_from_margin(margin_allocated, signal, data)
+
+        if value1 is None or value2 is None:
+            self.algorithm.Debug(f"[Pairs.open] {self.pair_id} 无法计算市值,跳过开仓", 1)
+            return
+
         # 获取当前价格
         prices = self.get_price(data)
         if prices is None:
@@ -274,6 +278,17 @@ class Pairs:
             self.algorithm.Debug(f"[Pairs.open] {self.pair_id} 计算数量为0,跳过开仓", 1)
             return
 
+        # 验证数量配比 (调试用)
+        actual_ratio = abs(qty1 / qty2) if qty2 != 0 else 0
+        expected_ratio = abs(self.beta_mean)
+        if expected_ratio > 0:
+            ratio_error = abs(actual_ratio - expected_ratio) / expected_ratio
+            if ratio_error > 0.05:  # 配比偏差>5%时警告
+                self.algorithm.Debug(
+                    f"[Pairs.open] {self.pair_id} 数量配比偏差: "
+                    f"期望{expected_ratio:.3f}, 实际{actual_ratio:.3f}, 偏差{ratio_error:.1%}", 2
+                )
+
         # 创建订单Tag
         tag = self.create_order_tag(OrderAction.OPEN)
 
@@ -284,6 +299,7 @@ class Pairs:
         # 记录开仓信息
         self.algorithm.Debug(
             f"[Pairs.open] {self.pair_id} {signal} "
+            f"保证金:{margin_allocated:.0f} "
             f"市值:({value1:.0f}/{value2:.0f}) "
             f"数量:({qty1:+d}/{qty2:+d}) "
             f"Beta:{self.beta_mean:.3f}", 1
@@ -366,31 +382,79 @@ class Pairs:
 
     # ===== 5. 保证金计算 (新架构) =====
 
-    def calculate_values_from_margin(self, margin_allocated: float, signal: str):
+    def calculate_values_from_margin(self, margin_allocated: float, signal: str, data):
         """
-        从保证金占用反推AB两腿的市值
+        从保证金反推AB两腿的市值,按beta数量配比
+
+        核心公式:
+        1. X + Y = margin_allocated (保证金约束)
+        2. Qty_A = beta × Qty_B (数量配比约束)
+           其中 Qty_A = (X/margin_rate_A)/Price_A
+                Qty_B = (Y/margin_rate_B)/Price_B
+
+        LONG_SPREAD (A做多0.5, B做空1.5):
+            (X/0.5)/Price_A = beta × (Y/1.5)/Price_B
+            => Y = margin × 3 × Price_B / (beta × Price_A + 3 × Price_B)
+
+        SHORT_SPREAD (A做空1.5, B做多0.5):
+            (X/1.5)/Price_A = beta × (Y/0.5)/Price_B
+            => Y = margin × Price_B / (beta × 3 × Price_A + Price_B)
 
         参数:
             margin_allocated: 分配的保证金金额
             signal: 交易信号 (LONG_SPREAD/SHORT_SPREAD)
+            data: 数据切片(用于获取当前价格)
 
         返回:
-            (value_A, value_B): A和B的市值
+            (value_A, value_B): A和B的目标市值, 计算失败返回 (None, None)
         """
+        # 获取当前价格
+        prices = self.get_price(data)
+        if prices is None:
+            return None, None
+        price_A, price_B = prices
+
+        # 避免除零
+        if price_A <= 0 or price_B <= 0:
+            self.algorithm.Debug(f"[Pairs.calc] {self.pair_id} 价格异常: A={price_A}, B={price_B}", 1)
+            return None, None
+
         beta = abs(self.beta_mean) if abs(self.beta_mean) != 0 else 1
 
         if signal == TradingSignal.LONG_SPREAD:
-            # A做多(margin_long), B做空(margin_short)
-            # value_A × margin_long + value_B × margin_short = margin
-            # beta × value_B × margin_long + value_B × margin_short = margin
-            value_B = margin_allocated / (self.margin_long * beta + self.margin_short)
-            value_A = beta * value_B
+            # A做多(margin_long=0.5), B做空(margin_short=1.5)
+            # Y = margin × 3 × Price_B / (beta × Price_A + 3 × Price_B)
+            denominator = beta * price_A + 3 * price_B
+            if denominator <= 0:
+                return None, None
+
+            Y = margin_allocated * 3 * price_B / denominator
+            X = margin_allocated - Y
+
+            # 市值 = 保证金 / 保证金率
+            value_A = X / self.margin_long    # X / 0.5
+            value_B = Y / self.margin_short   # Y / 1.5
+
         else:  # SHORT_SPREAD
-            # A做空(margin_short), B做多(margin_long)
-            # value_A × margin_short + value_B × margin_long = margin
-            # beta × value_B × margin_short + value_B × margin_long = margin
-            value_B = margin_allocated / (self.margin_short * beta + self.margin_long)
-            value_A = beta * value_B
+            # A做空(margin_short=1.5), B做多(margin_long=0.5)
+            # Y = margin × Price_B / (beta × 3 × Price_A + Price_B)
+            denominator = beta * 3 * price_A + price_B
+            if denominator <= 0:
+                return None, None
+
+            Y = margin_allocated * price_B / denominator
+            X = margin_allocated - Y
+
+            # 市值
+            value_A = X / self.margin_short   # X / 1.5
+            value_B = Y / self.margin_long    # Y / 0.5
+
+        # 安全检查: 保证金分配合理性
+        if X <= 0 or Y <= 0:
+            self.algorithm.Debug(
+                f"[Pairs.calc] {self.pair_id} 保证金分配异常: X={X:.2f}, Y={Y:.2f}", 1
+            )
+            return None, None
 
         return value_A, value_B
 

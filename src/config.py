@@ -93,7 +93,6 @@ class StrategyConfig:
             'pair_cooldown_days': 10,            # 配对冷却期（天）
 
             # 控制参数
-            # 'max_holding_pairs': 8,            # [已移除] 改为资金自然约束
             'max_holding_days': 30,              # 最大持仓天数
 
             # 仓位管理参数
@@ -103,7 +102,7 @@ class StrategyConfig:
             # 保证金管理 (美股规则)
             'margin_requirement_long': 0.5,      # 多头保证金率: 50%
             'margin_requirement_short': 1.5,     # 空头保证金率: 150% (100%借券+50%保证金)
-            'margin_safety_buffer': 0.10         # 保证金安全缓冲: 10%总资产
+            'margin_usage_ratio': 0.95           # 保证金使用率: 95% (保留5%动态缓冲)
         }
 
         # ========== 风险管理配置 ==========

@@ -4,6 +4,67 @@
 
 ---
 
+## [v6.4.2_保证金计算数学修复@20250130]
+
+### 核心算法修复
+- **修复关键数学错误**：数量配比约束而非市值配比约束
+  - 原错误：假设 `value_A = beta × value_B` (市值遵循beta关系)
+  - 正确公式：假设 `Qty_A = beta × Qty_B` (数量遵循beta关系)
+  - 核心洞察：配对交易利用价格偏离，入场时市值非beta比例，但数量必须保持beta比例
+
+- **重写保证金反推公式**：
+  - 联立方程：
+    1. `X + Y = margin_allocated` (保证金约束)
+    2. `(X/margin_rate_A)/Price_A = beta × (Y/margin_rate_B)/Price_B` (数量约束)
+  - LONG_SPREAD (A多0.5, B空1.5)：
+    - `Y = margin × 3 × Price_B / (beta × Price_A + 3 × Price_B)`
+  - SHORT_SPREAD (A空1.5, B多0.5)：
+    - `Y = margin × Price_B / (beta × 3 × Price_A + Price_B)`
+
+### 方法签名变更
+- **Pairs.calculate_values_from_margin()**：
+  - 旧签名：`calculate_values_from_margin(margin_allocated, signal)`
+  - 新签名：`calculate_values_from_margin(margin_allocated, signal, data)`
+  - 原因：需要获取当前价格来计算正确的数量配比
+
+- **Pairs.open_position()**：
+  - 旧签名：`open_position(signal, value1, value2, data)`
+  - 新签名：`open_position(signal, margin_allocated, data)`
+  - 原因：先传入保证金，内部反推市值，符合新架构思路
+
+### 保证金管理简化
+- **动态缓冲策略**：
+  - 旧方法：`initial_margin = Portfolio.MarginRemaining - buffer`
+  - 新方法：`initial_margin = Portfolio.MarginRemaining × 0.95`
+  - 优势：5%缓冲随账户规模动态变化，无需复杂计算
+
+- **配置重命名**：
+  - `config.py`：`margin_safety_buffer` → `margin_usage_ratio: 0.95`
+  - 语义更准确：使用率而非固定缓冲
+
+### 质量保证机制
+- **数量配比验证**：添加5%阈值检查
+  - 计算：`actual_ratio = Qty_A / Qty_B`
+  - 对比：`expected_ratio = beta`
+  - 警告：偏差 > 5%时输出调试信息
+
+- **移除不必要检查**：删除30%账户净值上限检查
+  - 原因：数学公式保证 `X + Y = margin_allocated`，不会超限
+
+### Bug修复
+- **配置重构遗漏**：修复 `Pairs.py:76` KeyError
+  - 问题：仍读取不存在的 `margin_safety_buffer` 配置键
+  - 修复：删除废弃的 `self.margin_buffer` 变量赋值
+  - 影响：导致策略无法初始化
+
+### 预期改进
+- 消除596股AMZN异常仓位问题
+- 解决12次保证金不足错误
+- 降低AMZN 71%集中度
+- 数量配比精确匹配beta (±5%容差)
+
+---
+
 ## [v6.4.1_保证金架构重构与代码清理@20250130]
 
 ### 保证金分配架构重构
