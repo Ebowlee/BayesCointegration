@@ -4,6 +4,66 @@
 
 ---
 
+## [v6.4.4_OnOrderEvent订单追踪实现@20250130]
+
+### 核心变更
+**彻底解决订单重复问题**: 从基于时间的去重机制迁移到基于OrderId的订单生命周期追踪
+
+### 新增模块
+**TicketsManager订单管理器** (`src/TicketsManager.py`):
+- **核心映射**: OrderId → pair_id (O(1)查找)
+- **状态管理**: PENDING(锁定) → COMPLETED(解锁) → ANOMALY(异常)
+- **异步安全**: 通过订单状态锁定配对,防止MarketOrder异步导致的重复下单
+
+### 架构变更
+
+1. **Pairs类返回值修改**:
+   - `open_position()`: 返回 `List[OrderTicket]` (原void)
+   - `close_position()`: 返回 `List[OrderTicket]` (原void)
+   - `create_order_tag()`: 时间戳精确到秒 `%Y%m%d_%H%M%S` (原 `%Y%m%d`)
+
+2. **main.py订单流程重构**:
+   - **初始化**: 添加 `self.tickets_manager = TicketsManager(self)`
+   - **开仓逻辑**:
+     - 去重检查: `is_pair_locked()` 替代 `signal_key in daily_processed_signals`
+     - 订单注册: `tickets_manager.register_tickets(pair_id, tickets)`
+   - **平仓逻辑**: 同上(CLOSE/STOP_LOSS信号 + 3种风控平仓)
+   - **新增OnOrderEvent()**: 委托给TicketsManager统一处理
+
+3. **移除旧机制**:
+   - ❌ `self.daily_processed_signals = {}`
+   - ❌ `self._last_processing_date = None`
+   - ❌ UTC时区相关去重逻辑
+
+### 技术优势
+
+**vs 旧时间去重机制**:
+- ✅ **异步安全**: OrderId立即可用,不受MarketOrder异步影响
+- ✅ **时区无关**: 无需处理UTC/ET转换问题
+- ✅ **精确追踪**: 可检测PartiallyFilled/Canceled/Invalid等状态
+- ✅ **自动解锁**: 订单Filled后自动解除配对锁定
+
+**防重复机制**:
+1. 调用 `pair.close_position()` 前检查 `is_pair_locked()`
+2. MarketOrder返回OrderTicket后立即 `register_tickets()`
+3. 配对进入PENDING状态,阻止后续OnData重复下单
+4. OnOrderEvent检测到全部Filled后,状态 → COMPLETED
+
+### PartiallyFilled处理策略
+- **默认**: 等待broker自动继续成交(GTC订单特性)
+- **异常检测**: Canceled/Invalid → 标记ANOMALY,交由风控处理
+- **超时机制**: 预留扩展点(可添加超时检测)
+
+### 回测验证
+- 待验证: 之前的AMZN持仓爆炸问题(159→477→954)应彻底解决
+- 关键指标: 检查同一pair_id的OrderId是否唯一,无重复下单
+
+### 状态
+- ✅ 架构实施完成
+- ⏳ 待回测验证效果
+
+---
+
 ## [v6.4.3_去重机制问题诊断@20250130]
 
 ### 问题发现

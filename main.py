@@ -6,6 +6,7 @@ from src.config import StrategyConfig
 from src.UniverseSelection import SectorBasedUniverseSelection
 from src.Pairs import Pairs, TradingSignal
 from src.RiskManagement import PortfolioLevelRiskManager, PairLevelRiskManager
+from src.TicketsManager import TicketsManager
 # endregion
 
 
@@ -71,9 +72,8 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # 最小投资额是固定的
         self.min_investment = self.initial_cash * self.config.main['min_investment_ratio']
 
-        # === 订单去重机制 ===
-        self.daily_processed_signals = {}  # 每日已处理信号
-        self._last_processing_date = None  # 上次处理日期
+        # === 订单追踪管理器(替代旧的去重机制) ===
+        self.tickets_manager = TicketsManager(self)
 
         self.Debug("[Initialize] 策略初始化完成", 1)
 
@@ -193,12 +193,14 @@ class BayesianCointegrationStrategy(QCAlgorithm):
     def OnData(self, data: Slice):
         """处理实时数据 - OnData架构的核心"""
 
-        # === 每日去重机制重置 ===
-        current_date = self.Time.date()
-        if self._last_processing_date != current_date:
-            self.daily_processed_signals = {}
-            self._last_processing_date = current_date
-            self.Debug(f"[OnData] 新的一天: {current_date}, 重置信号去重", 2)
+        # === DEBUG: OnData入口Portfolio状态监控 ===
+        self.Debug(f"\n{'='*80}", 2)
+        self.Debug(f"[OnData入口] 时间: {self.Time}", 2)
+        self.Debug(f"[OnData入口] Portfolio.MarginRemaining: ${self.Portfolio.MarginRemaining:,.2f}", 2)
+        self.Debug(f"[OnData入口] Portfolio.TotalPortfolioValue: ${self.Portfolio.TotalPortfolioValue:,.2f}", 2)
+        self.Debug(f"[OnData入口] Portfolio.TotalMarginUsed: ${self.Portfolio.TotalMarginUsed:,.2f}", 2)
+        self.Debug(f"[OnData入口] Portfolio.Cash: ${self.Portfolio.Cash:,.2f}", 2)
+        self.Debug(f"{'='*80}\n", 2)
 
         # === 检查策略冷却状态 ===
         if self.strategy_cooldown_until and self.Time < self.strategy_cooldown_until:
@@ -274,25 +276,88 @@ class BayesianCointegrationStrategy(QCAlgorithm):
 
             # 1. 持仓超期检查（最高优先级）
             if self.pair_level_risk_manager.check_holding_timeout(pair):
+                # === 订单锁定检查 ===
+                if self.tickets_manager.is_pair_locked(pair.pair_id):
+                    self.Debug(f"[风控跳过] {pair.pair_id} 订单处理中,跳过超期平仓", 2)
+                    continue
+
                 holding_days = pair.get_pair_holding_days()
+                # === DEBUG: 风控平仓前状态 ===
+                margin_before = self.Portfolio.MarginRemaining
+                position_value = pair.get_position_value()
+                self.Debug(f"[风控平仓前] {pair.pair_id} MarginRemaining: ${margin_before:,.2f}, 持仓市值: ${position_value:,.2f}", 2)
+
                 self.Debug(f"[Pair超期] {pair.pair_id} 持仓{holding_days}天超过{pair.max_holding_days}天限制，执行清仓", 1)
-                pair.close_position()  # 统一使用Pairs的close_position方法,确保cooldown生效
+
+                # 执行平仓并注册订单追踪
+                tickets = pair.close_position()
+                if tickets:
+                    self.tickets_manager.register_tickets(pair.pair_id, tickets)
+
                 self.pair_level_risk_manager.clear_pair_history(pair.pair_id)
+
+                # === DEBUG: 风控平仓后状态 ===
+                margin_after = self.Portfolio.MarginRemaining
+                margin_released = margin_after - margin_before
+                self.Debug(f"[风控平仓后] {pair.pair_id} MarginRemaining: ${margin_after:,.2f}, 释放保证金: ${margin_released:,.2f}", 2)
+
                 continue
 
             # 2. 异常持仓检查（次高优先级）
             is_anomaly, anomaly_desc = self.pair_level_risk_manager.check_position_anomaly(pair)
             if is_anomaly:
+                # === 订单锁定检查 ===
+                if self.tickets_manager.is_pair_locked(pair.pair_id):
+                    self.Debug(f"[风控跳过] {pair.pair_id} 订单处理中,跳过异常平仓", 2)
+                    continue
+
+                # === DEBUG: 风控平仓前状态 ===
+                margin_before = self.Portfolio.MarginRemaining
+                position_value = pair.get_position_value()
+                self.Debug(f"[风控平仓前] {pair.pair_id} MarginRemaining: ${margin_before:,.2f}, 持仓市值: ${position_value:,.2f}", 2)
+
                 self.Debug(f"[Pair异常] {pair.pair_id} {anomaly_desc}，执行清仓", 1)
-                pair.close_position()  # 统一使用Pairs的close_position方法,确保cooldown生效
+
+                # 执行平仓并注册订单追踪
+                tickets = pair.close_position()
+                if tickets:
+                    self.tickets_manager.register_tickets(pair.pair_id, tickets)
+
                 self.pair_level_risk_manager.clear_pair_history(pair.pair_id)
+
+                # === DEBUG: 风控平仓后状态 ===
+                margin_after = self.Portfolio.MarginRemaining
+                margin_released = margin_after - margin_before
+                self.Debug(f"[风控平仓后] {pair.pair_id} MarginRemaining: ${margin_after:,.2f}, 释放保证金: ${margin_released:,.2f}", 2)
+
                 continue
 
             # 3. 回撤超限检查
             if self.pair_level_risk_manager.check_pair_drawdown(pair):
+                # === 订单锁定检查 ===
+                if self.tickets_manager.is_pair_locked(pair.pair_id):
+                    self.Debug(f"[风控跳过] {pair.pair_id} 订单处理中,跳过回撤平仓", 2)
+                    continue
+
+                # === DEBUG: 风控平仓前状态 ===
+                margin_before = self.Portfolio.MarginRemaining
+                position_value = pair.get_position_value()
+                self.Debug(f"[风控平仓前] {pair.pair_id} MarginRemaining: ${margin_before:,.2f}, 持仓市值: ${position_value:,.2f}", 2)
+
                 self.Debug(f"[Pair回撤] {pair.pair_id} 超过最大回撤{self.config.risk_management['max_pair_drawdown']:.0%}，执行清仓", 1)
-                pair.close_position()  # 统一使用Pairs的close_position方法,确保cooldown生效
+
+                # 执行平仓并注册订单追踪
+                tickets = pair.close_position()
+                if tickets:
+                    self.tickets_manager.register_tickets(pair.pair_id, tickets)
+
                 self.pair_level_risk_manager.clear_pair_history(pair.pair_id)
+
+                # === DEBUG: 风控平仓后状态 ===
+                margin_after = self.Portfolio.MarginRemaining
+                margin_released = margin_after - margin_before
+                self.Debug(f"[风控平仓后] {pair.pair_id} MarginRemaining: ${margin_after:,.2f}, 释放保证金: ${margin_released:,.2f}", 2)
+
                 continue
 
             # 获取交易信号
@@ -300,14 +365,54 @@ class BayesianCointegrationStrategy(QCAlgorithm):
 
             # 处理平仓信号
             if signal == TradingSignal.CLOSE:
+                # === 订单锁定检查: 防止重复下单 ===
+                if self.tickets_manager.is_pair_locked(pair.pair_id):
+                    self.Debug(f"[平仓跳过] {pair.pair_id} 订单处理中,跳过", 2)
+                    continue
+
+                # === DEBUG: 平仓前Portfolio状态 ===
+                margin_before = self.Portfolio.MarginRemaining
+                position_value = pair.get_position_value()
+                self.Debug(f"[平仓前] {pair.pair_id} MarginRemaining: ${margin_before:,.2f}, 持仓市值: ${position_value:,.2f}", 2)
+
                 self.Debug(f"[OnData] {pair.pair_id} 收到平仓信号(Z-score回归)", 1)
-                pair.close_position()
+
+                # 执行平仓并注册订单追踪
+                tickets = pair.close_position()
+                if tickets:
+                    self.tickets_manager.register_tickets(pair.pair_id, tickets)
+
                 self.pair_level_risk_manager.clear_pair_history(pair.pair_id)
 
+                # === DEBUG: 平仓后Portfolio状态 ===
+                margin_after = self.Portfolio.MarginRemaining
+                margin_released = margin_after - margin_before
+                self.Debug(f"[平仓后] {pair.pair_id} MarginRemaining: ${margin_after:,.2f}, 释放保证金: ${margin_released:,.2f}", 2)
+
             elif signal == TradingSignal.STOP_LOSS:
+                # === 订单锁定检查: 防止重复下单 ===
+                if self.tickets_manager.is_pair_locked(pair.pair_id):
+                    self.Debug(f"[止损跳过] {pair.pair_id} 订单处理中,跳过", 2)
+                    continue
+
+                # === DEBUG: 止损前Portfolio状态 ===
+                margin_before = self.Portfolio.MarginRemaining
+                position_value = pair.get_position_value()
+                self.Debug(f"[止损前] {pair.pair_id} MarginRemaining: ${margin_before:,.2f}, 持仓市值: ${position_value:,.2f}", 2)
+
                 self.Debug(f"[OnData] {pair.pair_id} 收到止损信号(Z-score超限)", 1)
-                pair.close_position()
+
+                # 执行平仓并注册订单追踪
+                tickets = pair.close_position()
+                if tickets:
+                    self.tickets_manager.register_tickets(pair.pair_id, tickets)
+
                 self.pair_level_risk_manager.clear_pair_history(pair.pair_id)
+
+                # === DEBUG: 止损后Portfolio状态 ===
+                margin_after = self.Portfolio.MarginRemaining
+                margin_released = margin_after - margin_before
+                self.Debug(f"[止损后] {pair.pair_id} MarginRemaining: ${margin_after:,.2f}, 释放保证金: ${margin_released:,.2f}", 2)
 
 
         # === 2. 市场环境检查（开仓前）===
@@ -329,6 +434,14 @@ class BayesianCointegrationStrategy(QCAlgorithm):
                 # === 记录初始保证金 ===
                 # 使用95%的MarginRemaining,保留5%作为动态缓冲
                 initial_margin = self.Portfolio.MarginRemaining * self.config.pairs_trading['margin_usage_ratio']
+                buffer = self.Portfolio.MarginRemaining * (1 - self.config.pairs_trading['margin_usage_ratio'])
+
+                # === DEBUG: 开仓初始状态 ===
+                self.Debug(f"\n[开仓初始状态]", 2)
+                self.Debug(f"  Portfolio.MarginRemaining: ${self.Portfolio.MarginRemaining:,.2f}", 2)
+                self.Debug(f"  initial_margin (95%): ${initial_margin:,.2f}", 2)
+                self.Debug(f"  buffer (5%): ${buffer:,.2f}", 2)
+                self.Debug(f"  候选配对数量: {len(entry_candidates)}", 2)
 
                 # 检查是否低于最小阈值
                 if initial_margin >= self.min_investment:
@@ -348,19 +461,29 @@ class BayesianCointegrationStrategy(QCAlgorithm):
                         pair = self.pairs_manager.get_pair_by_id(pair_id)
                         signal = opening_signals[pair_id]
 
+                        # === DEBUG: 开仓前Portfolio状态 ===
+                        self.Debug(f"\n[配对#{actual_opened + 1}] {pair_id}", 2)
+                        self.Debug(f"  当前MarginRemaining: ${self.Portfolio.MarginRemaining:,.2f}", 2)
+
                         # 动态缩放计算
-                        current_margin = self.Portfolio.MarginRemaining * self.config.pairs_trading['margin_usage_ratio']
+                        current_margin = (self.Portfolio.MarginRemaining - buffer) * pct
                         if current_margin <= 0:
                             self.Debug(f"[开仓] 保证金已耗尽,停止开仓", 1)
                             break
 
-                        scale_factor = initial_margin / current_margin
-                        margin_allocated = current_margin * pct * scale_factor  # = initial_margin * pct
+                        scale_factor = initial_margin / (self.Portfolio.MarginRemaining - buffer)
+                        margin_allocated = current_margin * scale_factor  # = initial_margin * pct
 
-                        # 检查1: 是否已处理过该信号
-                        signal_key = (pair_id, signal, current_date)
-                        if signal_key in self.daily_processed_signals:
-                            self.Debug(f"[开仓] {pair_id} 今日已处理过该信号,跳过", 2)
+                        # === DEBUG: 分配计算详情 ===
+                        self.Debug(f"  计划分配比例(pct): {pct:.3f}", 2)
+                        self.Debug(f"  当前可用保证金(去buffer): ${(self.Portfolio.MarginRemaining - buffer):,.2f}", 2)
+                        self.Debug(f"  current_margin (可用*pct): ${current_margin:,.2f}", 2)
+                        self.Debug(f"  scale_factor (初始/可用): {scale_factor:.4f}", 2)
+                        self.Debug(f"  margin_allocated (最终): ${margin_allocated:,.2f}", 2)
+
+                        # 检查1: 订单锁定检查
+                        if self.tickets_manager.is_pair_locked(pair_id):
+                            self.Debug(f"[开仓跳过] {pair_id} 订单处理中,跳过", 2)
                             continue
 
                         # 检查2: 最小投资额
@@ -369,16 +492,31 @@ class BayesianCointegrationStrategy(QCAlgorithm):
                             continue
 
                         # 检查3: 保证金是否仍足够 (理论上应该足够,但保险起见)
-                        if margin_allocated > current_margin:
-                            self.Debug(f"[开仓] {pair_id} 保证金不足(需要{margin_allocated:.0f},剩余{current_margin:.0f}),跳过", 1)
+                        available_for_check = self.Portfolio.MarginRemaining - buffer
+                        if margin_allocated > available_for_check:
+                            self.Debug(f"[开仓] {pair_id} 边界检查失败:", 1)
+                            self.Debug(f"  需要保证金: ${margin_allocated:,.2f}", 1)
+                            self.Debug(f"  可用保证金(去buffer): ${available_for_check:,.2f}", 1)
+                            self.Debug(f"  Portfolio.MarginRemaining: ${self.Portfolio.MarginRemaining:,.2f}", 1)
+                            self.Debug(f"  buffer: ${buffer:,.2f}", 1)
                             continue
 
                         # 执行开仓 (传入保证金,Pairs内部计算市值和数量)
-                        pair.open_position(signal, margin_allocated, data)
-                        actual_opened += 1
+                        # === DEBUG: 开仓执行前 ===
+                        margin_before_open = self.Portfolio.MarginRemaining
+                        self.Debug(f"  开仓前MarginRemaining: ${margin_before_open:,.2f}", 2)
 
-                        # 标记已处理
-                        self.daily_processed_signals[signal_key] = self.Time
+                        # 执行开仓并注册订单追踪
+                        tickets = pair.open_position(signal, margin_allocated, data)
+                        if tickets:
+                            self.tickets_manager.register_tickets(pair_id, tickets)
+                            actual_opened += 1
+
+                        # === DEBUG: 开仓执行后 ===
+                        margin_after_open = self.Portfolio.MarginRemaining
+                        margin_consumed = margin_before_open - margin_after_open
+                        self.Debug(f"  开仓后MarginRemaining: ${margin_after_open:,.2f}", 2)
+                        self.Debug(f"  实际消耗保证金: ${margin_consumed:,.2f}", 2)
 
                         # 获取质量分数用于日志
                         score = pair.get_quality_score()
@@ -400,3 +538,26 @@ class BayesianCointegrationStrategy(QCAlgorithm):
                     # 保证金不足,输出日志并跳过
                     if self.config.main['debug_level'] >= 1:
                         self.Debug(f"[开仓] 可用保证金${initial_margin:,.0f}低于最小投资${self.min_investment:,.0f},本轮跳过")
+
+
+    def OnOrderEvent(self, event):
+        """
+        订单事件回调
+
+        委托给TicketsManager统一处理订单状态更新
+        检测并处理异常配对(单腿失败等)
+        """
+        # 委托给TicketsManager处理
+        self.tickets_manager.on_order_event(event)
+
+        # 检查是否有异常配对需要处理
+        anomaly_pairs = self.tickets_manager.get_anomaly_pairs()
+        if anomaly_pairs:
+            for pair_id in anomaly_pairs:
+                self.Debug(
+                    f"[订单异常] {pair_id} 检测到单腿失败(Canceled/Invalid), "
+                    f"已标记为异常持仓,风控将处理",
+                    1
+                )
+                # 注意: 实际的单腿强平由风控模块的异常持仓检查处理
+                # 此处仅记录日志,不直接操作

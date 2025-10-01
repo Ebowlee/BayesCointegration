@@ -248,19 +248,23 @@ class Pairs:
             signal: "LONG_SPREAD" 或 "SHORT_SPREAD"
             margin_allocated: 分配的保证金金额
             data: 数据切片,用于获取最新价格
+
+        返回:
+            List[OrderTicket]: 订单票据列表,供TicketsManager追踪
+            失败时返回None
         """
         # 计算目标市值
         value1, value2 = self.calculate_values_from_margin(margin_allocated, signal, data)
 
         if value1 is None or value2 is None:
             self.algorithm.Debug(f"[Pairs.open] {self.pair_id} 无法计算市值,跳过开仓", 1)
-            return
+            return None
 
         # 获取当前价格
         prices = self.get_price(data)
         if prices is None:
             self.algorithm.Debug(f"[Pairs.open] {self.pair_id} 无法获取价格,跳过开仓", 1)
-            return
+            return None
         price1, price2 = prices
 
         # 计算股数
@@ -276,7 +280,7 @@ class Pairs:
         # 检查计算出的数量是否有效
         if qty1 == 0 or qty2 == 0:
             self.algorithm.Debug(f"[Pairs.open] {self.pair_id} 计算数量为0,跳过开仓", 1)
-            return
+            return None
 
         # 验证数量配比 (调试用)
         actual_ratio = abs(qty1 / qty2) if qty2 != 0 else 0
@@ -292,9 +296,9 @@ class Pairs:
         # 创建订单Tag
         tag = self.create_order_tag(OrderAction.OPEN)
 
-        # 执行下单
-        self.algorithm.MarketOrder(self.symbol1, qty1, tag=tag)
-        self.algorithm.MarketOrder(self.symbol2, qty2, tag=tag)
+        # 执行下单并收集OrderTicket
+        ticket1 = self.algorithm.MarketOrder(self.symbol1, qty1, tag=tag)
+        ticket2 = self.algorithm.MarketOrder(self.symbol2, qty2, tag=tag)
 
         # 记录开仓信息
         self.algorithm.Debug(
@@ -305,11 +309,18 @@ class Pairs:
             f"Beta:{self.beta_mean:.3f}", 1
         )
 
+        # 返回订单票据列表
+        return [ticket1, ticket2]
+
 
     def close_position(self):
         """
         平仓该配对的所有持仓
         纯执行方法,不做任何检查
+
+        返回:
+            List[OrderTicket]: 订单票据列表,供TicketsManager追踪
+            无持仓时返回None
         """
         # 获取当前持仓信息
         info = self.get_position_info()
@@ -319,23 +330,41 @@ class Pairs:
         # 如果没有持仓,直接返回
         if qty1 == 0 and qty2 == 0:
             self.algorithm.Debug(f"[Pairs.close] {self.pair_id} 无持仓,跳过平仓", 1)
-            return
+            return None
+
+        # === DEBUG: 平仓前Portfolio状态 ===
+        portfolio = self.algorithm.Portfolio
+        margin_before = portfolio.MarginRemaining
+        total_value_before = portfolio.TotalPortfolioValue
+        margin_used_before = portfolio.TotalMarginUsed
 
         # 创建平仓Tag
         tag = self.create_order_tag(OrderAction.CLOSE)
 
         # 使用MarketOrder平仓(支持tag参数)
         # Liquidate不支持tag参数,必须用MarketOrder
+        # 收集实际提交的订单票据
+        tickets = []
         if qty1 != 0:
-            self.algorithm.MarketOrder(self.symbol1, -qty1, tag=tag)
+            ticket1 = self.algorithm.MarketOrder(self.symbol1, -qty1, tag=tag)
+            tickets.append(ticket1)
         if qty2 != 0:
-            self.algorithm.MarketOrder(self.symbol2, -qty2, tag=tag)
+            ticket2 = self.algorithm.MarketOrder(self.symbol2, -qty2, tag=tag)
+            tickets.append(ticket2)
+
+        # === DEBUG: 平仓后Portfolio状态(订单提交后立即检查) ===
+        margin_after = portfolio.MarginRemaining
+        total_value_after = portfolio.TotalPortfolioValue
+        margin_used_after = portfolio.TotalMarginUsed
 
         # 记录平仓信息
         self.algorithm.Debug(
             f"[Pairs.close] {self.pair_id} 执行平仓 "
             f"持仓:({qty1:.0f}/{qty2:.0f})", 1
         )
+
+        # 返回订单票据列表
+        return tickets if tickets else None
 
 
     def adjust_position(self, target_ratio: float) -> bool:
@@ -600,9 +629,11 @@ class Pairs:
         """
         创建标准化的订单Tag
         action: OrderAction.OPEN 或 OrderAction.CLOSE
-        返回格式: "('AAPL', 'MSFT')_OPEN_20240101"
+        返回格式: "('AAPL', 'MSFT')_OPEN_20240101_093000"
+
+        注意: 时间戳精确到秒,防止同一天内多次信号的Tag冲突
         """
-        return f"{self.pair_id}_{action}_{self.algorithm.Time.strftime('%Y%m%d')}"
+        return f"{self.pair_id}_{action}_{self.algorithm.Time.strftime('%Y%m%d_%H%M%S')}"
 
 
     def get_quality_score(self) -> float:
