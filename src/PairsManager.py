@@ -106,20 +106,30 @@ class PairsManager:
         """
         获取所有有持仓的可交易配对
         返回: {pair_id: Pairs对象} 字典
+
+        优化: 直接遍历,避免构建中间字典
         """
-        tradeable_pairs = self.get_all_tradeable_pairs()
-        return {pid: pair for pid, pair in tradeable_pairs.items()
-                if pair.has_position()}
+        result = {}
+        for pid in (self.active_ids | self.legacy_ids):
+            pair = self.all_pairs[pid]
+            if pair.has_position():
+                result[pid] = pair
+        return result
 
 
     def get_pairs_without_position(self) -> Dict:
         """
         获取所有无持仓的可交易配对(用于开仓逻辑)
         返回: {pair_id: Pairs对象} 字典
+
+        优化: 直接遍历,避免构建中间字典
         """
-        tradeable_pairs = self.get_all_tradeable_pairs()
-        return {pid: pair for pid, pair in tradeable_pairs.items()
-                if not pair.has_position()}
+        result = {}
+        for pid in (self.active_ids | self.legacy_ids):
+            pair = self.all_pairs[pid]
+            if not pair.has_position():
+                result[pid] = pair
+        return result
 
 
     def get_pair_by_id(self, pair_id):
@@ -194,21 +204,6 @@ class PairsManager:
             }
 
         return result
-
-
-    def check_concentration_warning(self) -> None:
-        """
-        软警告:配对数量过多时提醒(非强制限制)
-        改为资金自然约束后,这只是一个提醒功能
-        """
-        positions_count = sum(1 for pair in self.get_all_tradeable_pairs().values()
-                             if pair.has_position())
-
-        if positions_count > 15:  # 软上限,只是提醒
-            self.algorithm.Debug(
-                f"[PairsManager] 注意:配对数量较多({positions_count}),"
-                f"建议关注资金分散情况", 2
-            )
 
 
     # ===== 5. 日志与统计 =====

@@ -547,7 +547,8 @@ class Pairs:
         if not self.has_normal_position():
             return None
 
-        entry_time = self.get_entry_time()
+        # 直接访问开仓时间属性
+        entry_time = self.position_opened_time
         if entry_time is not None:
             return (self.algorithm.UtcTime - entry_time).days
 
@@ -559,8 +560,8 @@ class Pairs:
         检查是否在冷却期内
         返回: True(在冷却期) / False(可以交易)
         """
-        # 获取最近的退出时间
-        exit_time = self.get_exit_time()
+        # 获取最近的退出时间(直接访问属性)
+        exit_time = self.position_closed_time
 
         # 如果没有退出时间,不在冷却期
         if exit_time is None:
@@ -573,19 +574,7 @@ class Pairs:
         return days_since_exit < self.cooldown_days
 
 
-    # ===== 7. 时间追踪 =====
-
-    def get_entry_time(self):
-        """获取最近的入场时间(双腿都成交的时刻)"""
-        return self.position_opened_time
-
-
-    def get_exit_time(self):
-        """获取最近的退出时间(双腿都成交的时刻)"""
-        return self.position_closed_time
-
-
-    # ===== 8. 辅助方法 =====
+    # ===== 7. 辅助方法 =====
 
     def create_order_tag(self, action: str):
         """
@@ -596,11 +585,6 @@ class Pairs:
         注意: 时间戳精确到秒,防止同一天内多次信号的Tag冲突
         """
         return f"{self.pair_id}_{action}_{self.algorithm.Time.strftime('%Y%m%d_%H%M%S')}"
-
-
-    def get_quality_score(self) -> float:
-        """获取配对的质量分数"""
-        return self.quality_score
 
 
     def get_planned_allocation_pct(self) -> float:
@@ -615,8 +599,3 @@ class Pairs:
         min_pct = self.config['min_position_pct']
         max_pct = self.config['max_position_pct']
         return min_pct + self.quality_score * (max_pct - min_pct)
-
-
-    def get_sector(self) -> str:
-        """获取配对所属行业"""
-        return self.sector
