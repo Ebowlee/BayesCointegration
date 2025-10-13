@@ -18,7 +18,7 @@ class StrategyConfig:
             'account_type': AccountType.Margin,
             'schedule_frequency': 'MonthStart',  # 每月初
             'schedule_time': (9, 10),            # 9:10 AM
-            'debug_level': 1,                    # 0=静默, 1=关键信息(交易/风控), 2=详细信息(分析过程)
+            'debug_level': 2,                    # 0=静默, 1=关键信息(交易/风控), 2=详细信息(分析过程)
 
             # 资金管理
             'min_investment_ratio': 0.10         # 最小投资：初始资金的10%

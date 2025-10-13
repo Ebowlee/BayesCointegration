@@ -4,6 +4,115 @@
 
 ---
 
+## [v6.4.5_TicketsManager回调优化与持仓追踪修复@20250131]
+
+### 核心变更
+1. **debug_level提升**: 从1提升到2,输出TicketsManager和Pairs的详细日志
+2. **时间追踪优化**: 删除`_get_order_time()`的48行O(n)查询逻辑,改用O(1)回调存储
+3. **持仓追踪修复**: 解决多配对共享symbol时的单边持仓误报问题
+
+### 架构变更
+
+#### 1. 回调模式实现 (TicketsManager → Pairs)
+**设计目的**: 解耦订单追踪与业务数据存储
+
+**核心机制**:
+- TicketsManager检测到COMPLETED状态时,回调Pairs记录时间和数量
+- Pairs不再主动查询订单历史,改为被动接收通知
+- 删除`Pairs._get_order_time()`方法(48行O(n)遍历订单历史)
+
+**修改位置**:
+- `TicketsManager.py:45-67`: 添加`pairs_manager`引用和`pair_actions`字典
+- `TicketsManager.py:120-159`: `register_tickets()`接收`action`参数
+- `TicketsManager.py:226-240`: COMPLETED时回调`pairs_obj.on_position_filled()`
+- `Pairs.py:109-142`: 新增`on_position_filled()`回调方法
+- `Pairs.py:550-607`: 简化`get_entry_time()`/`get_exit_time()`为O(1)属性访问
+- `main.py:68,515,232,250...`: 所有`register_tickets()`调用添加`action`参数
+
+**回调链路**:
+```
+OnOrderEvent触发
+  → TicketsManager.on_order_event()
+  → 检测current_status == "COMPLETED"
+  → 准备数据: action, fill_time, tickets
+  → pairs_obj.on_position_filled(action, fill_time, tickets)
+  → Pairs存储时间和数量
+```
+
+#### 2. 持仓追踪重构 (tracked_qty机制)
+**问题根源**: `Portfolio[symbol].Quantity`返回全账户总持仓,当多个配对共享symbol时产生误报
+
+**误报场景**:
+```python
+# 时间线
+T1: 配对A('AMZN', 'CMG') 平仓 → Portfolio[AMZN] = 0
+T2: 配对B('AMZN', 'GM') 开仓 → Portfolio[AMZN] = 125
+T3: 配对A调用get_position_info()
+    → qty1 = Portfolio[AMZN].Quantity = 125  # ← 这是配对B的!
+    → qty2 = Portfolio[CMG].Quantity = 0
+    → 误报: "[Pairs.WARNING] ('AMZN', 'CMG') 单边持仓LEG1: qty1=+125"
+```
+
+**解决方案**: 配对专属持仓追踪
+- `Pairs.py:86-87`: 添加`tracked_qty1`/`tracked_qty2`属性
+- `Pairs.py:123-129`: 回调时从OrderTicket提取`QuantityFilled`
+- `Pairs.py:235-236`: `get_position_info()`使用`tracked_qty`代替Portfolio查询
+- `Pairs.py:138-139`: 平仓时清零`tracked_qty`
+
+**数据流**:
+```
+MarketOrder提交
+  → OrderTicket返回
+  → TicketsManager注册
+  → OnOrderEvent: Status=Filled
+  → TicketsManager回调Pairs
+  → Pairs从ticket.QuantityFilled提取数量
+  → 存储到tracked_qty1/tracked_qty2
+  → get_position_info()返回tracked_qty(配对专属)
+```
+
+#### 3. 代码清理
+- 删除`Pairs.adjust_position()`方法(40行) - 绕过TicketsManager注册,违反架构
+- 删除`Pairs._get_order_time()`方法(48行) - O(n)性能差,已被回调替代
+- `Pairs.py:504-536`: 简化`check_position_integrity()`复用`get_position_info()`
+
+### 技术优势
+
+**vs 旧实现**:
+| 指标 | 旧实现 | 新实现 | 改进 |
+|------|--------|--------|------|
+| 时间查询 | O(n)遍历订单历史 | O(1)属性访问 | 性能优化 |
+| 持仓准确性 | Portfolio全局查询(误报) | OrderTicket追踪(准确) | 修复bug |
+| 代码行数 | +88行(查询逻辑) | -2行(回调+属性) | 净减少90行 |
+| 日志可见性 | debug_level=1(关键信息) | debug_level=2(详细信息) | 可调试性 |
+
+**回调模式优势**:
+1. **解耦**: TicketsManager不需要知道Pairs的内部实现
+2. **单向依赖**: TicketsManager → PairsManager → Pairs (无循环依赖)
+3. **职责分离**: 订单追踪 vs 业务数据存储
+4. **扩展性**: 将来可轻松添加新回调(如部分成交通知)
+
+### 配置变更
+- `config.py:21`: `debug_level: 1 → 2` (临时用于测试TicketsManager日志)
+
+### 预期日志输出
+```
+2024-07-02 16:00:00 [Pairs.open] ('AMZN', 'CMG') SHORT_SPREAD 保证金:21667 ...
+2024-07-02 16:00:00 [TM注册] ('AMZN', 'CMG') OPEN 2个订单 状态:PENDING
+2024-07-02 20:00:00 [OOE] ('AMZN', 'CMG') OrderId=123 Status=Filled → 配对状态:PENDING
+2024-07-02 20:00:00 [OOE] ('AMZN', 'CMG') OrderId=124 Status=Filled → 配对状态:COMPLETED
+2024-07-03 13:00:00 [Pairs.callback] ('AMZN', 'CMG') 双腿开仓完成 时间:2024-07-02T20:00:00Z 数量:(-70/+103)
+2024-07-03 13:00:00 [OOE] ('AMZN', 'CMG') 订单全部成交,配对解锁
+```
+
+### 验证目标
+1. ✅ 查看`[TM注册]`日志确认订单注册时机
+2. ✅ 查看`[OOE]`日志追踪订单状态转换
+3. ✅ 查看`[Pairs.callback]`日志验证时间和数量记录
+4. ✅ 确认单边持仓误报是否消失
+
+---
+
 ## [v6.4.4_OnOrderEvent订单追踪实现@20250130]
 
 ### 核心变更

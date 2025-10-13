@@ -1,227 +1,275 @@
 # region imports
 from AlgorithmImports import *
+from typing import Dict, List, Set
 # endregion
 
 
 class TicketsManager:
     """
-    订单生命周期管理器
+    订单生命周期管理器(Order Lifecycle Tracker)
 
-    职责:
-    1. 追踪所有配对订单的执行状态
-    2. 通过OrderId快速定位所属配对
-    3. 检测订单异常(单腿失败、部分成交等)
-    4. 防止重复下单(通过订单锁定机制)
+    设计目的(单一职责):
+    防止同一个配对在订单执行期间重复提交新订单
 
     核心机制:
-    - PENDING状态锁定配对,阻止重复下单
-    - COMPLETED状态解锁配对,允许新操作
-    - ANOMALY状态标记异常,交由风控处理
+    1. 订单注册: 建立OrderId→pair_id映射
+    2. 状态推导: 从OrderTicket.Status实时计算配对状态
+    3. 订单锁定: PENDING状态时阻止新订单提交
+    4. 异常检测: 识别Canceled/Invalid订单
+
+    职责边界:
+    ✅ 负责: 订单状态追踪、重复下单防护、异常检测
+    ❌ 不负责: 配对的时间记录、收益计算、持仓分析
+
+    设计原则:
+    - 单一数据源: 状态完全由OrderTicket.Status推导
+    - 实时计算: 不存储状态,每次查询都重新计算
+    - 最小职责: 只做订单追踪,不做业务分析
+
+    使用示例:
+        # 开仓前检查锁定
+        if not self.tickets_manager.is_pair_locked(pair.pair_id):
+            tickets = pair.open_position(signal, margin, data)
+            if tickets:
+                self.tickets_manager.register_tickets(pair.pair_id, tickets)
+
+        # OnOrderEvent中检查异常
+        anomaly_pairs = self.tickets_manager.get_anomaly_pairs()
+        for pair_id in anomaly_pairs:
+            # 交由风控模块处理
+            self.Debug(f"[订单异常] {pair_id} 检测到单腿失败")
     """
 
-    def __init__(self, algorithm):
+    # ========== 初始化 ==========
+
+    def __init__(self, algorithm, pairs_manager):
         """
         初始化订单管理器
 
         Args:
             algorithm: QCAlgorithm实例,用于Debug日志
+            pairs_manager: PairsManager引用,用于获取Pairs对象进行回调
         """
         self.algorithm = algorithm
+        self.pairs_manager = pairs_manager
 
         # === 核心数据结构 ===
-        # OrderId → pair_id (O(1)查找,供OnOrderEvent使用)
-        self.order_to_pair = {}
+        # OrderId → pair_id 映射(O(1)查找,供OnOrderEvent使用)
+        # 例: {123: "(AAPL, MSFT)", 124: "(AAPL, MSFT)", 125: "(GOOGL, AMZN)"}
+        self.order_to_pair: Dict[int, str] = {}
 
-        # pair_id → [OrderTicket1, OrderTicket2]
-        self.pair_tickets = {}
+        # pair_id → [OrderTicket] 映射(存储当前订单引用)
+        # 例: {"(AAPL, MSFT)": [<OrderTicket#123>, <OrderTicket#124>]}
+        self.pair_tickets: Dict[str, List[OrderTicket]] = {}
 
-        # pair_id → 状态 ("PENDING"/"COMPLETED"/"ANOMALY")
-        self.pair_status = {}
-
-        # 异常配对集合 (单腿失败、订单取消等)
-        self.anomaly_pairs = set()
+        # pair_id → action 映射(记录订单动作类型,用于回调Pairs)
+        # 例: {"(AAPL, MSFT)": "OPEN", ("GOOGL", "AMZN")": "CLOSE"}
+        self.pair_actions: Dict[str, str] = {}
 
 
-    def register_tickets(self, pair_id: str, tickets: list):
+    # ========== 核心方法1: 状态推导 ==========
+
+    def get_pair_status(self, pair_id: str) -> str:
         """
-        注册一对订单
+        实时计算配对的订单状态
 
-        在调用Pairs.open_position()或close_position()后立即调用
-        将订单与配对关联,并设置PENDING状态锁定该配对
+        设计原则: 单一数据源
+        - 状态完全由OrderTicket.Status推导
+        - 不存储状态(避免状态过期)
+        - 每次查询都实时计算
+
+        状态映射规则:
+        - 无订单记录 → "NONE"
+        - 所有订单Filled → "COMPLETED"
+        - 任一订单Canceled/Invalid → "ANOMALY"
+        - 其他(Submitted/PartiallyFilled) → "PENDING"
 
         Args:
             pair_id: 配对ID,格式如 "(AAPL, MSFT)"
-            tickets: OrderTicket列表,通常包含两个元素
+
+        Returns:
+            "NONE" | "PENDING" | "COMPLETED" | "ANOMALY"
+        """
+        # 检查是否有订单记录
+        tickets = self.pair_tickets.get(pair_id)
+        if not tickets:
+            return "NONE"
+
+        # 过滤有效订单
+        valid_tickets = [t for t in tickets if t is not None]
+        if not valid_tickets:
+            return "NONE"
+
+        # 状态推导逻辑
+        all_filled = all(t.Status == OrderStatus.Filled for t in valid_tickets)
+        has_canceled = any(
+            t.Status in [OrderStatus.Canceled, OrderStatus.Invalid]
+            for t in valid_tickets
+        )
+
+        if all_filled:
+            return "COMPLETED"
+        elif has_canceled:
+            return "ANOMALY"
+        else:
+            return "PENDING"
+
+
+    # ========== 核心方法2: 订单注册 ==========
+
+    def register_tickets(self, pair_id: str, tickets: List[OrderTicket], action: str):
+        """
+        注册订单到管理器
+
+        触发时机:
+        - pair.open_position() 返回tickets后
+        - pair.close_position() 返回tickets后
+
+        效果:
+        - 建立OrderId→pair_id映射
+        - 激活订单锁定(状态变为PENDING)
+        - 记录动作类型(用于COMPLETED时回调Pairs)
+
+        Args:
+            pair_id: 配对ID,格式如 "(AAPL, MSFT)"
+            tickets: OrderTicket列表,通常包含2个元素(long + short)
+            action: OrderAction.OPEN 或 OrderAction.CLOSE
 
         注意:
-            - 如果tickets为空或None,不做任何操作
-            - 注册后配对立即进入PENDING状态,阻止重复下单
+            - 如果tickets为空,不做任何操作
+            - 注册后配对状态自动为PENDING
         """
         if not tickets:
             return
 
-        # 保存tickets
+        # 存储订单引用和动作类型
         self.pair_tickets[pair_id] = tickets
+        self.pair_actions[pair_id] = action
 
-        # 建立OrderId → pair_id映射
+        # 建立OrderId→pair_id映射
         for ticket in tickets:
             if ticket is not None:
                 self.order_to_pair[ticket.OrderId] = pair_id
 
-        # 设置PENDING状态
-        self.pair_status[pair_id] = "PENDING"
-
+        # 简化日志
         self.algorithm.Debug(
-            f"[TicketsManager] {pair_id} 注册订单: "
-            f"{len(tickets)}个OrderTicket, OrderId={[t.OrderId for t in tickets if t]}",
+            f"[TM注册] {pair_id} {action} {len(tickets)}个订单 "
+            f"状态:{self.get_pair_status(pair_id)}",
             2
         )
 
 
-    def on_order_event(self, event):
+    # ========== 核心方法3: 锁定检查 ==========
+
+    def is_pair_locked(self, pair_id: str) -> bool:
         """
-        OnOrderEvent回调入口
+        检查配对是否被订单锁定
 
-        接收QCAlgorithm的OnOrderEvent事件,更新订单状态
-        检查配对的两腿是否全部Filled或存在异常
+        目的: 防止重复下单的核心判断
 
-        Args:
-            event: OrderEvent对象,包含OrderId, Status等信息
+        返回:
+            True - 有PENDING订单,不能提交新订单
+            False - 无订单或订单已完成,可以提交新订单
+
+        使用场景:
+            # 在每次交易前检查
+            if self.tickets_manager.is_pair_locked(pair.pair_id):
+                continue  # 跳过,防止重复下单
+
+            # 执行交易
+            tickets = pair.close_position()
+            if tickets:
+                self.tickets_manager.register_tickets(pair.pair_id, tickets)
+        """
+        return self.get_pair_status(pair_id) == "PENDING"
+
+
+    # ========== 核心方法4: 订单事件处理 ==========
+
+    def on_order_event(self, event: OrderEvent):
+        """
+        处理QuantConnect的订单事件回调
+
+        目的:
+        1. 通过OrderId找到pair_id
+        2. 记录关键状态变化
+        3. 驱动状态更新(通过get_pair_status实时计算)
+        4. COMPLETED时回调Pairs记录双腿成交时间
 
         状态转换:
-            - 全部Filled → COMPLETED
-            - 任一Canceled/Invalid → ANOMALY
-            - 其他(Submitted/PartiallyFilled) → 保持PENDING
+            注册订单 → PENDING → OnOrderEvent触发 → COMPLETED/ANOMALY
+                                                    ↓
+                                            回调Pairs.on_position_filled()
+
+        Args:
+            event: QuantConnect的OrderEvent对象
         """
         order_id = event.OrderId
 
         # 查找所属配对
         pair_id = self.order_to_pair.get(order_id)
         if pair_id is None:
-            # 非配对订单,忽略
+            # 不是配对订单,忽略
             return
 
-        # 获取该配对的所有tickets
-        tickets = self.pair_tickets.get(pair_id)
-        if not tickets:
-            return
+        # 获取实时状态
+        current_status = self.get_pair_status(pair_id)
 
-        # 记录事件
+        # 详细日志(level=2)
         self.algorithm.Debug(
             f"[OOE] {pair_id} OrderId={order_id} "
-            f"Status={event.Status} FillQty={event.FillQuantity}",
+            f"Status={event.Status} → 配对状态:{current_status}",
             2
         )
 
-        # === 状态判断逻辑 ===
-        all_filled = all(t.Status == OrderStatus.Filled for t in tickets if t)
-        has_canceled = any(
-            t.Status in [OrderStatus.Canceled, OrderStatus.Invalid]
-            for t in tickets if t
-        )
+        # 关键状态变化(level=1)
+        if current_status == "COMPLETED":
+            # 获取动作类型和Pairs对象
+            action = self.pair_actions.get(pair_id)
+            pairs_obj = self.pairs_manager.get_pair_by_id(pair_id)
 
-        # 场景1: 全部成交 → COMPLETED
-        if all_filled:
-            self.pair_status[pair_id] = "COMPLETED"
-            self.algorithm.Debug(f"[OOE] {pair_id} 订单全部成交,解锁配对", 1)
-            # 可选: 自动清理记录
-            # self.cleanup_completed(pair_id)
+            if pairs_obj and action:
+                # 获取最后一条腿成交的时间(确保双腿都已成交)
+                tickets = self.pair_tickets[pair_id]
+                fill_time = max(
+                    t.Time for t in tickets
+                    if t is not None and t.Status == OrderStatus.Filled
+                )
 
-        # 场景2: 存在取消/失败 → ANOMALY
-        elif has_canceled:
-            self.pair_status[pair_id] = "ANOMALY"
-            self.anomaly_pairs.add(pair_id)
-            self.algorithm.Debug(f"[OOE] {pair_id} 订单异常(Canceled/Invalid),标记异常", 1)
+                # 回调Pairs记录时间和数量(传递tickets引用)
+                pairs_obj.on_position_filled(action, fill_time, tickets)
 
-        # 场景3: 部分成交或提交中 → 保持PENDING,等待broker继续处理
-        # (QuantConnect的GTC订单会自动继续尝试成交)
+            self.algorithm.Debug(
+                f"[OOE] {pair_id} 订单全部成交,配对解锁", 1
+            )
+        elif current_status == "ANOMALY":
+            self.algorithm.Debug(
+                f"[OOE] {pair_id} 订单异常({event.Status}),需风控介入", 1
+            )
 
 
-    def is_pair_locked(self, pair_id: str) -> bool:
+    # ========== 核心方法5: 异常检测 ==========
+
+    def get_anomaly_pairs(self) -> Set[str]:
         """
-        检查配对是否被订单锁定
+        获取所有有异常订单的配对
 
-        在执行开仓/平仓操作前调用,防止重复下单
+        目的: 检测单腿失败
+        - 配对交易有两条腿(long + short)
+        - 可能出现一条成功,另一条Canceled/Invalid
+        - 需要标记异常,交给风控模块处理
 
-        Args:
-            pair_id: 配对ID
+        返回:
+            Set[pair_id] - 有异常订单的配对ID集合
 
-        Returns:
-            True: 配对正在处理订单(PENDING状态),应跳过
-            False: 配对空闲或已完成,可以下单
+        使用场景:
+            # 在OnOrderEvent后检查
+            anomaly_pairs = self.tickets_manager.get_anomaly_pairs()
+            for pair_id in anomaly_pairs:
+                self.Debug(f"[订单异常] {pair_id} 检测到单腿失败", 1)
+                # 风控模块会通过check_position_anomaly()处理
         """
-        status = self.pair_status.get(pair_id)
-        return status == "PENDING"
-
-
-    def get_anomaly_pairs(self) -> list:
-        """
-        获取所有异常配对
-
-        返回所有标记为ANOMALY状态的配对ID列表
-        通常在OnOrderEvent后检查,交由风控模块处理单腿持仓
-
-        Returns:
-            异常配对ID列表,如 ["(AAPL, MSFT)", "(GOOGL, AMZN)"]
-        """
-        return list(self.anomaly_pairs)
-
-
-    def cleanup_completed(self, pair_id: str):
-        """
-        清理已完成订单的记录
-
-        释放内存,避免历史订单记录持续积累
-        可在订单全部Filled后自动调用,或定期批量清理
-
-        Args:
-            pair_id: 配对ID
-
-        注意:
-            - 只清理COMPLETED状态的配对
-            - PENDING和ANOMALY状态不清理,保留追踪
-        """
-        status = self.pair_status.get(pair_id)
-        if status != "COMPLETED":
-            return
-
-        # 清理OrderId映射
-        tickets = self.pair_tickets.get(pair_id, [])
-        for ticket in tickets:
-            if ticket and ticket.OrderId in self.order_to_pair:
-                del self.order_to_pair[ticket.OrderId]
-
-        # 清理配对记录
-        if pair_id in self.pair_tickets:
-            del self.pair_tickets[pair_id]
-        if pair_id in self.pair_status:
-            del self.pair_status[pair_id]
-
-        self.algorithm.Debug(f"[TicketsManager] {pair_id} 已清理完成订单记录", 2)
-
-
-    def get_status_summary(self) -> dict:
-        """
-        获取当前订单状态摘要
-
-        用于调试和监控
-
-        Returns:
-            {
-                "total_pairs": 总配对数,
-                "pending": PENDING数量,
-                "completed": COMPLETED数量,
-                "anomaly": ANOMALY数量
-            }
-        """
-        total = len(self.pair_status)
-        pending = sum(1 for s in self.pair_status.values() if s == "PENDING")
-        completed = sum(1 for s in self.pair_status.values() if s == "COMPLETED")
-        anomaly = len(self.anomaly_pairs)
-
         return {
-            "total_pairs": total,
-            "pending": pending,
-            "completed": completed,
-            "anomaly": anomaly
+            pair_id for pair_id in self.pair_tickets.keys()
+            if self.get_pair_status(pair_id) == "ANOMALY"
         }

@@ -78,6 +78,14 @@ class Pairs:
         self.creation_time = algorithm.Time                                    # 首次创建时间
         self.reactivation_count = 0                                            # 重新激活次数(配对消失又出现)
 
+        # === 时间追踪 ===
+        self.position_opened_time = None                                       # 开仓时间(双腿都成交的时刻)
+        self.position_closed_time = None                                       # 平仓时间(双腿都成交的时刻)
+
+        # === 持仓追踪(OrderTicket-based,避免Portfolio全局查询混淆) ===
+        self.tracked_qty1 = 0                                                  # 配对专属持仓追踪(symbol1)
+        self.tracked_qty2 = 0                                                  # 配对专属持仓追踪(symbol2)
+
 
     def update_params(self, new_pair):
         """
@@ -96,6 +104,42 @@ class Pairs:
         # 记录重新激活
         self.reactivation_count += 1
         self.algorithm.Debug(f"[Pairs] {self.pair_id} 重新激活,第{self.reactivation_count}次", 2)
+
+
+    def on_position_filled(self, action: str, fill_time, tickets):
+        """
+        订单成交回调(由TicketsManager调用)
+
+        触发时机: TicketsManager检测到配对的所有订单都已Filled时
+
+        Args:
+            action: OrderAction.OPEN 或 OrderAction.CLOSE
+            fill_time: 最后一条腿成交的时间(确保两腿都已成交)
+            tickets: List[OrderTicket] 成交的订单票据列表,用于提取实际成交数量
+        """
+        if action == OrderAction.OPEN:
+            self.position_opened_time = fill_time
+
+            # 从OrderTicket提取实际成交数量并更新tracked_qty
+            for ticket in tickets:
+                if ticket is not None and ticket.Status == OrderStatus.Filled:
+                    if ticket.Symbol == self.symbol1:
+                        self.tracked_qty1 = ticket.QuantityFilled
+                    elif ticket.Symbol == self.symbol2:
+                        self.tracked_qty2 = ticket.QuantityFilled
+
+            self.algorithm.Debug(
+                f"[Pairs.callback] {self.pair_id} 双腿开仓完成 "
+                f"时间:{fill_time} 数量:({self.tracked_qty1:+.0f}/{self.tracked_qty2:+.0f})", 2
+            )
+        elif action == OrderAction.CLOSE:
+            self.position_closed_time = fill_time
+            # 平仓后清零tracked_qty
+            self.tracked_qty1 = 0
+            self.tracked_qty2 = 0
+            self.algorithm.Debug(
+                f"[Pairs.callback] {self.pair_id} 双腿平仓完成 时间:{fill_time}", 2
+            )
 
 
     # ===== 2. 交易信号生成 =====
@@ -181,15 +225,25 @@ class Pairs:
     def get_position_info(self) -> Dict:
         """
         获取完整的持仓信息(一次获取,避免重复查询)
+        使用tracked_qty避免Portfolio全局查询混淆
+
         返回所有持仓相关信息
         """
         portfolio = self.algorithm.Portfolio
 
-        # 一次性获取所有需要的数据
-        qty1 = portfolio[self.symbol1].Quantity
-        qty2 = portfolio[self.symbol2].Quantity
-        value1 = abs(portfolio[self.symbol1].HoldingsValue) if qty1 != 0 else 0
-        value2 = abs(portfolio[self.symbol2].HoldingsValue) if qty2 != 0 else 0
+        # 使用配对专属的tracked_qty(从OrderTicket提取的实际成交数量)
+        qty1 = self.tracked_qty1
+        qty2 = self.tracked_qty2
+
+        # 市值仍需从Portfolio获取(需要当前价格)
+        if qty1 != 0:
+            value1 = abs(qty1 * portfolio[self.symbol1].Price)
+        else:
+            value1 = 0
+        if qty2 != 0:
+            value2 = abs(qty2 * portfolio[self.symbol2].Price)
+        else:
+            value2 = 0
 
         # 统一判断持仓模式(整合状态+方向)
         if qty1 == 0 and qty2 == 0:
@@ -367,48 +421,6 @@ class Pairs:
         return tickets if tickets else None
 
 
-    def adjust_position(self, target_ratio: float) -> bool:
-        """
-        调整持仓到目标比例
-        target_ratio: 目标持仓比例 (1.0=保持不变, 0.5=减半, 2.0=翻倍)
-        """
-        # 参数验证
-        if target_ratio <= 0:
-            self.algorithm.Debug(f"[Pairs.adjust] {self.pair_id} 无效的目标比例: {target_ratio}", 1)
-            return False
-
-        info = self.get_position_info()
-
-        # 只有正常持仓才能调整
-        if info['position_mode'] not in [PositionMode.LONG_SPREAD, PositionMode.SHORT_SPREAD]:
-            return False
-
-        # 计算调整数量 (target_ratio - 1 表示变化比例)
-        # 正数表示加仓,负数表示减仓
-        adjust_qty1 = int(info['qty1'] * (target_ratio - 1))
-        adjust_qty2 = int(info['qty2'] * (target_ratio - 1))
-
-        # 执行调整
-        if adjust_qty1 != 0:
-            self.algorithm.MarketOrder(self.symbol1, adjust_qty1)
-        if adjust_qty2 != 0:
-            self.algorithm.MarketOrder(self.symbol2, adjust_qty2)
-
-        # 改进的Debug信息
-        if target_ratio < 1:
-            action = f"减仓{(1-target_ratio)*100:.1f}%"
-        elif target_ratio > 1:
-            action = f"加仓{(target_ratio-1)*100:.1f}%"
-        else:
-            action = "保持不变"
-
-        # 获取方向描述
-        direction_desc = "做多价差" if info['position_mode'] == PositionMode.LONG_SPREAD else "做空价差"
-        self.algorithm.Debug(f"[Pairs.adjust] {self.pair_id} {direction_desc} {action}", 1)
-
-        return True
-
-
     # ===== 5. 保证金计算 (新架构) =====
 
     def calculate_values_from_margin(self, margin_allocated: float, signal: str, data):
@@ -492,30 +504,31 @@ class Pairs:
 
     def check_position_integrity(self):
         """
-        检查持仓完整性
+        检查持仓完整性(复用get_position_info避免重复查询)
 
         返回:
             (is_valid: bool, error_msg: str)
         """
-        pos1 = self.algorithm.Portfolio[self.symbol1].Quantity
-        pos2 = self.algorithm.Portfolio[self.symbol2].Quantity
+        # 复用现有方法获取持仓状态
+        info = self.get_position_info()
+        mode = info['position_mode']
 
-        # 无持仓,正常
-        if pos1 == 0 and pos2 == 0:
+        # 场景1: 无持仓 → 正常
+        if mode == PositionMode.NONE:
             return True, ""
 
-        # 单边持仓
-        if (pos1 != 0 and pos2 == 0) or (pos1 == 0 and pos2 != 0):
-            return False, f"单边持仓: {self.symbol1}={pos1}, {self.symbol2}={pos2}"
+        # 场景2: 单边持仓异常
+        if mode in [PositionMode.PARTIAL_LEG1, PositionMode.PARTIAL_LEG2]:
+            return False, f"单边持仓: {self.symbol1}={info['qty1']}, {self.symbol2}={info['qty2']}"
 
-        # 同方向持仓 (应该一多一空)
-        if pos1 * pos2 > 0:
-            return False, f"持仓方向错误: {self.symbol1}={pos1}, {self.symbol2}={pos2}"
+        # 场景3: 同向持仓异常
+        if mode == PositionMode.ANOMALY_SAME:
+            return False, f"持仓方向错误: {self.symbol1}={info['qty1']}, {self.symbol2}={info['qty2']}"
 
-        # 检查持仓比例
+        # 场景4: 正常持仓,检查比例(仅针对LONG_SPREAD/SHORT_SPREAD)
         expected_ratio = abs(self.beta_mean)
-        actual_ratio = abs(pos2 / pos1) if pos1 != 0 else 0
-        ratio_error = abs(actual_ratio - expected_ratio) / expected_ratio
+        actual_ratio = abs(info['qty2'] / info['qty1']) if info['qty1'] != 0 else 0
+        ratio_error = abs(actual_ratio - expected_ratio) / expected_ratio if expected_ratio > 0 else 0
 
         if ratio_error > 0.20:  # 20%容差
             return False, (
@@ -563,64 +576,13 @@ class Pairs:
     # ===== 7. 时间追踪 =====
 
     def get_entry_time(self):
-        """获取最近的入场时间"""
-        return self._get_order_time(OrderAction.OPEN)
+        """获取最近的入场时间(双腿都成交的时刻)"""
+        return self.position_opened_time
 
 
     def get_exit_time(self):
-        """获取最近的退出时间"""
-        return self._get_order_time(OrderAction.CLOSE)
-
-
-    def _get_order_time(self, action_type: str):
-        """
-        内部方法:获取指定类型的订单时间
-        action_type: OrderAction.OPEN 或 OrderAction.CLOSE
-        """
-        # 查询指定类型的订单
-        orders = self.algorithm.Transactions.GetOrders(
-            lambda x: str(self.pair_id) in x.Tag
-                     and action_type in x.Tag
-                     and x.Status == OrderStatus.Filled
-        )
-
-        if not orders:
-            return None
-
-        # 转换为Python列表后再排序
-        orders = list(orders)
-        orders.sort(key=lambda x: x.Time, reverse=True)
-
-        # 确保两腿都成交,取较晚的时间
-        latest_pair_time = None
-
-        # 步骤1: 按日期分组订单,提高查找效率
-        orders_by_date = {}
-        for order in orders:
-            # 从Tag中提取日期部分: "pair_id_ACTION_20250101" -> "20250101"
-            date = order.Tag.split('_')[-1]
-            if date not in orders_by_date:
-                orders_by_date[date] = []
-
-            # orders_by_date = {'20250101': [order1, order2, order3],  # 该日期的所有订单对象列表
-                               #'20250102': ......
-            orders_by_date[date].append(order)
-
-        # 步骤2: 按日期倒序处理(最新日期优先)
-        for date in sorted(orders_by_date.keys(), reverse=True):
-            # 获取该日期的所有订单
-            same_date_orders = orders_by_date[date]
-
-            # 检查该日期是否同时有两个symbol的订单
-            has_symbol1 = any(o.Symbol == self.symbol1 for o in same_date_orders)
-            has_symbol2 = any(o.Symbol == self.symbol2 for o in same_date_orders)
-
-            if has_symbol1 and has_symbol2:
-                # 两腿都有订单,找到这组订单的最晚时间
-                latest_pair_time = max(o.Time for o in same_date_orders)
-                break
-
-        return latest_pair_time
+        """获取最近的退出时间(双腿都成交的时刻)"""
+        return self.position_closed_time
 
 
     # ===== 8. 辅助方法 =====
