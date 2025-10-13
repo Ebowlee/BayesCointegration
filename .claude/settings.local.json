@@ -37,7 +37,10 @@
       "mcp__quantconnect__list_backtests",
       "mcp__quantconnect__list_projects",
       "Bash(lean cloud backtest:*)",
-      "Bash(lean cloud pull:*)"
+      "Bash(lean cloud pull:*)",
+      "Bash(cat:*)",
+      "Bash(awk:*)",
+      "Bash(find:*)"
     ],
     "deny": []
   },
