@@ -218,9 +218,7 @@ class TicketsManager:
         # 详细日志(level=2)
         self.algorithm.Debug(
             f"[OOE] {pair_id} OrderId={order_id} "
-            f"Status={event.Status} → 配对状态:{current_status}",
-            2
-        )
+            f"Status={event.Status} → 配对状态:{current_status}")
 
         # 关键状态变化(level=1)
         if current_status == "COMPLETED":
@@ -240,8 +238,7 @@ class TicketsManager:
                 pairs_obj.on_position_filled(action, fill_time, tickets)
 
             self.algorithm.Debug(
-                f"[OOE] {pair_id} 订单全部成交,配对解锁", 1
-            )
+                f"[OOE] {pair_id} 订单全部成交,配对解锁")
         elif current_status == "ANOMALY":
             self.algorithm.Debug(
                 f"[OOE] {pair_id} 订单异常({event.Status}),需风控介入", 1

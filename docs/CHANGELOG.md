@@ -4,6 +4,63 @@
 
 ---
 
+## [v6.4.7_日志系统精简@20250131]
+
+### 核心变更
+**日志系统全面简化**: 从3级debug系统简化为二元开关,删除约79%的日志调用(99处→20处)
+
+### 详细修改
+
+#### 1. 配置简化 (src/config.py)
+```python
+# 修改前: 3级系统
+'debug_level': 2,  # 0=静默, 1=关键信息, 2=详细信息
+
+# 修改后: 二元开关
+'debug_mode': False,  # True=开发调试, False=生产运行
+```
+
+#### 2. Debug方法重构 (main.py)
+```python
+# 修改前: 支持分级控制
+def Debug(self, message: str, level: int = 2):
+    if level <= self.debug_level:
+        QCAlgorithm.Debug(self, message)
+
+# 修改后: 简单开关
+def Debug(self, message: str):
+    if self.debug_mode:
+        QCAlgorithm.Debug(self, message)
+```
+
+#### 3. 日志精简统计
+- **main.py**: 56处 → 8处 (删除48处)
+  - 删除: OnData入口Portfolio状态、分析步骤详情、保证金追踪
+  - 保留: 初始化完成、配对分析完成、交易动作(开仓/平仓/止损)、订单异常
+
+- **src/Pairs.py**: 15处 → 5处 (删除10处)
+  - 删除: 重新激活计数、持仓成交回调、开仓详情(保证金/Beta/数量)、Portfolio状态追踪
+  - 保留: 持仓异常(单边/同向)、开仓失败(价格/市值/数量异常)
+
+- **其他模块**: PairsManager.py、TicketsManager.py、PairSelector.py
+  - 删除所有level参数(, 1)和(, 2)
+
+#### 4. 文档更新
+- **CLAUDE.md**: 更新日志约定说明,反映新的二元系统
+- **代码诊断修复**: main.py:209 unused variable 'score' → '_'
+
+### 优化效果
+1. **代码更简洁**: 移除约79%的Debug调用
+2. **系统更简单**: 从3级系统简化为True/False开关
+3. **日志更聚焦**: 只保留可操作信息(交易、异常、风险)
+4. **维护更容易**: 统一的日志接口,无需考虑level参数
+
+### 性能影响
+- 生产环境(debug_mode=False): 大幅减少字符串构建和I/O调用
+- 开发环境(debug_mode=True): 仍可看到所有保留的关键日志
+
+---
+
 ## [v6.4.6_代码瘦身与性能优化@20250131]
 
 ### 核心变更

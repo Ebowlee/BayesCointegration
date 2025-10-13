@@ -381,16 +381,16 @@ except Exception as e:
 
 ### Logging Convention
 ```python
-self.algorithm.Debug(f"[ModuleName] Description: value", level)
+self.algorithm.Debug(f"[ModuleName] Description: value")
 # Examples:
-# [UniverseSelection] 选股日, 共选出: 45
-# [开仓] #1 (AAPL, MSFT) 保证金:10000 质量:0.856
-# [OOE] (AAPL, MSFT) OrderId=123 OrderStatus=Filled → 配对状态:COMPLETED
+# [配对分析] 完成: 创建3个新配对, 共管理8个配对
+# [开仓] 成功开仓2/3个配对
+# [平仓] (AAPL, MSFT) Z-score回归
+# [持仓异常] (AAPL, MSFT) 单边持仓LEG1: qty1=100
 
-# Debug levels:
-# 0 - Silent (no output)
-# 1 - Critical (trades, risk triggers, errors)
-# 2 - Detailed (analysis process, statistics)
+# Debug mode: Controlled via config.py main['debug_mode']
+# - True: All debug logs are printed (development/testing)
+# - False: Only logs when debug_mode=True (production - currently all logs shown when enabled)
 ```
 
 ### Order Lock Check Pattern (Critical for v6.4.4)

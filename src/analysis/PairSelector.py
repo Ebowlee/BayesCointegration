@@ -162,7 +162,7 @@ class PairSelector:
                 return 0  # 明确的失败信号
 
         except Exception as e:
-            self.algorithm.Debug(f"[PairSelector] 半衰期计算失败: {e}", 2)
+            self.algorithm.Debug(f"[PairSelector] 半衰期计算失败: {e}")
             return 0  # 异常返回0分
 
 
@@ -195,7 +195,7 @@ class PairSelector:
             return self._linear_interpolate(volatility_ratio, optimal_ratio, max_ratio, 0.0, 1.0)
 
         except Exception as e:
-            self.algorithm.Debug(f"[PairSelector] 波动率比率计算失败: {e}", 2)
+            self.algorithm.Debug(f"[PairSelector] 波动率比率计算失败: {e}")
             return 0  # 异常返回0分
 
 
@@ -224,5 +224,5 @@ class PairSelector:
             return liquidity_score
 
         except Exception as e:
-            self.algorithm.Debug(f"[PairSelector] 流动性计算失败: {e}", 2)
+            self.algorithm.Debug(f"[PairSelector] 流动性计算失败: {e}")
             return 0  # 异常返回0分

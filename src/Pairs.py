@@ -103,7 +103,6 @@ class Pairs:
 
         # 记录重新激活
         self.reactivation_count += 1
-        self.algorithm.Debug(f"[Pairs] {self.pair_id} 重新激活,第{self.reactivation_count}次", 2)
 
 
     def on_position_filled(self, action: str, fill_time, tickets):
@@ -128,18 +127,11 @@ class Pairs:
                     elif ticket.Symbol == self.symbol2:
                         self.tracked_qty2 = ticket.QuantityFilled
 
-            self.algorithm.Debug(
-                f"[Pairs.callback] {self.pair_id} 双腿开仓完成 "
-                f"时间:{fill_time} 数量:({self.tracked_qty1:+.0f}/{self.tracked_qty2:+.0f})", 2
-            )
         elif action == OrderAction.CLOSE:
             self.position_closed_time = fill_time
             # 平仓后清零tracked_qty
             self.tracked_qty1 = 0
             self.tracked_qty2 = 0
-            self.algorithm.Debug(
-                f"[Pairs.callback] {self.pair_id} 双腿平仓完成 时间:{fill_time}", 2
-            )
 
 
     # ===== 2. 交易信号生成 =====
@@ -254,16 +246,13 @@ class Pairs:
             position_mode = PositionMode.SHORT_SPREAD
         elif qty1 != 0 and qty2 == 0:
             position_mode = PositionMode.PARTIAL_LEG1
-            self.algorithm.Debug(f"[Pairs.WARNING] {self.pair_id} 单边持仓LEG1: qty1={qty1:+.0f}", 1)
+            self.algorithm.Debug(f"[持仓异常] {self.pair_id} 单边持仓LEG1: qty1={qty1:+.0f}")
         elif qty1 == 0 and qty2 != 0:
             position_mode = PositionMode.PARTIAL_LEG2
-            self.algorithm.Debug(f"[Pairs.WARNING] {self.pair_id} 单边持仓LEG2: qty2={qty2:+.0f}", 1)
+            self.algorithm.Debug(f"[持仓异常] {self.pair_id} 单边持仓LEG2: qty2={qty2:+.0f}")
         else:  # 同向持仓
             position_mode = PositionMode.ANOMALY_SAME
-            self.algorithm.Debug(
-                f"[Pairs.WARNING] {self.pair_id} 同向交易异常! "
-                f"qty1={qty1:+.0f}, qty2={qty2:+.0f}", 1
-            )
+            self.algorithm.Debug(f"[持仓异常] {self.pair_id} 同向持仓: qty1={qty1:+.0f}, qty2={qty2:+.0f}")
 
         return {'position_mode': position_mode, 'qty1': qty1, 'qty2': qty2, 'value1': value1, 'value2': value2}
 
@@ -311,13 +300,13 @@ class Pairs:
         value1, value2 = self.calculate_values_from_margin(margin_allocated, signal, data)
 
         if value1 is None or value2 is None:
-            self.algorithm.Debug(f"[Pairs.open] {self.pair_id} 无法计算市值,跳过开仓", 1)
+            self.algorithm.Debug(f"[开仓失败] {self.pair_id} 无法计算市值")
             return None
 
         # 获取当前价格
         prices = self.get_price(data)
         if prices is None:
-            self.algorithm.Debug(f"[Pairs.open] {self.pair_id} 无法获取价格,跳过开仓", 1)
+            self.algorithm.Debug(f"[开仓失败] {self.pair_id} 无法获取价格")
             return None
         price1, price2 = prices
 
@@ -333,19 +322,8 @@ class Pairs:
 
         # 检查计算出的数量是否有效
         if qty1 == 0 or qty2 == 0:
-            self.algorithm.Debug(f"[Pairs.open] {self.pair_id} 计算数量为0,跳过开仓", 1)
+            self.algorithm.Debug(f"[开仓失败] {self.pair_id} 计算数量为0")
             return None
-
-        # 验证数量配比 (调试用)
-        actual_ratio = abs(qty1 / qty2) if qty2 != 0 else 0
-        expected_ratio = abs(self.beta_mean)
-        if expected_ratio > 0:
-            ratio_error = abs(actual_ratio - expected_ratio) / expected_ratio
-            if ratio_error > 0.05:  # 配比偏差>5%时警告
-                self.algorithm.Debug(
-                    f"[Pairs.open] {self.pair_id} 数量配比偏差: "
-                    f"期望{expected_ratio:.3f}, 实际{actual_ratio:.3f}, 偏差{ratio_error:.1%}", 2
-                )
 
         # 创建订单Tag
         tag = self.create_order_tag(OrderAction.OPEN)
@@ -353,15 +331,6 @@ class Pairs:
         # 执行下单并收集OrderTicket
         ticket1 = self.algorithm.MarketOrder(self.symbol1, qty1, tag=tag)
         ticket2 = self.algorithm.MarketOrder(self.symbol2, qty2, tag=tag)
-
-        # 记录开仓信息
-        self.algorithm.Debug(
-            f"[Pairs.open] {self.pair_id} {signal} "
-            f"保证金:{margin_allocated:.0f} "
-            f"市值:({value1:.0f}/{value2:.0f}) "
-            f"数量:({qty1:+d}/{qty2:+d}) "
-            f"Beta:{self.beta_mean:.3f}", 1
-        )
 
         # 返回订单票据列表
         return [ticket1, ticket2]
@@ -383,20 +352,12 @@ class Pairs:
 
         # 如果没有持仓,直接返回
         if qty1 == 0 and qty2 == 0:
-            self.algorithm.Debug(f"[Pairs.close] {self.pair_id} 无持仓,跳过平仓", 1)
             return None
-
-        # === DEBUG: 平仓前Portfolio状态 ===
-        portfolio = self.algorithm.Portfolio
-        margin_before = portfolio.MarginRemaining
-        total_value_before = portfolio.TotalPortfolioValue
-        margin_used_before = portfolio.TotalMarginUsed
 
         # 创建平仓Tag
         tag = self.create_order_tag(OrderAction.CLOSE)
 
         # 使用MarketOrder平仓(支持tag参数)
-        # Liquidate不支持tag参数,必须用MarketOrder
         # 收集实际提交的订单票据
         tickets = []
         if qty1 != 0:
@@ -405,17 +366,6 @@ class Pairs:
         if qty2 != 0:
             ticket2 = self.algorithm.MarketOrder(self.symbol2, -qty2, tag=tag)
             tickets.append(ticket2)
-
-        # === DEBUG: 平仓后Portfolio状态(订单提交后立即检查) ===
-        margin_after = portfolio.MarginRemaining
-        total_value_after = portfolio.TotalPortfolioValue
-        margin_used_after = portfolio.TotalMarginUsed
-
-        # 记录平仓信息
-        self.algorithm.Debug(
-            f"[Pairs.close] {self.pair_id} 执行平仓 "
-            f"持仓:({qty1:.0f}/{qty2:.0f})", 1
-        )
 
         # 返回订单票据列表
         return tickets if tickets else None
@@ -457,7 +407,7 @@ class Pairs:
 
         # 避免除零
         if price_A <= 0 or price_B <= 0:
-            self.algorithm.Debug(f"[Pairs.calc] {self.pair_id} 价格异常: A={price_A}, B={price_B}", 1)
+            self.algorithm.Debug(f"[计算失败] {self.pair_id} 价格异常: A={price_A}, B={price_B}")
             return None, None
 
         beta = abs(self.beta_mean) if abs(self.beta_mean) != 0 else 1
@@ -492,9 +442,7 @@ class Pairs:
 
         # 安全检查: 保证金分配合理性
         if X <= 0 or Y <= 0:
-            self.algorithm.Debug(
-                f"[Pairs.calc] {self.pair_id} 保证金分配异常: X={X:.2f}, Y={Y:.2f}", 1
-            )
+            self.algorithm.Debug(f"[计算失败] {self.pair_id} 保证金分配异常: X={X:.2f}, Y={Y:.2f}")
             return None, None
 
         return value_A, value_B

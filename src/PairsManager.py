@@ -51,11 +51,11 @@ class PairsManager:
             if pair_id in self.all_pairs:
                 # 已存在的配对:直接传递new_pair对象更新参数
                 self.all_pairs[pair_id].update_params(new_pair)
-                self.algorithm.Debug(f"[PairsManager] 更新配对 {pair_id}", 2)
+                self.algorithm.Debug(f"[PairsManager] 更新配对 {pair_id}")
             else:
                 # 新配对:直接添加
                 self.all_pairs[pair_id] = new_pair
-                self.algorithm.Debug(f"[PairsManager] 添加新配对 {pair_id}", 2)
+                self.algorithm.Debug(f"[PairsManager] 添加新配对 {pair_id}")
 
         # 第二步:重新分类所有配对
         self.reclassify_pairs(current_pair_ids)
