@@ -215,5 +215,5 @@ class PairsManager:
             f"活跃={len(self.active_ids)}, "
             f"遗留={len(self.legacy_ids)}, "
             f"休眠={len(self.dormant_ids)}, "
-            f"总计={len(self.all_pairs)}", 2
+            f"总计={len(self.all_pairs)}"
         )
