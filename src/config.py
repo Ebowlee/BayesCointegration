@@ -10,7 +10,7 @@ class StrategyConfig:
     def __init__(self):
         # ========== 主程序配置 ==========
         self.main = {
-            'start_date': (2024, 6, 20),
+            'start_date': (2023, 9, 20),
             'end_date': (2024, 9, 20),
             'cash': 100000,
             'resolution': Resolution.Daily,
