@@ -261,7 +261,7 @@ class SectorBasedUniverseSelection(FineFundamentalUniverseSelectionModel):
     def _log_selection_results(self, initial_count: int, final_stocks: List[FineFundamental],
                               financial_stats: Dict[str, int], volatility_stats: Dict[str, int]):
         """输出选股统计信息"""
-        if not self.algorithm.debug_level:  # 0=不输出
+        if not self.algorithm.debug_mode:  # False=不输出
             return
 
         # 计算各阶段数量

@@ -4,6 +4,49 @@
 
 ---
 
+## [v6.4.9_修复debug_level遗漏引用@20250131]
+
+### Bug修复
+**修复v6.4.7遗漏**: UniverseSelection.py中仍引用旧的`debug_level`属性,导致回测运行时错误
+
+### 问题详情
+- **错误类型**: `AttributeError: 'BayesianCointegrationStrategy' object has no attribute 'debug_level'`
+- **错误位置**: `UniverseSelection.py:264` (_log_selection_results方法)
+- **触发条件**: 月初选股日志输出时 (MonthStart schedule触发)
+- **影响范围**: 所有回测在月初时会中断
+
+### 根本原因
+v6.4.7将`debug_level`(0/1/2)改为`debug_mode`(True/False)时,遗漏了UniverseSelection.py的修改:
+- 已修改: main.py, config.py, Pairs.py等8个文件
+- 遗漏: UniverseSelection.py:264
+
+**为什么现在才发现**:
+- 3个月回测触发选股3次,可能未运行到此代码路径
+- 扩展到12个月后,月初触发12次,暴露了这个bug
+
+### 修复内容
+```python
+# 修改前
+if not self.algorithm.debug_level:  # 0=不输出
+    return
+
+# 修改后
+if not self.algorithm.debug_mode:  # False=不输出
+    return
+```
+
+### 逻辑验证
+- 旧逻辑: `not 0` = True → 跳过日志 ✅
+- 新逻辑: `not False` = True → 跳过日志 ✅
+- 语义一致,行为相同
+
+### 版本关联
+- **关联版本**: v6.4.7 (日志系统精简)
+- **修复范围**: 最后一处debug_level引用
+- **验证方法**: `grep -r "debug_level" src/` 返回空结果
+
+---
+
 ## [v6.4.8_回测周期扩展@20250131]
 
 ### 核心变更
