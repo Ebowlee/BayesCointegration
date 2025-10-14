@@ -44,7 +44,7 @@ class BayesianModeler:
         # 记录清理情况
         if pairs_to_remove:
             self.algorithm.Debug(
-                f"[BayesianModeler] 清理了{len(pairs_to_remove)}个过期的历史后验记录", 2
+                f"[BayesianModeler] 清理了{len(pairs_to_remove)}个过期的历史后验记录"
             )
 
 
@@ -110,7 +110,7 @@ class BayesianModeler:
             return result
 
         except Exception as e:
-            self.algorithm.Debug(f"[BayesianModeler] 建模失败 {symbol1.Value}&{symbol2.Value}: {str(e)}", 2)
+            self.algorithm.Debug(f"[BayesianModeler] 建模失败 {symbol1.Value}&{symbol2.Value}: {str(e)}")
             return None
 
 
@@ -258,5 +258,5 @@ class BayesianModeler:
 
         self.algorithm.Debug(
             f"[BayesianModeler] 建模完成: 成功{successful}对, 失败{failed}对 "
-            f"(完全建模{full}对, 动态更新{dynamic}对)", 2
+            f"(完全建模{full}对, 动态更新{dynamic}对)"
         )

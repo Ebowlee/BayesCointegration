@@ -50,7 +50,7 @@ class CointegrationAnalyzer:
         if all_cointegrated_pairs:
             self.algorithm.Debug(
                 f"[CointegrationAnalyzer] 发现{len(all_cointegrated_pairs)}个协整对 "
-                f"(测试{statistics['total_pairs_tested']}对)", 2
+                f"(测试{statistics['total_pairs_tested']}对)"
             )
 
         return {

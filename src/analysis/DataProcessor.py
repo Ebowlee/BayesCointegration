@@ -69,7 +69,7 @@ class DataProcessor:
             return symbol_ohlcv
 
         except Exception as e:
-            self.algorithm.Debug(f"[DataProcessor] 处理{symbol.Value}失败: {str(e)}", 2)
+            self.algorithm.Debug(f"[DataProcessor] 处理{symbol.Value}失败: {str(e)}")
             statistics['data_missing'] += 1
             return None
 
@@ -82,7 +82,7 @@ class DataProcessor:
         try:
             return self.algorithm.History(symbols, self.lookback_days, Resolution.Daily)
         except Exception as e:
-            self.algorithm.Debug(f"[DataProcessor] OHLCV数据下载失败: {str(e)}", 1)
+            self.algorithm.Debug(f"[DataProcessor] OHLCV数据下载失败: {str(e)}")
             return None
 
 
@@ -128,5 +128,5 @@ class DataProcessor:
         ]
 
         self.algorithm.Debug(
-            f"[DataProcessor] 数据处理: {stats['total']}→{stats['final_valid']}只 ({', '.join(failure_reasons)})", 2
+            f"[DataProcessor] 数据处理: {stats['total']}→{stats['final_valid']}只 ({', '.join(failure_reasons)})"
         )

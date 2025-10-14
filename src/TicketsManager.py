@@ -154,8 +154,7 @@ class TicketsManager:
         # 简化日志
         self.algorithm.Debug(
             f"[TM注册] {pair_id} {action} {len(tickets)}个订单 "
-            f"状态:{self.get_pair_status(pair_id)}",
-            2
+            f"状态:{self.get_pair_status(pair_id)}"
         )
 
 
@@ -241,7 +240,7 @@ class TicketsManager:
                 f"[OOE] {pair_id} 订单全部成交,配对解锁")
         elif current_status == "ANOMALY":
             self.algorithm.Debug(
-                f"[OOE] {pair_id} 订单异常({event.Status}),需风控介入", 1
+                f"[OOE] {pair_id} 订单异常({event.Status}),需风控介入"
             )
 
 
@@ -263,7 +262,7 @@ class TicketsManager:
             # 在OnOrderEvent后检查
             anomaly_pairs = self.tickets_manager.get_anomaly_pairs()
             for pair_id in anomaly_pairs:
-                self.Debug(f"[订单异常] {pair_id} 检测到单腿失败", 1)
+                self.Debug(f"[订单异常] {pair_id} 检测到单腿失败")
                 # 风控模块会通过check_position_anomaly()处理
         """
         return {

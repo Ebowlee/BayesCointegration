@@ -4,6 +4,83 @@
 
 ---
 
+## [v6.4.10_完成Debug参数清理@20250131]
+
+### Bug修复
+**修复v6.4.7遗漏**: 清理analysis模块和TicketsManager中残留的Debug level参数
+
+### 问题详情
+- **错误类型**: `Debug() takes 2 positional arguments but 3 were given`
+- **错误位置**: `DataProcessor.py:130` (_log_statistics方法)
+- **触发条件**: 证券变更时数据处理日志输出
+- **影响范围**: 所有回测在证券变更后会中断
+
+### 根本原因
+v6.4.7将Debug方法从`Debug(message, level=2)`简化为`Debug(message)`时:
+- 使用Python脚本批量删除了固定参数形式 (`, 1)`, `, 2`)
+- 但**遗漏了analysis模块和TicketsManager**,可能因为:
+  - 多行Debug调用的regex模式未匹配
+  - analysis模块在深层函数中,触发频率低,测试未覆盖
+
+**为什么v6.4.9后仍有遗漏**:
+- v6.4.9只修复了UniverseSelection中的`debug_level`属性引用
+- 未系统性搜索所有Debug调用的level参数传递
+- 12个月回测触发更多代码路径,最终暴露了这些遗漏
+
+### 修复范围
+
+| 文件 | 修复数量 | 行号 | 类型 |
+|------|---------|------|------|
+| **DataProcessor.py** | 3处 | 72, 85, 131 | 单行×2 + 多行×1 |
+| **CointegrationAnalyzer.py** | 1处 | 53 | 多行 |
+| **BayesianModeler.py** | 3处 | 47, 113, 261 | 多行×2 + 单行×1 |
+| **TicketsManager.py** | 3处 | 158, 244, 266 | 多行×2 + 注释×1 |
+| **合计** | **10处** | - | - |
+
+### 修复示例
+
+```python
+# 单行Debug调用
+# 修改前
+self.algorithm.Debug(f"[DataProcessor] 处理失败: {e}", 2)
+# 修改后
+self.algorithm.Debug(f"[DataProcessor] 处理失败: {e}")
+
+# 多行Debug调用
+# 修改前
+self.algorithm.Debug(
+    f"[DataProcessor] 数据处理: {stats['total']}→{stats['final_valid']}只", 2
+)
+# 修改后
+self.algorithm.Debug(
+    f"[DataProcessor] 数据处理: {stats['total']}→{stats['final_valid']}只"
+)
+```
+
+### 验证结果
+```bash
+# 1. 验证无遗漏的level参数
+grep -r "\.Debug\(.*,\s*\d\+\s*\)" src/
+# → 无结果 ✅
+
+# 2. 验证无debug_level引用
+grep -r "debug_level" src/
+# → 无结果 ✅
+```
+
+### 关联版本历史
+- **v6.4.7** (Jan 31): 日志系统精简 - 首次修改,遗漏analysis模块和TicketsManager
+- **v6.4.9** (Jan 31): 修复UniverseSelection的debug_level属性引用
+- **v6.4.10** (Jan 31): 完成所有Debug参数清理 - **最终修复** ✅
+
+### 工程教训
+1. ✅ **全面搜索**: 必须使用多种模式(单行/多行/变量传递)搜索所有引用
+2. ✅ **回归测试**: 扩展回测周期能暴露更多代码路径中的隐藏bug
+3. ✅ **系统性验证**: 修复后使用grep全面验证,确保无遗漏
+4. ✅ **文档完整**: 记录修复历史,便于追踪多轮修复的关联关系
+
+---
+
 ## [v6.4.9_修复debug_level遗漏引用@20250131]
 
 ### Bug修复
