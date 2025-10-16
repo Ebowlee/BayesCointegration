@@ -4,6 +4,182 @@
 
 ---
 
+## [v6.6.0_Pair层面风控三规则体系@20250217]
+
+### 版本定义
+**里程碑版本**: 完整的Pair层面风控体系,配对专属PnL计算突破
+
+本版本实现了完整的三层风控架构:
+- ✅ **Portfolio层面**: AccountBlowup + ExcessiveDrawdown
+- ✅ **Market层面**: MarketCondition (开仓控制)
+- ✅ **Pair层面**: PositionAnomaly + HoldingTimeout + PairDrawdown (本版本重点)
+
+### 核心功能
+
+#### 1. Pair层面风控规则体系
+
+**PositionAnomalyRule (优先级100)**
+- **检测内容**: 单边持仓(PARTIAL_LEG1/LEG2) + 同向持仓(ANOMALY_SAME)
+- **触发条件**: pair.has_anomaly()返回True
+- **响应动作**: pair_close
+- **设计特点**: 最高优先级,异常必须立即处理
+- **回测表现**: 0次触发(符合预期,回测环境订单执行完美)
+
+**HoldingTimeoutRule (优先级60)**
+- **检测内容**: 持仓超时检测
+- **触发条件**: 持仓天数 > 30天
+- **响应动作**: pair_close
+- **设计特点**: 防止长期持仓,避免资金占用
+- **回测表现**: 11次触发 (68.8%),主要风控手段
+
+**PairDrawdownRule (优先级50)**
+- **检测内容**: 配对级别回撤
+- **触发条件**: (HWM - current_pnl) / entry_cost ≥ 阈值(5%)
+- **响应动作**: pair_close
+- **设计特点**: HWM追踪盈利峰值,保护已有盈利
+- **回测表现**: 5次触发 (31.2%),包括1次盈利回撤止盈
+- **典型案例**:
+  - (CVS, GILD): 从盈利$182回撤至亏损$721,触发5.2%回撤
+  - (AMAT, NVDA): 从盈利$1,287回撤至$287,触发6.1%回撤(盈利止盈)
+
+#### 2. 配对专属PnL计算突破
+
+**技术突破**: 解决Portfolio全局查询混淆问题
+- **问题**: 如果同一symbol出现在多个配对中,Portfolio[symbol]返回全局持仓
+- **解决方案**: 配对级别独立追踪成本和价格
+
+**实现机制**:
+```python
+# Pairs.__init__新增追踪变量
+self.entry_price1 = None        # symbol1开仓均价 (OrderTicket.AverageFillPrice)
+self.entry_price2 = None        # symbol2开仓均价
+self.entry_cost = 0.0           # 配对总成本
+self.pair_hwm = 0.0             # 配对级别高水位
+
+# 配对专属PnL计算
+def get_pair_pnl(self):
+    current_value = tracked_qty1 * current_price1 + tracked_qty2 * current_price2
+    entry_value = tracked_qty1 * entry_price1 + tracked_qty2 * entry_price2
+    return current_value - entry_value  # 完全独立
+
+# 配对回撤计算
+def get_pair_drawdown(self):
+    pnl = self.get_pair_pnl()
+    if pnl > self.pair_hwm:
+        self.pair_hwm = pnl  # 自动更新高水位
+    return (self.pair_hwm - pnl) / self.entry_cost
+```
+
+**HWM生命周期管理**:
+- 开仓时: HWM=0 (起点为盈亏平衡)
+- 持仓中: 自动更新 (pnl > hwm时)
+- 平仓时: HWM=0 (清零重置)
+
+#### 3. RiskManager统一调度架构
+
+**规则注册机制**:
+- Portfolio层面规则: AccountBlowupRule(100), ExcessiveDrawdownRule(90)
+- Pair层面规则: PositionAnomalyRule(100), HoldingTimeoutRule(60), PairDrawdownRule(50)
+
+**优先级调度**:
+- 同层面内按priority降序排序
+- 返回最高优先级规则的动作
+- 不同配对的风控相互独立
+
+### 技术实现细节
+
+#### 1. 时区问题彻底解决
+- **问题**: 混用Time(timezone-aware)和UtcTime(timezone-naive)导致TypeError
+- **解决**: 全局统一使用`algorithm.UtcTime`进行时间差计算
+- **修复文件**:
+  - HoldingTimeoutRule.py: 复用pair.get_pair_holding_days()
+  - BayesianModeler.py: 三处统一改为UtcTime (Line 31, 126, 240)
+
+#### 2. DRY原则应用
+- HoldingTimeoutRule: 复用`pair.get_pair_holding_days()`
+- PositionAnomalyRule: 复用`pair.has_anomaly()`
+- PairDrawdownRule: 复用`pair.get_pair_pnl()`和`pair.get_pair_drawdown()`
+
+#### 3. 订单锁机制协同
+- Pair规则无需冷却期
+- `tickets_manager.is_pair_locked()`检查订单执行状态
+- PENDING状态的配对跳过风控检查
+
+### 测试覆盖
+
+#### 单元测试
+- **test_position_anomaly_rule.py**: 7个测试用例全部通过
+  - 单边持仓LEG1/LEG2检测
+  - 同向持仓检测
+  - 正常持仓不误报
+  - 禁用规则测试
+  - 优先级验证
+
+#### 回测验证
+- **测试周期**: 2023-09-20 至 2024-02-29 (5个月)
+- **回测ID**: Creative Fluorescent Yellow Coyote
+- **触发统计**:
+  - PositionAnomalyRule: 0次 (符合预期)
+  - HoldingTimeoutRule: 11次
+  - PairDrawdownRule: 5次 (阈值5%)
+- **验证点**:
+  - ✅ PnL计算正确性 (配对专属,无混淆)
+  - ✅ HWM追踪正确性 (峰值记录准确)
+  - ✅ 回撤公式正确性 ((HWM-PnL)/cost)
+  - ✅ 执行流程完整性 (检测→平仓→订单追踪→解锁)
+  - ✅ 盈利止盈功能 (AMAT-NVDA案例)
+
+### 架构演进
+
+#### 从v6.5.1到v6.6.0的演进路径
+```
+v6.5.1: 订单追踪基础
+  └── TicketsManager完整实现
+
+v6.5.2: Portfolio风控起步
+  └── AccountBlowupRule + 冷却期修复
+
+v6.6.0: 完整三层风控体系 (本版本)
+  ├── Portfolio层面: AccountBlowup + ExcessiveDrawdown
+  ├── Market层面: MarketCondition
+  └── Pair层面: PositionAnomaly + HoldingTimeout + PairDrawdown
+```
+
+### 文件修改清单
+
+#### 新增文件
+- `src/RiskManagement/PositionAnomalyRule.py` (126行)
+- `src/RiskManagement/HoldingTimeoutRule.py` (107行)
+- `src/RiskManagement/PairDrawdownRule.py` (135行)
+- `tests/test_position_anomaly_rule.py` (462行)
+
+#### 修改文件
+- `src/Pairs.py`: 新增成本追踪和PnL计算方法
+- `src/config.py`: pair_rules配置启用
+- `src/RiskManagement/RiskManager.py`: 三个Pair规则注册
+- `src/RiskManagement/__init__.py`: 导出规则
+- `src/analysis/BayesianModeler.py`: 时区统一修复
+
+### 配置建议
+
+#### 当前配置(回测验证)
+```python
+'pair_rules': {
+    'position_anomaly': {'enabled': True, 'priority': 100},
+    'holding_timeout': {'enabled': True, 'priority': 60, 'max_days': 30},
+    'pair_drawdown': {'enabled': True, 'priority': 50, 'threshold': 0.05}
+}
+```
+
+#### 生产环境建议
+- PairDrawdown阈值建议10-15%(当前5%过于敏感)
+
+### 相关提交
+- `3b6f930`: feat: 实现AccountBlowup风控规则并修复冷却期BUG (v6.5.2)
+- 本提交: feat: 实现完整Pair层面风控三规则体系 (v6.6.0)
+
+---
+
 ## [v6.5.1_无风控模块的已测试基线版本@20250131]
 
 ### 版本定义

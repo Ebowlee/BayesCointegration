@@ -7,6 +7,11 @@ RiskManager - 风控调度器
 from AlgorithmImports import *
 from .base import RiskRule
 from .AccountBlowupRule import AccountBlowupRule
+from .ExcessiveDrawdownRule import ExcessiveDrawdownRule
+from .MarketCondition import MarketCondition
+from .HoldingTimeoutRule import HoldingTimeoutRule
+from .PositionAnomalyRule import PositionAnomalyRule
+from .PairDrawdownRule import PairDrawdownRule
 from typing import List, Tuple, Optional
 
 
@@ -64,15 +69,19 @@ class RiskManager:
         # 注册Portfolio层面规则
         self.portfolio_rules = self._register_portfolio_rules()
 
-        # 注册Pair层面规则（暂时为空，后续步骤实现）
-        self.pair_rules = []
+        # 注册Pair层面规则
+        self.pair_rules = self._register_pair_rules()
+
+        # 初始化市场条件检查器（独立于风控规则）
+        self.market_condition = MarketCondition(algorithm, config)
 
         # 调试信息
         if self.enabled:
             self.algorithm.Debug(
                 f"[RiskManager] 初始化完成: "
                 f"Portfolio规则={len(self.portfolio_rules)}, "
-                f"Pair规则={len(self.pair_rules)}"
+                f"Pair规则={len(self.pair_rules)}, "
+                f"MarketCondition已启用"
             )
         else:
             self.algorithm.Debug("[RiskManager] 全局禁用")
@@ -104,8 +113,8 @@ class RiskManager:
         # 规则名称 -> 规则类的映射
         rule_map = {
             'account_blowup': AccountBlowupRule,
+            'excessive_drawdown': ExcessiveDrawdownRule,
             # 未来添加更多Portfolio规则:
-            # 'excessive_drawdown': ExcessiveDrawdownRule,
             # 'market_volatility': MarketVolatilityRule,
             # 'sector_concentration': SectorConcentrationRule,
         }
@@ -125,6 +134,65 @@ class RiskManager:
                         rules.append(rule_instance)
                         self.algorithm.Debug(
                             f"[RiskManager] 注册Portfolio规则: {rule_class.__name__} "
+                            f"(priority={rule_instance.priority})"
+                        )
+                    except Exception as e:
+                        self.algorithm.Debug(
+                            f"[RiskManager] 注册规则失败 {rule_name}: {str(e)}"
+                        )
+
+        # 按优先级降序排序（priority高的在前）
+        rules.sort(key=lambda r: r.priority, reverse=True)
+
+        return rules
+
+
+    def _register_pair_rules(self) -> List[RiskRule]:
+        """
+        从config动态注册Pair层面风控规则
+
+        注册流程:
+        1. 从config.risk_management['pair_rules']读取规则配置
+        2. 通过rule_map映射规则名称到规则类
+        3. 只注册enabled=True的规则
+        4. 返回规则实例列表
+
+        当前支持的规则:
+        - HoldingTimeoutRule: 持仓超时检测
+        - (PositionAnomalyRule: Step 2实现)
+        - (PairDrawdownRule: Step 3实现)
+
+        Returns:
+            规则实例列表（已按priority降序排序）
+        """
+        rules = []
+
+        # 检查全局开关
+        if not self.enabled:
+            return rules
+
+        # 规则名称 -> 规则类的映射
+        rule_map = {
+            'holding_timeout': HoldingTimeoutRule,
+            'position_anomaly': PositionAnomalyRule,  # Step 2已实现
+            'pair_drawdown': PairDrawdownRule,        # Step 3已实现
+        }
+
+        # 从config读取规则配置
+        pair_rule_configs = self.config.risk_management.get('pair_rules', {})
+
+        # 遍历rule_map，动态注册
+        for rule_name, rule_class in rule_map.items():
+            if rule_name in pair_rule_configs:
+                rule_config = pair_rule_configs[rule_name]
+
+                # 只注册enabled的规则
+                if rule_config.get('enabled', True):
+                    try:
+                        rule_instance = rule_class(self.algorithm, rule_config)
+                        rules.append(rule_instance)
+                        self.algorithm.Debug(
+                            f"[RiskManager] 注册Pair规则: {rule_class.__name__} "
                             f"(priority={rule_instance.priority})"
                         )
                     except Exception as e:
@@ -230,33 +298,97 @@ class RiskManager:
         return False
 
 
+    def is_safe_to_open_positions(self) -> bool:
+        """
+        检查市场条件是否允许开仓
+
+        职责:
+        - 转发到MarketCondition进行市场波动检查
+        - 只影响开仓决策，不影响平仓
+
+        Returns:
+            True: 市场条件良好，允许开仓
+            False: 市场条件不佳（如高波动），禁止开仓
+
+        使用示例:
+        ```python
+        # 在main.py的OnData()中，开仓前检查
+        if not self.risk_manager.is_safe_to_open_positions():
+            return  # 高波动时阻止开仓，但允许平仓继续
+        ```
+
+        注意:
+        - 此方法与Portfolio风控（has_any_rule_in_cooldown）完全独立
+        - 不受risk_management['enabled']全局开关控制
+        - MarketCondition有自己独立的enabled开关
+        """
+        return self.market_condition.is_safe_to_open_positions()
+
+
     def check_pair_risks(self, pair) -> Tuple[Optional[str], List[Tuple[RiskRule, str]]]:
         """
         检查Pair层面风控
 
+        调度逻辑:
+        1. 检查全局enabled开关
+        2. 遍历所有Pair规则（已按priority降序排序）
+        3. 调用rule.check(pair=pair)收集所有触发的规则
+        4. 返回最高优先级规则的action + 完整触发列表
+
         Args:
-            pair: Pairs对象
+            pair: Pairs对象,必须包含position_opened_time等属性
 
         Returns:
             (action, triggered_rules)
-            - action: 'pair_close', 'pair_liquidate'等，或None
-            - triggered_rules: [(rule, description), ...]
+            - action: 'pair_close'等，或None（未触发）
+            - triggered_rules: [(rule, description), ...] 所有触发的规则列表
 
         注意:
-        本步骤（Step 3）暂未实现Pair规则，占位返回None。
-        后续步骤将实现HoldingTimeoutRule等Pair规则。
+        - 返回action后，main.py负责执行平仓
+        - 本方法不修改任何状态，纯粹的检查和返回
+        - 不检查冷却期(Pair规则无需冷却期,订单锁已保护)
+
+        当前支持的规则:
+        - HoldingTimeoutRule: 持仓超时检测 (priority=60)
         """
         # 全局禁用时直接返回
         if not self.enabled:
             return None, []
 
-        # Step 3暂不实现Pair规则，占位
-        # 后续步骤将添加:
-        # - HoldingTimeoutRule
-        # - PositionAnomalyRule
-        # - PairDrawdownRule
+        triggered_rules = []
 
-        return None, []
+        # 遍历所有Pair规则（已按priority降序排序）
+        for rule in self.pair_rules:
+            # 跳过禁用的规则
+            if not rule.enabled:
+                continue
+
+            # 检查规则（无需冷却期检查,Pair规则不使用冷却期）
+            try:
+                triggered, description = rule.check(pair=pair)
+                if triggered:
+                    triggered_rules.append((rule, description))
+            except Exception as e:
+                self.algorithm.Debug(
+                    f"[RiskManager] Pair规则检查异常 {rule.__class__.__name__}: {str(e)}"
+                )
+
+        # 如果有触发，返回最高优先级规则的动作
+        if triggered_rules:
+            # triggered_rules已经按priority排序（因为self.pair_rules是排序的）
+            highest_priority_rule, description = triggered_rules[0]
+            action = highest_priority_rule.get_action()
+
+            # Debug日志由main.py统一输出,这里只记录触发事实
+            if self.config.main.get('debug_mode', False):
+                self.algorithm.Debug(
+                    f"[Pair风控] {highest_priority_rule.__class__.__name__} "
+                    f"(priority={highest_priority_rule.priority}) -> {action}"
+                )
+
+            return action, triggered_rules
+        else:
+            return None, []
 
 
     def get_registered_rules_info(self) -> dict:

@@ -86,6 +86,14 @@ class Pairs:
         self.tracked_qty1 = 0                                                  # 配对专属持仓追踪(symbol1)
         self.tracked_qty2 = 0                                                  # 配对专属持仓追踪(symbol2)
 
+        # === 成本追踪(配对专属PnL计算基础) ===
+        self.entry_price1 = None                                               # symbol1开仓均价
+        self.entry_price2 = None                                               # symbol2开仓均价
+        self.entry_cost = 0.0                                                  # 配对总成本(abs(qty1*price1)+abs(qty2*price2))
+
+        # === 风控追踪 ===
+        self.pair_hwm = 0.0                                                    # 配对级别高水位(浮动盈亏PnL)
+
 
     def update_params(self, new_pair):
         """
@@ -119,19 +127,37 @@ class Pairs:
         if action == OrderAction.OPEN:
             self.position_opened_time = fill_time
 
-            # 从OrderTicket提取实际成交数量并更新tracked_qty
+            # 从OrderTicket提取实际成交数量和均价
             for ticket in tickets:
                 if ticket is not None and ticket.Status == OrderStatus.Filled:
                     if ticket.Symbol == self.symbol1:
                         self.tracked_qty1 = ticket.QuantityFilled
+                        self.entry_price1 = ticket.AverageFillPrice
                     elif ticket.Symbol == self.symbol2:
                         self.tracked_qty2 = ticket.QuantityFilled
+                        self.entry_price2 = ticket.AverageFillPrice
+
+            # 计算配对总成本(用于回撤计算分母)
+            if self.entry_price1 is not None and self.entry_price2 is not None:
+                cost1 = abs(self.tracked_qty1 * self.entry_price1)
+                cost2 = abs(self.tracked_qty2 * self.entry_price2)
+                self.entry_cost = cost1 + cost2
+            else:
+                self.entry_cost = 0.0
+
+            # 开仓时重置HWM为0(起点为盈亏平衡)
+            self.pair_hwm = 0.0
 
         elif action == OrderAction.CLOSE:
             self.position_closed_time = fill_time
-            # 平仓后清零tracked_qty
+
+            # 平仓后清零所有追踪变量
             self.tracked_qty1 = 0
             self.tracked_qty2 = 0
+            self.entry_price1 = None
+            self.entry_price2 = None
+            self.entry_cost = 0.0
+            self.pair_hwm = 0.0
 
 
     # ===== 2. 交易信号生成 =====
@@ -520,6 +546,87 @@ class Pairs:
 
         # 判断是否在冷却期(使用config中的冷却天数)
         return days_since_exit < self.cooldown_days
+
+
+    def get_pair_pnl(self) -> Optional[float]:
+        """
+        计算配对当前浮动盈亏(配对专属,不受其他配对干扰)
+
+        公式:
+        - 当前市值 = qty1 * current_price1 + qty2 * current_price2
+        - 开仓成本 = qty1 * entry_price1 + qty2 * entry_price2
+        - PnL = 当前市值 - 开仓成本
+
+        关键设计:
+        - 使用tracked_qty避免Portfolio全局查询混淆
+        - 使用entry_price而非Portfolio.AveragePrice(全局均价)
+        - 空头的qty为负数,自动处理方向
+        - 完全配对专属计算,即使symbol出现在多个配对中也不会混淆
+
+        返回:
+            浮动盈亏(美元) 或 None(无持仓或数据不完整)
+        """
+        # 必须有正常持仓
+        if not self.has_normal_position():
+            return None
+
+        # 检查是否有开仓价格(防御性编程)
+        if self.entry_price1 is None or self.entry_price2 is None:
+            return None
+
+        # 获取当前市场价格
+        portfolio = self.algorithm.Portfolio
+        current_price1 = portfolio[self.symbol1].Price
+        current_price2 = portfolio[self.symbol2].Price
+
+        # 计算当前市值(考虑方向: 多头为正,空头为负)
+        current_value = (self.tracked_qty1 * current_price1 +
+                        self.tracked_qty2 * current_price2)
+
+        # 计算开仓成本(考虑方向)
+        entry_value = (self.tracked_qty1 * self.entry_price1 +
+                      self.tracked_qty2 * self.entry_price2)
+
+        # PnL = 当前市值 - 开仓成本
+        pnl = current_value - entry_value
+
+        return pnl
+
+
+    def get_pair_drawdown(self) -> Optional[float]:
+        """
+        计算配对回撤比例
+
+        回撤定义:
+        - drawdown = (HWM - current_pnl) / entry_cost
+        - HWM(高水位)会随着pnl上涨而更新
+        - entry_cost使用开仓时的总成本作为分母(归一化)
+
+        设计特点:
+        - 自动追踪HWM(调用时自动更新)
+        - 回撤基于entry_cost归一化,便于跨配对比较
+        - 开仓时HWM=0,从盈亏平衡点开始追踪
+
+        返回:
+            回撤比例(0.15表示15%回撤) 或 None(无持仓或无法计算)
+        """
+        # 必须有正常持仓
+        if not self.has_normal_position():
+            return None
+
+        # 获取当前PnL
+        pnl = self.get_pair_pnl()
+        if pnl is None or self.entry_cost <= 0:
+            return None
+
+        # 更新HWM(如果当前PnL更高)
+        if pnl > self.pair_hwm:
+            self.pair_hwm = pnl
+
+        # 计算回撤比例
+        drawdown = (self.pair_hwm - pnl) / self.entry_cost
+
+        return drawdown
 
 
     # ===== 7. 辅助方法 =====

@@ -18,10 +18,16 @@ class StrategyConfig:
             'account_type': AccountType.Margin,
             'schedule_frequency': 'MonthStart',  # 每月初
             'schedule_time': (9, 10),            # 9:10 AM
-            'debug_mode': False,                 # True=开发调试(详细日志), False=生产运行(仅关键日志)
+            'debug_mode': True,                  # True=开发调试(详细日志), False=生产运行(仅关键日志)
 
             # 资金管理
-            'min_investment_ratio': 0.10         # 最小投资：初始资金的10%
+            'min_investment_ratio': 0.10,        # 最小投资：初始资金的10%
+
+            # 市场条件检查（OR逻辑：VIX或HistVol任一触发即阻止开仓）
+            'market_condition_enabled': True,    # 是否启用市场条件检查
+            'vix_threshold': 30,                 # VIX恐慌阈值（前瞻性指标，生产环境）
+            'spy_volatility_threshold': 0.25,    # SPY年化波动率阈值（生产环境：25%）
+            'spy_volatility_window': 20          # 滚动窗口天数（行业标准）
         }
 
         # ========== 选股模块配置 ==========
@@ -113,26 +119,18 @@ class StrategyConfig:
             # ========== Portfolio层面规则 ==========
             'portfolio_rules': {
                 'account_blowup': {
-                    'enabled': True,
+                    'enabled': True,                     # 重新启用
                     'priority': 100,
                     'threshold': 0.25,                   # 爆仓阈值：亏损25%
                     'cooldown_days': 36500,              # 永久冷却(100年)
                     'action': 'portfolio_liquidate_all'
                 },
                 'excessive_drawdown': {
-                    'enabled': True,
+                    'enabled': True,                     # 重新启用
                     'priority': 90,
-                    'threshold': 0.15,                   # 回撤阈值：15%
-                    'cooldown_days': 30,
-                    'action': 'portfolio_stop_new_entries'
-                },
-                'market_volatility': {
-                    'enabled': True,
-                    'priority': 80,
-                    'threshold': 0.28,                   # SPY 20日年化波动率
-                    'window_size': 20,                   # 滚动窗口大小
-                    'cooldown_days': 14,
-                    'action': 'portfolio_reduce_exposure_50'
+                    'threshold': 0.15,                   # 回撤阈值：15% (生产环境)
+                    'cooldown_days': 30,                 # 30天冷却期(可恢复)
+                    'action': 'portfolio_liquidate_all'  # 全仓清算(与AccountBlowup相同)
                 },
                 'sector_concentration': {
                     'enabled': False,                    # 暂不启用
@@ -149,20 +147,17 @@ class StrategyConfig:
                     'enabled': True,
                     'priority': 60,
                     'max_days': 30,                      # 最大持仓天数
-                    'cooldown_days': 15,                 # 冷却期：避免立即重开仓
-                    'action': 'pair_close'
+                    'action': 'pair_close'               # 订单锁机制已防止重复,无需冷却期
                 },
                 'position_anomaly': {
-                    'enabled': True,
+                    'enabled': True,                     # Step 2已实现
                     'priority': 100,                     # 最高优先级：异常必须立即处理
-                    'cooldown_days': 1,                  # 短冷却：快速重试
-                    'action': 'pair_liquidate'
+                    'action': 'pair_close'               # 统一使用pair_close
                 },
                 'pair_drawdown': {
-                    'enabled': True,
+                    'enabled': True,                     # Step 3已实现
                     'priority': 50,
                     'threshold': 0.15,                   # 配对回撤阈值：15%
-                    'cooldown_days': 30,                 # 止损后充分冷却
                     'action': 'pair_close'
                 }
             }

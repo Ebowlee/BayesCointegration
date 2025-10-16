@@ -28,7 +28,7 @@ class BayesianModeler:
         if not self.historical_posteriors:
             return
 
-        current_time = self.algorithm.Time
+        current_time = self.algorithm.UtcTime
         expired_threshold = 2 * self.lookback_days  # 双倍lookback作为过期阈值
 
         # 找出需要清理的配对
@@ -123,7 +123,7 @@ class BayesianModeler:
         pair_key = (symbol1, symbol2)
 
         if (pair_key not in self.historical_posteriors or
-        (self.algorithm.Time - self.historical_posteriors[pair_key]['update_time']).days > self.lookback_days):
+        (self.algorithm.UtcTime - self.historical_posteriors[pair_key]['update_time']).days > self.lookback_days):
             # 无信息先验
             uninformed = self.bayesian_priors['uninformed']
             params = {
@@ -236,8 +236,8 @@ class BayesianModeler:
             'residual_mean': float(np.mean(residuals_samples)),  # 理论上接近0
             'residual_std': float(np.std(residuals_samples)),
 
-            # 更新时间
-            'update_time': self.algorithm.Time
+            # 更新时间 (timezone-naive UTC,与比较逻辑保持一致)
+            'update_time': self.algorithm.UtcTime
         }
 
         # 保存到历史后验（供未来作为先验使用）
