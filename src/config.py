@@ -107,20 +107,65 @@ class StrategyConfig:
 
         # ========== 风险管理配置 ==========
         self.risk_management = {
-            # Portfolio层面风控
-            'blowup_threshold': 0.3,             # 爆仓线：亏损30%
-            'blowup_cooldown_days': 36500,       # 爆仓冷却：100年（等同永久）
-            'drawdown_threshold': 0.15,          # 回撤线：15%
-            'drawdown_cooldown_days': 30,        # 回撤冷却：30天
+            # 全局开关
+            'enabled': True,  # False则完全禁用风控系统
 
-            # 配对层面风控
-            'max_pair_drawdown': 0.20,           # 配对最大回撤
-            'sector_exposure_threshold': 0.4,    # 行业集中度触发线：40%
-            'sector_target_exposure': 0.3,       # 行业集中度目标：30%
+            # ========== Portfolio层面规则 ==========
+            'portfolio_rules': {
+                'account_blowup': {
+                    'enabled': True,
+                    'priority': 100,
+                    'threshold': 0.25,                   # 爆仓阈值：亏损25%
+                    'cooldown_days': 36500,              # 永久冷却(100年)
+                    'action': 'portfolio_liquidate_all'
+                },
+                'excessive_drawdown': {
+                    'enabled': True,
+                    'priority': 90,
+                    'threshold': 0.15,                   # 回撤阈值：15%
+                    'cooldown_days': 30,
+                    'action': 'portfolio_stop_new_entries'
+                },
+                'market_volatility': {
+                    'enabled': True,
+                    'priority': 80,
+                    'threshold': 0.28,                   # SPY 20日年化波动率
+                    'window_size': 20,                   # 滚动窗口大小
+                    'cooldown_days': 14,
+                    'action': 'portfolio_reduce_exposure_50'
+                },
+                'sector_concentration': {
+                    'enabled': False,                    # 暂不启用
+                    'priority': 70,
+                    'threshold': 0.35,                   # 行业集中度触发线：35%
+                    'target_exposure': 0.25,             # 目标集中度：25%
+                    'action': 'portfolio_rebalance_sectors'
+                }
+            },
 
-            # 市场层面风控
-            'market_volatility_threshold': 0.30, # 市场波动率阈值 (SPY 20日年化波动率)
-            'market_cooldown_days': 14           # 市场冷静期
+            # ========== Pair层面规则 ==========
+            'pair_rules': {
+                'holding_timeout': {
+                    'enabled': True,
+                    'priority': 60,
+                    'max_days': 30,                      # 最大持仓天数
+                    'cooldown_days': 15,                 # 冷却期：避免立即重开仓
+                    'action': 'pair_close'
+                },
+                'position_anomaly': {
+                    'enabled': True,
+                    'priority': 100,                     # 最高优先级：异常必须立即处理
+                    'cooldown_days': 1,                  # 短冷却：快速重试
+                    'action': 'pair_liquidate'
+                },
+                'pair_drawdown': {
+                    'enabled': True,
+                    'priority': 50,
+                    'threshold': 0.15,                   # 配对回撤阈值：15%
+                    'cooldown_days': 30,                 # 止损后充分冷却
+                    'action': 'pair_close'
+                }
+            }
         }
 
         # ========== 行业映射 ==========

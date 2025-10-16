@@ -1,0 +1,110 @@
+"""
+AccountBlowupRule - 账户爆仓线风控规则
+
+检测账户总价值的亏损比例，如果超过阈值则触发全仓清算。
+这是最高优先级的Portfolio层面风控规则。
+"""
+
+from AlgorithmImports import *
+from .base import RiskRule
+from typing import Tuple
+
+
+class AccountBlowupRule(RiskRule):
+    """
+    账户爆仓线风控规则
+
+    功能:
+    - 检测账户亏损是否超过阈值（默认25%）
+    - 触发后返回'portfolio_liquidate_all'动作
+    - 支持永久冷却期（默认36500天）
+
+    配置参数:
+    - enabled: 是否启用（默认True）
+    - priority: 优先级（默认100，最高优先级）
+    - threshold: 亏损阈值（默认0.25，即25%）
+    - cooldown_days: 冷却期天数（默认36500，约100年，相当于永久）
+    - action: 响应动作（默认'portfolio_liquidate_all'）
+
+    使用示例:
+    ```python
+    config = self.config.risk_management['portfolio_rules']['account_blowup']
+    rule = AccountBlowupRule(algorithm, config)
+
+    triggered, description = rule.check()
+    if triggered:
+        action = rule.get_action()  # 'portfolio_liquidate_all'
+        # 执行清算...
+        rule.activate_cooldown()  # 激活冷却期
+    ```
+    """
+
+    def __init__(self, algorithm, config: dict):
+        """
+        初始化账户爆仓线规则
+
+        Args:
+            algorithm: QuantConnect算法实例
+            config: 规则配置字典
+        """
+        super().__init__(algorithm, config)
+
+        # 获取初始资金（用于计算亏损比例）
+        self.initial_capital = algorithm.config.main['cash']
+
+
+    def check(self, **kwargs) -> Tuple[bool, str]:
+        """
+        检测账户是否触发爆仓线
+
+        检测逻辑:
+        1. 获取当前账户总价值
+        2. 计算亏损比例 = (初始资金 - 当前价值) / 初始资金
+        3. 如果亏损比例 >= 阈值，则触发
+
+        Returns:
+            (是否触发, 风险描述)
+            - 触发: (True, "账户爆仓: 亏损XX.X% >= 阈值YY.Y%")
+            - 未触发: (False, "")
+        """
+        # 检查是否在冷却期内
+        if self.is_in_cooldown():
+            self.algorithm.Debug(f"[AccountBlowup] 跳过: 冷却期至{self.cooldown_until}")
+            return False, ""
+
+        # 获取当前账户总价值
+        portfolio_value = self.algorithm.Portfolio.TotalPortfolioValue
+
+        # 计算亏损比例
+        loss_ratio = (self.initial_capital - portfolio_value) / self.initial_capital
+
+        # 获取阈值
+        threshold = self.config['threshold']
+
+        # 添加诊断日志（每次都输出，便于追踪）
+        self.algorithm.Debug(
+            f"[AccountBlowup] 检查: 初始=${self.initial_capital:,.0f}, "
+            f"当前=${portfolio_value:,.0f}, 亏损={loss_ratio*100:.2f}%, "
+            f"阈值={threshold*100:.0f}%"
+        )
+
+        # 判断是否触发（大于等于阈值）
+        if loss_ratio >= threshold:
+            description = (
+                f"账户爆仓: 亏损{loss_ratio*100:.1f}% >= 阈值{threshold*100:.1f}% "
+                f"(当前价值: ${portfolio_value:,.0f}, 初始资金: ${self.initial_capital:,.0f})"
+            )
+            self.algorithm.Debug(f"[AccountBlowup] 触发! {description}")
+            return True, description
+
+        return False, ""
+
+
+    def get_action(self) -> str:
+        """
+        获取响应动作
+
+        Returns:
+            'portfolio_liquidate_all' - 全仓清算
+        """
+        return self.config['action']

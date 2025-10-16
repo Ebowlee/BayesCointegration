@@ -78,12 +78,12 @@ def test_normal_completion():
 
     # 验证状态
     status = tm.get_pair_status("(AAPL, MSFT)")
-    print(f"✓ 配对状态: {status}")
+    print(f"[OK] 配对状态: {status}")
     assert status == "COMPLETED", f"预期COMPLETED,实际{status}"
 
     # 验证无异常
     anomalies = tm.get_anomaly_pairs()
-    print(f"✓ 异常配对数: {len(anomalies)}")
+    print(f"[OK] 异常配对数: {len(anomalies)}")
     assert len(anomalies) == 0, f"不应有异常配对,实际{anomalies}"
 
     # 模拟OnOrderEvent触发回调(手动调用,因为我们没有真实的LEAN引擎)
@@ -101,8 +101,8 @@ def test_normal_completion():
     assert mock_pairs.tracked_qty1 == 100, "数量1应该是100"
     assert mock_pairs.tracked_qty2 == -100, "数量2应该是-100"
 
-    print("✓ 回调机制验证通过")
-    print("✅ 测试通过: 正常完成场景\n")
+    print("[OK] 回调机制验证通过")
+    print("[PASS] 测试通过: 正常完成场景\n")
 
 
 # ========== 测试用例2: 单腿Canceled ==========
@@ -139,12 +139,12 @@ def test_one_leg_canceled():
 
     # 验证异常检测
     status = tm.get_pair_status("(TSLA, NVDA)")
-    print(f"✓ 配对状态: {status}")
+    print(f"[OK] 配对状态: {status}")
     assert status == "ANOMALY", f"预期ANOMALY,实际{status}"
 
     # 验证异常集合
     anomalies = tm.get_anomaly_pairs()
-    print(f"✓ 异常配对: {anomalies}")
+    print(f"[OK] 异常配对: {anomalies}")
     assert "(TSLA, NVDA)" in anomalies, "应该检测到异常配对"
 
     # 模拟OnOrderEvent
@@ -159,9 +159,9 @@ def test_one_leg_canceled():
     # 验证回调不应被触发(因为是ANOMALY状态)
     assert not mock_pairs.callback_called, "ANOMALY状态不应触发回调"
 
-    print("✓ 异常检测验证通过")
-    print("✓ 回调隔离验证通过")
-    print("✅ 测试通过: 单腿Canceled被正确检测\n")
+    print("[OK] 异常检测验证通过")
+    print("[OK] 回调隔离验证通过")
+    print("[PASS] 测试通过: 单腿Canceled被正确检测\n")
 
 
 # ========== 测试用例3: 双腿Canceled ==========
@@ -194,14 +194,14 @@ def test_both_legs_canceled():
 
     # 验证
     status = tm.get_pair_status("(GOOGL, AMZN)")
-    print(f"✓ 配对状态: {status}")
+    print(f"[OK] 配对状态: {status}")
     assert status == "ANOMALY", f"预期ANOMALY,实际{status}"
 
     anomalies = tm.get_anomaly_pairs()
     assert "(GOOGL, AMZN)" in anomalies
 
-    print("✓ 双腿取消检测通过")
-    print("✅ 测试通过: 双腿Canceled被正确检测\n")
+    print("[OK] 双腿取消检测通过")
+    print("[PASS] 测试通过: 双腿Canceled被正确检测\n")
 
 
 # ========== 测试用例4: 单腿Invalid ==========
@@ -239,11 +239,11 @@ def test_one_leg_invalid():
 
     # 验证
     status = tm.get_pair_status("(META, NFLX)")
-    print(f"✓ 配对状态: {status}")
+    print(f"[OK] 配对状态: {status}")
     assert status == "ANOMALY", f"预期ANOMALY,实际{status}"
 
-    print("✓ Invalid订单检测通过")
-    print("✅ 测试通过: 单腿Invalid被正确检测\n")
+    print("[OK] Invalid订单检测通过")
+    print("[PASS] 测试通过: 单腿Invalid被正确检测\n")
 
 
 # ========== 测试用例5: Pending状态 ==========
@@ -277,17 +277,17 @@ def test_pending_state():
 
     # 验证状态
     status = tm.get_pair_status("(IBM, ORCL)")
-    print(f"✓ 配对状态: {status}")
+    print(f"[OK] 配对状态: {status}")
     assert status == "PENDING", f"预期PENDING,实际{status}"
 
     # 验证锁定机制
     is_locked = tm.is_pair_locked("(IBM, ORCL)")
-    print(f"✓ 配对锁定: {is_locked}")
+    print(f"[OK] 配对锁定: {is_locked}")
     assert is_locked, "PENDING状态应该锁定配对"
 
-    print("✓ Pending状态检测通过")
-    print("✓ 锁定机制验证通过")
-    print("✅ 测试通过: Pending状态正确处理\n")
+    print("[OK] Pending状态检测通过")
+    print("[OK] 锁定机制验证通过")
+    print("[PASS] 测试通过: Pending状态正确处理\n")
 
 
 # ========== 测试用例6: 多配对异常检测 ==========
@@ -335,7 +335,7 @@ def test_multiple_anomaly_pairs():
 
     # 验证异常检测
     anomalies = tm.get_anomaly_pairs()
-    print(f"✓ 检测到异常配对: {anomalies}")
+    print(f"[OK] 检测到异常配对: {anomalies}")
 
     assert len(anomalies) == 2, f"应该检测到2个异常配对,实际{len(anomalies)}"
     assert "(CCC, DDD)" in anomalies, "应该包含(CCC, DDD)"
@@ -343,9 +343,9 @@ def test_multiple_anomaly_pairs():
     assert "(AAA, BBB)" not in anomalies, "不应包含正常配对(AAA, BBB)"
     assert "(EEE, FFF)" not in anomalies, "不应包含正常配对(EEE, FFF)"
 
-    print("✓ 多配对异常检测精确")
-    print("✓ 无误报正常配对")
-    print("✅ 测试通过: 多配对场景处理正确\n")
+    print("[OK] 多配对异常检测精确")
+    print("[OK] 无误报正常配对")
+    print("[PASS] 测试通过: 多配对场景处理正确\n")
 
 
 # ========== 测试用例7: 回调不应在异常时触发 ==========
@@ -389,7 +389,7 @@ def test_no_callback_on_anomaly():
     tm.on_order_event(MockOrderEvent(702, MockOrderStatus.Canceled))
 
     # 验证回调未触发
-    print(f"✓ 回调是否触发: {mock_pairs.callback_called}")
+    print(f"[OK] 回调是否触发: {mock_pairs.callback_called}")
     assert not mock_pairs.callback_called, "ANOMALY状态不应触发on_position_filled()"
 
     # 验证数据未污染
@@ -397,20 +397,20 @@ def test_no_callback_on_anomaly():
     assert mock_pairs.tracked_qty1 == 0, "数量1不应被更新"
     assert mock_pairs.tracked_qty2 == 0, "数量2不应被更新"
 
-    print("✓ 回调隔离机制正常")
-    print("✓ 数据一致性保持")
-    print("✅ 测试通过: 异常时安全隔离\n")
+    print("[OK] 回调隔离机制正常")
+    print("[OK] 数据一致性保持")
+    print("[PASS] 测试通过: 异常时安全隔离\n")
 
 
 # ========== 主测试入口 ==========
 
 def run_all_tests():
     """运行所有测试用例"""
-    print("\n" + "█"*60)
-    print("█" + " "*58 + "█")
-    print("█" + "  TicketsManager单元测试套件".center(56) + "█")
-    print("█" + " "*58 + "█")
-    print("█"*60 + "\n")
+    print("\n" + "="*60)
+    print("=" + " "*58 + "=")
+    print("=" + "  TicketsManager单元测试套件".center(56) + "=")
+    print("=" + " "*58 + "=")
+    print("="*60 + "\n")
 
     test_functions = [
         test_normal_completion,
@@ -430,29 +430,29 @@ def run_all_tests():
             test_func()
             passed += 1
         except AssertionError as e:
-            print(f"❌ 测试失败: {test_func.__name__}")
+            print(f"[FAIL] 测试失败: {test_func.__name__}")
             print(f"   错误: {str(e)}\n")
             failed += 1
         except Exception as e:
-            print(f"❌ 测试异常: {test_func.__name__}")
+            print(f"[FAIL] 测试异常: {test_func.__name__}")
             print(f"   异常: {str(e)}\n")
             failed += 1
 
     # 总结
-    print("\n" + "█"*60)
-    print(f"█  测试结果汇总".ljust(58) + "█")
-    print("█" + "-"*58 + "█")
-    print(f"█  总计: {len(test_functions)}个测试".ljust(58) + "█")
-    print(f"█  通过: {passed}个 ✅".ljust(58) + "█")
-    print(f"█  失败: {failed}个 ❌".ljust(58) + "█")
-    print("█" + "-"*58 + "█")
+    print("\n" + "="*60)
+    print(f"=  测试结果汇总".ljust(58) + "=")
+    print("=" + "-"*58 + "=")
+    print(f"=  总计: {len(test_functions)}个测试".ljust(58) + "=")
+    print(f"=  通过: {passed}个 [PASS]".ljust(58) + "=")
+    print(f"=  失败: {failed}个 [FAIL]".ljust(58) + "=")
+    print("=" + "-"*58 + "=")
 
     if failed == 0:
-        print("█  状态: 全部通过! 🎉".ljust(58) + "█")
+        print("=  状态: 全部通过!".ljust(58) + "=")
     else:
-        print(f"█  状态: 有{failed}个测试失败".ljust(58) + "█")
+        print(f"=  状态: 有{failed}个测试失败".ljust(58) + "=")
 
-    print("█"*60 + "\n")
+    print("="*60 + "\n")
 
     return failed == 0
 
