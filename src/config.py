@@ -42,21 +42,23 @@ class StrategyConfig:
         }
 
         # ========== 选股模块配置 ==========
+        # v6.7.1策略: 扩大选股池以增加配对候选数量
+        # 核心调整: 每行业20只、放宽PE/ROE/波动率、提高流动性要求
         self.universe_selection = {
-            'max_stocks_per_sector': 15,               # 每行业最多15只
-            'min_price': 20,                           # 最低价$20
-            'min_volume': 5e6,                         # 最低成交量500万
-            'min_days_since_ipo': 1095,                # IPO满3年
-            'max_pe': 80,                              # PE上限 (v6.7.0: 100→80严格化)
-            'min_roe': 0.05,                           # ROE下限 (v6.7.0: 0→0.05严格化)
-            'max_debt_ratio': 0.7,                     # 负债率上限 (总债务/总资产)
+            'max_stocks_per_sector': 20,               # 每行业最多20只 (v6.7.1: 扩大选股池)
+            'min_price': 15,                           # 最低价$15 (v6.7.1: 包含中价股)
+            'min_volume': 1e7,                         # 最低成交量1千万 (v6.7.1: 提高流动性)
+            'min_days_since_ipo': 720,                 # IPO满2年 (v6.7.1: 包含新兴公司)
+            'max_pe': 100,                             # PE上限 (v6.7.1: 回归baseline平衡)
+            'min_roe': 0,                              # ROE下限 (v6.7.1: 取消下限扩大候选池)
+            'max_debt_ratio': 0.5,                     # 负债率上限 (v6.7.1: 加强财务质量)
             'max_leverage_ratio': 5,                   # 杠杆率上限 (总资产/股东权益)
-            'max_volatility': 0.4,                     # 年化波动率上限 (v6.7.0: 0.5→0.4严格化)
+            'max_volatility': 0.5,                     # 年化波动率上限 (v6.7.1: 回归baseline)
 
             # 技术常量
             'annualization_factor': 252,               # 年化因子（交易日数）
 
-            # 财务筛选器配置 (v6.7.0: 配置化财务验证逻辑)
+            # 财务筛选器配置 (v6.7.0引入,配置化财务验证逻辑)
             'financial_filters': {
                 'pe_ratio': {
                     'enabled': True,
