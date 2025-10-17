@@ -230,11 +230,24 @@ class Pairs:
         """
         从data slice获取最新价格
         返回: (price1, price2) 或 None
+
+        安全检查:
+        - symbol在data中存在
+        - data[symbol]不为None (防止QuantConnect数据缺失)
+        - data[symbol].Close有效且>0
         """
-        if self.symbol1 in data and self.symbol2 in data:
+        # 增强检查: symbol存在且data不为None
+        if (self.symbol1 in data and self.symbol2 in data and
+            data[self.symbol1] is not None and data[self.symbol2] is not None):
+
+            # 获取Close价格
             price1 = data[self.symbol1].Close
             price2 = data[self.symbol2].Close
-            return (price1, price2)
+
+            # 价格有效性检查(避免负价或零价)
+            if price1 > 0 and price2 > 0:
+                return (price1, price2)
+
         return None
 
 
