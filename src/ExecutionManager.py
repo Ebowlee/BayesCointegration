@@ -1,0 +1,306 @@
+"""
+ExecutionManager - 统一执行器
+
+职责:
+- 执行风控响应(Portfolio和Pair层面)
+- 执行正常交易(信号驱动的开仓和平仓)
+- 与pairs_manager, tickets_manager交互
+- 处理所有订单提交和注册
+
+设计原则:
+- 职责单一: 只负责执行,不负责检测或信号生成
+- 依赖注入: 通过构造函数注入所需依赖
+- 统一接口: 风控和正常交易统一管理
+"""
+
+from AlgorithmImports import *
+from src.Pairs import OrderAction, TradingSignal
+
+
+class ExecutionManager:
+    """
+    统一执行器
+
+    负责执行所有交易动作,包括:
+    - 风控执行: Portfolio层面(全部清仓、减仓等) + Pair层面(配对平仓)
+    - 正常交易: 信号驱动的开仓和平仓
+
+    设计特点:
+    - 与RiskManager配合使用(检测与执行分离)
+    - 与Pairs配合使用(信号生成与执行分离)
+    - 依赖注入: algorithm, pairs_manager, tickets_manager
+    - 完全统一的执行接口
+    """
+
+    def __init__(self, algorithm, pairs_manager, tickets_manager):
+        """
+        初始化统一执行器
+
+        Args:
+            algorithm: QuantConnect算法实例
+            pairs_manager: 配对管理器
+            tickets_manager: 订单追踪管理器
+        """
+        self.algorithm = algorithm
+        self.pairs_manager = pairs_manager
+        self.tickets_manager = tickets_manager
+
+
+    def handle_portfolio_risk_action(self, action: str, triggered_rules: list):
+        """
+        处理Portfolio层面风控动作
+
+        Args:
+            action: 风控动作 ('portfolio_liquidate_all'等)
+            triggered_rules: 触发的规则列表 [(rule, description), ...]
+
+        执行流程:
+        1. 记录所有触发规则的详细日志
+        2. 根据action字符串分发到具体处理方法
+        3. 激活所有触发规则的冷却期
+
+        注意:
+        - 当前只实现'portfolio_liquidate_all'(全部清仓)
+        - 其他action作为占位,未来实现
+        """
+        # 记录所有触发的规则
+        for rule, description in triggered_rules:
+            self.algorithm.Debug(f"[风控触发] {rule.__class__.__name__}: {description}")
+
+        # 根据action执行相应操作
+        if action == 'portfolio_liquidate_all':
+            self.liquidate_all_positions()
+
+        elif action == 'portfolio_reduce_exposure_50':
+            # 未来实现: 减仓50%
+            self.algorithm.Debug(f"[风控] 减仓50%模式(暂未实现)")
+
+        elif action == 'portfolio_rebalance_sectors':
+            # 未来实现: 行业再平衡
+            self.algorithm.Debug(f"[风控] 行业再平衡模式(暂未实现)")
+
+        else:
+            self.algorithm.Debug(f"[风控] 未知动作: {action}")
+
+        # 激活所有触发规则的冷却期
+        for rule, _ in triggered_rules:
+            rule.activate_cooldown()
+            self.algorithm.Debug(f"[风控] {rule.__class__.__name__} 冷却至 {rule.cooldown_until}")
+
+
+    def handle_pair_risk_actions(self, pair_risk_actions: dict):
+        """
+        处理Pair层面风控动作(对称Portfolio风控)
+
+        Args:
+            pair_risk_actions: {pair_id: (action, triggered_rules), ...}
+
+        执行流程:
+        1. 遍历所有触发风控的配对
+        2. 检查订单锁定状态(防止重复下单)
+        3. 根据action执行相应动作(当前只有'pair_close')
+        4. 注册订单到tickets_manager
+        5. 记录详细的风控日志
+
+        设计特点:
+        - 完全对称Portfolio风控的handle_portfolio_risk_action()
+        - 职责单一: 只负责执行,不负责检测
+        - 与RiskManager的check_all_pair_risks()配合使用
+        """
+        for pair_id, (action, triggered_rules) in pair_risk_actions.items():
+            # 获取配对对象
+            pair = self.pairs_manager.get_pair_by_id(pair_id)
+
+            # 订单锁定检查(防止重复下单)
+            if self.tickets_manager.is_pair_locked(pair_id):
+                continue
+
+            # 根据action执行相应操作
+            if action == 'pair_close':
+                # 风控触发平仓
+                self.algorithm.Debug(f"[Pair风控] {pair_id} 触发平仓风控")
+                tickets = pair.close_position()
+                if tickets:
+                    self.tickets_manager.register_tickets(pair_id, tickets, OrderAction.CLOSE)
+                    # 记录触发的规则详情
+                    for _, desc in triggered_rules:
+                        self.algorithm.Debug(f"  └─ {desc}")
+
+            else:
+                # 未来可能有其他action类型
+                self.algorithm.Debug(f"[Pair风控] 未知动作: {action}")
+
+
+    def liquidate_all_positions(self):
+        """
+        清空所有持仓(仅通过pairs_manager,不使用Liquidate)
+
+        执行流程:
+        1. 获取所有有持仓的配对
+        2. 检查订单锁定状态(is_pair_locked)
+        3. 通过pair.close_position()平仓(保持订单追踪)
+        4. 注册订单到tickets_manager
+        5. 记录详细日志
+
+        设计决策:
+        - 不使用QC的Liquidate()方法,原因:
+          1. 绕过pair.close_position()
+          2. 绕过tickets_manager.register_tickets()
+          3. 破坏订单追踪体系
+          4. 可能导致重复下单
+        - 只通过pairs_manager管理的配对进行平仓
+        - 保持TicketsManager的订单追踪完整性
+        """
+        self.algorithm.Debug(f"[风控清仓] 开始清空所有持仓...")
+
+        # 获取所有有持仓的配对
+        pairs_with_position = self.pairs_manager.get_pairs_with_position()
+
+        if not pairs_with_position:
+            self.algorithm.Debug(f"[风控清仓] 无持仓,跳过")
+            return
+
+        closed_count = 0
+        for pair in pairs_with_position.values():
+            # 订单锁定检查(防止重复下单)
+            if self.tickets_manager.is_pair_locked(pair.pair_id):
+                self.algorithm.Debug(f"[风控清仓] {pair.pair_id} 订单处理中,跳过")
+                continue
+
+            # 通过pair平仓(保持订单追踪)
+            tickets = pair.close_position()
+            if tickets:
+                self.tickets_manager.register_tickets(pair.pair_id, tickets, OrderAction.CLOSE)
+                closed_count += 1
+                self.algorithm.Debug(f"[风控清仓] {pair.pair_id} 已提交平仓订单")
+
+        self.algorithm.Debug(f"[风控清仓] 完成: 平仓{closed_count}/{len(pairs_with_position)}个配对")
+
+
+    # ===== 正常交易执行方法 =====
+
+    def handle_signal_closings(self, pairs_with_position, data):
+        """
+        处理信号驱动的正常平仓
+
+        职责: 主动交易管理(非风控)
+
+        Args:
+            pairs_with_position: 有持仓的配对字典 {pair_id: Pairs}
+            data: 数据切片
+
+        执行流程:
+        1. 遍历所有有持仓配对
+        2. 检查订单锁(跳过风控已处理或订单执行中的配对)
+        3. 获取交易信号(pair.get_signal(data))
+        4. 处理CLOSE和STOP_LOSS信号
+        5. 调用pair.close_position()并注册订单
+
+        设计特点:
+        - 完全独立于风控平仓
+        - 自动跳过风控已处理的配对(通过订单锁)
+        - 只负责执行,信号生成由Pairs负责
+        """
+        for pair in pairs_with_position.values():
+            # 订单锁定检查(跳过已被风控处理或订单执行中的配对)
+            if self.tickets_manager.is_pair_locked(pair.pair_id):
+                continue
+
+            # 获取交易信号
+            signal = pair.get_signal(data)
+
+            # 处理平仓信号
+            if signal == TradingSignal.CLOSE:
+                self.algorithm.Debug(f"[平仓] {pair.pair_id} Z-score回归")
+                tickets = pair.close_position()
+                if tickets:
+                    self.tickets_manager.register_tickets(pair.pair_id, tickets, OrderAction.CLOSE)
+
+            elif signal == TradingSignal.STOP_LOSS:
+                self.algorithm.Debug(f"[止损] {pair.pair_id} Z-score超限")
+                tickets = pair.close_position()
+                if tickets:
+                    self.tickets_manager.register_tickets(pair.pair_id, tickets, OrderAction.CLOSE)
+
+
+    def handle_position_openings(self, pairs_without_position, data):
+        """
+        处理正常开仓逻辑
+
+        职责: 资金管理和开仓执行
+
+        Args:
+            pairs_without_position: 无持仓配对字典 {pair_id: Pairs}
+            data: 数据切片
+
+        执行流程:
+        1. 获取开仓候选(pairs_manager.get_sequenced_entry_candidates)
+        2. 计算可用保证金(MarginRemaining * 0.95)
+        3. 动态分配保证金给各配对(质量分数驱动)
+        4. 逐个执行开仓(三重检查: 订单锁/最小投资/保证金充足)
+        5. 注册订单到tickets_manager
+
+        设计特点:
+        - 完整的资金管理逻辑
+        - 动态缩放保证金分配(公平性)
+        - 质量分数驱动的分配比例
+        """
+        # 获取开仓候选(已按质量降序)
+        entry_candidates = self.pairs_manager.get_sequenced_entry_candidates(data)
+        if not entry_candidates:
+            return
+
+        # 使用95%的MarginRemaining,保留5%作为动态缓冲
+        config = self.algorithm.config.pairs_trading
+        initial_margin = self.algorithm.Portfolio.MarginRemaining * config['margin_usage_ratio']
+        buffer = self.algorithm.Portfolio.MarginRemaining * (1 - config['margin_usage_ratio'])
+
+        # 检查是否低于最小阈值
+        if initial_margin < self.algorithm.min_investment:
+            return
+
+        # 提取计划分配
+        planned_allocations = {}  # {pair_id: pct}
+        opening_signals = {}      # {pair_id: signal}
+
+        for pair, signal, _, pct in entry_candidates:
+            planned_allocations[pair.pair_id] = pct
+            opening_signals[pair.pair_id] = signal
+
+        # === 逐个开仓(动态缩放保持公平) ===
+        actual_opened = 0
+        for pair_id, pct in planned_allocations.items():
+            pair = self.pairs_manager.get_pair_by_id(pair_id)
+            signal = opening_signals[pair_id]
+
+            # 动态缩放计算
+            current_margin = (self.algorithm.Portfolio.MarginRemaining - buffer) * pct
+            if current_margin <= 0:
+                break
+
+            scale_factor = initial_margin / (self.algorithm.Portfolio.MarginRemaining - buffer)
+            margin_allocated = current_margin * scale_factor
+
+            # 检查1: 订单锁定检查
+            if self.tickets_manager.is_pair_locked(pair_id):
+                continue
+
+            # 检查2: 最小投资额
+            if margin_allocated < self.algorithm.min_investment:
+                continue
+
+            # 检查3: 保证金是否仍足够
+            available_for_check = self.algorithm.Portfolio.MarginRemaining - buffer
+            if margin_allocated > available_for_check:
+                self.algorithm.Debug(f"[开仓失败] {pair_id} 保证金不足: 需要${margin_allocated:,.0f}, 可用${available_for_check:,.0f}")
+                continue
+
+            # 执行开仓并注册订单追踪
+            tickets = pair.open_position(signal, margin_allocated, data)
+            if tickets:
+                self.tickets_manager.register_tickets(pair_id, tickets, OrderAction.OPEN)
+                actual_opened += 1
+
+        # 执行结果
+        if actual_opened > 0:
+            self.algorithm.Debug(f"[开仓] 成功开仓{actual_opened}/{len(entry_candidates)}个配对")
