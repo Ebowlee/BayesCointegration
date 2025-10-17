@@ -1,6 +1,5 @@
 # region imports
 from AlgorithmImports import *
-from QuantConnect.Data.Fundamental import MorningstarSectorCode
 # endregion
 
 
@@ -43,11 +42,6 @@ class StrategyConfig:
 
         # ========== 选股模块配置 ==========
         self.universe_selection = {
-            # 分组配置
-            'group_by': 'IndustryGroup',              # 分组方式: Sector(8个大行业) / IndustryGroup(26个子行业)
-            'max_stocks_per_sector': 20,              # 每组最多选取股票数
-            'min_stocks_per_group': 5,                # 子行业最少股票数（不足则跳过该组）
-
             # 基础筛选
             'min_price': 15,                          # 最低股价（美元）
             'min_volume': 5e6,                        # 最低日均成交量
@@ -98,11 +92,16 @@ class StrategyConfig:
 
         # ========== 分析模块配置 ==========
         self.analysis = {
+            # 协整检验参数
             'pvalue_threshold': 0.05,                  # 协整p值阈值
             'correlation_threshold': 0.5,              # 相关系数阈值
             'max_symbol_repeats': 1,                   # 单股最多配对数
             'max_pairs': 20,                           # 最大配对数
             'lookback_days': 252,                      # 统一历史数据天数
+
+            # 子行业分组配置（v6.7.2从universe_selection移至此处）
+            'min_stocks_per_group': 5,                 # 子行业最少股票数（不足则跳过）
+            'max_stocks_per_group': 20,                # 子行业最多股票数（按市值选TOP）
             'mcmc_warmup_samples': 500,
             'mcmc_posterior_samples': 500,
             'mcmc_chains': 2,
@@ -216,18 +215,6 @@ class StrategyConfig:
             }
         }
 
-        # ========== 行业映射 ==========
-        self.sector_code_to_name = {
-            MorningstarSectorCode.Technology: "Technology",
-            MorningstarSectorCode.Healthcare: "Healthcare",
-            MorningstarSectorCode.Energy: "Energy",
-            MorningstarSectorCode.ConsumerDefensive: "ConsumerDefensive",
-            MorningstarSectorCode.ConsumerCyclical: "ConsumerCyclical",
-            MorningstarSectorCode.CommunicationServices: "CommunicationServices",
-            MorningstarSectorCode.Industrials: "Industrials",
-            MorningstarSectorCode.Utilities: "Utilities"
-        }
-        self.sector_name_to_code = {v: k for k, v in self.sector_code_to_name.items()}
 
     def get_module_config(self, module_name):
         """获取模块配置"""

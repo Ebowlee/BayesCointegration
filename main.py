@@ -134,8 +134,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # === 步骤2: 协整检验 ===
         cointegration_result = self.cointegration_analyzer.cointegration_procedure(
             valid_symbols,
-            clean_data,
-            self.config.sector_code_to_name
+            clean_data
         )
         raw_pairs = cointegration_result['raw_pairs']
 
