@@ -48,8 +48,11 @@ class PairSelector:
     def evaluate_quality(self, raw_pairs, clean_data):
         """
         评估配对质量
+
+        性能优化：预先计算120天窗口和beta，避免在各评分函数中重复计算
         """
         scored_pairs = []
+        recent_window = 120  # 半年窗口
 
         for pair_info in raw_pairs:
             symbol1 = pair_info['symbol1']
@@ -66,11 +69,24 @@ class PairSelector:
             prices1 = data1['close']
             prices2 = data2['close']
 
-            # 计算各项分数
-            half_life_score = self._calculate_half_life_score(prices1, prices2)
-            volatility_ratio_score = self._calculate_volatility_ratio_score(prices1, prices2)
+            # ⭐ 预先计算120天窗口数据和beta（只计算一次，复用于Half-Life和Volatility Ratio）
+            if len(prices1) >= recent_window and len(prices2) >= recent_window:
+                prices1_recent = prices1[-recent_window:]
+                prices2_recent = prices2[-recent_window:]
 
-            # 流动性分数（基于成交量）
+                # 估计beta（OLS回归，每配对只计算一次）
+                slope, _, _, _, _ = stats.linregress(np.log(prices2_recent), np.log(prices1_recent))
+                beta = slope if slope > 0 else 1.0  # 安全检查: beta应为正
+
+                # 计算各项分数（传入预计算的数据）
+                half_life_score = self._calculate_half_life_score(prices1_recent, prices2_recent, beta)
+                volatility_ratio_score = self._calculate_volatility_ratio_score(prices1_recent, prices2_recent, beta)
+            else:
+                # 数据不足，两项分数为0
+                half_life_score = 0
+                volatility_ratio_score = 0
+
+            # 流动性分数（基于成交量，独立计算）
             liquidity_score = self._calculate_liquidity_score(data1, data2)
 
             # 综合质量分数
@@ -136,27 +152,19 @@ class PairSelector:
             return max_score - (value - min_val) * (max_score - min_score) / (max_val - min_val)
 
 
-    def _calculate_half_life_score(self, prices1, prices2):
+    def _calculate_half_life_score(self, prices1_recent, prices2_recent, beta):
         """
         计算半衰期分数（基于价格序列的均值回归速度）
 
         使用AR(1)模型估计半衰期: half_life = -log(2) / log(ρ)
-        使用120天窗口反映近期市场状态，使用beta调整价差保证准确性
+
+        Args:
+            prices1_recent: 最近120天的价格序列（symbol1）
+            prices2_recent: 最近120天的价格序列（symbol2）
+            beta: 预先计算的协整系数
         """
         try:
-            # 使用最近120天数据（半年窗口）
-            recent_window = 120
-            if len(prices1) < recent_window or len(prices2) < recent_window:
-                return 0  # 数据不足
-
-            prices1_recent = prices1[-recent_window:]
-            prices2_recent = prices2[-recent_window:]
-
-            # 估计beta（OLS回归）
-            slope, _, _, _, _ = stats.linregress(np.log(prices2_recent), np.log(prices1_recent))
-            beta = slope if slope > 0 else 1.0  # 安全检查: beta应为正
-
-            # Beta调整价差（与Volatility Ratio保持一致）
+            # Beta调整价差（直接使用传入的beta，无需重复计算）
             spread = np.log(prices1_recent) - beta * np.log(prices2_recent)
 
             if len(spread) < 2:
@@ -186,27 +194,19 @@ class PairSelector:
             return 0  # 异常返回0分
 
 
-    def _calculate_volatility_ratio_score(self, prices1, prices2):
+    def _calculate_volatility_ratio_score(self, prices1_recent, prices2_recent, beta):
         """
         计算波动率比率分数（稳定性）
 
-        使用120天窗口反映近期市场状态
         使用beta调整价差，考虑相关性的combined_vol，更准确反映协整关系稳定性
+
+        Args:
+            prices1_recent: 最近120天的价格序列（symbol1）
+            prices2_recent: 最近120天的价格序列（symbol2）
+            beta: 预先计算的协整系数
         """
         try:
-            # 使用最近120天数据（半年窗口）
-            recent_window = 120
-            if len(prices1) < recent_window or len(prices2) < recent_window:
-                return 0  # 数据不足
-
-            prices1_recent = prices1[-recent_window:]
-            prices2_recent = prices2[-recent_window:]
-
-            # 快速估计beta(OLS回归)
-            slope, _, _, _, _ = stats.linregress(np.log(prices2_recent), np.log(prices1_recent))
-            beta = slope if slope > 0 else 1.0  # 安全检查: beta应为正
-
-            # 计算beta调整价差
+            # 计算beta调整价差（直接使用传入的beta，无需重复计算）
             spread = np.log(prices1_recent) - beta * np.log(prices2_recent)
             spread_vol = np.std(spread, ddof=1)  # 使用样本标准差
 
