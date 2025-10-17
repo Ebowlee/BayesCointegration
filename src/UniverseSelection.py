@@ -354,9 +354,9 @@ class SectorBasedUniverseSelection(FineFundamentalUniverseSelectionModel):
             {Symbol: 年化波动率} 字典
         """
         volatilities = {}
-        lookback_days = self.algorithm.config.analysis['lookback_days']
+        lookback_days = self.algorithm.config.analysis_shared['lookback_days']
         annualization_factor = self.config['annualization_factor']
-        min_required_days = lookback_days * self.algorithm.config.analysis['data_completeness_ratio']
+        min_required_days = lookback_days * self.algorithm.config.data_processor['data_completeness_ratio']
 
         # 批量获取历史数据
         symbols = [stock.Symbol for stock in stocks]
