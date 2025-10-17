@@ -91,6 +91,7 @@ class CointegrationAnalyzer:
             通过协整检验的配对列表
         """
         cointegrated_pairs = []
+        failed_tests = []
 
         # 生成所有可能的配对组合
         for sym1, sym2 in itertools.combinations(symbols, 2):
@@ -100,21 +101,42 @@ class CointegrationAnalyzer:
                 prices1 = clean_data[symbol1]['close']
                 prices2 = clean_data[symbol2]['close']
 
+                # 验证数据长度一致(理论上DataProcessor已保证,但再次验证)
+                if len(prices1) != len(prices2):
+                    failed_tests.append((symbol1, symbol2, 'length_mismatch'))
+                    continue
+
                 # Engle-Granger协整检验
                 score, pvalue, _ = coint(prices1, prices2)
                 correlation = prices1.corr(prices2)
 
-                # 检查条件
-                if pvalue < self.pvalue_threshold and correlation > self.correlation_threshold:
+                # 检查条件(只用p值,删除相关系数条件)
+                # 理由: 协整关系与相关性是不同概念,p值已足够判断配对质量
+                if pvalue < self.pvalue_threshold:
                     cointegrated_pairs.append({
                         'symbol1': symbol1,
                         'symbol2': symbol2,
                         'pvalue': pvalue,
-                        'correlation': correlation,
+                        'correlation': correlation,  # 保留用于记录,但不作为筛选条件
                         'industry_group': ig_name  # 记录子行业（用于后续分析）
                     })
+
+            except ValueError:
+                # statsmodels可能抛出ValueError(如数据退化)
+                failed_tests.append((symbol1, symbol2, 'statsmodels_error'))
+            except KeyError:
+                # clean_data中缺少股票数据
+                failed_tests.append((symbol1, symbol2, 'data_missing'))
             except Exception:
-                pass
+                failed_tests.append((symbol1, symbol2, 'unknown_error'))
+
+        # 日志记录失败情况
+        if failed_tests and self.algorithm.debug_mode:
+            sample_failures = [f'{s1.Value}&{s2.Value}({r})' for s1, s2, r in failed_tests[:3]]
+            self.algorithm.Debug(
+                f"[协整分析] 子行业{ig_name}测试失败{len(failed_tests)}对: {', '.join(sample_failures)}"
+                + (f" 等" if len(failed_tests) > 3 else "")
+            )
 
         return cointegrated_pairs
 
@@ -133,19 +155,47 @@ class CointegrationAnalyzer:
 
         # 步骤1: 收集每只股票的市值和子行业信息
         stock_info = []
+        failed_symbols = []
+
         for symbol in symbols:
             try:
                 security = self.algorithm.Securities[symbol]
+
+                # 检查基本面数据完整性
+                if not security.Fundamentals:
+                    failed_symbols.append((symbol, 'no_fundamentals'))
+                    continue
+
+                if not security.Fundamentals.AssetClassification:
+                    failed_symbols.append((symbol, 'no_classification'))
+                    continue
+
                 ig_code = security.Fundamentals.AssetClassification.MorningstarIndustryGroupCode
                 market_cap = security.Fundamentals.MarketCap
+
+                # 验证数据有效性
+                if ig_code is None or market_cap is None or market_cap <= 0:
+                    failed_symbols.append((symbol, 'invalid_data'))
+                    continue
 
                 stock_info.append({
                     'symbol': symbol,
                     'ig_code': ig_code,
                     'market_cap': market_cap
                 })
+
+            except AttributeError:
+                failed_symbols.append((symbol, 'attribute_error'))
             except Exception:
-                continue
+                failed_symbols.append((symbol, 'unknown_error'))
+
+        # 日志记录失败情况
+        if failed_symbols and self.algorithm.debug_mode:
+            sample_failures = [f'{s.Value}({r})' for s, r in failed_symbols[:5]]
+            self.algorithm.Debug(
+                f"[协整分析] 分组失败{len(failed_symbols)}只: {', '.join(sample_failures)}"
+                + (f" 等" if len(failed_symbols) > 5 else "")
+            )
 
         # 步骤2: 按子行业分组
         for info in stock_info:

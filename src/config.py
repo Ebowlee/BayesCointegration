@@ -51,7 +51,7 @@ class StrategyConfig:
             'max_pe': 100,                            # PE上限
             'min_roe': 0,                             # ROE下限
             'max_debt_ratio': 0.6,                    # 负债率上限
-            'max_leverage_ratio': 5,                  # 杠杆率上限（总资产/股东权益）
+            'max_leverage_ratio': 6,                  # 杠杆率上限（总资产/股东权益）
 
             # 风险指标
             'max_volatility': 0.5,                    # 年化波动率上限
@@ -67,7 +67,7 @@ class StrategyConfig:
                     'fail_key': 'pe_failed'
                 },
                 'roe': {
-                    'enabled': True,
+                    'enabled': False,
                     'path': 'OperationRatios.ROE.Value',
                     'operator': 'gt',
                     'threshold_key': 'min_roe',
@@ -93,14 +93,14 @@ class StrategyConfig:
         # ========== 分析模块配置 ==========
         self.analysis = {
             # 协整检验参数
-            'pvalue_threshold': 0.05,                  # 协整p值阈值
+            'pvalue_threshold': 0.10,                  # 协整p值阈值(90%置信度)
             'correlation_threshold': 0.5,              # 相关系数阈值
             'max_symbol_repeats': 1,                   # 单股最多配对数
             'max_pairs': 20,                           # 最大配对数
             'lookback_days': 252,                      # 统一历史数据天数
 
             # 子行业分组配置（v6.7.2从universe_selection移至此处）
-            'min_stocks_per_group': 5,                 # 子行业最少股票数（不足则跳过）
+            'min_stocks_per_group': 3,                 # 子行业最少股票数（不足则跳过）
             'max_stocks_per_group': 20,                # 子行业最多股票数（按市值选TOP）
             'mcmc_warmup_samples': 500,
             'mcmc_posterior_samples': 500,
