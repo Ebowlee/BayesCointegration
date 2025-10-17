@@ -60,6 +60,9 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # === 添加市场基准 ===
         self.market_benchmark = self.AddEquity("SPY", Resolution.Daily).Symbol
 
+        # 设置SPY为基准（用于计算Alpha/Beta）
+        self.SetBenchmark(self.market_benchmark)
+
         # === 添加VIX指数（用于市场条件检查）===
         self.vix_symbol = self.AddIndex("VIX", Resolution.Daily).Symbol
 

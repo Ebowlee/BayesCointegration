@@ -20,10 +20,21 @@ class StrategyConfig:
             'schedule_time': (9, 10),            # 9:10 AM
             'debug_mode': True,                  # True=开发调试(详细日志), False=生产运行(仅关键日志)
 
-            # 资金管理
+            # 基准配置
+            'benchmark_symbol': 'SPY',           # 基准标的
+            'benchmark_name': 'S&P 500 ETF',     # 基准名称
+            'benchmark_description': 'Standard benchmark for US equity strategies',
+
+            # TODO(v6.8.0): 配置重组计划
+            # 以下参数按业务职责应迁移到对应模块：
+            # - min_investment_ratio → self.execution (ExecutionManager重构时)
+            # - market_condition_* → self.risk_management['market_condition'] (RiskManager重构时)
+            # 当前临时保留在main中以保持稳定性
+
+            # 资金管理（临时位置，待迁移）
             'min_investment_ratio': 0.10,        # 最小投资：初始资金的10%
 
-            # 市场条件检查（OR逻辑：VIX或HistVol任一触发即阻止开仓）
+            # 市场条件检查（临时位置，待迁移）
             'market_condition_enabled': True,    # 是否启用市场条件检查
             'vix_threshold': 30,                 # VIX恐慌阈值（前瞻性指标，生产环境）
             'spy_volatility_threshold': 0.25,    # SPY年化波动率阈值（生产环境：25%）

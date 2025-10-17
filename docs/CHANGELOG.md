@@ -4,6 +4,97 @@
 
 ---
 
+## [v6.6.2-baseline@20250217]
+
+### 版本定义
+**基准设置版本**: 添加SPY基准对比，建立性能评估基线
+
+本版本完成基准配置并建立优化基线:
+- ✅ **基准对比**: 添加SetBenchmark(SPY)，启用Alpha/Beta计算
+- ✅ **配置完善**: 添加基准元数据配置(symbol/name/description)
+- ✅ **技术债务管理**: 标记配置归属问题并规划v6.8.0解决
+- ✅ **基线建立**: 固化v6.6.2性能指标作为后续优化对比基准
+
+### 核心变更
+
+#### 1. 基准配置
+
+**main.py修改**:
+```python
+# 添加SPY为基准（用于计算Alpha/Beta）
+self.SetBenchmark(self.market_benchmark)
+```
+
+**config.py新增**:
+```python
+# 基准配置
+'benchmark_symbol': 'SPY',
+'benchmark_name': 'S&P 500 ETF',
+'benchmark_description': 'Standard benchmark for US equity strategies'
+```
+
+**效果**: 回测报告现可显示策略 vs SPY对比曲线，以及Alpha/Beta/Information Ratio等基准对比指标
+
+---
+
+#### 2. 技术债务标记
+
+**配置归属问题** (计划v6.8.0解决):
+
+以下参数按业务职责应迁移到对应模块：
+- `min_investment_ratio`: 业务属性为资金管理 → 应迁移至`self.execution`
+- `market_condition_*`: 业务属性为风控检查 → 应迁移至`self.risk_management['market_condition']`
+
+**影响范围**:
+- config.py: 配置结构调整
+- main.py: 配置引用路径更新
+- RiskManager.py: 从新位置读取market_condition配置
+- ExecutionManager.py: 从新位置读取execution配置
+
+**解决计划**:
+- 时间: 第2轮批次4 (执行层重构时)
+- 原因: 在模块重构时一并处理，避免频繁改动引入不稳定性
+
+---
+
+### 回测验证
+
+**基线数据** (2023-09-20 to 2024-09-20):
+
+| 指标类别 | 指标名称 | 数值 | 说明 |
+|---------|---------|------|------|
+| **策略收益** | Total Return | 13.47% | 年度绝对收益 |
+| | Annualized Return | 13.39% | 年化收益率 |
+| **风险控制** | Max Drawdown | **4.10%** | 最大回撤(优秀) |
+| | Annualized Volatility | 4.9% | 年化波动率 |
+| **风险调整收益** | Sharpe Ratio | 0.753 | 夏普比率 |
+| | Sortino Ratio | 1.207 | 索提诺比率 |
+| | PSR | 84.48% | 概率夏普比率 |
+| **交易表现** | Win Rate | 47% | 胜率 |
+| | Profit Factor | 1.72 | 盈亏比 |
+| | Total Trades | 158 | 总交易次数 |
+
+**基准对比指标** (待回测确认):
+| 指标 | 数值 | 说明 |
+|------|------|------|
+| SPY Return | ?% | 基准收益率 |
+| **Alpha** | **?%** | 超额收益(策略 - SPY) |
+| **Beta** | **?** | 系统性风险敞口 |
+| Information Ratio | ? | Alpha质量指标 |
+| Correlation | ? | 与SPY相关性 |
+
+**验收标准**:
+- ✅ Alpha > 0 (证明策略有超额收益)
+- ✅ Beta < 0.6 (证明策略与大盘低相关，是真正的统计套利)
+- ✅ Information Ratio > 0.5 (证明Alpha质量高)
+
+---
+
+### 相关提交
+- feat: 添加SPY基准设置并标记配置技术债务 (v6.6.2-baseline)
+
+---
+
 ## [v6.6.2_ExecutionManager统一执行器@20250217]
 
 ### 版本定义
