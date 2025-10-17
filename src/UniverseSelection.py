@@ -23,8 +23,8 @@ class FinancialValidator:
         Args:
             config: universe_selection配置字典
         """
-        self.config = config
-        self.filters = config.get('financial_filters', {})
+        self.config = config                               # universe_selection配置字典
+        self.filters = config.get('financial_filters', {}) # 财务筛选器规则配置
 
     def validate_stock(self, stock: FineFundamental) -> Tuple[bool, List[str]]:
         """
@@ -68,19 +68,20 @@ class FinancialValidator:
 
     def _get_metric_value(self, stock: FineFundamental, path: str) -> Optional[float]:
         """
-        通过路径获取指标值
+        通过路径字符串获取嵌套对象的属性值
 
         Args:
             stock: 股票对象
-            path: 属性路径 (如 'ValuationRatios.PERatio')
+            path: 点分隔的属性路径 (如 'ValuationRatios.PERatio')
 
         Returns:
-            指标值或None
+            指标值或None (路径不存在或类型错误时返回None)
         """
         try:
             value = stock
+            # 按路径逐层解析对象属性 (如 'ValuationRatios.PERatio' → stock.ValuationRatios.PERatio)
             for attr in path.split('.'):
-                value = getattr(value, attr, None)
+                value = getattr(value, attr, None)  # 获取下一层属性,不存在返回None
                 if value is None:
                     return None
             return value
@@ -102,10 +103,10 @@ class SelectionLogger:
 
         Args:
             algorithm: QuantConnect算法实例
-            sector_code_to_name: 行业代码到名称的映射
+            sector_code_to_name: 行业代码到名称的映射字典
         """
-        self.algorithm = algorithm
-        self.sector_code_to_name = sector_code_to_name
+        self.algorithm = algorithm                         # QuantConnect算法实例
+        self.sector_code_to_name = sector_code_to_name     # 行业代码到名称映射
 
     def log_selection_summary(self, round_num: int, initial_count: int,
                               final_count: int, financial_stats: Dict[str, int],
@@ -139,7 +140,13 @@ class SelectionLogger:
         self._log_sector_distribution(final_stocks)
 
     def _log_financial_failures(self, initial_count: int, stats: Dict[str, int]):
-        """记录财务筛选淘汰原因"""
+        """
+        记录财务筛选淘汰原因
+
+        Args:
+            initial_count: 粗选股票总数
+            stats: 财务筛选统计字典,包含'passed'和各种失败原因计数
+        """
         financial_passed = stats.get('passed', 0)
         financial_failed = initial_count - financial_passed
 
@@ -162,7 +169,12 @@ class SelectionLogger:
             self.algorithm.Debug(f"财务淘汰{financial_failed}: {', '.join(reasons)}")
 
     def _log_volatility_failures(self, stats: Dict[str, int]):
-        """记录波动率筛选淘汰原因"""
+        """
+        记录波动率筛选淘汰原因
+
+        Args:
+            stats: 波动率筛选统计字典,包含'total'、'passed'、'volatility_failed'、'data_missing'
+        """
         volatility_failed = stats['total'] - stats['passed']
         if volatility_failed > 0:
             self.algorithm.Debug(
@@ -172,7 +184,12 @@ class SelectionLogger:
             )
 
     def _log_sector_distribution(self, stocks: List[FineFundamental]):
-        """记录行业分布"""
+        """
+        记录最终选中股票的行业分布情况
+
+        Args:
+            stocks: 最终选中的股票列表
+        """
         if not stocks:
             return
 
