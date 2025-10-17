@@ -47,11 +47,46 @@ class StrategyConfig:
             'min_price': 20,                           # 最低价$20
             'min_volume': 5e6,                         # 最低成交量500万
             'min_days_since_ipo': 1095,                # IPO满3年
-            'max_pe': 100,                             # PE上限
-            'min_roe': 0,                              # ROE下限
+            'max_pe': 80,                              # PE上限 (v6.7.0: 100→80严格化)
+            'min_roe': 0.05,                           # ROE下限 (v6.7.0: 0→0.05严格化)
             'max_debt_ratio': 0.7,                     # 负债率上限 (总债务/总资产)
             'max_leverage_ratio': 5,                   # 杠杆率上限 (总资产/股东权益)
-            'max_volatility': 0.5                      # 年化波动率上限
+            'max_volatility': 0.4,                     # 年化波动率上限 (v6.7.0: 0.5→0.4严格化)
+
+            # 技术常量
+            'annualization_factor': 252,               # 年化因子（交易日数）
+
+            # 财务筛选器配置 (v6.7.0: 配置化财务验证逻辑)
+            'financial_filters': {
+                'pe_ratio': {
+                    'enabled': True,
+                    'path': 'ValuationRatios.PERatio',
+                    'operator': 'lt',
+                    'threshold_key': 'max_pe',
+                    'fail_key': 'pe_failed'
+                },
+                'roe': {
+                    'enabled': True,
+                    'path': 'OperationRatios.ROE.Value',
+                    'operator': 'gt',
+                    'threshold_key': 'min_roe',
+                    'fail_key': 'roe_failed'
+                },
+                'debt_ratio': {
+                    'enabled': True,
+                    'path': 'OperationRatios.DebtToAssets.Value',
+                    'operator': 'lt',
+                    'threshold_key': 'max_debt_ratio',
+                    'fail_key': 'debt_failed'
+                },
+                'leverage': {
+                    'enabled': True,
+                    'path': 'OperationRatios.FinancialLeverage.Value',
+                    'operator': 'lt',
+                    'threshold_key': 'max_leverage_ratio',
+                    'fail_key': 'leverage_failed'
+                }
+            }
         }
 
         # ========== 分析模块配置 ==========

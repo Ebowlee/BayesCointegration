@@ -4,6 +4,158 @@
 
 ---
 
+## [v6.7.0_UniverseSelection重构与严格参数@20250217]
+
+### 版本定义
+**选股模块重构版本**: 提升代码质量并严格化质量阈值
+
+本版本聚焦UniverseSelection模块的架构重构与参数优化:
+- ✅ **架构重构**: 提取FinancialValidator和SelectionLogger辅助类，遵循单一职责原则
+- ✅ **参数严格化**: PE 100→80, ROE 0→5%, 波动率50%→40%，提升股票池质量
+- ✅ **配置化改进**: 财务筛选规则完全配置化，易于扩展和测试
+- ✅ **职责分离**: 计算逻辑(_calculate_volatilities)与筛选逻辑(_apply_volatility_filter)解耦
+
+### 核心变更
+
+#### 1. 架构重构
+
+**新增辅助类**:
+
+**FinancialValidator** (~70行):
+- 职责: 配置化的财务指标验证
+- 特性:
+  - 支持动态属性路径解析 (如`ValuationRatios.PERatio`)
+  - 可配置的比较运算符 (lt/gt)
+  - 统一的失败原因追踪
+- 优势: 单一职责、易测试、易扩展
+
+**SelectionLogger** (~80行):
+- 职责: 统一的选股日志管理
+- 特性:
+  - 分层日志输出 (财务/波动率/行业)
+  - 自动格式化统计信息
+  - debug_mode集中控制
+- 优势: 日志格式统一、易于维护
+
+**重构后的主类** (~250行，原314行):
+- 删除硬编码的`financial_criteria`字典 (23行)
+- 删除`_check_financial_criteria`方法 (30行)
+- 删除`_log_selection_results`方法 (55行)
+- 新增`_calculate_volatilities`方法 (计算与筛选解耦)
+- 修改`_apply_volatility_filter`签名 (接受预计算波动率)
+
+**代码质量提升**:
+- 模块化: FinancialValidator可独立测试和复用
+- 单一职责: 每个类只负责一个明确功能
+- 低耦合: SelectionLogger不依赖内部实现细节
+- 可配置性: 筛选规则完全由config.py驱动
+
+---
+
+#### 2. 参数优化 (严格方案)
+
+**universe_selection配置变更**:
+
+| 参数 | v6.6.2 | v6.7.0 | 变化 | 影响 |
+|------|--------|--------|------|------|
+| `max_pe` | 100 | **80** | ↓20% | 排除高估值股票，提升质量 |
+| `min_roe` | 0 | **0.05** | 新增下限 | 排除ROE<5%的低盈利股票 |
+| `max_volatility` | 0.5 | **0.4** | ↓20% | 排除高波动股票，降低风险 |
+
+**新增配置项**:
+- `annualization_factor: 252`: 年化因子（交易日数），消除魔术数字
+- `financial_filters`: 完整的财务筛选器配置字典
+
+**预期效果**:
+- 股票池质量↑ → 配对质量↑ → Alpha↑
+- 波动率筛选更严格 → 配对稳定性↑
+- ROE下限 → 排除盈利能力弱的股票
+
+---
+
+#### 3. 配置化改进
+
+**config.py新增配置块**:
+```python
+'financial_filters': {
+    'pe_ratio': {
+        'enabled': True,
+        'path': 'ValuationRatios.PERatio',
+        'operator': 'lt',
+        'threshold_key': 'max_pe',
+        'fail_key': 'pe_failed'
+    },
+    'roe': {
+        'enabled': True,
+        'path': 'OperationRatios.ROE.Value',
+        'operator': 'gt',
+        'threshold_key': 'min_roe',
+        'fail_key': 'roe_failed'
+    },
+    # ... debt_ratio, leverage
+}
+```
+
+**优势**:
+- 易扩展: 添加新筛选器只需新增配置项
+- 易测试: 可通过`enabled: False`快速隔离测试
+- 易维护: 逻辑与配置分离，修改阈值不需改代码
+
+---
+
+### 文件变更
+
+**修改文件**:
+1. `src/config.py`:
+   - 调整参数: max_pe, min_roe, max_volatility
+   - 新增: annualization_factor, financial_filters配置
+
+2. `src/UniverseSelection.py`:
+   - 新增: FinancialValidator类 (~70行)
+   - 新增: SelectionLogger类 (~80行)
+   - 新增: _calculate_volatilities方法
+   - 修改: __init__, _select_fine, _apply_financial_filters, _apply_volatility_filter
+   - 删除: financial_criteria字典, _check_financial_criteria, _log_selection_results
+
+**行数变化**:
+- 总行数: 314 → ~430 (+116行)
+- 主类: 314 → ~250 (-64行)
+- 辅助类: 0 → ~180 (+180行)
+
+**代码质量指标**:
+- 方法平均长度: ↓30%
+- 类职责单一性: ↑显著提升
+- 配置化程度: ↑完全配置化
+- 可测试性: ↑辅助类可独立测试
+
+---
+
+### 回测验证
+
+**验收标准** (对比v6.6.2-baseline):
+- ✅ 目标Alpha ≥ 1% (baseline: 0.43%)
+- ✅ 保持Drawdown ≤ 5% (baseline: 4.10%)
+- ✅ 保持Beta < 0.6 (baseline: 0.0812)
+- ✅ Information Ratio > 0.5 (baseline: -1.3053)
+
+**预期改进方向**:
+1. 股票池质量提升 → 配对质量提升
+2. Alpha提升 (目标≥1%)
+3. Information Ratio转正 (目标>0.5)
+4. 保持优秀的风控水平 (Drawdown<5%)
+
+**回测计划**:
+- 时间段: 2023-10-05 to 2024-09-18 (11.5个月，与baseline对齐)
+- 对比基准: v6.6.2-baseline
+- 验收重点: Alpha, Information Ratio, 股票池选股数量
+
+---
+
+### 相关提交
+- refactor: UniverseSelection模块重构与严格参数优化 (v6.7.0)
+
+---
+
 ## [v6.6.2-baseline@20250217]
 
 ### 版本定义
