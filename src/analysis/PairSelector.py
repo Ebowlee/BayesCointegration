@@ -55,8 +55,10 @@ class PairSelector:
             symbol1 = pair_info['symbol1']
             symbol2 = pair_info['symbol2']
 
-            # 统计质量分数（基于p值）
-            pvalue_score = 1 - pair_info['pvalue']
+            # 统计质量分数（基于p值的对数转换）
+            # 使用Log10转换反映p值的统计学对数特性
+            # p=0.001→1.0, p=0.01→0.667, p=0.05→0.434
+            pvalue_score = min(1.0, -np.log10(pair_info['pvalue']) / 3.0)
 
             # 获取数据(DataProcessor保证DataFrame输出)
             data1 = clean_data[symbol1]
@@ -139,11 +141,23 @@ class PairSelector:
         计算半衰期分数（基于价格序列的均值回归速度）
 
         使用AR(1)模型估计半衰期: half_life = -log(2) / log(ρ)
+        使用120天窗口反映近期市场状态，使用beta调整价差保证准确性
         """
         try:
-            # 计算简单价差(假设beta=1,用于快速筛选)
-            # 注意: 精确的beta调整价差将在BayesianModeler中计算
-            spread = np.log(prices2) - np.log(prices1)
+            # 使用最近120天数据（半年窗口）
+            recent_window = 120
+            if len(prices1) < recent_window or len(prices2) < recent_window:
+                return 0  # 数据不足
+
+            prices1_recent = prices1[-recent_window:]
+            prices2_recent = prices2[-recent_window:]
+
+            # 估计beta（OLS回归）
+            slope, _, _, _, _ = stats.linregress(np.log(prices2_recent), np.log(prices1_recent))
+            beta = slope if slope > 0 else 1.0  # 安全检查: beta应为正
+
+            # Beta调整价差（与Volatility Ratio保持一致）
+            spread = np.log(prices1_recent) - beta * np.log(prices2_recent)
 
             if len(spread) < 2:
                 return 0  # 无数据，返回0分
@@ -176,29 +190,45 @@ class PairSelector:
         """
         计算波动率比率分数（稳定性）
 
-        使用beta调整价差,更准确反映协整关系的稳定性
+        使用120天窗口反映近期市场状态
+        使用beta调整价差，考虑相关性的combined_vol，更准确反映协整关系稳定性
         """
         try:
+            # 使用最近120天数据（半年窗口）
+            recent_window = 120
+            if len(prices1) < recent_window or len(prices2) < recent_window:
+                return 0  # 数据不足
+
+            prices1_recent = prices1[-recent_window:]
+            prices2_recent = prices2[-recent_window:]
+
             # 快速估计beta(OLS回归)
-            slope, _, _, _, _ = stats.linregress(np.log(prices2), np.log(prices1))
+            slope, _, _, _, _ = stats.linregress(np.log(prices2_recent), np.log(prices1_recent))
             beta = slope if slope > 0 else 1.0  # 安全检查: beta应为正
 
             # 计算beta调整价差
-            spread = np.log(prices1) - beta * np.log(prices2)
-            spread_vol = np.std(spread)
+            spread = np.log(prices1_recent) - beta * np.log(prices2_recent)
+            spread_vol = np.std(spread, ddof=1)  # 使用样本标准差
 
             # 计算对数收益率波动率
-            log_returns1 = np.diff(np.log(prices1))
-            log_returns2 = np.diff(np.log(prices2))
-            vol1 = np.std(log_returns1)
-            vol2 = np.std(log_returns2)
+            log_returns1 = np.diff(np.log(prices1_recent))
+            log_returns2 = np.diff(np.log(prices2_recent))
+            vol1 = np.std(log_returns1, ddof=1)  # 使用样本标准差
+            vol2 = np.std(log_returns2, ddof=1)  # 使用样本标准差
 
             # 安全检查
             if vol1 <= 0 or vol2 <= 0:
                 return 0  # 异常数据，返回0分
 
-            # 计算比率
-            combined_vol = np.sqrt(vol1**2 + vol2**2)
+            # 计算相关性并考虑到combined_vol中
+            # Var(R1-R2) = vol1² + vol2² - 2ρ*vol1*vol2
+            correlation = np.corrcoef(log_returns1, log_returns2)[0, 1]
+            combined_vol = np.sqrt(vol1**2 + vol2**2 - 2*correlation*vol1*vol2)
+
+            # 避免除零
+            if combined_vol <= 0:
+                return 0
+
             volatility_ratio = spread_vol / combined_vol
 
             # 使用配置的阈值进行插值：optimal_ratio=1.0分，max_acceptable_ratio=0分

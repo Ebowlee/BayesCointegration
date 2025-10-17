@@ -123,10 +123,10 @@ class StrategyConfig:
 
             # 质量评分权重
             'quality_weights': {
-                'statistical': 0.30,            # 协整强度(基于p值)
-                'half_life': 0.30,              # 均值回归速度
-                'volatility_ratio': 0.20,       # 价差稳定性
-                'liquidity': 0.20               # 流动性(成交量)
+                'statistical': 0.20,            # 协整强度(基于p值) - 降低以减少信息重叠
+                'half_life': 0.40,              # 均值回归速度 - 提升为最重要交易指标
+                'volatility_ratio': 0.15,       # 价差稳定性 - 降低以减少信息重叠
+                'liquidity': 0.25               # 流动性(成交量) - 提升为实际交易必需
             },
 
             # 评分阈值
