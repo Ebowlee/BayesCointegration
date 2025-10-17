@@ -391,6 +391,46 @@ class RiskManager:
             return None, []
 
 
+    def check_all_pair_risks(self, pairs_with_position) -> dict:
+        """
+        批量检测所有配对的风险(对称Portfolio风控)
+
+        设计目标:
+        - 与check_portfolio_risks()完全对称
+        - 实现"检测与执行分离"原则
+        - main.py只负责分发和执行
+
+        Args:
+            pairs_with_position: 有持仓的配对字典 {pair_id: Pairs}
+
+        Returns:
+            Dict[pair_id, (action, triggered_rules)]
+            - pair_id: 触发风控的配对ID
+            - action: 'pair_close'等
+            - triggered_rules: [(rule, description), ...]
+
+        示例:
+            risk_actions = risk_manager.check_all_pair_risks(pairs_with_position)
+            # 返回: {
+            #   ('AAPL', 'MSFT'): ('pair_close', [(HoldingTimeoutRule, "持仓超时...")]),
+            #   ('GOOG', 'GOOGL'): ('pair_close', [(PairDrawdownRule, "回撤超限...")])
+            # }
+
+        注意:
+        - 只返回触发风控的配对,未触发的不包含在字典中
+        - 与check_pair_risks()内部调用相同逻辑,只是包装为批量接口
+        - 实现Portfolio和Pair风控完全对称的架构
+        """
+        risk_actions = {}
+
+        for pair in pairs_with_position.values():
+            action, triggered_rules = self.check_pair_risks(pair)
+            if action:
+                risk_actions[pair.pair_id] = (action, triggered_rules)
+
+        return risk_actions
+
+
     def get_registered_rules_info(self) -> dict:
         """
         获取已注册规则的信息（用于调试和测试）

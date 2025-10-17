@@ -4,6 +4,256 @@
 
 ---
 
+## [v6.6.1_风控架构重构-检测与执行分离@20250217]
+
+### 版本定义
+**架构优化版本**: 风控模块职责分离,实现"检测-执行"完全解耦
+
+本版本聚焦于架构优化,实现了:
+- ✅ **职责分离**: RiskManager(纯检测) + RiskHandler(纯执行)
+- ✅ **架构对称**: Portfolio和Pair风控遵循统一模式
+- ✅ **代码简化**: main.py从~450行减少到~312行(减少30.6%)
+- ✅ **可维护性**: 单一职责原则,便于测试和扩展
+
+### 核心重构
+
+#### 1. 创建RiskHandler执行器
+
+**设计动机**:
+- **问题**: 风控执行逻辑散落在main.py中(~155行),违反单一职责原则
+- **解决方案**: 创建独立的RiskHandler类,专门负责风控动作执行
+
+**实现细节**:
+```python
+# src/RiskManagement/RiskHandler.py (新增176行)
+class RiskHandler:
+    def __init__(self, algorithm, pairs_manager, tickets_manager):
+        """依赖注入所有需要的组件"""
+
+    def handle_portfolio_risk_action(self, action: str, triggered_rules: list):
+        """处理Portfolio层面风控动作(如全部清仓)"""
+
+    def handle_pair_risk_actions(self, pair_risk_actions: dict):
+        """批量处理Pair层面风控动作(如平仓特定配对)"""
+
+    def liquidate_all_positions(self):
+        """清空所有持仓(通过pairs_manager,不使用QC的Liquidate)"""
+```
+
+**关键特性**:
+- **依赖注入**: 通过构造函数传入algorithm, pairs_manager, tickets_manager
+- **对称接口**: Portfolio和Pair层面统一的handle_xxx_action()方法
+- **订单追踪**: 所有执行都通过tickets_manager.register_tickets()
+- **详细日志**: 记录触发规则、动作类型、执行结果
+
+#### 2. RiskManager增强 - 批量检测
+
+**新增方法**: `check_all_pair_risks(pairs_with_position) -> dict`
+
+**设计目的**: 实现Portfolio和Pair风控架构的完全对称
+```python
+# Portfolio层面
+portfolio_action, triggered_rules = risk_manager.check_portfolio_risks()
+risk_handler.handle_portfolio_risk_action(portfolio_action, triggered_rules)
+
+# Pair层面(重构后 - 完全对称)
+pair_risk_actions = risk_manager.check_all_pair_risks(pairs_with_position)
+risk_handler.handle_pair_risk_actions(pair_risk_actions)
+```
+
+**返回格式**:
+```python
+{
+    'AAPL-MSFT': ('pair_close', [(HoldingTimeoutRule, "持仓超时: 31天 > 30天")]),
+    'CVS-GILD': ('pair_close', [(PairDrawdownRule, "配对回撤: 5.2% >= 5.0%")])
+}
+```
+
+#### 3. main.py重构 - 三大变更
+
+**变更1: 分离风控平仓和信号平仓**
+```python
+# 重构前: 混合在一起(难以区分风控和正常交易)
+for pair in pairs_with_position.values():
+    # 风控检查 + 信号检查混在一起
+
+# 重构后: 完全分离
+# 1. 风控平仓
+pair_risk_actions = self.risk_manager.check_all_pair_risks(pairs_with_position)
+if pair_risk_actions:
+    self.risk_handler.handle_pair_risk_actions(pair_risk_actions)
+
+# 2. 正常平仓(独立方法)
+self._handle_signal_based_closings(pairs_with_position, data)
+```
+
+**变更2: 删除执行方法(~155行)**
+- 删除: `_handle_portfolio_risk_action()` (85行) → 移至RiskHandler
+- 删除: `_handle_pair_risk_actions()` (未完成版本) → 移至RiskHandler
+- 删除: `_liquidate_all_positions()` (70行) → 移至RiskHandler
+
+**变更3: OnData流程重组**
+```python
+def OnData(self, data):
+    # 1. Portfolio层面风控检查(最优先)
+    portfolio_action, triggered_rules = self.risk_manager.check_portfolio_risks()
+    if portfolio_action:
+        self.risk_handler.handle_portfolio_risk_action(portfolio_action, triggered_rules)
+        return  # 完全停止所有交易
+
+    # 2. 冷却期检查(统一阻断)
+    if self.risk_manager.has_any_rule_in_cooldown():
+        return
+
+    # 3. Pair层面风控检查
+    pair_risk_actions = self.risk_manager.check_all_pair_risks(pairs_with_position)
+    if pair_risk_actions:
+        self.risk_handler.handle_pair_risk_actions(pair_risk_actions)
+
+    # 4. 正常平仓
+    self._handle_signal_based_closings(pairs_with_position, data)
+
+    # 5. 正常开仓
+    if pairs_without_position:
+        # 市场条件检查
+        if not self.risk_manager.is_safe_to_open_positions():
+            return
+        # 开仓逻辑...
+```
+
+### 架构优势
+
+#### 1. 单一职责原则(SRP)
+```
+RiskManager: 纯检测器
+  ├── 输入: 市场数据、持仓状态
+  ├── 输出: 风控动作字符串 + 触发规则列表
+  └── 无副作用: 不修改任何状态、不提交订单
+
+RiskHandler: 纯执行器
+  ├── 输入: 风控动作字符串 + 触发规则
+  ├── 输出: 订单提交结果
+  └── 副作用: 提交订单、激活冷却期、记录日志
+
+main.py: 纯协调器
+  ├── 职责: 调用检测器、调用执行器
+  └── 不包含: 检测逻辑、执行细节
+```
+
+#### 2. 可测试性提升
+- **RiskManager**: 可以独立测试检测逻辑(返回值断言)
+- **RiskHandler**: 可以Mock dependencies测试执行逻辑
+- **main.py**: 可以Mock风控模块测试协调逻辑
+
+#### 3. 完全对称的架构
+```
+Portfolio风控          Pair风控
+检测: check_portfolio_risks()  ←→  check_all_pair_risks()
+执行: handle_portfolio_risk_action()  ←→  handle_pair_risk_actions()
+结果: (action, rules)           ←→  {pair_id: (action, rules)}
+```
+
+#### 4. 扩展性增强
+**未来扩展点**:
+- 新增Portfolio动作: 只需在RiskHandler中添加elif分支
+- 新增Pair动作: 只需在handle_pair_risk_actions()中添加处理
+- 新增风控规则: 在RiskManager注册,无需修改执行逻辑
+
+### 文件变更清单
+
+#### 新增文件
+- `src/RiskManagement/RiskHandler.py` (176行)
+
+#### 修改文件
+- `main.py`: 删除~155行执行逻辑,新增~17行调用代码(净减少~138行)
+  - 删除: `_handle_portfolio_risk_action()`, `_liquidate_all_positions()`
+  - 新增: `_handle_signal_based_closings()`(分离出的正常平仓逻辑)
+  - 修改: OnData()流程重组,更清晰的执行顺序
+
+- `src/RiskManagement/RiskManager.py`: 新增批量检测方法
+  - 新增: `check_all_pair_risks()` (38行)
+
+- `src/RiskManagement/__init__.py`: 导出RiskHandler
+  - 新增: `from .RiskHandler import RiskHandler`
+  - 更新: `__all__` 列表
+
+### 代码质量改进
+
+#### 1. 主文件简化
+- **重构前**: main.py ~450行(协调+检测+执行混合)
+- **重构后**: main.py ~312行(纯协调逻辑)
+- **减少**: 138行(30.6%)
+
+#### 2. 职责清晰度
+- **重构前**: 风控逻辑散落在main.py、RiskManager中
+- **重构后**: 三个独立模块,职责边界清晰
+
+#### 3. 日志可读性
+```
+# 重构前
+[风控] 触发规则: ExcessiveDrawdownRule...
+[平仓] (AAPL, MSFT) Z-score回归
+
+# 重构后(明确区分风控和正常交易)
+[Pair风控] AAPL-MSFT 触发平仓风控
+  └─ 持仓超时: 已持仓31天 > 上限30天
+[平仓] AAPL-MSFT Z-score回归
+```
+
+### 技术实现细节
+
+#### 1. 依赖注入模式
+```python
+# Initialize()中初始化
+self.risk_handler = RiskHandler(
+    algorithm=self,
+    pairs_manager=self.pairs_manager,
+    tickets_manager=self.tickets_manager
+)
+```
+
+#### 2. 订单锁机制保持一致
+```python
+# RiskHandler内部检查订单锁
+if self.tickets_manager.is_pair_locked(pair_id):
+    continue  # 跳过订单执行中的配对
+```
+
+#### 3. 冷却期管理保持不变
+```python
+# 仍由RiskHandler激活冷却期
+for rule, _ in triggered_rules:
+    rule.activate_cooldown()
+```
+
+### 未来展望
+
+#### 短期计划
+1. ✅ 完成当前重构(检测-执行分离)
+2. 🔜 统一所有执行逻辑到ExecutionManager(包括正常交易)
+3. 🔜 提取Pairs中的执行方法到ExecutionManager
+
+#### 长期愿景
+```
+ExecutionManager (统一执行器)
+  ├── 风控执行 (from RiskHandler)
+  │   ├── handle_portfolio_risk_action()
+  │   ├── handle_pair_risk_actions()
+  │   └── liquidate_all_positions()
+  ├── 正常交易执行 (from main.py)
+  │   ├── handle_signal_closings()
+  │   └── handle_position_openings()
+  └── 底层订单提交 (from Pairs)
+      ├── execute_pair_open()
+      └── execute_pair_close()
+```
+
+### 相关提交
+- 前序版本: v6.6.0 - 完整Pair层面风控三规则体系
+- 本提交: feat: 风控架构重构-分离检测与执行 (v6.6.1)
+
+---
+
 ## [v6.6.0_Pair层面风控三规则体系@20250217]
 
 ### 版本定义

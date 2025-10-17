@@ -5,7 +5,7 @@ from src.config import StrategyConfig
 from src.UniverseSelection import SectorBasedUniverseSelection
 from src.Pairs import Pairs, TradingSignal, OrderAction
 from src.TicketsManager import TicketsManager
-from src.RiskManagement import RiskManager
+from src.RiskManagement import RiskManager, RiskHandler
 # endregion
 
 
@@ -59,6 +59,9 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # === 添加市场基准 ===
         self.market_benchmark = self.AddEquity("SPY", Resolution.Daily).Symbol
 
+        # === 添加VIX指数（用于市场条件检查）===
+        self.vix_symbol = self.AddIndex("VIX", Resolution.Daily).Symbol
+
         # === 资金管理参数 ===
         self.initial_cash = self.config.main['cash']
         # 注意：cash_buffer现在是动态的，将在OnData中计算
@@ -70,6 +73,9 @@ class BayesianCointegrationStrategy(QCAlgorithm):
 
         # === 初始化风控管理器 ===
         self.risk_manager = RiskManager(self, self.config)
+
+        # === 初始化风控执行器 ===
+        self.risk_handler = RiskHandler(self, self.pairs_manager, self.tickets_manager)
 
         self.Debug("[Initialize] 策略初始化完成")
 
@@ -167,12 +173,12 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # === Portfolio层面风控检查（最优先） ===
         portfolio_action, triggered_rules = self.risk_manager.check_portfolio_risks()
         if portfolio_action:
-            self._handle_portfolio_risk_action(portfolio_action, triggered_rules)
-            return  # 触发风控后，阻断所有后续交易逻辑
+            self.risk_handler.handle_portfolio_risk_action(portfolio_action, triggered_rules)
+            return  # 触发任何风控后，完全停止所有交易
 
-        # 检查是否有规则在冷却期（即使没有新触发，也要阻止交易）
+        # 检查是否有任何风控规则在冷却期（统一阻断）
         if self.risk_manager.has_any_rule_in_cooldown():
-            return  # 冷却期内阻断所有交易
+            return  # 冷却期内完全停止所有交易
 
         # 如果没有可交易配对，跳过
         if not self.pairs_manager.has_tradeable_pairs():
@@ -182,30 +188,20 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         pairs_with_position = self.pairs_manager.get_pairs_with_position()
         pairs_without_position = self.pairs_manager.get_pairs_without_position()
 
-        # === 处理有持仓配对（平仓）===
-        for pair in pairs_with_position.values():
-            # 订单锁定检查
-            if self.tickets_manager.is_pair_locked(pair.pair_id):
-                continue
+        # === Pair层面风控检查 ===
+        pair_risk_actions = self.risk_manager.check_all_pair_risks(pairs_with_position)
+        if pair_risk_actions:
+            self.risk_handler.handle_pair_risk_actions(pair_risk_actions)
 
-            # 获取交易信号
-            signal = pair.get_signal(data)
+        # === 处理正常平仓 ===
+        self._handle_signal_based_closings(pairs_with_position, data)
 
-            # 处理平仓信号
-            if signal == TradingSignal.CLOSE:
-                self.Debug(f"[平仓] {pair.pair_id} Z-score回归")
-                tickets = pair.close_position()
-                if tickets:
-                    self.tickets_manager.register_tickets(pair.pair_id, tickets, OrderAction.CLOSE)
-
-            elif signal == TradingSignal.STOP_LOSS:
-                self.Debug(f"[止损] {pair.pair_id} Z-score超限")
-                tickets = pair.close_position()
-                if tickets:
-                    self.tickets_manager.register_tickets(pair.pair_id, tickets, OrderAction.CLOSE)
-
-        # === 处理无持仓配对（开仓）===
+        # === 处理正常开仓 ===
         if pairs_without_position:
+            # 市场条件检查（高波动时阻止开仓，但允许平仓）
+            if not self.risk_manager.is_safe_to_open_positions():
+                return  # 市场高波动，跳过开仓逻辑
+
             # 获取所有开仓候选（已按质量降序）
             entry_candidates = self.pairs_manager.get_sequenced_entry_candidates(data)
 
@@ -263,6 +259,47 @@ class BayesianCointegrationStrategy(QCAlgorithm):
                         self.Debug(f"[开仓] 成功开仓{actual_opened}/{len(entry_candidates)}个配对")
 
 
+    def _handle_signal_based_closings(self, pairs_with_position, data):
+        """
+        处理交易信号触发的平仓（职责：主动交易管理）
+
+        Args:
+            pairs_with_position: 有持仓的配对字典 {pair_id: Pairs}
+            data: 数据切片
+
+        执行流程:
+        1. 遍历所有有持仓配对
+        2. 检查订单锁定状态（跳过风控已处理或订单执行中的配对）
+        3. 获取交易信号(CLOSE/STOP_LOSS/HOLD)
+        4. 处理平仓信号并注册订单
+
+        设计特点:
+        - 完全独立于风控平仓逻辑
+        - 自动跳过风控已处理的配对（通过订单锁机制）
+        - 只处理正常交易信号(CLOSE和STOP_LOSS)
+        """
+        for pair in pairs_with_position.values():
+            # 订单锁定检查（跳过已被风控处理或订单执行中的配对）
+            if self.tickets_manager.is_pair_locked(pair.pair_id):
+                continue
+
+            # 获取交易信号
+            signal = pair.get_signal(data)
+
+            # 处理平仓信号
+            if signal == TradingSignal.CLOSE:
+                self.Debug(f"[平仓] {pair.pair_id} Z-score回归")
+                tickets = pair.close_position()
+                if tickets:
+                    self.tickets_manager.register_tickets(pair.pair_id, tickets, OrderAction.CLOSE)
+
+            elif signal == TradingSignal.STOP_LOSS:
+                self.Debug(f"[止损] {pair.pair_id} Z-score超限")
+                tickets = pair.close_position()
+                if tickets:
+                    self.tickets_manager.register_tickets(pair.pair_id, tickets, OrderAction.CLOSE)
+
+
     def OnOrderEvent(self, event):
         """订单事件回调"""
         # 委托给TicketsManager处理
@@ -273,95 +310,3 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         if anomaly_pairs:
             for pair_id in anomaly_pairs:
                 self.Debug(f"[订单异常] {pair_id} 检测到单腿失败,已标记异常")
-
-
-    def _handle_portfolio_risk_action(self, action: str, triggered_rules: list):
-        """
-        处理Portfolio层面风控动作
-
-        Args:
-            action: 风控动作 ('portfolio_liquidate_all'等)
-            triggered_rules: 触发的规则列表 [(rule, description), ...]
-
-        执行流程:
-        1. 记录所有触发规则的详细日志
-        2. 根据action字符串分发到具体处理方法
-        3. 激活所有触发规则的冷却期
-
-        注意:
-        - 当前只实现'portfolio_liquidate_all'（全部清仓）
-        - 其他action作为占位，未来实现
-        """
-        # 记录所有触发的规则
-        for rule, description in triggered_rules:
-            self.Debug(f"[风控触发] {rule.__class__.__name__}: {description}")
-
-        # 根据action执行相应操作
-        if action == 'portfolio_liquidate_all':
-            self._liquidate_all_positions()
-
-        elif action == 'portfolio_stop_new_entries':
-            # 未来实现：设置标志位，禁止开新仓
-            self.Debug(f"[风控] 停止开新仓模式（暂未实现）")
-
-        elif action == 'portfolio_reduce_exposure_50':
-            # 未来实现：减仓50%
-            self.Debug(f"[风控] 减仓50%模式（暂未实现）")
-
-        elif action == 'portfolio_rebalance_sectors':
-            # 未来实现：行业再平衡
-            self.Debug(f"[风控] 行业再平衡模式（暂未实现）")
-
-        else:
-            self.Debug(f"[风控] 未知动作: {action}")
-
-        # 激活所有触发规则的冷却期
-        for rule, _ in triggered_rules:
-            rule.activate_cooldown()
-            self.Debug(f"[风控] {rule.__class__.__name__} 冷却至 {rule.cooldown_until}")
-
-
-    def _liquidate_all_positions(self):
-        """
-        清空所有持仓（仅通过pairs_manager，不使用Liquidate）
-
-        执行流程:
-        1. 获取所有有持仓的配对
-        2. 检查订单锁定状态（is_pair_locked）
-        3. 通过pair.close_position()平仓（保持订单追踪）
-        4. 注册订单到tickets_manager
-        5. 记录详细日志
-
-        设计决策:
-        - 不使用QC的Liquidate()方法，原因：
-          1. 绕过pair.close_position()
-          2. 绕过tickets_manager.register_tickets()
-          3. 破坏订单追踪体系
-          4. 可能导致重复下单
-        - 只通过pairs_manager管理的配对进行平仓
-        - 保持TicketsManager的订单追踪完整性
-        """
-        self.Debug(f"[风控清仓] 开始清空所有持仓...")
-
-        # 获取所有有持仓的配对
-        pairs_with_position = self.pairs_manager.get_pairs_with_position()
-
-        if not pairs_with_position:
-            self.Debug(f"[风控清仓] 无持仓，跳过")
-            return
-
-        closed_count = 0
-        for pair in pairs_with_position.values():
-            # 订单锁定检查（防止重复下单）
-            if self.tickets_manager.is_pair_locked(pair.pair_id):
-                self.Debug(f"[风控清仓] {pair.pair_id} 订单处理中,跳过")
-                continue
-
-            # 通过pair平仓（保持订单追踪）
-            tickets = pair.close_position()
-            if tickets:
-                self.tickets_manager.register_tickets(pair.pair_id, tickets, OrderAction.CLOSE)
-                closed_count += 1
-                self.Debug(f"[风控清仓] {pair.pair_id} 已提交平仓订单")
-
-        self.Debug(f"[风控清仓] 完成: 平仓{closed_count}/{len(pairs_with_position)}个配对")

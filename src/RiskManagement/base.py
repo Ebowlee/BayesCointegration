@@ -119,7 +119,7 @@ class RiskRule(ABC):
 
         冷却期机制:
         - 当规则触发后，会设置cooldown_until时间
-        - 在此时间之前，规则不会再次检测
+        - 在此时间之前（包括到期当天），规则不会再次检测
         - 避免频繁触发同一规则，减少无意义的重复操作
 
         应用场景:
@@ -130,11 +130,14 @@ class RiskRule(ABC):
         Returns:
             True: 在冷却期，不应检测
             False: 不在冷却期，可以检测
+
+        注意:
+        使用 <= 而非 < 确保冷却期到期当天仍保持冷却状态
         """
         if self.cooldown_until is None:
             return False
 
-        return self.algorithm.Time < self.cooldown_until
+        return self.algorithm.Time <= self.cooldown_until
 
 
     def activate_cooldown(self):
