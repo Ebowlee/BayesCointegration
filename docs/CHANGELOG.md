@@ -74,14 +74,14 @@ self.SetBenchmark(self.market_benchmark)
 | | Profit Factor | 1.72 | 盈亏比 |
 | | Total Trades | 158 | 总交易次数 |
 
-**基准对比指标** (待回测确认):
+**基准对比指标** (Logical Asparagus Beaver回测):
 | 指标 | 数值 | 说明 |
 |------|------|------|
-| SPY Return | ?% | 基准收益率 |
-| **Alpha** | **?%** | 超额收益(策略 - SPY) |
-| **Beta** | **?** | 系统性风险敞口 |
-| Information Ratio | ? | Alpha质量指标 |
-| Correlation | ? | 与SPY相关性 |
+| SPY Return | 9.96% | 基准收益率 |
+| **Alpha** | **0.43%** | 超额收益(策略 - SPY) |
+| **Beta** | **0.0812** | 系统性风险敞口(低相关性) |
+| Information Ratio | -1.3053 | Alpha质量指标(需改进) |
+| Tracking Error | 10.79% | 与SPY偏离度 |
 
 **验收标准**:
 - ✅ Alpha > 0 (证明策略有超额收益)
