@@ -50,7 +50,7 @@ class Pairs:
         self.symbol1 = model_data['symbol1']
         self.symbol2 = model_data['symbol2']
         self.pair_id = (self.symbol1.Value, self.symbol2.Value)
-        self.sector = model_data['sector']
+        self.industry_group = model_data['industry_group']
 
         # === 统计参数(从贝叶斯建模获得) ===
         self.alpha_mean = model_data['alpha_mean']                              # 截距(对数空间)

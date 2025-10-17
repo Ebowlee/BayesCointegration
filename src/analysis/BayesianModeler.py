@@ -100,7 +100,7 @@ class BayesianModeler:
             result = {
                 'symbol1': symbol1,
                 'symbol2': symbol2,
-                'sector': pair['sector'],
+                'industry_group': pair['industry_group'],
                 'quality_score': pair['quality_score'],  # 必须存在，由 PairSelector 提供
                 'modeling_type': prior_params['prior_type'],  # 使用实际的先验类型
                 'modeling_time': self.algorithm.Time,

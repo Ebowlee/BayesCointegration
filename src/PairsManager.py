@@ -167,7 +167,7 @@ class PairsManager:
 
     def get_sector_concentration(self) -> Dict[str, Dict]:
         """
-        获取行业集中度分析
+        获取子行业集中度分析 (v6.7.2: 使用IndustryGroup分类)
         """
         portfolio = self.algorithm.Portfolio
         total_value = portfolio.TotalPortfolioValue
@@ -175,7 +175,7 @@ class PairsManager:
         if total_value <= 0:
             return {}
 
-        sector_data = {}
+        industry_group_data = {}
 
         # 遍历所有可交易配对
         for pair in self.get_all_tradeable_pairs().values():
@@ -183,20 +183,20 @@ class PairsManager:
                 continue
             info = pair.get_position_info()
 
-            sector = pair.sector
-            if sector not in sector_data:
-                sector_data[sector] = {
+            industry_group = pair.industry_group
+            if industry_group not in industry_group_data:
+                industry_group_data[industry_group] = {
                     'value': 0,
                     'pairs': []
                 }
-            sector_data[sector]['value'] += info['value1'] + info['value2']
-            sector_data[sector]['pairs'].append(pair)
+            industry_group_data[industry_group]['value'] += info['value1'] + info['value2']
+            industry_group_data[industry_group]['pairs'].append(pair)
 
         # 计算集中度
         result = {}
-        for sector, data in sector_data.items():
+        for industry_group, data in industry_group_data.items():
             concentration = data['value'] / total_value
-            result[sector] = {
+            result[industry_group] = {
                 'concentration': concentration,
                 'value': data['value'],
                 'pairs': data['pairs'],
