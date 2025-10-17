@@ -9,23 +9,26 @@ import pandas as pd
 class PairSelector:
     """配对评估和筛选器 - 负责评估配对质量并筛选最佳配对"""
 
-    def __init__(self, algorithm, config: dict):
+    def __init__(self, algorithm, shared_config: dict, module_config: dict):
         """
         初始化配对选择器
+
+        Args:
+            algorithm: QCAlgorithm实例
+            shared_config: 共享配置(analysis_shared)
+            module_config: 模块配置(pair_selector)
         """
         self.algorithm = algorithm
 
-        # 质量评分权重
-        self.quality_weights = config['quality_weights']
+        # 从shared_config读取(暂时未使用,预留)
+        # self.lookback_days = shared_config['lookback_days']
 
-        # 筛选参数
-        self.max_symbol_repeats = config['max_symbol_repeats']
-        self.max_pairs = config['max_pairs']
-        self.data_completeness_ratio = config['data_completeness_ratio']
-        self.liquidity_benchmark = config['liquidity_benchmark']
-
-        # 评分阈值
-        self.scoring_thresholds = config['scoring_thresholds']
+        # 从module_config读取
+        self.max_symbol_repeats = module_config['max_symbol_repeats']
+        self.max_pairs = module_config['max_pairs']
+        self.liquidity_benchmark = module_config['liquidity_benchmark']
+        self.quality_weights = module_config['quality_weights']
+        self.scoring_thresholds = module_config['scoring_thresholds']
 
 
     def selection_procedure(self, raw_pairs, clean_data):

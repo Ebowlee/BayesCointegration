@@ -10,14 +10,22 @@ from collections import defaultdict
 class BayesianModeler:
     """贝叶斯建模器 - 使用MCMC方法估计配对交易参数"""
 
-    def __init__(self, algorithm, config: dict):
+    def __init__(self, algorithm, shared_config: dict, module_config: dict):
+        """
+        初始化贝叶斯建模器
+
+        Args:
+            algorithm: QCAlgorithm实例
+            shared_config: 共享配置(analysis_shared)
+            module_config: 模块配置(bayesian_modeler)
+        """
         self.algorithm = algorithm
-        self.mcmc_warmup_samples = config['mcmc_warmup_samples']
-        self.mcmc_posterior_samples = config['mcmc_posterior_samples']
-        self.mcmc_chains = config['mcmc_chains']
-        self.lookback_days = config['lookback_days']
-        self.bayesian_priors = config['bayesian_priors']                # 贝叶斯先验配置（无信息/信息先验）
-        self.historical_posteriors = {}                                 # 内部管理历史后验，实现动态更新
+        self.lookback_days = shared_config['lookback_days']
+        self.mcmc_warmup_samples = module_config['mcmc_warmup_samples']
+        self.mcmc_posterior_samples = module_config['mcmc_posterior_samples']
+        self.mcmc_chains = module_config['mcmc_chains']
+        self.bayesian_priors = module_config['bayesian_priors']  # 贝叶斯先验配置(无信息/信息先验)
+        self.historical_posteriors = {}  # 内部管理历史后验,实现动态更新
 
 
     def _cleanup_historical_posteriors(self):

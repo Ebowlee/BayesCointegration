@@ -14,14 +14,20 @@ class CointegrationAnalyzer:
     协整分析器 - 识别具有长期均衡关系的股票配对
     """
 
-    def __init__(self, algorithm, config: dict):
-        self.algorithm = algorithm
-        self.pvalue_threshold = config['pvalue_threshold']
-        self.correlation_threshold = config['correlation_threshold']
+    def __init__(self, algorithm, module_config: dict):
+        """
+        初始化协整分析器
 
-        # v6.7.2新增：子行业分组配置
-        self.min_stocks_per_group = config.get('min_stocks_per_group', 5)
-        self.max_stocks_per_group = config.get('max_stocks_per_group', 20)
+        Args:
+            algorithm: QCAlgorithm实例
+            module_config: 模块配置(cointegration_analyzer)
+        """
+        self.algorithm = algorithm
+        self.pvalue_threshold = module_config['pvalue_threshold']
+
+        # v6.7.2: 子行业分组配置
+        self.min_stocks_per_group = module_config['min_stocks_per_group']
+        self.max_stocks_per_group = module_config['max_stocks_per_group']
 
 
     def cointegration_procedure(self, valid_symbols: List[Symbol], clean_data: Dict[Symbol, pd.DataFrame]) -> Dict:
@@ -108,17 +114,14 @@ class CointegrationAnalyzer:
 
                 # Engle-Granger协整检验
                 score, pvalue, _ = coint(prices1, prices2)
-                correlation = prices1.corr(prices2)
 
-                # 检查条件(只用p值,删除相关系数条件)
-                # 理由: 协整关系与相关性是不同概念,p值已足够判断配对质量
+                # 检查p值阈值
                 if pvalue < self.pvalue_threshold:
                     cointegrated_pairs.append({
                         'symbol1': symbol1,
                         'symbol2': symbol2,
                         'pvalue': pvalue,
-                        'correlation': correlation,  # 保留用于记录,但不作为筛选条件
-                        'industry_group': ig_name  # 记录子行业（用于后续分析）
+                        'industry_group': ig_name  # 记录子行业(用于后续分析)
                     })
 
             except ValueError:

@@ -90,54 +90,75 @@ class StrategyConfig:
             }
         }
 
-        # ========== 分析模块配置 ==========
-        self.analysis = {
-            # 协整检验参数
-            'pvalue_threshold': 0.10,                  # 协整p值阈值(90%置信度)
-            'correlation_threshold': 0.5,              # 相关系数阈值
-            'max_symbol_repeats': 1,                   # 单股最多配对数
-            'max_pairs': 20,                           # 最大配对数
-            'lookback_days': 252,                      # 统一历史数据天数
+        # ========== 分析流程配置(按数据流顺序组织) ==========
 
-            # 子行业分组配置（v6.7.2从universe_selection移至此处）
-            'min_stocks_per_group': 3,                 # 子行业最少股票数（不足则跳过）
-            'max_stocks_per_group': 20,                # 子行业最多股票数（按市值选TOP）
-            'mcmc_warmup_samples': 500,
-            'mcmc_posterior_samples': 500,
-            'mcmc_chains': 2,
-            'data_completeness_ratio': 1.0,            # 要求100%完整(252天)
-            'liquidity_benchmark': 5e8,                # 流动性评分基准（5亿美元）
+        # 共享参数(所有分析模块使用)
+        self.analysis_shared = {
+            'lookback_days': 252,  # 历史数据回看天数(统一)
+        }
+
+        # 1. 数据处理模块
+        self.data_processor = {
+            'data_completeness_ratio': 1.0,  # 数据完整性要求(1.0=100%,恰好252天,无NaN)
+        }
+
+        # 2. 协整分析模块
+        self.cointegration_analyzer = {
+            # 统计检验
+            'pvalue_threshold': 0.10,           # Engle-Granger p值阈值(90%置信度)
+
+            # 子行业分组
+            'min_stocks_per_group': 3,          # 子行业最少股票数(不足则跳过)
+            'max_stocks_per_group': 20,         # 子行业最多股票数(按市值选TOP)
+        }
+
+        # 3. 配对质量评估模块
+        self.pair_selector = {
+            # 筛选限制
+            'max_symbol_repeats': 1,            # 单股最多配对数
+            'max_pairs': 20,                    # 最大配对数
+
+            # 流动性基准
+            'liquidity_benchmark': 5e8,         # 流动性评分基准(5亿美元)
 
             # 质量评分权重
             'quality_weights': {
-                'statistical': 0.30,                   # 协整强度
-                'half_life': 0.30,                     # 均值回归速度
-                'volatility_ratio': 0.20,              # 稳定性
-                'liquidity': 0.20                      # 流动性（成交量）
+                'statistical': 0.30,            # 协整强度(基于p值)
+                'half_life': 0.30,              # 均值回归速度
+                'volatility_ratio': 0.20,       # 价差稳定性
+                'liquidity': 0.20               # 流动性(成交量)
             },
 
             # 评分阈值
             'scoring_thresholds': {
                 'half_life': {
-                    'optimal_days': 5,                 # 最优半衰期（天）→ 1.0分
-                    'max_acceptable_days': 30          # 最大可接受半衰期（天）→ 0分
+                    'optimal_days': 5,          # 最优半衰期(天) → 1.0分
+                    'max_acceptable_days': 30   # 最大可接受半衰期 → 0分
                 },
                 'volatility_ratio': {
-                    'optimal_ratio': 0.2,              # 最优波动率比率 → 1.0分
-                    'max_acceptable_ratio': 1.0        # 最大可接受比率 → 0分
+                    'optimal_ratio': 0.2,       # 最优波动率比率 → 1.0分
+                    'max_acceptable_ratio': 1.0 # 最大可接受比率 → 0分
                 }
-            },
+            }
+        }
 
-            # 贝叶斯先验参数
+        # 4. 贝叶斯建模模块
+        self.bayesian_modeler = {
+            # MCMC采样参数
+            'mcmc_warmup_samples': 500,         # 预热样本数
+            'mcmc_posterior_samples': 500,      # 后验样本数
+            'mcmc_chains': 2,                   # MCMC链数
+
+            # 先验配置
             'bayesian_priors': {
-                'uninformed': {                        # 无信息先验（首次建模）
-                    'alpha_sigma': 10,                 # 截距项的标准差
-                    'beta_sigma': 5,                   # 斜率项的标准差
-                    'sigma_sigma': 5.0                 # 噪声项的标准差
+                'uninformed': {                 # 无信息先验(首次建模)
+                    'alpha_sigma': 10,          # 截距项标准差
+                    'beta_sigma': 5,            # 斜率项标准差
+                    'sigma_sigma': 5.0          # 噪声项标准差
                 },
-                'informed': {                          # 信息先验（动态更新）
-                    'sigma_multiplier': 1.5,           # sigma的放大系数
-                    'sample_reduction_factor': 0.5     # 动态更新时的采样减少比例
+                'informed': {                   # 信息先验(动态更新)
+                    'sigma_multiplier': 1.5,    # sigma放大系数
+                    'sample_reduction_factor': 0.5  # 采样减少比例
                 }
             }
         }

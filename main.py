@@ -42,10 +42,12 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         from src.analysis.PairSelector import PairSelector
         from src.PairsManager import PairsManager
 
-        self.data_processor = DataProcessor(self, self.config.analysis)
-        self.cointegration_analyzer = CointegrationAnalyzer(self, self.config.analysis)
-        self.bayesian_modeler = BayesianModeler(self, self.config.analysis)  # 现在内部管理历史后验
-        self.pair_selector = PairSelector(self, self.config.analysis)
+        # 使用重构后的配置结构
+        shared_config = self.config.analysis_shared
+        self.data_processor = DataProcessor(self, shared_config, self.config.data_processor)
+        self.cointegration_analyzer = CointegrationAnalyzer(self, self.config.cointegration_analyzer)
+        self.bayesian_modeler = BayesianModeler(self, shared_config, self.config.bayesian_modeler)
+        self.pair_selector = PairSelector(self, shared_config, self.config.pair_selector)
 
         # === 初始化配对管理器 ===
         self.pairs_manager = PairsManager(self, self.config.pairs_trading)
