@@ -42,27 +42,28 @@ class StrategyConfig:
         }
 
         # ========== 选股模块配置 ==========
-        # v6.7.2策略: 子行业分组 + 扩大选股池
-        # 核心调整: 从8个Sector改为26个IndustryGroup、每组20只、财务筛选
         self.universe_selection = {
-            'max_stocks_per_sector': 20,               # 每子行业组最多20只 (v6.7.2: 复用此key控制组大小)
-            'min_price': 15,                           # 最低价$15 (v6.7.1维持)
-            'min_volume': 5e6,                         # 最低成交量500万 (v6.7.1维持)
-            'min_days_since_ipo': 360,                 # IPO满1年 (v6.7.2: 从2年缩短至1年)
-            'max_pe': 100,                             # PE上限 (v6.7.1: 回归baseline平衡)
-            'min_roe': 0,                              # ROE下限 (v6.7.1: 取消下限扩大候选池)
-            'max_debt_ratio': 0.6,                     # 负债率上限 (v6.7.1: 加强财务质量)
-            'max_leverage_ratio': 5,                   # 杠杆率上限 (总资产/股东权益)
-            'max_volatility': 0.5,                     # 年化波动率上限 (v6.7.1: 回归baseline)
+            # 分组配置
+            'group_by': 'IndustryGroup',              # 分组方式: Sector(8个大行业) / IndustryGroup(26个子行业)
+            'max_stocks_per_sector': 20,              # 每组最多选取股票数
+            'min_stocks_per_group': 5,                # 子行业最少股票数（不足则跳过该组）
 
-            # 技术常量
-            'annualization_factor': 252,               # 年化因子（交易日数）
+            # 基础筛选
+            'min_price': 15,                          # 最低股价（美元）
+            'min_volume': 5e6,                        # 最低日均成交量
+            'min_days_since_ipo': 360,                # IPO最短时间（天）
 
-            # v6.7.2新增：子行业分组配置
-            'group_by': 'IndustryGroup',              # 分组方式: 'Sector'(8个) 或 'IndustryGroup'(26个)
-            'min_stocks_per_group': 5,                # 子行业最少5只，否则跳过该子行业
+            # 财务指标阈值
+            'max_pe': 100,                            # PE上限
+            'min_roe': 0,                             # ROE下限
+            'max_debt_ratio': 0.6,                    # 负债率上限
+            'max_leverage_ratio': 5,                  # 杠杆率上限（总资产/股东权益）
 
-            # 财务筛选器配置 (v6.7.0引入,配置化财务验证逻辑)
+            # 风险指标
+            'max_volatility': 0.5,                    # 年化波动率上限
+            'annualization_factor': 252,              # 年化因子（交易日数）
+
+            # 财务筛选器配置（配置化验证逻辑）
             'financial_filters': {
                 'pe_ratio': {
                     'enabled': True,

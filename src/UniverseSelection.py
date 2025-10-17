@@ -141,8 +141,8 @@ class SelectionLogger:
         # 波动率淘汰原因
         self._log_volatility_failures(volatility_stats)
 
-        # 行业分布
-        self._log_sector_distribution(final_stocks)
+        # 子行业分布
+        self._log_industry_group_distribution(final_stocks)
 
 
     def _log_financial_failures(self, initial_count: int, stats: Dict[str, int]):
@@ -191,9 +191,9 @@ class SelectionLogger:
             )
 
 
-    def _log_sector_distribution(self, stocks: List[FineFundamental]):
+    def _log_industry_group_distribution(self, stocks: List[FineFundamental]):
         """
-        记录最终选中股票的行业分布情况
+        记录最终选中股票的子行业分布情况
 
         Args:
             stocks: 最终选中的股票列表
@@ -201,16 +201,15 @@ class SelectionLogger:
         if not stocks:
             return
 
-        sector_dist = defaultdict(int)
+        ig_dist = defaultdict(int)
         for stock in stocks:
-            sector_code = stock.AssetClassification.MorningstarSectorCode
-            sector_name = self.sector_code_to_name.get(sector_code, "未知")
-            sector_dist[sector_name] += 1
+            ig_code = stock.AssetClassification.MorningstarIndustryGroupCode
+            ig_dist[ig_code] += 1
 
-        # 按数量排序
-        sorted_sectors = sorted(sector_dist.items(), key=lambda x: x[1], reverse=True)
-        sector_info = [f"{name}{count}只" for name, count in sorted_sectors]
-        self.algorithm.Debug(f"行业分布: {', '.join(sector_info)}")
+        # 按数量降序排序
+        sorted_groups = sorted(ig_dist.items(), key=lambda x: x[1], reverse=True)
+        group_info = [f"{ig_code}({count}只)" for ig_code, count in sorted_groups]
+        self.algorithm.Debug(f"[选股] 子行业分布: {', '.join(group_info)}")
 
 
 
