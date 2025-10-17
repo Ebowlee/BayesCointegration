@@ -3,6 +3,7 @@ from AlgorithmImports import *
 from collections import defaultdict
 import numpy as np
 import pandas as pd
+from scipy import stats  # 用于OLS回归估计AR(1)系数
 # endregion
 
 
@@ -57,13 +58,11 @@ class PairSelector:
             # 统计质量分数（基于p值）
             pvalue_score = 1 - pair_info['pvalue']
 
-            # 统一获取数据
+            # 获取数据(DataProcessor保证DataFrame输出)
             data1 = clean_data[symbol1]
             data2 = clean_data[symbol2]
-
-            # 统一处理价格数据
-            prices1 = data1['close'] if isinstance(data1, pd.DataFrame) else data1
-            prices2 = data2['close'] if isinstance(data2, pd.DataFrame) else data2
+            prices1 = data1['close']
+            prices2 = data2['close']
 
             # 计算各项分数
             half_life_score = self._calculate_half_life_score(prices1, prices2)
@@ -138,9 +137,12 @@ class PairSelector:
     def _calculate_half_life_score(self, prices1, prices2):
         """
         计算半衰期分数（基于价格序列的均值回归速度）
+
+        使用AR(1)模型估计半衰期: half_life = -log(2) / log(ρ)
         """
         try:
-            # 计算价差（简单方法，不依赖贝叶斯）
+            # 计算简单价差(假设beta=1,用于快速筛选)
+            # 注意: 精确的beta调整价差将在BayesianModeler中计算
             spread = np.log(prices2) - np.log(prices1)
 
             if len(spread) < 2:
@@ -150,19 +152,20 @@ class PairSelector:
             spread_lag = spread[:-1]
             spread_curr = spread[1:]
 
-            # 计算自相关系数
-            rho = np.corrcoef(spread_lag, spread_curr)[0, 1]
+            # 使用OLS回归估计AR(1)系数(标准方法,处理非零均值更准确)
+            slope, _, _, _, _ = stats.linregress(spread_lag, spread_curr)
+            rho = slope
 
             # 计算半衰期
             if 0 < rho < 1:
                 half_life = -np.log(2) / np.log(rho)
-                # 使用配置的阈值进行插值：optimal_days=1.0, max_acceptable_days=0.0
+                # 使用配置的阈值进行插值
                 optimal_days = self.scoring_thresholds['half_life']['optimal_days']
                 max_days = self.scoring_thresholds['half_life']['max_acceptable_days']
                 return self._linear_interpolate(half_life, optimal_days, max_days, 0.0, 1.0)
             else:
-                # rho <= 0 或 rho >= 1：无均值回归
-                return 0  # 明确的失败信号
+                # rho <= 0 或 rho >= 1: 无均值回归
+                return 0
 
         except Exception as e:
             self.algorithm.Debug(f"[PairSelector] 半衰期计算失败: {e}")
@@ -172,10 +175,16 @@ class PairSelector:
     def _calculate_volatility_ratio_score(self, prices1, prices2):
         """
         计算波动率比率分数（稳定性）
+
+        使用beta调整价差,更准确反映协整关系的稳定性
         """
         try:
-            # 计算简单价差
-            spread = np.log(prices2) - np.log(prices1)
+            # 快速估计beta(OLS回归)
+            slope, _, _, _, _ = stats.linregress(np.log(prices2), np.log(prices1))
+            beta = slope if slope > 0 else 1.0  # 安全检查: beta应为正
+
+            # 计算beta调整价差
+            spread = np.log(prices1) - beta * np.log(prices2)
             spread_vol = np.std(spread)
 
             # 计算对数收益率波动率
@@ -205,6 +214,8 @@ class PairSelector:
     def _calculate_liquidity_score(self, data1, data2):
         """
         基于成交量的流动性评分（使用配置的基准值归一化）
+
+        使用最近60天的滚动窗口,更反映当前流动性状况
         """
         try:
             # 检查volume字段
@@ -214,9 +225,10 @@ class PairSelector:
             if 'close' not in data1.columns or 'close' not in data2.columns:
                 return 0  # 无价格数据
 
-            # 计算平均日成交额（美元）
-            dollar_volume1 = (data1['volume'] * data1['close']).mean()
-            dollar_volume2 = (data2['volume'] * data2['close']).mean()
+            # 使用最近60天的平均日成交额(更反映当前流动性)
+            recent_window = 60
+            dollar_volume1 = (data1['volume'][-recent_window:] * data1['close'][-recent_window:]).mean()
+            dollar_volume2 = (data2['volume'][-recent_window:] * data2['close'][-recent_window:]).mean()
 
             # 使用较小的成交额作为配对的流动性（短板效应）
             min_dollar_volume = min(dollar_volume1, dollar_volume2)

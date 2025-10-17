@@ -105,7 +105,7 @@ class StrategyConfig:
         # 2. 协整分析模块
         self.cointegration_analyzer = {
             # 统计检验
-            'pvalue_threshold': 0.10,           # Engle-Granger p值阈值(90%置信度)
+            'pvalue_threshold': 0.05,           # Engle-Granger p值阈值(95%置信度)
 
             # 子行业分组
             'min_stocks_per_group': 3,          # 子行业最少股票数(不足则跳过)
@@ -115,8 +115,8 @@ class StrategyConfig:
         # 3. 配对质量评估模块
         self.pair_selector = {
             # 筛选限制
-            'max_symbol_repeats': 1,            # 单股最多配对数
-            'max_pairs': 20,                    # 最大配对数
+            'max_symbol_repeats': 3,            # 单股最多配对数(允许高质量股票参与多个配对)
+            'max_pairs': 30,                    # 最大配对数(配合max_symbol_repeats放宽)
 
             # 流动性基准
             'liquidity_benchmark': 5e8,         # 流动性评分基准(5亿美元)
@@ -132,8 +132,8 @@ class StrategyConfig:
             # 评分阈值
             'scoring_thresholds': {
                 'half_life': {
-                    'optimal_days': 5,          # 最优半衰期(天) → 1.0分
-                    'max_acceptable_days': 30   # 最大可接受半衰期 → 0分
+                    'optimal_days': 15,         # 最优半衰期(天,符合日频实际) → 1.0分
+                    'max_acceptable_days': 60   # 最大可接受半衰期(包含长周期配对) → 0分
                 },
                 'volatility_ratio': {
                     'optimal_ratio': 0.2,       # 最优波动率比率 → 1.0分
