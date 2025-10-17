@@ -3,9 +3,10 @@ from AlgorithmImports import *
 from System import Action
 from src.config import StrategyConfig
 from src.UniverseSelection import SectorBasedUniverseSelection
-from src.Pairs import Pairs, TradingSignal, OrderAction
+from src.Pairs import Pairs
 from src.TicketsManager import TicketsManager
-from src.RiskManagement import RiskManager, RiskHandler
+from src.RiskManagement import RiskManager
+from src.ExecutionManager import ExecutionManager
 # endregion
 
 
@@ -74,8 +75,8 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # === 初始化风控管理器 ===
         self.risk_manager = RiskManager(self, self.config)
 
-        # === 初始化风控执行器 ===
-        self.risk_handler = RiskHandler(self, self.pairs_manager, self.tickets_manager)
+        # === 初始化统一执行器 ===
+        self.execution_manager = ExecutionManager(self, self.pairs_manager, self.tickets_manager)
 
         self.Debug("[Initialize] 策略初始化完成")
 
@@ -173,7 +174,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # === Portfolio层面风控检查（最优先） ===
         portfolio_action, triggered_rules = self.risk_manager.check_portfolio_risks()
         if portfolio_action:
-            self.risk_handler.handle_portfolio_risk_action(portfolio_action, triggered_rules)
+            self.execution_manager.handle_portfolio_risk_action(portfolio_action, triggered_rules)
             return  # 触发任何风控后，完全停止所有交易
 
         # 检查是否有任何风控规则在冷却期（统一阻断）
@@ -191,10 +192,10 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # === Pair层面风控检查 ===
         pair_risk_actions = self.risk_manager.check_all_pair_risks(pairs_with_position)
         if pair_risk_actions:
-            self.risk_handler.handle_pair_risk_actions(pair_risk_actions)
+            self.execution_manager.handle_pair_risk_actions(pair_risk_actions)
 
         # === 处理正常平仓 ===
-        self._handle_signal_based_closings(pairs_with_position, data)
+        self.execution_manager.handle_signal_closings(pairs_with_position, data)
 
         # === 处理正常开仓 ===
         if pairs_without_position:
@@ -202,102 +203,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
             if not self.risk_manager.is_safe_to_open_positions():
                 return  # 市场高波动，跳过开仓逻辑
 
-            # 获取所有开仓候选（已按质量降序）
-            entry_candidates = self.pairs_manager.get_sequenced_entry_candidates(data)
-
-            if entry_candidates:
-                # 使用95%的MarginRemaining,保留5%作为动态缓冲
-                initial_margin = self.Portfolio.MarginRemaining * self.config.pairs_trading['margin_usage_ratio']
-                buffer = self.Portfolio.MarginRemaining * (1 - self.config.pairs_trading['margin_usage_ratio'])
-
-                # 检查是否低于最小阈值
-                if initial_margin >= self.min_investment:
-                    # 提取候选信息 (entry_candidates已按质量降序)
-                    planned_allocations = {}  # {pair_id: pct}
-                    opening_signals = {}      # {pair_id: signal}
-
-                    for pair, signal, _, pct in entry_candidates:
-                        planned_allocations[pair.pair_id] = pct
-                        opening_signals[pair.pair_id] = signal
-
-                    # === 逐个开仓 (动态缩放保持公平) ===
-                    actual_opened = 0
-                    for pair_id, pct in planned_allocations.items():
-                        pair = self.pairs_manager.get_pair_by_id(pair_id)
-                        signal = opening_signals[pair_id]
-
-                        # 动态缩放计算
-                        current_margin = (self.Portfolio.MarginRemaining - buffer) * pct
-                        if current_margin <= 0:
-                            break
-
-                        scale_factor = initial_margin / (self.Portfolio.MarginRemaining - buffer)
-                        margin_allocated = current_margin * scale_factor  # = initial_margin * pct
-
-                        # 检查1: 订单锁定检查
-                        if self.tickets_manager.is_pair_locked(pair_id):
-                            continue
-
-                        # 检查2: 最小投资额
-                        if margin_allocated < self.min_investment:
-                            continue
-
-                        # 检查3: 保证金是否仍足够
-                        available_for_check = self.Portfolio.MarginRemaining - buffer
-                        if margin_allocated > available_for_check:
-                            self.Debug(f"[开仓失败] {pair_id} 保证金不足: 需要${margin_allocated:,.0f}, 可用${available_for_check:,.0f}")
-                            continue
-
-                        # 执行开仓并注册订单追踪
-                        tickets = pair.open_position(signal, margin_allocated, data)
-                        if tickets:
-                            self.tickets_manager.register_tickets(pair_id, tickets, OrderAction.OPEN)
-                            actual_opened += 1
-
-                    # 执行结果
-                    if actual_opened > 0:
-                        self.Debug(f"[开仓] 成功开仓{actual_opened}/{len(entry_candidates)}个配对")
-
-
-    def _handle_signal_based_closings(self, pairs_with_position, data):
-        """
-        处理交易信号触发的平仓（职责：主动交易管理）
-
-        Args:
-            pairs_with_position: 有持仓的配对字典 {pair_id: Pairs}
-            data: 数据切片
-
-        执行流程:
-        1. 遍历所有有持仓配对
-        2. 检查订单锁定状态（跳过风控已处理或订单执行中的配对）
-        3. 获取交易信号(CLOSE/STOP_LOSS/HOLD)
-        4. 处理平仓信号并注册订单
-
-        设计特点:
-        - 完全独立于风控平仓逻辑
-        - 自动跳过风控已处理的配对（通过订单锁机制）
-        - 只处理正常交易信号(CLOSE和STOP_LOSS)
-        """
-        for pair in pairs_with_position.values():
-            # 订单锁定检查（跳过已被风控处理或订单执行中的配对）
-            if self.tickets_manager.is_pair_locked(pair.pair_id):
-                continue
-
-            # 获取交易信号
-            signal = pair.get_signal(data)
-
-            # 处理平仓信号
-            if signal == TradingSignal.CLOSE:
-                self.Debug(f"[平仓] {pair.pair_id} Z-score回归")
-                tickets = pair.close_position()
-                if tickets:
-                    self.tickets_manager.register_tickets(pair.pair_id, tickets, OrderAction.CLOSE)
-
-            elif signal == TradingSignal.STOP_LOSS:
-                self.Debug(f"[止损] {pair.pair_id} Z-score超限")
-                tickets = pair.close_position()
-                if tickets:
-                    self.tickets_manager.register_tickets(pair.pair_id, tickets, OrderAction.CLOSE)
+            self.execution_manager.handle_position_openings(pairs_without_position, data)
 
 
     def OnOrderEvent(self, event):

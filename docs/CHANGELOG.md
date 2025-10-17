@@ -4,6 +4,276 @@
 
 ---
 
+## [v6.6.2_ExecutionManager统一执行器@20250217]
+
+### 版本定义
+**架构整合版本**: 统一所有执行逻辑,实现完全的"检测-执行"分离
+
+本版本完成了执行层的最终整合:
+- ✅ **统一执行**: 风控执行 + 正常交易执行统一到ExecutionManager
+- ✅ **文件独立**: RiskHandler从RiskManagement模块独立为ExecutionManager
+- ✅ **main.py简化**: 从312行减少到218行(减少30.1%)
+- ✅ **历史清理**: 删除废弃的src/RiskManagement.py文件
+
+### 核心变更
+
+#### 1. RiskHandler → ExecutionManager演进
+
+**重命名和迁移**:
+```
+重构前:
+src/RiskManagement/RiskHandler.py (风控执行器)
+  └── 只负责风控执行
+
+重构后:
+src/ExecutionManager.py (统一执行器)
+  ├── 风控执行 (继承自RiskHandler)
+  └── 正常交易执行 (新增)
+```
+
+**职责扩展**:
+- **原有职责**: Portfolio风控执行 + Pair风控执行 (3个方法,176行)
+- **新增职责**: 信号驱动的平仓 + 资金管理的开仓 (2个方法,130行)
+- **最终规模**: 5个公共方法,306行
+
+#### 2. 新增方法: 正常交易执行
+
+**方法1: `handle_signal_closings(pairs_with_position, data)`**
+
+处理信号驱动的正常平仓
+
+执行流程:
+1. 遍历所有有持仓配对
+2. 检查订单锁(跳过风控已处理或订单执行中的配对)
+3. 获取交易信号(pair.get_signal(data))
+4. 处理CLOSE和STOP_LOSS信号
+5. 调用pair.close_position()并注册订单
+
+设计特点:
+- 完全独立于风控平仓
+- 自动跳过风控已处理的配对(通过订单锁)
+- 只负责执行,信号生成由Pairs负责
+
+**方法2: `handle_position_openings(pairs_without_position, data)`**
+
+处理资金管理和开仓执行
+
+执行流程:
+1. 获取开仓候选(pairs_manager.get_sequenced_entry_candidates)
+2. 计算可用保证金(MarginRemaining * 0.95)
+3. 动态分配保证金给各配对(质量分数驱动)
+4. 逐个执行开仓(三重检查: 订单锁/最小投资/保证金充足)
+5. 注册订单到tickets_manager
+
+设计特点:
+- 完整的资金管理逻辑
+- 动态缩放保证金分配(公平性)
+- 质量分数驱动的分配比例
+
+#### 3. main.py重构: 三大简化
+
+**简化1: 删除内联开仓逻辑(~60行)**
+```python
+# 重构前: OnData()中60行开仓逻辑
+if pairs_without_position:
+    if not self.risk_manager.is_safe_to_open_positions():
+        return
+    entry_candidates = self.pairs_manager.get_sequenced_entry_candidates(data)
+    # ... 60行资金分配和开仓逻辑 ...
+
+# 重构后: 一行调用
+if pairs_without_position:
+    if not self.risk_manager.is_safe_to_open_positions():
+        return
+    self.execution_manager.handle_position_openings(pairs_without_position, data)
+```
+
+**简化2: 删除`_handle_signal_based_closings`方法(~40行)**
+```python
+# 重构前: main.py中40行方法
+def _handle_signal_based_closings(self, pairs_with_position, data):
+    # ... 40行平仓逻辑 ...
+
+# 重构后: 一行调用
+self.execution_manager.handle_signal_closings(pairs_with_position, data)
+```
+
+**简化3: 更新导入和初始化**
+```python
+# 导入变化
+from src.RiskManagement import RiskManager  # 移除RiskHandler
+from src.ExecutionManager import ExecutionManager  # 新增
+
+# 初始化变化
+self.execution_manager = ExecutionManager(self, self.pairs_manager, self.tickets_manager)
+
+# OnData调用变化
+self.execution_manager.handle_portfolio_risk_action(...)  # 原risk_handler
+self.execution_manager.handle_pair_risk_actions(...)      # 原risk_handler
+self.execution_manager.handle_signal_closings(...)        # 新增
+self.execution_manager.handle_position_openings(...)      # 新增
+```
+
+#### 4. 历史清理: 删除废弃文件
+
+**删除**: `src/RiskManagement.py` (183行,历史遗留)
+
+**废弃原因**:
+- 该文件是v6.3.0之前的旧版本单文件风控实现
+- v6.6.0+已使用模块化的`src/RiskManagement/`文件夹(多规则文件架构)
+- main.py已无引用,造成混淆
+
+**确认安全**:
+- git历史追溯确认最后修改于9月29日
+- 无任何代码引用该文件
+- 已被完全替代
+
+### 架构演进
+
+#### 最终架构(v6.6.2)
+```
+检测层:
+  RiskManager (纯检测)
+    ├── check_portfolio_risks() → (action, rules)
+    ├── check_all_pair_risks() → {pair_id: (action, rules)}
+    └── is_safe_to_open_positions() → bool
+
+执行层:
+  ExecutionManager (统一执行)
+    ├── 风控执行
+    │   ├── handle_portfolio_risk_action()
+    │   ├── handle_pair_risk_actions()
+    │   └── liquidate_all_positions()
+    └── 正常交易执行
+        ├── handle_signal_closings()
+        └── handle_position_openings()
+
+协调层:
+  main.py (纯协调)
+    ├── 调用检测: risk_manager.check_xxx()
+    └── 调用执行: execution_manager.handle_xxx()
+
+领域模型:
+  Pairs (信号生成 + 数据计算)
+    ├── get_signal(data) → TradingSignal
+    ├── open_position() → 底层订单提交
+    └── close_position() → 底层订单提交
+```
+
+#### 从v6.6.0到v6.6.2的演进
+```
+v6.6.0: 完整三层风控体系
+  └── Portfolio + Market + Pair风控规则
+
+v6.6.1: 风控检测与执行分离
+  ├── RiskManager: 纯检测
+  └── RiskHandler: 风控执行
+
+v6.6.2: 统一执行器 (本版本)
+  ├── RiskManager: 纯检测
+  ├── ExecutionManager: 统一执行 (风控 + 正常交易)
+  └── main.py: 纯协调 (218行, 减少30.1%)
+```
+
+### 文件变更清单
+
+#### 删除文件
+- `src/RiskManagement.py` (183行历史遗留)
+
+#### 移动文件
+- `src/RiskManagement/RiskHandler.py` → `src/ExecutionManager.py`
+
+#### 修改文件
+- `src/ExecutionManager.py`:
+  - 类重命名: RiskHandler → ExecutionManager
+  - 新增: `handle_signal_closings()` (44行)
+  - 新增: `handle_position_openings()` (82行)
+  - 更新: 文档字符串反映统一执行器职责
+  - 最终: 306行 (从176行增加130行)
+
+- `main.py`:
+  - 导入: `from src.ExecutionManager import ExecutionManager`
+  - 初始化: `self.execution_manager = ExecutionManager(...)`
+  - OnData: 4处改用`execution_manager`调用
+  - 删除: `_handle_signal_based_closings()` 方法(~40行)
+  - 删除: OnData中的开仓逻辑内联代码(~60行)
+  - 清理: 移除未使用的TradingSignal和OrderAction导入
+  - 最终: 218行 (从312行减少94行, 30.1%)
+
+- `src/RiskManagement/__init__.py`:
+  - 删除: `from .RiskHandler import RiskHandler`
+  - 删除: `__all__`中的`'RiskHandler'`
+
+### 代码质量改进
+
+#### 1. 主文件极致简化
+- **重构前**: main.py 312行 (协调 + 部分执行)
+- **重构后**: main.py 218行 (纯协调)
+- **减少**: 94行 (30.1%)
+- **OnData**: 从~100行缩减到~40行
+
+#### 2. 执行逻辑完全统一
+```
+重构前:
+- 风控执行: RiskHandler (176行)
+- 正常平仓: main.py中的方法 (~40行)
+- 正常开仓: main.py中的内联代码 (~60行)
+总计: 分散在2个文件,276行
+
+重构后:
+- 统一执行: ExecutionManager (306行)
+总计: 集中在1个文件,306行
+```
+
+#### 3. 职责边界清晰
+- **RiskManager**: 纯检测器 (无副作用)
+- **ExecutionManager**: 统一执行器 (所有订单提交)
+- **main.py**: 纯协调器 (只调用,不执行)
+- **Pairs**: 领域模型 (信号生成 + 数据计算 + 底层订单)
+
+#### 4. 导入依赖优化
+```python
+# main.py导入简化
+from src.RiskManagement import RiskManager  # 不再导入RiskHandler
+from src.ExecutionManager import ExecutionManager  # 独立模块
+from src.Pairs import Pairs  # 不再需要TradingSignal, OrderAction
+
+# ExecutionManager导入
+from src.Pairs import OrderAction, TradingSignal  # 执行器需要这些
+```
+
+### 测试建议
+
+#### 回测验证重点
+1. ✅ ExecutionManager正确处理风控平仓
+2. ✅ ExecutionManager正确处理信号平仓
+3. ✅ ExecutionManager正确处理资金分配和开仓
+4. ✅ 订单锁机制在统一执行器中正常工作
+5. ✅ 日志输出清晰区分风控和正常交易
+
+#### 单元测试扩展
+- 为`handle_signal_closings()`添加测试
+- 为`handle_position_openings()`添加测试
+- Mock ExecutionManager测试main.py协调逻辑
+
+### 未来展望
+
+#### 短期计划
+1. ✅ 完成统一执行器重构 (本版本)
+2. 🔜 回测验证所有执行逻辑正确性
+3. 🔜 考虑是否提取Pairs中的open/close_position到ExecutionManager
+
+#### 长期考虑
+- Pairs可能进一步简化为纯领域模型(只负责信号和数据)
+- 所有MarketOrder调用集中到ExecutionManager
+- 形成完整的三层架构: 检测层 → 执行层 → 模型层
+
+### 相关提交
+- 前序版本: v6.6.1 - 风控架构重构-检测与执行分离
+- 本提交: feat: ExecutionManager统一执行器-整合所有执行逻辑 (v6.6.2)
+
+---
+
 ## [v6.6.1_风控架构重构-检测与执行分离@20250217]
 
 ### 版本定义

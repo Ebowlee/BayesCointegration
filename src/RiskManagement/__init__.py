@@ -17,7 +17,6 @@ from .HoldingTimeoutRule import HoldingTimeoutRule
 from .PositionAnomalyRule import PositionAnomalyRule
 from .PairDrawdownRule import PairDrawdownRule
 from .RiskManager import RiskManager
-from .RiskHandler import RiskHandler
 
 __all__ = [
     'RiskRule',
@@ -27,6 +26,5 @@ __all__ = [
     'HoldingTimeoutRule',
     'PositionAnomalyRule',
     'PairDrawdownRule',
-    'RiskManager',
-    'RiskHandler'
+    'RiskManager'
 ]
