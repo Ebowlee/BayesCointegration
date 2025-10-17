@@ -89,19 +89,32 @@ class DataProcessor:
     def _validate_data(self, data: pd.DataFrame) -> Tuple[bool, str]:
         """
         验证数据完整性和合理性
-        返回(是否有效, 失败原因)
+
+        要求:
+        1. 必须有close列
+        2. 恰好252天数据
+        3. 无任何缺失值(NaN)
+        4. 所有价格>0
+
+        Returns:
+            (是否有效, 失败原因)
         """
-        # 检查close列
+        # 检查close列存在
         if 'close' not in data.columns:
             return False, 'data_missing'
 
-        # 检查完整性(要求恰好252天)
-        required_length = self.lookback_days
-        if len(data) != required_length:
+        # 检查长度(恰好252天)
+        if len(data) != self.lookback_days:
             return False, 'incomplete'
 
-        # 检查合理性
-        if (data['close'] <= 0).any():
+        close_series = data['close']
+
+        # 检查缺失值(严格模式: 不允许任何NaN)
+        if close_series.isnull().any():
+            return False, 'has_missing_values'
+
+        # 检查价格合理性(所有价格必须>0)
+        if (close_series <= 0).any():
             return False, 'invalid_values'
 
         return True, ''
@@ -109,11 +122,21 @@ class DataProcessor:
 
     def _fill_missing_values(self, data: pd.DataFrame) -> pd.DataFrame:
         """
-        填补close列的缺失值
-        使用线性插值和前后填充
+        填补缺失值
+
+        注意: 严格模式(data_completeness_ratio=1.0)下,
+        有NaN的股票在_validate_data阶段已被过滤,
+        此方法实际不执行任何操作。
+
+        保留此方法是为了:
+        1. 代码结构完整性
+        2. 未来可能放宽策略时使用
+
+        Returns:
+            原样返回data(严格模式下无修改)
         """
-        if data['close'].isnull().any():
-            data['close'] = (data['close'].interpolate(method='linear', limit_direction='both').ffill().bfill())
+        # 严格模式: 不填补,直接返回
+        # 理由: data_completeness_ratio=1.0要求100%完整,拒绝有NaN的数据
         return data
 
 
