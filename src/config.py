@@ -105,7 +105,7 @@ class StrategyConfig:
             'mcmc_warmup_samples': 500,
             'mcmc_posterior_samples': 500,
             'mcmc_chains': 2,
-            'data_completeness_ratio': 0.98,           # 统一数据完整性要求
+            'data_completeness_ratio': 1.0,            # 要求100%完整(252天)
             'liquidity_benchmark': 5e8,                # 流动性评分基准（5亿美元）
 
             # 质量评分权重

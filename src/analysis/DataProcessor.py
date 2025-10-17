@@ -95,9 +95,9 @@ class DataProcessor:
         if 'close' not in data.columns:
             return False, 'data_missing'
 
-        # 检查完整性
-        required_length = int(self.lookback_days * self.data_completeness_ratio)
-        if len(data) < required_length:
+        # 检查完整性(要求恰好252天)
+        required_length = self.lookback_days
+        if len(data) != required_length:
             return False, 'incomplete'
 
         # 检查合理性
