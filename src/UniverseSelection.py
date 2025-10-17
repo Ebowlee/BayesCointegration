@@ -16,6 +16,7 @@ class FinancialValidator:
     优势: 单一职责、可配置、易测试、易扩展
     """
 
+
     def __init__(self, config: dict):
         """
         初始化财务验证器
@@ -25,6 +26,7 @@ class FinancialValidator:
         """
         self.config = config                               # universe_selection配置字典
         self.filters = config.get('financial_filters', {}) # 财务筛选器规则配置
+
 
     def validate_stock(self, stock: FineFundamental) -> Tuple[bool, List[str]]:
         """
@@ -66,6 +68,7 @@ class FinancialValidator:
 
         return len(fail_reasons) == 0, fail_reasons
 
+
     def _get_metric_value(self, stock: FineFundamental, path: str) -> Optional[float]:
         """
         通过路径字符串获取嵌套对象的属性值
@@ -89,6 +92,7 @@ class FinancialValidator:
             return None
 
 
+
 class SelectionLogger:
     """
     选股日志记录器 (v6.7.0)
@@ -107,6 +111,7 @@ class SelectionLogger:
         """
         self.algorithm = algorithm                         # QuantConnect算法实例
         self.sector_code_to_name = sector_code_to_name     # 行业代码到名称映射
+
 
     def log_selection_summary(self, round_num: int, initial_count: int,
                               final_count: int, financial_stats: Dict[str, int],
@@ -139,6 +144,7 @@ class SelectionLogger:
         # 行业分布
         self._log_sector_distribution(final_stocks)
 
+
     def _log_financial_failures(self, initial_count: int, stats: Dict[str, int]):
         """
         记录财务筛选淘汰原因
@@ -168,6 +174,7 @@ class SelectionLogger:
         if reasons:
             self.algorithm.Debug(f"财务淘汰{financial_failed}: {', '.join(reasons)}")
 
+
     def _log_volatility_failures(self, stats: Dict[str, int]):
         """
         记录波动率筛选淘汰原因
@@ -182,6 +189,7 @@ class SelectionLogger:
                 f"高波动{stats.get('volatility_failed', 0)}, "
                 f"数据不足{stats.get('data_missing', 0)}"
             )
+
 
     def _log_sector_distribution(self, stocks: List[FineFundamental]):
         """
@@ -205,6 +213,7 @@ class SelectionLogger:
         self.algorithm.Debug(f"行业分布: {', '.join(sector_info)}")
 
 
+
 class SectorBasedUniverseSelection(FineFundamentalUniverseSelectionModel):
     """
     贝叶斯协整策略的股票选择模型
@@ -213,6 +222,7 @@ class SectorBasedUniverseSelection(FineFundamentalUniverseSelectionModel):
     1. 粗选: 价格、成交量、IPO时间筛选
     2. 精选: 财务指标、波动率、行业分组筛选
     """
+
 
     def __init__(self, algorithm):
         """初始化选股模型 (v6.7.0: 使用辅助类重构)"""
@@ -232,14 +242,14 @@ class SectorBasedUniverseSelection(FineFundamentalUniverseSelectionModel):
 
         super().__init__(self._select_coarse, self._select_fine)
 
-    # ========== 公开方法 ==========
 
+    # ========== 公开方法 ==========
     def trigger_selection(self):
         """触发新一轮选股"""
         self.selection_on = True
 
-    # ========== 主要筛选方法 ==========
 
+    # ========== 主要筛选方法 ==========
     def _select_coarse(self, coarse: List[CoarseFundamental]) -> List[Symbol]:
         """
         粗选阶段: 基础筛选
@@ -268,6 +278,7 @@ class SectorBasedUniverseSelection(FineFundamentalUniverseSelectionModel):
 
         return selected
 
+
     def _select_fine(self, fine: List[FineFundamental]) -> List[Symbol]:
         """
         精选阶段: 财务、波动率和行业筛选 (v6.7.0: 使用辅助类重构)
@@ -294,8 +305,8 @@ class SectorBasedUniverseSelection(FineFundamentalUniverseSelectionModel):
             financially_filtered, volatilities
         )
 
-        # 步骤4: 行业分组和排序
-        final_stocks = self._group_and_sort_by_sector(volatility_filtered)
+        # 步骤4: 子行业分组和排序 (v6.7.2)
+        final_stocks = self._group_and_sort_by_industry_group(volatility_filtered)
 
         # 步骤5: 缓存结果
         self.last_fine_selected_symbols = [x.Symbol for x in final_stocks]
@@ -308,8 +319,8 @@ class SectorBasedUniverseSelection(FineFundamentalUniverseSelectionModel):
 
         return self.last_fine_selected_symbols
 
-    # ========== 筛选辅助方法 ==========
 
+    # ========== 筛选辅助方法 ==========
     def _apply_financial_filters(self, stocks: List[FineFundamental]) -> Tuple[List[FineFundamental], Dict[str, int]]:
         """
         应用财务筛选条件 (v6.7.0: 使用FinancialValidator)
@@ -335,6 +346,7 @@ class SectorBasedUniverseSelection(FineFundamentalUniverseSelectionModel):
                     stats[reason] += 1
 
         return filtered_stocks, stats
+
 
     def _calculate_volatilities(self, stocks: List[FineFundamental]) -> Dict[Symbol, float]:
         """
@@ -384,6 +396,7 @@ class SectorBasedUniverseSelection(FineFundamentalUniverseSelectionModel):
 
         return volatilities
 
+
     def _apply_volatility_filter(self, stocks: List[FineFundamental],
                                  volatilities: Dict[Symbol, float]) -> Tuple[List[FineFundamental], Dict[str, int]]:
         """
@@ -418,26 +431,61 @@ class SectorBasedUniverseSelection(FineFundamentalUniverseSelectionModel):
 
         return filtered_stocks, stats
 
-    def _group_and_sort_by_sector(self, stocks: List[FineFundamental]) -> List[FineFundamental]:
-        """按行业分组，每个行业选取波动率低、成交量大的股票"""
-        sector_groups = defaultdict(list)
-        valid_sector_codes = set(self.sector_name_to_code.values())
 
-        # 按行业分组
+    def _group_and_sort_by_industry_group(self, stocks: List[FineFundamental]) -> List[FineFundamental]:
+        """
+        按子行业分组，每个子行业选取波动率低、成交量大的TOP股票 (v6.7.2)
+
+        逻辑:
+        1. 按MorningstarIndustryGroupCode分组(26个子行业)
+        2. 过滤: 只保留股票数>=min_stocks_per_group的子行业
+        3. 每个子行业选TOP max_stocks_per_sector只
+
+        Args:
+            stocks: 通过财务和波动率筛选的股票列表
+
+        Returns:
+            最终选中的股票列表
+        """
+        min_stocks = self.config.get('min_stocks_per_group', 5)
+        max_stocks = self.config['max_stocks_per_sector']
+
+        # 步骤1: 按IndustryGroupCode分组
+        industry_groups = defaultdict(list)
         for stock in stocks:
-            sector_code = stock.AssetClassification.MorningstarSectorCode
-            if sector_code in valid_sector_codes and hasattr(stock, 'Volatility'):
-                sector_groups[sector_code].append(stock)
+            if not hasattr(stock, 'Volatility'):
+                continue
 
-        max_per_sector = self.config['max_stocks_per_sector']
+            # 获取子行业组代码
+            ig_code = stock.AssetClassification.MorningstarIndustryGroupCode
+            industry_groups[ig_code].append(stock)
+
+        # 步骤2: 过滤 - 只保留股票数>=min_stocks的子行业
+        valid_groups = {k: v for k, v in industry_groups.items() if len(v) >= min_stocks}
+
+        # 日志: 记录跳过的子行业
+        skipped_groups = {k: len(v) for k, v in industry_groups.items() if len(v) < min_stocks}
+        if skipped_groups and self.algorithm.debug_mode:
+            skipped_info = [f"{k}({count}只)" for k, count in skipped_groups.items()]
+            self.algorithm.Debug(
+                f"[选股] 跳过{len(skipped_groups)}个子行业(股票数<{min_stocks}): {', '.join(skipped_info)}"
+            )
+
+        # 步骤3: 每个有效子行业选TOP stocks
         all_selected = []
-
-        for sector_code, sector_stocks in sector_groups.items():
-            # 排序: 波动率升序, 成交量降序
+        for ig_code, stocks_list in valid_groups.items():
+            # 按波动率升序、成交量降序排序
             sorted_stocks = sorted(
-                sector_stocks,
+                stocks_list,
                 key=lambda x: (x.Volatility, -x.Volume)
             )
-            all_selected.extend(sorted_stocks[:max_per_sector])
+            selected = sorted_stocks[:max_stocks]
+            all_selected.extend(selected)
+
+            # 日志: 记录每个子行业的选股数
+            if self.algorithm.debug_mode:
+                self.algorithm.Debug(
+                    f"[选股] 子行业{ig_code}: 候选{len(stocks_list)}只 → 选中{len(selected)}只"
+                )
 
         return all_selected

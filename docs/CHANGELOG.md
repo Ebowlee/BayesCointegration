@@ -4,6 +4,92 @@
 
 ---
 
+## [v6.7.2_子行业分组重构@20250117]
+
+### 版本定义
+**选股模块优化版本**: 从8个Sector改为26个IndustryGroup，解决跨业务模型配对问题
+
+### 核心改动
+
+**问题诊断**:
+- v6.7.0严格参数导致股票池过小（48.5只/月）
+- 被迫接受低质量配对，如AMZN(电商)+CMG(餐饮)单笔-$6,795
+- 跨业务模型配对：统计协整≠业务协整
+
+**解决方案**:
+1. **分组细化**: MorningstarSectorCode(8个) → MorningstarIndustryGroupCode(26个)
+2. **自然筛选**: 子行业<5只时跳过，>=5只时选TOP 20
+3. **逻辑极简**: 无黑名单、无回退、无人工干预
+
+### 实施细节
+
+**配置变更** (src/config.py):
+```python
+# v6.7.2新增
+'group_by': 'IndustryGroup',        # 26个子行业分组
+'min_stocks_per_group': 5,          # 子行业最少5只，否则跳过
+```
+
+**代码变更** (src/UniverseSelection.py):
+- 方法重命名: `_group_and_sort_by_sector()` → `_group_and_sort_by_industry_group()`
+- 核心逻辑:
+  1. 按`MorningstarIndustryGroupCode`分组
+  2. 过滤: `len(stocks) >= 5`
+  3. 每组选TOP 20只（波动率↑+成交量↓排序）
+
+**26个子行业组清单**:
+- **ConsumerCyclical(5)**: Consumer Service, Restaurants, Retail-Cyclical, Automotive, Travel
+- **ConsumerDefensive(4)**: Beverages, Food Products, Household Products, Tobacco
+- **Technology(3)**: Software, Hardware, Semiconductors
+- **Healthcare(3)**: Pharmaceuticals, Healthcare Services, Medical Devices
+- **Financials(2)**: Banks, Insurance
+- **Energy(2)**: Oil & Gas Exploration, Oil & Gas Equipment
+- **Industrials(3)**: Aerospace & Defense, Railroads, Industrial Conglomerates
+- **Utilities(2)**: Electric, Gas
+- **CommunicationServices(2)**: Telecommunications, Media & Entertainment
+
+### 预期效果
+
+**配对候选减少约60%**:
+- v6.7.1: ConsumerCyclical 30只 → C(30,2)=435对候选
+- v6.7.2:
+  - Consumer Service(10只) → C(10,2)=45对
+  - Restaurants(6只) → C(6,2)=15对
+  - Retail(8只) → C(8,2)=28对
+  - Automotive(6只) → C(6,2)=15对
+  - 合计: 103对候选（减少76%）
+
+**预期阻止的跨业务模型配对**:
+- ❌ AMZN(电商) + CMG(餐饮): -$6,795
+- ❌ MSFT(软件) + QCOM(半导体): 基本面好≠协整好
+- ❌ XOM(勘探) + SLB(油服): 业务模式差异大
+
+**保留的优质同产业链配对**:
+- ✅ OXY + XOM: 都在Oil & Gas Exploration → v6.7.0验证+$803
+- ✅ JPM + BAC: 都在Banks → 同监管环境
+- ✅ MSFT + ORCL: 都在Software → 同商业模式
+
+### 技术实现
+
+**单点修改原则**:
+- ✅ config.py: +2个配置项（无复杂映射）
+- ✅ UniverseSelection.py: 重写1个方法（~60行）
+- ✅ CointegrationAnalyzer.py: 无需修改（仍"同组内配对"）
+
+**向后兼容性**:
+- 保留`config['group_by']`开关，可切换Sector/IndustryGroup
+- 保留所有原有日志和统计逻辑
+
+### 回测验证重点
+
+对比v6.7.1（无子行业限制）与v6.7.2（有子行业限制）：
+1. **行业组合盈亏**: 特别关注ConsumerCyclical是否消除-$7,139灾难
+2. **单笔最大亏损**: AMZN_CMG -$6,795应不再出现
+3. **配对数量**: 预期20-30个高质量配对/轮
+4. **整体指标**: Alpha、Sharpe、Information Ratio改善
+
+---
+
 ## [v6.7.0_UniverseSelection重构与严格参数@20250217]
 
 ### 版本定义
