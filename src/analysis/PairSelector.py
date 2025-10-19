@@ -21,8 +21,8 @@ class PairSelector:
         """
         self.algorithm = algorithm
 
-        # 从shared_config读取(暂时未使用,预留)
-        # self.lookback_days = shared_config['lookback_days']
+        # 从shared_config读取
+        self.lookback_days = shared_config['lookback_days']  # 252天,与BayesianModeler统一
 
         # 从module_config读取
         self.max_symbol_repeats = module_config['max_symbol_repeats']
@@ -49,10 +49,13 @@ class PairSelector:
         """
         评估配对质量
 
-        性能优化：预先计算120天窗口和beta，避免在各评分函数中重复计算
+        设计说明: 使用252天长期窗口与BayesianModeler保持一致
+        - 协整是长期概念,评分应基于稳定的长期关系
+        - 避免短期窗口捕捉到"伪协整"或运气好的配对
+        - 确保评分高的配对在实际交易中也表现良好
         """
         scored_pairs = []
-        recent_window = 120  # 半年窗口
+        recent_window = self.lookback_days  # 252天,与BayesianModeler统一
 
         for pair_info in raw_pairs:
             symbol1 = pair_info['symbol1']
@@ -69,7 +72,7 @@ class PairSelector:
             prices1 = data1['close']
             prices2 = data2['close']
 
-            # ⭐ 预先计算120天窗口数据和beta（只计算一次，复用于Half-Life和Volatility Ratio）
+            # ⭐ 预先计算252天窗口数据和beta（只计算一次，用于Half-Life评分）
             if len(prices1) >= recent_window and len(prices2) >= recent_window:
                 prices1_recent = prices1[-recent_window:]
                 prices2_recent = prices2[-recent_window:]
@@ -78,22 +81,19 @@ class PairSelector:
                 slope, _, _, _, _ = stats.linregress(np.log(prices2_recent), np.log(prices1_recent))
                 beta = slope if slope > 0 else 1.0  # 安全检查: beta应为正
 
-                # 计算各项分数（传入预计算的数据）
+                # 计算半衰期分数（传入预计算的数据）
                 half_life_score = self._calculate_half_life_score(prices1_recent, prices2_recent, beta)
-                volatility_ratio_score = self._calculate_volatility_ratio_score(prices1_recent, prices2_recent, beta)
             else:
-                # 数据不足，两项分数为0
+                # 数据不足，分数为0
                 half_life_score = 0
-                volatility_ratio_score = 0
 
             # 流动性分数（基于成交量，独立计算）
             liquidity_score = self._calculate_liquidity_score(data1, data2)
 
-            # 综合质量分数
+            # 综合质量分数（三指标体系）
             quality_score = (
                 self.quality_weights['statistical'] * pvalue_score +
                 self.quality_weights['half_life'] * half_life_score +
-                self.quality_weights['volatility_ratio'] * volatility_ratio_score +
                 self.quality_weights['liquidity'] * liquidity_score
             )
 
@@ -101,7 +101,6 @@ class PairSelector:
             pair_info.update({
                 'quality_score': quality_score,
                 'half_life_score': half_life_score,
-                'volatility_ratio_score': volatility_ratio_score,
                 'liquidity_score': liquidity_score
             })
             scored_pairs.append(pair_info)
@@ -191,53 +190,6 @@ class PairSelector:
 
         except Exception as e:
             self.algorithm.Debug(f"[PairSelector] 半衰期计算失败: {e}")
-            return 0  # 异常返回0分
-
-
-    def _calculate_volatility_ratio_score(self, prices1_recent, prices2_recent, beta):
-        """
-        计算波动率比率分数（稳定性）
-
-        使用beta调整价差，考虑相关性的combined_vol，更准确反映协整关系稳定性
-
-        Args:
-            prices1_recent: 最近120天的价格序列（symbol1）
-            prices2_recent: 最近120天的价格序列（symbol2）
-            beta: 预先计算的协整系数
-        """
-        try:
-            # 计算beta调整价差（直接使用传入的beta，无需重复计算）
-            spread = np.log(prices1_recent) - beta * np.log(prices2_recent)
-            spread_vol = np.std(spread, ddof=1)  # 使用样本标准差
-
-            # 计算对数收益率波动率
-            log_returns1 = np.diff(np.log(prices1_recent))
-            log_returns2 = np.diff(np.log(prices2_recent))
-            vol1 = np.std(log_returns1, ddof=1)  # 使用样本标准差
-            vol2 = np.std(log_returns2, ddof=1)  # 使用样本标准差
-
-            # 安全检查
-            if vol1 <= 0 or vol2 <= 0:
-                return 0  # 异常数据，返回0分
-
-            # 计算相关性并考虑到combined_vol中
-            # Var(R1-R2) = vol1² + vol2² - 2ρ*vol1*vol2
-            correlation = np.corrcoef(log_returns1, log_returns2)[0, 1]
-            combined_vol = np.sqrt(vol1**2 + vol2**2 - 2*correlation*vol1*vol2)
-
-            # 避免除零
-            if combined_vol <= 0:
-                return 0
-
-            volatility_ratio = spread_vol / combined_vol
-
-            # 使用配置的阈值进行插值：optimal_ratio=1.0分，max_acceptable_ratio=0分
-            optimal_ratio = self.scoring_thresholds['volatility_ratio']['optimal_ratio']
-            max_ratio = self.scoring_thresholds['volatility_ratio']['max_acceptable_ratio']
-            return self._linear_interpolate(volatility_ratio, optimal_ratio, max_ratio, 0.0, 1.0)
-
-        except Exception as e:
-            self.algorithm.Debug(f"[PairSelector] 波动率比率计算失败: {e}")
             return 0  # 异常返回0分
 
 

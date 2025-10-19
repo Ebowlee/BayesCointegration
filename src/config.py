@@ -123,10 +123,10 @@ class StrategyConfig:
 
             # 质量评分权重
             'quality_weights': {
-                'statistical': 0.20,            # 协整强度(基于p值) - 降低以减少信息重叠
-                'half_life': 0.40,              # 均值回归速度 - 提升为最重要交易指标
-                'volatility_ratio': 0.15,       # 价差稳定性 - 降低以减少信息重叠
-                'liquidity': 0.25               # 流动性(成交量) - 提升为实际交易必需
+                'statistical': 0.10,            # 协整强度(基于p值) - 仅作参考
+                'half_life': 0.60,              # 均值回归速度 - 核心指标(大幅提升)
+                'liquidity': 0.30               # 流动性(成交量) - 实战必需(提升)
+                # 已移除 'volatility_ratio': 与half_life信息重叠
             },
 
             # 评分阈值
@@ -134,11 +134,8 @@ class StrategyConfig:
                 'half_life': {
                     'optimal_days': 15,         # 最优半衰期(天,符合日频实际) → 1.0分
                     'max_acceptable_days': 60   # 最大可接受半衰期(包含长周期配对) → 0分
-                },
-                'volatility_ratio': {
-                    'optimal_ratio': 0.2,       # 最优波动率比率 → 1.0分
-                    'max_acceptable_ratio': 1.0 # 最大可接受比率 → 0分
                 }
+                # 已移除 'volatility_ratio' 配置
             }
         }
 
