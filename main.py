@@ -148,8 +148,15 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         if not raw_pairs:
             return
 
-        # === 步骤3&4: 质量评估和配对筛选 ===
-        selected_pairs, pair_data_dict = self.pair_selector.selection_procedure(raw_pairs, clean_data)
+        # === 步骤3: 构建PairData字典 ===
+        from src.analysis.PairData import PairData
+        pair_data_dict = {}
+        for pair_info in raw_pairs:
+            pair_key = (pair_info['symbol1'], pair_info['symbol2'])
+            pair_data_dict[pair_key] = PairData.from_clean_data(pair_info, clean_data)
+
+        # === 步骤4: 质量评估和配对筛选 ===
+        selected_pairs = self.pair_selector.selection_procedure(raw_pairs, pair_data_dict, clean_data)
 
         if not selected_pairs:
             return

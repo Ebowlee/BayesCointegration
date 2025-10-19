@@ -34,37 +34,30 @@ class PairSelector:
         self.scoring_thresholds = module_config['scoring_thresholds']
 
 
-    def selection_procedure(self, raw_pairs, clean_data):
+    def selection_procedure(self, raw_pairs, pair_data_dict, clean_data):
         """
         执行配对筛选流程 - 评估质量并筛选最佳配对（重构版）
 
         Args:
             raw_pairs: CointegrationAnalyzer输出的配对列表
-            clean_data: 清洗后的OHLCV数据
+            pair_data_dict: 预构建的PairData对象字典（从main.py传入）
+            clean_data: 清洗后的OHLCV数据（用于流动性评分）
 
         Returns:
-            tuple: (selected_pairs, pair_data_dict)
-                - selected_pairs: 筛选后的配对列表（包含质量分数和OLS参数）
-                - pair_data_dict: {pair_key: PairData} 预构建的PairData对象字典
+            List[Dict]: 筛选后的配对列表（包含质量分数和OLS参数）
 
-        性能优化:
-        - 预先构建PairData对象字典,消除重复np.log()调用
-        - 返回pair_data_dict供BayesianModeler复用,避免重复构建
+        设计理念:
+        - 专注于质量评估和筛选逻辑（单一职责）
+        - 数据准备由调用方负责（依赖倒置）
+        - 复用预计算的对数价格（性能优化）
         """
-        # 步骤1: 构建PairData对象字典（一次性完成对数转换）
-        pair_data_dict = {}
-        for pair_info in raw_pairs:
-            pair_key = (pair_info['symbol1'], pair_info['symbol2'])
-            pair_data_dict[pair_key] = PairData.from_clean_data(pair_info, clean_data)
-
-        # 步骤2: 评估配对质量（使用预计算的对数价格）
+        # 步骤1: 评估配对质量（使用预计算的对数价格）
         scored_pairs = self.evaluate_quality(raw_pairs, pair_data_dict, clean_data)
 
-        # 步骤3: 筛选最佳配对
+        # 步骤2: 筛选最佳配对
         selected_pairs = self.select_best(scored_pairs)
 
-        # 返回筛选结果和PairData字典（供BayesianModeler复用）
-        return selected_pairs, pair_data_dict
+        return selected_pairs
 
 
     def evaluate_quality(self, raw_pairs, pair_data_dict, clean_data):
