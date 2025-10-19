@@ -7,6 +7,7 @@ from src.Pairs import Pairs
 from src.TicketsManager import TicketsManager
 from src.RiskManagement import RiskManager
 from src.ExecutionManager import ExecutionManager
+from src.TradeHistory import TradeJournal, TradeAnalyzer
 # endregion
 
 
@@ -84,7 +85,6 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         self.execution_manager = ExecutionManager(self, self.pairs_manager, self.tickets_manager)
 
         # === 初始化交易历史追踪 ===
-        from src.TradeHistory import TradeJournal
         self.trade_journal = TradeJournal(self)
 
         self.Debug("[Initialize] 策略初始化完成")
@@ -228,8 +228,6 @@ class BayesianCointegrationStrategy(QCAlgorithm):
 
     def OnEndOfAlgorithm(self):
         """回测结束时的分析报告"""
-        from src.TradeHistory import TradeAnalyzer
-
         # 获取所有交易记录
         all_trades = self.trade_journal.get_all()
 

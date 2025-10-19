@@ -40,7 +40,12 @@
       "Bash(lean cloud pull:*)",
       "Bash(cat:*)",
       "Bash(awk:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(git tag:*)",
+      "Bash(git branch:*)",
+      "Bash(git fetch:*)",
+      "Bash(dir:*)",
+      "Bash(iconv:*)"
     ],
     "deny": []
   },

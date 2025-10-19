@@ -2,6 +2,7 @@
 from AlgorithmImports import *
 import numpy as np
 from typing import Dict, Optional, Tuple
+from src.TradeHistory import TradeSnapshot
 # endregion
 
 
@@ -186,7 +187,6 @@ class Pairs:
                     # 否则使用默认值 'CLOSE'
 
                 # 创建快照并记录
-                from src.TradeHistory import TradeSnapshot
                 if exit_price1 is not None and exit_price2 is not None:
                     snapshot = TradeSnapshot.from_pair(
                         pair=self,

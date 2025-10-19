@@ -1,0 +1,1397 @@
+2023-09-20 00:00:00 Launching analysis for b6a7505dcdfc9d6b3d87657970545772 with LEAN Engine v2.5.0.0.17339
+2023-09-20 00:00:00 [RiskManager] 注册Portfolio规则: AccountBlowupRule (priority=100)
+2023-09-20 00:00:00 [ExcessiveDrawdown] 初始化: HWM=$100,000
+2023-09-20 00:00:00 [RiskManager] 注册Portfolio规则: ExcessiveDrawdownRule (priority=90)
+2023-09-20 00:00:00 [RiskManager] 注册Pair规则: HoldingTimeoutRule (priority=60)
+2023-09-20 00:00:00 [RiskManager] 注册Pair规则: PositionAnomalyRule (priority=100)
+2023-09-20 00:00:00 [RiskManager] 注册Pair规则: PairDrawdownRule (priority=50)
+2023-09-20 00:00:00 [MarketCondition] 初始化: enabled=True, VIX阈值=30, HistVol阈值=25%, 窗口=20天
+2023-09-20 00:00:00 [RiskManager] 初始化完成: Portfolio规则=2, Pair规则=3, MarketCondition已启用
+2023-09-20 00:00:00 [Initialize] 策略初始化完成
+2023-09-20 00:00:00 Accurate daily end-times now enabled by default. See more at https://qnt.co/3YHaWHL. To disable it and use legacy daily bars set self.settings.daily_precise_end_time = False.
+2023-09-20 00:00:00 9/20/2023 12:00:00 AM: SecurityChanges:  Added: SPY R735QTJ8XC9X,VIX 31
+2023-09-20 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$100,000, 亏损=0.00%, 阈值=25%
+2023-09-20 16:00:00 [ExcessiveDrawdown] 检查: HWM=$100,000, 当前=$100,000, 回撤=0.00%, 阈值=15%
+2023-09-20 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$100,000, 亏损=0.00%, 阈值=25%
+2023-09-20 16:15:00 [ExcessiveDrawdown] 检查: HWM=$100,000, 当前=$100,000, 回撤=0.00%, 阈值=15%
+2023-09-21 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$100,000, 亏损=0.00%, 阈值=25%
+2023-09-21 16:00:00 [ExcessiveDrawdown] 检查: HWM=$100,000, 当前=$100,000, 回撤=0.00%, 阈值=15%
+2023-09-21 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$100,000, 亏损=0.00%, 阈值=25%
+2023-09-21 16:15:00 [ExcessiveDrawdown] 检查: HWM=$100,000, 当前=$100,000, 回撤=0.00%, 阈值=15%
+2023-09-22 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$100,000, 亏损=0.00%, 阈值=25%
+2023-09-22 16:00:00 [ExcessiveDrawdown] 检查: HWM=$100,000, 当前=$100,000, 回撤=0.00%, 阈值=15%
+2023-09-22 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$100,000, 亏损=0.00%, 阈值=25%
+2023-09-22 16:15:00 [ExcessiveDrawdown] 检查: HWM=$100,000, 当前=$100,000, 回撤=0.00%, 阈值=15%
+2023-09-25 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$100,000, 亏损=0.00%, 阈值=25%
+2023-09-25 16:00:00 [ExcessiveDrawdown] 检查: HWM=$100,000, 当前=$100,000, 回撤=0.00%, 阈值=15%
+2023-09-25 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$100,000, 亏损=0.00%, 阈值=25%
+2023-09-25 16:15:00 [ExcessiveDrawdown] 检查: HWM=$100,000, 当前=$100,000, 回撤=0.00%, 阈值=15%
+2023-09-26 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$100,000, 亏损=0.00%, 阈值=25%
+2023-09-26 16:00:00 [ExcessiveDrawdown] 检查: HWM=$100,000, 当前=$100,000, 回撤=0.00%, 阈值=15%
+2023-09-26 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$100,000, 亏损=0.00%, 阈值=25%
+2023-09-26 16:15:00 [ExcessiveDrawdown] 检查: HWM=$100,000, 当前=$100,000, 回撤=0.00%, 阈值=15%
+2023-09-27 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$100,000, 亏损=0.00%, 阈值=25%
+2023-09-27 16:00:00 [ExcessiveDrawdown] 检查: HWM=$100,000, 当前=$100,000, 回撤=0.00%, 阈值=15%
+2023-09-27 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$100,000, 亏损=0.00%, 阈值=25%
+2023-09-27 16:15:00 [ExcessiveDrawdown] 检查: HWM=$100,000, 当前=$100,000, 回撤=0.00%, 阈值=15%
+2023-09-28 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$100,000, 亏损=0.00%, 阈值=25%
+2023-09-28 16:00:00 [ExcessiveDrawdown] 检查: HWM=$100,000, 当前=$100,000, 回撤=0.00%, 阈值=15%
+2023-09-28 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$100,000, 亏损=0.00%, 阈值=25%
+2023-09-28 16:15:00 [ExcessiveDrawdown] 检查: HWM=$100,000, 当前=$100,000, 回撤=0.00%, 阈值=15%
+2023-09-29 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$100,000, 亏损=0.00%, 阈值=25%
+2023-09-29 16:00:00 [ExcessiveDrawdown] 检查: HWM=$100,000, 当前=$100,000, 回撤=0.00%, 阈值=15%
+2023-09-29 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$100,000, 亏损=0.00%, 阈值=25%
+2023-09-29 16:15:00 [ExcessiveDrawdown] 检查: HWM=$100,000, 当前=$100,000, 回撤=0.00%, 阈值=15%
+2023-10-02 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$100,000, 亏损=0.00%, 阈值=25%
+2023-10-02 16:00:00 [ExcessiveDrawdown] 检查: HWM=$100,000, 当前=$100,000, 回撤=0.00%, 阈值=15%
+2023-10-02 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$100,000, 亏损=0.00%, 阈值=25%
+2023-10-02 16:15:00 [ExcessiveDrawdown] 检查: HWM=$100,000, 当前=$100,000, 回撤=0.00%, 阈值=15%
+2023-10-03 00:00:00 第【1】次选股: 粗选129只 -> 最终76只
+2023-10-03 00:00:00 财务淘汰38: PE高13, 负债高8, 杠杆高25
+2023-10-03 00:00:00 波动率淘汰15: 高波动15, 数据不足0
+2023-10-03 00:00:00 [选股] 最终通过: 76只股票（未分组，将由CointegrationAnalyzer按子行业分组）
+2023-10-03 00:00:00 [选股] 子行业分布TOP10: 30910(18只), 20720(11只), 31120(4只), 0(4只), 20620(4只), 20525(4只), 31130(3只), 10420(3只), 30810(2只), 31080(2只)
+2023-10-03 00:00:00 [DataProcessor] 数据处理: 77→77只 ()
+2023-10-03 00:00:00 [协整分析] 分组失败6只: VIX(invalid_data), ALLY(invalid_data), ATVI(invalid_data), MRO(invalid_data), PCG(invalid_data) 等
+2023-10-03 00:00:00 [协整分析] 子行业31120: 候选4只 → 选中4只
+2023-10-03 00:00:00 [协整分析] 子行业20720: 候选10只 → 选中10只
+2023-10-03 00:00:00 [协整分析] 子行业30910: 候选18只 → 选中18只
+2023-10-03 00:00:00 [协整分析] 子行业20620: 候选4只 → 选中4只
+2023-10-03 00:00:00 [协整分析] 子行业20525: 候选4只 → 选中4只
+2023-10-03 00:00:00 [协整分析] 子行业31130: 候选3只 → 选中3只
+2023-10-03 00:00:00 [协整分析] 子行业10420: 候选3只 → 选中3只
+2023-10-03 00:00:00 [协整分析] 跳过17个子行业(股票数<3): 31020(1只), 20650(1只), 30810(2只), 31080(2只), 20630(1只), 20660(1只), 30820(1只), 31110(2只), 10150(2只), 10200(2只), 30830(2只), 20520(2只), 31030(1只), 10240(2只), 10360(1只), 31010(1只), 20550(1只)
+2023-10-03 00:00:00 [协整分析] 发现12个协整对 (测试222对，来自7个子行业)
+2023-10-03 00:00:00 [BayesianModeler] 建模完成: 成功11对, 失败0对 (完全建模11对, 动态更新0对)
+2023-10-03 00:00:00 [PairsManager] 添加新配对 ('CVX', 'OXY')
+2023-10-03 00:00:00 [PairsManager] 添加新配对 ('INTC', 'MU')
+2023-10-03 00:00:00 [PairsManager] 添加新配对 ('MRK', 'PFE')
+2023-10-03 00:00:00 [PairsManager] 添加新配对 ('OKE', 'OXY')
+2023-10-03 00:00:00 [PairsManager] 添加新配对 ('CVX', 'EPD')
+2023-10-03 00:00:00 [PairsManager] 添加新配对 ('CNP', 'NEE')
+2023-10-03 00:00:00 [PairsManager] 添加新配对 ('CVX', 'DVN')
+2023-10-03 00:00:00 [PairsManager] 添加新配对 ('KMI', 'TRP')
+2023-10-03 00:00:00 [PairsManager] 添加新配对 ('OKE', 'TRP')
+2023-10-03 00:00:00 [PairsManager] 添加新配对 ('CTRA', 'ENB')
+2023-10-03 00:00:00 [PairsManager] 添加新配对 ('SLB', 'TRP')
+2023-10-03 00:00:00 [PairsManager] 第1轮更新完成: 活跃=11, 遗留=0, 休眠=0, 总计=11
+2023-10-03 00:00:00 [配对分析] 完成: 创建11个新配对, 共管理11个配对
+2023-10-03 00:00:00 10/3/2023 12:00:00 AM: SecurityChanges:  Added: AAPL R735QTJ8XC9X,AEP R735QTJ8XC9X,ALLY VPLW2D47KBXH,ARMK VMCPV8L4GJTX,ATVI R735QTJ8XC9X,AVTR X4K9WJLO3VXH,BHGE WLXQGVHQ03MT,BMY R735QTJ8XC9X,CAG R735QTJ8XC9X,CMCSA SJTSDFE19S9X,HOU R735QTJ8XC9X,CSCO R735QTJ8XC9X,CSX R735QTJ8XC9X,COG R735QTJ8XC9X,CVE UIB7ED20G0V9,CVS R735QTJ8XC9X,CHV R735QTJ8XC9X,D R735QTJ8XC9X,DHR R735QTJ8XC9X,DIS R735QTJ8XC9X,DUK R735QTJ8XC9X,DVN RNB1U9GCAQG5,DXC WJE5W6H0VXPH,IPPIF R735QTJ8XC9X,EPD RCQZA696RIHX,EQT R735QTJ8XC9X,PE R735QTJ8XC9X,FCX R735QTJ8XC9X,FE R735QTJ8XC9X,FTI S5ITKJ2R97C5,GIS R735QTJ8XC9X,GM URPX6IW2RK2T,GOOCV VP83T1ZUHROL,GOOG T1AZ164W5VTX,HAL R735QTJ8XC9X,HPE W584BQZL94KL,HWP R735QTJ8XC9X,INTC R735QTJ8XC9X,JNJ R735QTJ8XC9X,K R735QTJ8XC9X,DPS U2F4O1IXZOMD,KHC W1YY4MGI5CH1,KIM R735QTJ8XC9X,KMI UU1M6GZF9OPX,KO R735QTJ8XC9X,LUV R735QTJ8XC9X,MMM R735QTJ8XC9X,MRK R735QTJ8XC9X,MRO R735QTJ8XC9X,MSFT R735QTJ8XC9X,MU R735QTJ8XC9X,FPL R735QTJ8XC9X,NEM R735QTJ8XC9X,NI R735QTJ8XC9X,NKE R735QTJ8XC9X,O R735QTJ8XC9X,OKE R735QTJ8XC9X,OXY R735QTJ8XC9X,PCG R735QTJ8XC9X,PFE R735QTJ8XC9X,PPL R735QTJ8XC9X,PYPL W2CQDXKV7WPX,QCOM R735QTJ8XC9X,UTX R735QTJ8XC9X,SLB R735QTJ8XC9X,SO R735QTJ8XC9X,FCAU VUP17R5LSNS5,SU R735QTJ8XC9X,DH R735QTJ8XC9X,TRP R735QTJ8XC9X,VFC R735QTJ8XC9X,BEL R735QTJ8XC9X,WAG R735QTJ8XC9X,WMB R735QTJ8XC9X,WY R735QTJ8XC9X,XON R735QTJ8XC9X
+2023-10-03 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$100,000, 亏损=0.00%, 阈值=25%
+2023-10-03 16:00:00 [ExcessiveDrawdown] 检查: HWM=$100,000, 当前=$100,000, 回撤=0.00%, 阈值=15%
+2023-10-03 16:00:00 [MarketCondition] VIX=17.6, HistVol=11.2%
+2023-10-03 16:00:00 Warning: all market orders sent using daily data, or market orders sent after hours are automatically converted into MarketOnOpen orders.
+2023-10-03 16:00:00 [TM注册] ('MRK', 'PFE') OPEN 2个订单 状态:PENDING
+2023-10-03 16:00:00 [TM注册] ('CVX', 'DVN') OPEN 2个订单 状态:PENDING
+2023-10-03 16:00:00 [TM注册] ('KMI', 'TRP') OPEN 2个订单 状态:PENDING
+2023-10-03 16:00:00 [TM注册] ('CTRA', 'ENB') OPEN 2个订单 状态:PENDING
+2023-10-03 16:00:00 [开仓] 成功开仓4/4个配对
+2023-10-03 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$100,000, 亏损=0.00%, 阈值=25%
+2023-10-03 16:15:00 [ExcessiveDrawdown] 检查: HWM=$100,000, 当前=$100,000, 回撤=0.00%, 阈值=15%
+2023-10-03 16:15:00 [MarketCondition] VIX=19.8, HistVol=11.2%
+2023-10-04 16:00:00 [OOE] ('MRK', 'PFE') OrderId=1 Status=Filled → 配对状态:PENDING
+2023-10-04 16:00:00 [OOE] ('MRK', 'PFE') OrderId=2 Status=Filled → 配对状态:COMPLETED
+2023-10-04 16:00:00 [OOE] ('MRK', 'PFE') 订单全部成交,配对解锁
+2023-10-04 16:00:00 [OOE] ('CVX', 'DVN') OrderId=3 Status=Filled → 配对状态:PENDING
+2023-10-04 16:00:00 [OOE] ('CVX', 'DVN') OrderId=4 Status=Filled → 配对状态:COMPLETED
+2023-10-04 16:00:00 [OOE] ('CVX', 'DVN') 订单全部成交,配对解锁
+2023-10-04 16:00:00 [OOE] ('KMI', 'TRP') OrderId=5 Status=Filled → 配对状态:PENDING
+2023-10-04 16:00:00 [OOE] ('KMI', 'TRP') OrderId=6 Status=Filled → 配对状态:COMPLETED
+2023-10-04 16:00:00 [OOE] ('KMI', 'TRP') 订单全部成交,配对解锁
+2023-10-04 16:00:00 [OOE] ('CTRA', 'ENB') OrderId=7 Status=Filled → 配对状态:PENDING
+2023-10-04 16:00:00 [OOE] ('CTRA', 'ENB') OrderId=8 Status=Filled → 配对状态:COMPLETED
+2023-10-04 16:00:00 [OOE] ('CTRA', 'ENB') 订单全部成交,配对解锁
+2023-10-04 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$100,123, 亏损=-0.12%, 阈值=25%
+2023-10-04 16:00:00 [ExcessiveDrawdown] 更新HWM: $100,000 -> $100,123
+2023-10-04 16:00:00 [ExcessiveDrawdown] 检查: HWM=$100,123, 当前=$100,123, 回撤=0.00%, 阈值=15%
+2023-10-04 16:00:00 [MarketCondition] VIX=19.8, HistVol=11.6%
+2023-10-04 16:00:00 [TM注册] ('INTC', 'MU') OPEN 2个订单 状态:PENDING
+2023-10-04 16:00:00 [TM注册] ('CNP', 'NEE') OPEN 2个订单 状态:PENDING
+2023-10-04 16:00:00 [开仓] 成功开仓2/2个配对
+2023-10-04 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$100,123, 亏损=-0.12%, 阈值=25%
+2023-10-04 16:15:00 [ExcessiveDrawdown] 检查: HWM=$100,123, 当前=$100,123, 回撤=0.00%, 阈值=15%
+2023-10-04 16:15:00 [MarketCondition] VIX=18.6, HistVol=11.6%
+2023-10-05 00:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$100,123, 亏损=-0.12%, 阈值=25%
+2023-10-05 00:00:00 [ExcessiveDrawdown] 检查: HWM=$100,123, 当前=$100,123, 回撤=0.00%, 阈值=15%
+2023-10-05 00:00:00 [MarketCondition] VIX=18.6, HistVol=11.6%
+2023-10-05 16:00:00 [OOE] ('INTC', 'MU') OrderId=9 Status=Filled → 配对状态:PENDING
+2023-10-05 16:00:00 [OOE] ('INTC', 'MU') OrderId=10 Status=Filled → 配对状态:COMPLETED
+2023-10-05 16:00:00 [OOE] ('INTC', 'MU') 订单全部成交,配对解锁
+2023-10-05 16:00:00 [OOE] ('CNP', 'NEE') OrderId=11 Status=Filled → 配对状态:PENDING
+2023-10-05 16:00:00 [OOE] ('CNP', 'NEE') OrderId=12 Status=Filled → 配对状态:COMPLETED
+2023-10-05 16:00:00 [OOE] ('CNP', 'NEE') 订单全部成交,配对解锁
+2023-10-05 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$99,825, 亏损=0.18%, 阈值=25%
+2023-10-05 16:00:00 [ExcessiveDrawdown] 检查: HWM=$100,123, 当前=$99,825, 回撤=0.30%, 阈值=15%
+2023-10-05 16:00:00 [MarketCondition] VIX=18.6, HistVol=11.7%
+2023-10-05 16:00:00 [TM注册] ('CVX', 'OXY') OPEN 2个订单 状态:PENDING
+2023-10-05 16:00:00 [开仓] 成功开仓1/1个配对
+2023-10-05 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$99,825, 亏损=0.18%, 阈值=25%
+2023-10-05 16:15:00 [ExcessiveDrawdown] 检查: HWM=$100,123, 当前=$99,825, 回撤=0.30%, 阈值=15%
+2023-10-05 16:15:00 [MarketCondition] VIX=18.5, HistVol=11.7%
+2023-10-06 00:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$99,825, 亏损=0.18%, 阈值=25%
+2023-10-06 00:00:00 [ExcessiveDrawdown] 检查: HWM=$100,123, 当前=$99,825, 回撤=0.30%, 阈值=15%
+2023-10-06 00:00:00 [MarketCondition] VIX=18.5, HistVol=11.7%
+2023-10-06 16:00:00 [OOE] ('CVX', 'OXY') OrderId=13 Status=Filled → 配对状态:PENDING
+2023-10-06 16:00:00 [OOE] ('CVX', 'OXY') OrderId=14 Status=Filled → 配对状态:COMPLETED
+2023-10-06 16:00:00 [OOE] ('CVX', 'OXY') 订单全部成交,配对解锁
+2023-10-06 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$100,945, 亏损=-0.94%, 阈值=25%
+2023-10-06 16:00:00 [ExcessiveDrawdown] 更新HWM: $100,123 -> $100,945
+2023-10-06 16:00:00 [ExcessiveDrawdown] 检查: HWM=$100,945, 当前=$100,945, 回撤=0.00%, 阈值=15%
+2023-10-06 16:00:00 [MarketCondition] VIX=18.5, HistVol=12.6%
+2023-10-06 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$100,945, 亏损=-0.94%, 阈值=25%
+2023-10-06 16:15:00 [ExcessiveDrawdown] 检查: HWM=$100,945, 当前=$100,945, 回撤=0.00%, 阈值=15%
+2023-10-06 16:15:00 [MarketCondition] VIX=17.4, HistVol=12.6%
+2023-10-09 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$100,721, 亏损=-0.72%, 阈值=25%
+2023-10-09 16:00:00 [ExcessiveDrawdown] 检查: HWM=$100,945, 当前=$100,721, 回撤=0.22%, 阈值=15%
+2023-10-09 16:00:00 [平仓] ('CTRA', 'ENB') Z-score回归
+2023-10-09 16:00:00 [TM注册] ('CTRA', 'ENB') CLOSE 2个订单 状态:PENDING
+2023-10-09 16:00:00 [平仓] ('KMI', 'TRP') Z-score回归
+2023-10-09 16:00:00 [TM注册] ('KMI', 'TRP') CLOSE 2个订单 状态:PENDING
+2023-10-09 16:00:00 [MarketCondition] VIX=17.4, HistVol=12.6%
+2023-10-09 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$100,721, 亏损=-0.72%, 阈值=25%
+2023-10-09 16:15:00 [ExcessiveDrawdown] 检查: HWM=$100,945, 当前=$100,721, 回撤=0.22%, 阈值=15%
+2023-10-09 16:15:00 [MarketCondition] VIX=17.7, HistVol=12.6%
+2023-10-10 16:00:00 [OOE] ('CTRA', 'ENB') OrderId=15 Status=Filled → 配对状态:PENDING
+2023-10-10 16:00:00 [OOE] ('CTRA', 'ENB') OrderId=16 Status=Filled → 配对状态:COMPLETED
+2023-10-10 16:00:00 [OOE] ('CTRA', 'ENB') 订单全部成交,配对解锁
+2023-10-10 16:00:00 [OOE] ('KMI', 'TRP') OrderId=17 Status=Filled → 配对状态:PENDING
+2023-10-10 16:00:00 [OOE] ('KMI', 'TRP') OrderId=18 Status=Filled → 配对状态:COMPLETED
+2023-10-10 16:00:00 [OOE] ('KMI', 'TRP') 订单全部成交,配对解锁
+2023-10-10 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$101,353, 亏损=-1.35%, 阈值=25%
+2023-10-10 16:00:00 [ExcessiveDrawdown] 更新HWM: $100,945 -> $101,353
+2023-10-10 16:00:00 [ExcessiveDrawdown] 检查: HWM=$101,353, 当前=$101,353, 回撤=0.00%, 阈值=15%
+2023-10-10 16:00:00 [MarketCondition] VIX=17.7, HistVol=12.7%
+2023-10-10 16:00:00 [TM注册] ('OKE', 'OXY') OPEN 2个订单 状态:PENDING
+2023-10-10 16:00:00 [开仓] 成功开仓1/1个配对
+2023-10-10 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$101,353, 亏损=-1.35%, 阈值=25%
+2023-10-10 16:15:00 [ExcessiveDrawdown] 检查: HWM=$101,353, 当前=$101,353, 回撤=0.00%, 阈值=15%
+2023-10-10 16:15:00 [MarketCondition] VIX=17.0, HistVol=12.7%
+2023-10-11 00:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$101,353, 亏损=-1.35%, 阈值=25%
+2023-10-11 00:00:00 [ExcessiveDrawdown] 检查: HWM=$101,353, 当前=$101,353, 回撤=0.00%, 阈值=15%
+2023-10-11 00:00:00 [MarketCondition] VIX=17.0, HistVol=12.7%
+2023-10-11 16:00:00 [OOE] ('OKE', 'OXY') OrderId=19 Status=Filled → 配对状态:PENDING
+2023-10-11 16:00:00 [OOE] ('OKE', 'OXY') OrderId=20 Status=Filled → 配对状态:COMPLETED
+2023-10-11 16:00:00 [OOE] ('OKE', 'OXY') 订单全部成交,配对解锁
+2023-10-11 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$102,786, 亏损=-2.79%, 阈值=25%
+2023-10-11 16:00:00 [ExcessiveDrawdown] 更新HWM: $101,353 -> $102,786
+2023-10-11 16:00:00 [ExcessiveDrawdown] 检查: HWM=$102,786, 当前=$102,786, 回撤=0.00%, 阈值=15%
+2023-10-11 16:00:00 [MarketCondition] VIX=17.0, HistVol=12.8%
+2023-10-11 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$102,786, 亏损=-2.79%, 阈值=25%
+2023-10-11 16:15:00 [ExcessiveDrawdown] 检查: HWM=$102,786, 当前=$102,786, 回撤=0.00%, 阈值=15%
+2023-10-11 16:15:00 [MarketCondition] VIX=16.1, HistVol=12.8%
+2023-10-12 00:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$102,786, 亏损=-2.79%, 阈值=25%
+2023-10-12 00:00:00 [ExcessiveDrawdown] 检查: HWM=$102,786, 当前=$102,786, 回撤=0.00%, 阈值=15%
+2023-10-12 00:00:00 [MarketCondition] VIX=16.1, HistVol=12.8%
+2023-10-12 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$102,518, 亏损=-2.52%, 阈值=25%
+2023-10-12 16:00:00 [ExcessiveDrawdown] 检查: HWM=$102,786, 当前=$102,518, 回撤=0.26%, 阈值=15%
+2023-10-12 16:00:00 [MarketCondition] VIX=16.1, HistVol=12.4%
+2023-10-12 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$102,518, 亏损=-2.52%, 阈值=25%
+2023-10-12 16:15:00 [ExcessiveDrawdown] 检查: HWM=$102,786, 当前=$102,518, 回撤=0.26%, 阈值=15%
+2023-10-12 16:15:00 [MarketCondition] VIX=16.7, HistVol=12.4%
+2023-10-13 00:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$102,518, 亏损=-2.52%, 阈值=25%
+2023-10-13 00:00:00 [ExcessiveDrawdown] 检查: HWM=$102,786, 当前=$102,518, 回撤=0.26%, 阈值=15%
+2023-10-13 00:00:00 [MarketCondition] VIX=16.7, HistVol=12.4%
+2023-10-13 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$104,016, 亏损=-4.02%, 阈值=25%
+2023-10-13 16:00:00 [ExcessiveDrawdown] 更新HWM: $102,786 -> $104,016
+2023-10-13 16:00:00 [ExcessiveDrawdown] 检查: HWM=$104,016, 当前=$104,016, 回撤=0.00%, 阈值=15%
+2023-10-13 16:00:00 [平仓] ('CVX', 'OXY') Z-score回归
+2023-10-13 16:00:00 [TM注册] ('CVX', 'OXY') CLOSE 2个订单 状态:PENDING
+2023-10-13 16:00:00 [MarketCondition] VIX=16.7, HistVol=11.9%
+2023-10-13 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$104,016, 亏损=-4.02%, 阈值=25%
+2023-10-13 16:15:00 [ExcessiveDrawdown] 检查: HWM=$104,016, 当前=$104,016, 回撤=0.00%, 阈值=15%
+2023-10-13 16:15:00 [MarketCondition] VIX=19.3, HistVol=11.9%
+2023-10-14 00:00:00 [DataProcessor] 数据处理: 76→76只 ()
+2023-10-14 00:00:00 [协整分析] 分组失败5只: VIX(invalid_data), ALLY(invalid_data), MRO(invalid_data), PCG(invalid_data), WBA(invalid_data)
+2023-10-14 00:00:00 [协整分析] 子行业31120: 候选4只 → 选中4只
+2023-10-14 00:00:00 [协整分析] 子行业20720: 候选10只 → 选中10只
+2023-10-14 00:00:00 [协整分析] 子行业30910: 候选18只 → 选中18只
+2023-10-14 00:00:00 [协整分析] 子行业20620: 候选4只 → 选中4只
+2023-10-14 00:00:00 [协整分析] 子行业20525: 候选4只 → 选中4只
+2023-10-14 00:00:00 [协整分析] 子行业31130: 候选3只 → 选中3只
+2023-10-14 00:00:00 [协整分析] 子行业10420: 候选3只 → 选中3只
+2023-10-14 00:00:00 [协整分析] 跳过17个子行业(股票数<3): 31020(1只), 20650(1只), 30810(2只), 31080(2只), 20630(1只), 20660(1只), 30820(1只), 31110(2只), 10150(2只), 10200(2只), 30830(2只), 20520(2只), 31030(1只), 10240(2只), 10360(1只), 31010(1只), 20550(1只)
+2023-10-14 00:00:00 [协整分析] 发现18个协整对 (测试222对，来自7个子行业)
+2023-10-14 00:00:00 [BayesianModeler] 建模完成: 成功17对, 失败0对 (完全建模12对, 动态更新5对)
+2023-10-14 00:00:00 [PairsManager] 更新配对 ('INTC', 'MU')
+2023-10-14 00:00:00 [PairsManager] 更新配对 ('MRK', 'PFE')
+2023-10-14 00:00:00 [PairsManager] 更新配对 ('CVX', 'DVN')
+2023-10-14 00:00:00 [PairsManager] 添加新配对 ('D', 'NEE')
+2023-10-14 00:00:00 [PairsManager] 添加新配对 ('KMI', 'OXY')
+2023-10-14 00:00:00 [PairsManager] 添加新配对 ('BKR', 'EQT')
+2023-10-14 00:00:00 [PairsManager] 添加新配对 ('FE', 'PPL')
+2023-10-14 00:00:00 [PairsManager] 添加新配对 ('CTRA', 'WMB')
+2023-10-14 00:00:00 [PairsManager] 添加新配对 ('CNP', 'FE')
+2023-10-14 00:00:00 [PairsManager] 添加新配对 ('BKR', 'CTRA')
+2023-10-14 00:00:00 [PairsManager] 添加新配对 ('CNP', 'D')
+2023-10-14 00:00:00 [PairsManager] 添加新配对 ('CNP', 'PPL')
+2023-10-14 00:00:00 [PairsManager] 添加新配对 ('EXC', 'NI')
+2023-10-14 00:00:00 [PairsManager] 添加新配对 ('CAG', 'KHC')
+2023-10-14 00:00:00 [PairsManager] 添加新配对 ('ENB', 'FTI')
+2023-10-14 00:00:00 [PairsManager] 更新配对 ('CTRA', 'ENB')
+2023-10-14 00:00:00 [PairsManager] 更新配对 ('OKE', 'TRP')
+2023-10-14 00:00:00 [PairsManager] 第2轮更新完成: 活跃=17, 遗留=3, 休眠=3, 总计=23
+2023-10-14 00:00:00 [配对分析] 完成: 创建17个新配对, 共管理23个配对
+2023-10-14 00:00:00 10/14/2023 12:00:00 AM: SecurityChanges:  Removed: ATVI R735QTJ8XC9X
+2023-10-14 00:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$104,016, 亏损=-4.02%, 阈值=25%
+2023-10-14 00:00:00 [ExcessiveDrawdown] 检查: HWM=$104,016, 当前=$104,016, 回撤=0.00%, 阈值=15%
+2023-10-14 00:00:00 [MarketCondition] VIX=19.3, HistVol=11.9%
+2023-10-16 16:00:00 [OOE] ('CVX', 'OXY') OrderId=21 Status=Filled → 配对状态:PENDING
+2023-10-16 16:00:00 [OOE] ('CVX', 'OXY') OrderId=22 Status=Filled → 配对状态:COMPLETED
+2023-10-16 16:00:00 [OOE] ('CVX', 'OXY') 订单全部成交,配对解锁
+2023-10-16 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,757, 亏损=-3.76%, 阈值=25%
+2023-10-16 16:00:00 [ExcessiveDrawdown] 检查: HWM=$104,016, 当前=$103,757, 回撤=0.25%, 阈值=15%
+2023-10-16 16:00:00 [MarketCondition] VIX=19.3, HistVol=12.6%
+2023-10-16 16:00:00 [TM注册] ('FE', 'PPL') OPEN 2个订单 状态:PENDING
+2023-10-16 16:00:00 [TM注册] ('EXC', 'NI') OPEN 2个订单 状态:PENDING
+2023-10-16 16:00:00 [开仓] 成功开仓2/4个配对
+2023-10-16 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,757, 亏损=-3.76%, 阈值=25%
+2023-10-16 16:15:00 [ExcessiveDrawdown] 检查: HWM=$104,016, 当前=$103,757, 回撤=0.25%, 阈值=15%
+2023-10-16 16:15:00 [MarketCondition] VIX=17.2, HistVol=12.6%
+2023-10-17 16:00:00 [OOE] ('FE', 'PPL') OrderId=23 Status=Filled → 配对状态:PENDING
+2023-10-17 16:00:00 [OOE] ('FE', 'PPL') OrderId=24 Status=Filled → 配对状态:COMPLETED
+2023-10-17 16:00:00 [OOE] ('FE', 'PPL') 订单全部成交,配对解锁
+2023-10-17 16:00:00 [OOE] ('EXC', 'NI') OrderId=25 Status=Filled → 配对状态:PENDING
+2023-10-17 16:00:00 [OOE] ('EXC', 'NI') OrderId=26 Status=Filled → 配对状态:COMPLETED
+2023-10-17 16:00:00 [OOE] ('EXC', 'NI') 订单全部成交,配对解锁
+2023-10-17 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$104,018, 亏损=-4.02%, 阈值=25%
+2023-10-17 16:00:00 [ExcessiveDrawdown] 更新HWM: $104,016 -> $104,018
+2023-10-17 16:00:00 [ExcessiveDrawdown] 检查: HWM=$104,018, 当前=$104,018, 回撤=0.00%, 阈值=15%
+2023-10-17 16:00:00 [MarketCondition] VIX=17.2, HistVol=12.6%
+2023-10-17 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$104,018, 亏损=-4.02%, 阈值=25%
+2023-10-17 16:15:00 [ExcessiveDrawdown] 检查: HWM=$104,018, 当前=$104,018, 回撤=0.00%, 阈值=15%
+2023-10-17 16:15:00 [MarketCondition] VIX=17.9, HistVol=12.6%
+2023-10-18 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$104,524, 亏损=-4.52%, 阈值=25%
+2023-10-18 16:00:00 [ExcessiveDrawdown] 更新HWM: $104,018 -> $104,524
+2023-10-18 16:00:00 [ExcessiveDrawdown] 检查: HWM=$104,524, 当前=$104,524, 回撤=0.00%, 阈值=15%
+2023-10-18 16:00:00 [MarketCondition] VIX=17.9, HistVol=13.0%
+2023-10-18 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$104,524, 亏损=-4.52%, 阈值=25%
+2023-10-18 16:15:00 [ExcessiveDrawdown] 检查: HWM=$104,524, 当前=$104,524, 回撤=0.00%, 阈值=15%
+2023-10-18 16:15:00 [MarketCondition] VIX=19.2, HistVol=13.0%
+2023-10-19 00:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$104,524, 亏损=-4.52%, 阈值=25%
+2023-10-19 00:00:00 [ExcessiveDrawdown] 检查: HWM=$104,524, 当前=$104,524, 回撤=0.00%, 阈值=15%
+2023-10-19 00:00:00 [MarketCondition] VIX=19.2, HistVol=13.0%
+2023-10-19 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,660, 亏损=-3.66%, 阈值=25%
+2023-10-19 16:00:00 [ExcessiveDrawdown] 检查: HWM=$104,524, 当前=$103,660, 回撤=0.83%, 阈值=15%
+2023-10-19 16:00:00 [MarketCondition] VIX=19.2, HistVol=12.1%
+2023-10-19 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,660, 亏损=-3.66%, 阈值=25%
+2023-10-19 16:15:00 [ExcessiveDrawdown] 检查: HWM=$104,524, 当前=$103,660, 回撤=0.83%, 阈值=15%
+2023-10-19 16:15:00 [MarketCondition] VIX=21.4, HistVol=12.1%
+2023-10-20 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,557, 亏损=-3.56%, 阈值=25%
+2023-10-20 16:00:00 [ExcessiveDrawdown] 检查: HWM=$104,524, 当前=$103,557, 回撤=0.93%, 阈值=15%
+2023-10-20 16:00:00 [MarketCondition] VIX=21.4, HistVol=12.7%
+2023-10-20 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,557, 亏损=-3.56%, 阈值=25%
+2023-10-20 16:15:00 [ExcessiveDrawdown] 检查: HWM=$104,524, 当前=$103,557, 回撤=0.93%, 阈值=15%
+2023-10-20 16:15:00 [MarketCondition] VIX=21.7, HistVol=12.7%
+2023-10-23 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,020, 亏损=-3.02%, 阈值=25%
+2023-10-23 16:00:00 [ExcessiveDrawdown] 检查: HWM=$104,524, 当前=$103,020, 回撤=1.44%, 阈值=15%
+2023-10-23 16:00:00 [平仓] ('INTC', 'MU') Z-score回归
+2023-10-23 16:00:00 [TM注册] ('INTC', 'MU') CLOSE 2个订单 状态:PENDING
+2023-10-23 16:00:00 [MarketCondition] VIX=21.7, HistVol=12.6%
+2023-10-23 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,020, 亏损=-3.02%, 阈值=25%
+2023-10-23 16:15:00 [ExcessiveDrawdown] 检查: HWM=$104,524, 当前=$103,020, 回撤=1.44%, 阈值=15%
+2023-10-23 16:15:00 [MarketCondition] VIX=20.4, HistVol=12.6%
+2023-10-24 16:00:00 [OOE] ('INTC', 'MU') OrderId=27 Status=Filled → 配对状态:PENDING
+2023-10-24 16:00:00 [OOE] ('INTC', 'MU') OrderId=28 Status=Filled → 配对状态:COMPLETED
+2023-10-24 16:00:00 [OOE] ('INTC', 'MU') 订单全部成交,配对解锁
+2023-10-24 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$104,651, 亏损=-4.65%, 阈值=25%
+2023-10-24 16:00:00 [ExcessiveDrawdown] 更新HWM: $104,524 -> $104,651
+2023-10-24 16:00:00 [ExcessiveDrawdown] 检查: HWM=$104,651, 当前=$104,651, 回撤=0.00%, 阈值=15%
+2023-10-24 16:00:00 [平仓] ('CVX', 'DVN') Z-score回归
+2023-10-24 16:00:00 [TM注册] ('CVX', 'DVN') CLOSE 2个订单 状态:PENDING
+2023-10-24 16:00:00 [MarketCondition] VIX=20.4, HistVol=12.0%
+2023-10-24 16:00:00 [TM注册] ('CVX', 'OXY') OPEN 2个订单 状态:PENDING
+2023-10-24 16:00:00 [TM注册] ('D', 'NEE') OPEN 2个订单 状态:PENDING
+2023-10-24 16:00:00 [开仓] 成功开仓2/3个配对
+2023-10-24 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$104,651, 亏损=-4.65%, 阈值=25%
+2023-10-24 16:15:00 [ExcessiveDrawdown] 检查: HWM=$104,651, 当前=$104,651, 回撤=0.00%, 阈值=15%
+2023-10-24 16:15:00 [MarketCondition] VIX=18.9, HistVol=12.0%
+2023-10-25 16:00:00 [OOE] ('CVX', 'DVN') OrderId=29 Status=Filled → 配对状态:PENDING
+2023-10-25 16:00:00 [OOE] ('CVX', 'DVN') OrderId=30 Status=Filled → 配对状态:COMPLETED
+2023-10-25 16:00:00 [OOE] ('CVX', 'DVN') 订单全部成交,配对解锁
+2023-10-25 16:00:00 [OOE] ('CVX', 'OXY') OrderId=31 Status=Filled → 配对状态:PENDING
+2023-10-25 16:00:00 [OOE] ('CVX', 'OXY') OrderId=32 Status=Filled → 配对状态:COMPLETED
+2023-10-25 16:00:00 [OOE] ('CVX', 'OXY') 订单全部成交,配对解锁
+2023-10-25 16:00:00 [OOE] ('D', 'NEE') OrderId=33 Status=Filled → 配对状态:PENDING
+2023-10-25 16:00:00 [OOE] ('D', 'NEE') OrderId=34 Status=Filled → 配对状态:COMPLETED
+2023-10-25 16:00:00 [OOE] ('D', 'NEE') 订单全部成交,配对解锁
+2023-10-25 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$105,106, 亏损=-5.11%, 阈值=25%
+2023-10-25 16:00:00 [ExcessiveDrawdown] 更新HWM: $104,651 -> $105,106
+2023-10-25 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,106, 当前=$105,106, 回撤=0.00%, 阈值=15%
+2023-10-25 16:00:00 [MarketCondition] VIX=18.9, HistVol=12.9%
+2023-10-25 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$105,106, 亏损=-5.11%, 阈值=25%
+2023-10-25 16:15:00 [ExcessiveDrawdown] 检查: HWM=$105,106, 当前=$105,106, 回撤=0.00%, 阈值=15%
+2023-10-25 16:15:00 [MarketCondition] VIX=20.2, HistVol=12.9%
+2023-10-26 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$105,361, 亏损=-5.36%, 阈值=25%
+2023-10-26 16:00:00 [ExcessiveDrawdown] 更新HWM: $105,106 -> $105,361
+2023-10-26 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$105,361, 回撤=0.00%, 阈值=15%
+2023-10-26 16:00:00 [平仓] ('FE', 'PPL') Z-score回归
+2023-10-26 16:00:00 [TM注册] ('FE', 'PPL') CLOSE 2个订单 状态:PENDING
+2023-10-26 16:00:00 [MarketCondition] VIX=20.2, HistVol=13.2%
+2023-10-26 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$105,361, 亏损=-5.36%, 阈值=25%
+2023-10-26 16:15:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$105,361, 回撤=0.00%, 阈值=15%
+2023-10-26 16:15:00 [MarketCondition] VIX=20.6, HistVol=13.2%
+2023-10-27 16:00:00 [OOE] ('FE', 'PPL') OrderId=35 Status=Filled → 配对状态:PENDING
+2023-10-27 16:00:00 [OOE] ('FE', 'PPL') OrderId=36 Status=Filled → 配对状态:COMPLETED
+2023-10-27 16:00:00 [OOE] ('FE', 'PPL') 订单全部成交,配对解锁
+2023-10-27 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$104,558, 亏损=-4.56%, 阈值=25%
+2023-10-27 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$104,558, 回撤=0.76%, 阈值=15%
+2023-10-27 16:00:00 [平仓] ('CNP', 'NEE') Z-score回归
+2023-10-27 16:00:00 [TM注册] ('CNP', 'NEE') CLOSE 2个订单 状态:PENDING
+2023-10-27 16:00:00 [止损] ('CVX', 'OXY') Z-score超限
+2023-10-27 16:00:00 [TM注册] ('CVX', 'OXY') CLOSE 2个订单 状态:PENDING
+2023-10-27 16:00:00 [MarketCondition] VIX=20.6, HistVol=13.2%
+2023-10-27 16:00:00 [TM注册] ('KMI', 'OXY') OPEN 2个订单 状态:PENDING
+2023-10-27 16:00:00 [TM注册] ('CNP', 'D') OPEN 2个订单 状态:PENDING
+2023-10-27 16:00:00 [开仓] 成功开仓2/3个配对
+2023-10-27 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$104,558, 亏损=-4.56%, 阈值=25%
+2023-10-27 16:15:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$104,558, 回撤=0.76%, 阈值=15%
+2023-10-27 16:15:00 [MarketCondition] VIX=21.3, HistVol=13.2%
+2023-10-30 00:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$104,558, 亏损=-4.56%, 阈值=25%
+2023-10-30 00:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$104,558, 回撤=0.76%, 阈值=15%
+2023-10-30 00:00:00 [MarketCondition] VIX=21.3, HistVol=13.2%
+2023-10-30 16:00:00 [OOE] ('CNP', 'NEE') OrderId=37 Status=Filled → 配对状态:PENDING
+2023-10-30 16:00:00 [OOE] ('CNP', 'NEE') OrderId=38 Status=Filled → 配对状态:COMPLETED
+2023-10-30 16:00:00 [OOE] ('CNP', 'NEE') 订单全部成交,配对解锁
+2023-10-30 16:00:00 [OOE] ('CVX', 'OXY') OrderId=39 Status=Filled → 配对状态:PENDING
+2023-10-30 16:00:00 [OOE] ('CVX', 'OXY') OrderId=40 Status=Filled → 配对状态:COMPLETED
+2023-10-30 16:00:00 [OOE] ('CVX', 'OXY') 订单全部成交,配对解锁
+2023-10-30 16:00:00 [OOE] ('KMI', 'OXY') OrderId=41 Status=Filled → 配对状态:PENDING
+2023-10-30 16:00:00 [OOE] ('KMI', 'OXY') OrderId=42 Status=Filled → 配对状态:COMPLETED
+2023-10-30 16:00:00 [OOE] ('KMI', 'OXY') 订单全部成交,配对解锁
+2023-10-30 16:00:00 [OOE] ('CNP', 'D') OrderId=43 Status=Filled → 配对状态:PENDING
+2023-10-30 16:00:00 [OOE] ('CNP', 'D') OrderId=44 Status=Filled → 配对状态:COMPLETED
+2023-10-30 16:00:00 [OOE] ('CNP', 'D') 订单全部成交,配对解锁
+2023-10-30 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$104,400, 亏损=-4.40%, 阈值=25%
+2023-10-30 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$104,400, 回撤=0.91%, 阈值=15%
+2023-10-30 16:00:00 [平仓] ('EXC', 'NI') Z-score回归
+2023-10-30 16:00:00 [TM注册] ('EXC', 'NI') CLOSE 2个订单 状态:PENDING
+2023-10-30 16:00:00 [MarketCondition] VIX=21.3, HistVol=14.1%
+2023-10-30 16:00:00 [TM注册] ('ENB', 'FTI') OPEN 2个订单 状态:PENDING
+2023-10-30 16:00:00 [开仓] 成功开仓1/1个配对
+2023-10-30 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$104,400, 亏损=-4.40%, 阈值=25%
+2023-10-30 16:15:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$104,400, 回撤=0.91%, 阈值=15%
+2023-10-30 16:15:00 [MarketCondition] VIX=19.7, HistVol=14.1%
+2023-10-31 00:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$104,400, 亏损=-4.40%, 阈值=25%
+2023-10-31 00:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$104,400, 回撤=0.91%, 阈值=15%
+2023-10-31 00:00:00 [MarketCondition] VIX=19.7, HistVol=14.1%
+2023-10-31 16:00:00 [OOE] ('EXC', 'NI') OrderId=45 Status=Filled → 配对状态:PENDING
+2023-10-31 16:00:00 [OOE] ('EXC', 'NI') OrderId=46 Status=Filled → 配对状态:COMPLETED
+2023-10-31 16:00:00 [OOE] ('EXC', 'NI') 订单全部成交,配对解锁
+2023-10-31 16:00:00 [OOE] ('ENB', 'FTI') OrderId=47 Status=Filled → 配对状态:PENDING
+2023-10-31 16:00:00 [OOE] ('ENB', 'FTI') OrderId=48 Status=Filled → 配对状态:COMPLETED
+2023-10-31 16:00:00 [OOE] ('ENB', 'FTI') 订单全部成交,配对解锁
+2023-10-31 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$104,208, 亏损=-4.21%, 阈值=25%
+2023-10-31 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$104,208, 回撤=1.09%, 阈值=15%
+2023-10-31 16:00:00 [MarketCondition] VIX=19.7, HistVol=13.6%
+2023-10-31 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$104,208, 亏损=-4.21%, 阈值=25%
+2023-10-31 16:15:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$104,208, 回撤=1.09%, 阈值=15%
+2023-10-31 16:15:00 [MarketCondition] VIX=18.1, HistVol=13.6%
+2023-11-01 00:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$104,208, 亏损=-4.21%, 阈值=25%
+2023-11-01 00:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$104,208, 回撤=1.09%, 阈值=15%
+2023-11-01 00:00:00 [MarketCondition] VIX=18.1, HistVol=13.6%
+2023-11-01 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$104,089, 亏损=-4.09%, 阈值=25%
+2023-11-01 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$104,089, 回撤=1.21%, 阈值=15%
+2023-11-01 16:00:00 [MarketCondition] VIX=18.1, HistVol=13.9%
+2023-11-01 16:00:00 [TM注册] ('CAG', 'KHC') OPEN 2个订单 状态:PENDING
+2023-11-01 16:00:00 [开仓] 成功开仓1/1个配对
+2023-11-01 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$104,089, 亏损=-4.09%, 阈值=25%
+2023-11-01 16:15:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$104,089, 回撤=1.21%, 阈值=15%
+2023-11-01 16:15:00 [MarketCondition] VIX=16.9, HistVol=13.9%
+2023-11-02 00:00:00 第【2】次选股: 粗选157只 -> 最终95只
+2023-11-02 00:00:00 财务淘汰47: PE高12, 负债高13, 杠杆高34
+2023-11-02 00:00:00 波动率淘汰15: 高波动15, 数据不足0
+2023-11-02 00:00:00 [选股] 最终通过: 95只股票（未分组，将由CointegrationAnalyzer按子行业分组）
+2023-11-02 00:00:00 [选股] 子行业分布TOP10: 30910(13只), 31120(7只), 20650(6只), 0(6只), 20720(6只), 31130(6只), 10280(5只), 20525(5只), 20620(4只), 20520(4只)
+2023-11-02 00:00:00 [DataProcessor] 数据处理: 96→96只 ()
+2023-11-02 00:00:00 [协整分析] 分组失败8只: VIX(invalid_data), ALLY(invalid_data), MRO(invalid_data), PCG(invalid_data), WBA(invalid_data) 等
+2023-11-02 00:00:00 [协整分析] 子行业31120: 候选7只 → 选中7只
+2023-11-02 00:00:00 [协整分析] 子行业20650: 候选6只 → 选中6只
+2023-11-02 00:00:00 [协整分析] 子行业30910: 候选13只 → 选中13只
+2023-11-02 00:00:00 [协整分析] 子行业20620: 候选4只 → 选中4只
+2023-11-02 00:00:00 [协整分析] 子行业30810: 候选3只 → 选中3只
+2023-11-02 00:00:00 [协整分析] 子行业20720: 候选5只 → 选中5只
+2023-11-02 00:00:00 [协整分析] 子行业20525: 候选5只 → 选中5只
+2023-11-02 00:00:00 [协整分析] 子行业30830: 候选3只 → 选中3只
+2023-11-02 00:00:00 [协整分析] 子行业31130: 候选6只 → 选中6只
+2023-11-02 00:00:00 [协整分析] 子行业20520: 候选4只 → 选中4只
+2023-11-02 00:00:00 [协整分析] 子行业10420: 候选4只 → 选中4只
+2023-11-02 00:00:00 [协整分析] 子行业10280: 候选5只 → 选中5只
+2023-11-02 00:00:00 [协整分析] 跳过16个子行业(股票数<3): 31080(2只), 20630(1只), 30820(1只), 10150(2只), 10200(2只), 31110(2只), 10240(1只), 10360(1只), 31010(2只), 10290(1只), 10130(2只), 10310(1只), 31040(2只), 30920(1只), 10160(1只), 10270(1只)
+2023-11-02 00:00:00 [协整分析] 发现19个协整对 (测试183对，来自12个子行业)
+2023-11-02 00:00:00 [BayesianModeler] 建模完成: 成功16对, 失败0对 (完全建模12对, 动态更新4对)
+2023-11-02 00:00:00 [PairsManager] 添加新配对 ('GOOG', 'GOOGL')
+2023-11-02 00:00:00 [PairsManager] 添加新配对 ('CMCSA', 'T')
+2023-11-02 00:00:00 [PairsManager] 更新配对 ('INTC', 'MU')
+2023-11-02 00:00:00 [PairsManager] 添加新配对 ('OXY', 'XOM')
+2023-11-02 00:00:00 [PairsManager] 添加新配对 ('OXY', 'SLB')
+2023-11-02 00:00:00 [PairsManager] 更新配对 ('CTRA', 'WMB')
+2023-11-02 00:00:00 [PairsManager] 添加新配对 ('EW', 'MDT')
+2023-11-02 00:00:00 [PairsManager] 添加新配对 ('EXC', 'NEE')
+2023-11-02 00:00:00 [PairsManager] 更新配对 ('BKR', 'CTRA')
+2023-11-02 00:00:00 [PairsManager] 添加新配对 ('OXY', 'WMB')
+2023-11-02 00:00:00 [PairsManager] 更新配对 ('EXC', 'NI')
+2023-11-02 00:00:00 [PairsManager] 添加新配对 ('DVN', 'EPD')
+2023-11-02 00:00:00 [PairsManager] 添加新配对 ('EXC', 'PPL')
+2023-11-02 00:00:00 [PairsManager] 添加新配对 ('CTRA', 'SLB')
+2023-11-02 00:00:00 [PairsManager] 添加新配对 ('EBAY', 'TPR')
+2023-11-02 00:00:00 [PairsManager] 添加新配对 ('D', 'PPL')
+2023-11-02 00:00:00 [PairsManager] 第3轮更新完成: 活跃=16, 遗留=6, 休眠=13, 总计=35
+2023-11-02 00:00:00 [配对分析] 完成: 创建16个新配对, 共管理35个配对
+2023-11-02 00:00:00 11/2/2023 12:00:00 AM: SecurityChanges:  Added: ABNB XK8H247DY6W5,ABT R735QTJ8XC9X,AMZN R735QTJ8XC9X,ANET VR60JOYTXC2T,AXTA VVIKMK4O3ALH,BEN R735QTJ8XC9X,BSX R735QTJ8XC9X,CARRW XCXKP5JBIR1H,CCJ R735QTJ8XC9X,CLF R735QTJ8XC9X,P R735QTJ8XC9X,CPNG XMQ2QMHQWUHX,CTSH RBOKUIZLS38L,DOW R735QTJ8XC9X,DEN XI1PAMXVTU1X,DXCM T7TBFF72DG11,EBAY REC37LGZ79T1,EL R735QTJ8XC9X,EW RTKJ7O7ZTI79,GE R735QTJ8XC9X,AHC R735QTJ8XC9X,JCI R735QTJ8XC9X,MCHP R735QTJ8XC9X,KFT S5HU4FPL6G6D,MDT R735QTJ8XC9X,FB V6OIPNZEM8V9,HANS R735QTJ8XC9X,ON VZHCG4656OV9,DOC VICYLL6HAEED,HCP R735QTJ8XC9X,PEP R735QTJ8XC9X,PG R735QTJ8XC9X,SBC R735QTJ8XC9X,TJX R735QTJ8XC9X,COH RYMOWYW7Z2W5,TRMB R735QTJ8XC9X,TXN R735QTJ8XC9X,VICI WT7NDQSMCSBP,WDC R735QTJ8XC9X,YUMC WF7IHVI76I5H,ZTS VDRJHVQ4FNFP Removed: AEP R735QTJ8XC9X,ARMK VMCPV8L4GJTX,CAG R735QTJ8XC9X,HOU R735QTJ8XC9X,DHR R735QTJ8XC9X,DUK R735QTJ8XC9X,DXC WJE5W6H0VXPH,EQT R735QTJ8XC9X,FE R735QTJ8XC9X,FTI S5ITKJ2R97C5,HAL R735QTJ8XC9X,JNJ R735QTJ8XC9X,K R735QTJ8XC9X,MMM R735QTJ8XC9X,OKE R735QTJ8XC9X,SO R735QTJ8XC9X,SU R735QTJ8XC9X,DH R735QTJ8XC9X,TRP R735QTJ8XC9X,VFC R735QTJ8XC9X,WY R735QTJ8XC9X
+2023-11-02 00:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$104,089, 亏损=-4.09%, 阈值=25%
+2023-11-02 00:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$104,089, 回撤=1.21%, 阈值=15%
+2023-11-02 00:00:00 [MarketCondition] VIX=16.9, HistVol=13.9%
+2023-11-02 16:00:00 [OOE] ('CAG', 'KHC') OrderId=49 Status=Filled → 配对状态:PENDING
+2023-11-02 16:00:00 [OOE] ('CAG', 'KHC') OrderId=50 Status=Filled → 配对状态:COMPLETED
+2023-11-02 16:00:00 [OOE] ('CAG', 'KHC') 订单全部成交,配对解锁
+2023-11-02 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,928, 亏损=-3.93%, 阈值=25%
+2023-11-02 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,928, 回撤=1.36%, 阈值=15%
+2023-11-02 16:00:00 [MarketCondition] VIX=16.9, HistVol=15.4%
+2023-11-02 16:00:00 [TM注册] ('INTC', 'MU') OPEN 2个订单 状态:PENDING
+2023-11-02 16:00:00 [TM注册] ('EXC', 'PPL') OPEN 2个订单 状态:PENDING
+2023-11-02 16:00:00 [TM注册] ('CTRA', 'SLB') OPEN 2个订单 状态:PENDING
+2023-11-02 16:00:00 [TM注册] ('EBAY', 'TPR') OPEN 2个订单 状态:PENDING
+2023-11-02 16:00:00 [TM注册] ('D', 'PPL') OPEN 2个订单 状态:PENDING
+2023-11-02 16:00:00 [开仓] 成功开仓5/5个配对
+2023-11-02 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,928, 亏损=-3.93%, 阈值=25%
+2023-11-02 16:15:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,928, 回撤=1.36%, 阈值=15%
+2023-11-02 16:15:00 [MarketCondition] VIX=15.7, HistVol=15.4%
+2023-11-03 00:00:00 [DataProcessor] 数据处理: 95→95只 ()
+2023-11-03 00:00:00 [协整分析] 分组失败7只: VIX(invalid_data), ALLY(invalid_data), MRO(invalid_data), PCG(invalid_data), WBA(invalid_data) 等
+2023-11-03 00:00:00 [协整分析] 子行业31120: 候选7只 → 选中7只
+2023-11-03 00:00:00 [协整分析] 子行业20650: 候选6只 → 选中6只
+2023-11-03 00:00:00 [协整分析] 子行业30910: 候选13只 → 选中13只
+2023-11-03 00:00:00 [协整分析] 子行业20620: 候选4只 → 选中4只
+2023-11-03 00:00:00 [协整分析] 子行业30810: 候选3只 → 选中3只
+2023-11-03 00:00:00 [协整分析] 子行业20720: 候选5只 → 选中5只
+2023-11-03 00:00:00 [协整分析] 子行业20525: 候选5只 → 选中5只
+2023-11-03 00:00:00 [协整分析] 子行业30830: 候选3只 → 选中3只
+2023-11-03 00:00:00 [协整分析] 子行业31130: 候选6只 → 选中6只
+2023-11-03 00:00:00 [协整分析] 子行业20520: 候选4只 → 选中4只
+2023-11-03 00:00:00 [协整分析] 子行业10420: 候选4只 → 选中4只
+2023-11-03 00:00:00 [协整分析] 子行业10280: 候选5只 → 选中5只
+2023-11-03 00:00:00 [协整分析] 跳过16个子行业(股票数<3): 31080(2只), 20630(1只), 30820(1只), 10150(2只), 10200(2只), 31110(2只), 10240(1只), 10360(1只), 31010(2只), 10290(1只), 10130(2只), 10310(1只), 31040(2只), 30920(1只), 10160(1只), 10270(1只)
+2023-11-03 00:00:00 [协整分析] 发现21个协整对 (测试183对，来自12个子行业)
+2023-11-03 00:00:00 [BayesianModeler] 建模完成: 成功19对, 失败0对 (完全建模4对, 动态更新15对)
+2023-11-03 00:00:00 [PairsManager] 更新配对 ('CMCSA', 'T')
+2023-11-03 00:00:00 [PairsManager] 更新配对 ('GOOG', 'GOOGL')
+2023-11-03 00:00:00 [PairsManager] 更新配对 ('INTC', 'MU')
+2023-11-03 00:00:00 [PairsManager] 添加新配对 ('CMCSA', 'VZ')
+2023-11-03 00:00:00 [PairsManager] 更新配对 ('OXY', 'SLB')
+2023-11-03 00:00:00 [PairsManager] 更新配对 ('BKR', 'CTRA')
+2023-11-03 00:00:00 [PairsManager] 更新配对 ('EW', 'MDT')
+2023-11-03 00:00:00 [PairsManager] 更新配对 ('EXC', 'NEE')
+2023-11-03 00:00:00 [PairsManager] 添加新配对 ('MCHP', 'ON')
+2023-11-03 00:00:00 [PairsManager] 更新配对 ('CTRA', 'WMB')
+2023-11-03 00:00:00 [PairsManager] 更新配对 ('EXC', 'PPL')
+2023-11-03 00:00:00 [PairsManager] 更新配对 ('EXC', 'NI')
+2023-11-03 00:00:00 [PairsManager] 更新配对 ('KMI', 'OXY')
+2023-11-03 00:00:00 [PairsManager] 更新配对 ('OXY', 'WMB')
+2023-11-03 00:00:00 [PairsManager] 更新配对 ('CTRA', 'SLB')
+2023-11-03 00:00:00 [PairsManager] 更新配对 ('EBAY', 'TPR')
+2023-11-03 00:00:00 [PairsManager] 添加新配对 ('ENB', 'EPD')
+2023-11-03 00:00:00 [PairsManager] 更新配对 ('D', 'PPL')
+2023-11-03 00:00:00 [PairsManager] 添加新配对 ('TJX', 'TPR')
+2023-11-03 00:00:00 [PairsManager] 第4轮更新完成: 活跃=19, 遗留=6, 休眠=14, 总计=39
+2023-11-03 00:00:00 [配对分析] 完成: 创建19个新配对, 共管理39个配对
+2023-11-03 00:00:00 11/3/2023 12:00:00 AM: SecurityChanges:  Removed: DEN XI1PAMXVTU1X
+2023-11-03 00:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,928, 亏损=-3.93%, 阈值=25%
+2023-11-03 00:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,928, 回撤=1.36%, 阈值=15%
+2023-11-03 00:00:00 [MarketCondition] VIX=15.7, HistVol=15.4%
+2023-11-03 16:00:00 [OOE] ('INTC', 'MU') OrderId=51 Status=Filled → 配对状态:PENDING
+2023-11-03 16:00:00 [OOE] ('INTC', 'MU') OrderId=52 Status=Filled → 配对状态:COMPLETED
+2023-11-03 16:00:00 [OOE] ('INTC', 'MU') 订单全部成交,配对解锁
+2023-11-03 16:00:00 [OOE] ('EXC', 'PPL') OrderId=53 Status=Filled → 配对状态:PENDING
+2023-11-03 16:00:00 [OOE] ('EXC', 'PPL') OrderId=54 Status=Filled → 配对状态:COMPLETED
+2023-11-03 16:00:00 [OOE] ('EXC', 'PPL') 订单全部成交,配对解锁
+2023-11-03 16:00:00 [OOE] ('CTRA', 'SLB') OrderId=55 Status=Filled → 配对状态:PENDING
+2023-11-03 16:00:00 [OOE] ('CTRA', 'SLB') OrderId=56 Status=Filled → 配对状态:COMPLETED
+2023-11-03 16:00:00 [OOE] ('CTRA', 'SLB') 订单全部成交,配对解锁
+2023-11-03 16:00:00 [OOE] ('EBAY', 'TPR') OrderId=57 Status=Filled → 配对状态:PENDING
+2023-11-03 16:00:00 [OOE] ('EBAY', 'TPR') OrderId=58 Status=Filled → 配对状态:COMPLETED
+2023-11-03 16:00:00 [OOE] ('EBAY', 'TPR') 订单全部成交,配对解锁
+2023-11-03 16:00:00 [OOE] ('D', 'PPL') OrderId=59 Status=Filled → 配对状态:PENDING
+2023-11-03 16:00:00 [OOE] ('D', 'PPL') OrderId=60 Status=Filled → 配对状态:COMPLETED
+2023-11-03 16:00:00 [OOE] ('D', 'PPL') 订单全部成交,配对解锁
+2023-11-03 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,857, 亏损=-3.86%, 阈值=25%
+2023-11-03 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,857, 回撤=1.43%, 阈值=15%
+2023-11-03 16:00:00 [Pair风控] HoldingTimeoutRule (priority=60) -> pair_close
+2023-11-03 16:00:00 [Pair风控] ('MRK', 'PFE') 触发平仓风控
+2023-11-03 16:00:00 [TM注册] ('MRK', 'PFE') CLOSE 2个订单 状态:PENDING
+2023-11-03 16:00:00   └─ 持仓超时: 已持仓31天 > 上限30天 (开仓时间: 2023-10-03)
+2023-11-03 16:00:00 [平仓] ('KMI', 'OXY') Z-score回归
+2023-11-03 16:00:00 [TM注册] ('KMI', 'OXY') CLOSE 2个订单 状态:PENDING
+2023-11-03 16:00:00 [MarketCondition] VIX=15.7, HistVol=15.2%
+2023-11-03 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,857, 亏损=-3.86%, 阈值=25%
+2023-11-03 16:15:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,857, 回撤=1.43%, 阈值=15%
+2023-11-03 16:15:00 [Pair风控] HoldingTimeoutRule (priority=60) -> pair_close
+2023-11-03 16:15:00 [MarketCondition] VIX=14.9, HistVol=15.2%
+2023-11-06 00:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,857, 亏损=-3.86%, 阈值=25%
+2023-11-06 00:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,857, 回撤=1.43%, 阈值=15%
+2023-11-06 00:00:00 [Pair风控] HoldingTimeoutRule (priority=60) -> pair_close
+2023-11-06 00:00:00 [MarketCondition] VIX=14.9, HistVol=15.2%
+2023-11-06 16:00:00 [OOE] ('MRK', 'PFE') OrderId=61 Status=Filled → 配对状态:PENDING
+2023-11-06 16:00:00 [OOE] ('MRK', 'PFE') OrderId=62 Status=Filled → 配对状态:COMPLETED
+2023-11-06 16:00:00 [OOE] ('MRK', 'PFE') 订单全部成交,配对解锁
+2023-11-06 16:00:00 [OOE] ('KMI', 'OXY') OrderId=63 Status=Filled → 配对状态:PENDING
+2023-11-06 16:00:00 [OOE] ('KMI', 'OXY') OrderId=64 Status=Filled → 配对状态:COMPLETED
+2023-11-06 16:00:00 [OOE] ('KMI', 'OXY') 订单全部成交,配对解锁
+2023-11-06 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,782, 亏损=-3.78%, 阈值=25%
+2023-11-06 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,782, 回撤=1.50%, 阈值=15%
+2023-11-06 16:00:00 [平仓] ('D', 'NEE') Z-score回归
+2023-11-06 16:00:00 [TM注册] ('D', 'NEE') CLOSE 2个订单 状态:PENDING
+2023-11-06 16:00:00 [MarketCondition] VIX=14.9, HistVol=15.1%
+2023-11-06 16:00:00 [TM注册] ('CMCSA', 'VZ') OPEN 2个订单 状态:PENDING
+2023-11-06 16:00:00 [开仓] 成功开仓1/3个配对
+2023-11-06 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,782, 亏损=-3.78%, 阈值=25%
+2023-11-06 16:15:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,782, 回撤=1.50%, 阈值=15%
+2023-11-06 16:15:00 [MarketCondition] VIX=14.9, HistVol=15.1%
+2023-11-07 16:00:00 [OOE] ('D', 'NEE') OrderId=65 Status=Filled → 配对状态:PENDING
+2023-11-07 16:00:00 [OOE] ('D', 'NEE') OrderId=66 Status=Filled → 配对状态:COMPLETED
+2023-11-07 16:00:00 [OOE] ('D', 'NEE') 订单全部成交,配对解锁
+2023-11-07 16:00:00 [OOE] ('CMCSA', 'VZ') OrderId=67 Status=Filled → 配对状态:PENDING
+2023-11-07 16:00:00 [OOE] ('CMCSA', 'VZ') OrderId=68 Status=Filled → 配对状态:COMPLETED
+2023-11-07 16:00:00 [OOE] ('CMCSA', 'VZ') 订单全部成交,配对解锁
+2023-11-07 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$102,857, 亏损=-2.86%, 阈值=25%
+2023-11-07 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$102,857, 回撤=2.38%, 阈值=15%
+2023-11-07 16:00:00 [平仓] ('EXC', 'PPL') Z-score回归
+2023-11-07 16:00:00 [TM注册] ('EXC', 'PPL') CLOSE 2个订单 状态:PENDING
+2023-11-07 16:00:00 [平仓] ('EBAY', 'TPR') Z-score回归
+2023-11-07 16:00:00 [TM注册] ('EBAY', 'TPR') CLOSE 2个订单 状态:PENDING
+2023-11-07 16:00:00 [MarketCondition] VIX=14.9, HistVol=15.0%
+2023-11-07 16:00:00 [TM注册] ('GOOG', 'GOOGL') OPEN 2个订单 状态:PENDING
+2023-11-07 16:00:00 [开仓] 成功开仓1/3个配对
+2023-11-07 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$102,857, 亏损=-2.86%, 阈值=25%
+2023-11-07 16:15:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$102,857, 回撤=2.38%, 阈值=15%
+2023-11-07 16:15:00 [MarketCondition] VIX=14.8, HistVol=15.0%
+2023-11-08 00:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$102,857, 亏损=-2.86%, 阈值=25%
+2023-11-08 00:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$102,857, 回撤=2.38%, 阈值=15%
+2023-11-08 00:00:00 [MarketCondition] VIX=14.8, HistVol=15.0%
+2023-11-08 16:00:00 [OOE] ('EXC', 'PPL') OrderId=69 Status=Filled → 配对状态:PENDING
+2023-11-08 16:00:00 [OOE] ('EXC', 'PPL') OrderId=70 Status=Filled → 配对状态:COMPLETED
+2023-11-08 16:00:00 [OOE] ('EXC', 'PPL') 订单全部成交,配对解锁
+2023-11-08 16:00:00 [OOE] ('EBAY', 'TPR') OrderId=71 Status=Filled → 配对状态:PENDING
+2023-11-08 16:00:00 [OOE] ('EBAY', 'TPR') OrderId=72 Status=Filled → 配对状态:COMPLETED
+2023-11-08 16:00:00 [OOE] ('EBAY', 'TPR') 订单全部成交,配对解锁
+2023-11-08 16:00:00 [OOE] ('GOOG', 'GOOGL') OrderId=73 Status=Filled → 配对状态:PENDING
+2023-11-08 16:00:00 [OOE] ('GOOG', 'GOOGL') OrderId=74 Status=Filled → 配对状态:COMPLETED
+2023-11-08 16:00:00 [OOE] ('GOOG', 'GOOGL') 订单全部成交,配对解锁
+2023-11-08 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,177, 亏损=-3.18%, 阈值=25%
+2023-11-08 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,177, 回撤=2.07%, 阈值=15%
+2023-11-08 16:00:00 [MarketCondition] VIX=14.8, HistVol=14.9%
+2023-11-08 16:00:00 [TM注册] ('MCHP', 'ON') OPEN 2个订单 状态:PENDING
+2023-11-08 16:00:00 [TM注册] ('OXY', 'WMB') OPEN 2个订单 状态:PENDING
+2023-11-08 16:00:00 [开仓] 成功开仓2/3个配对
+2023-11-08 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,177, 亏损=-3.18%, 阈值=25%
+2023-11-08 16:15:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,177, 回撤=2.07%, 阈值=15%
+2023-11-08 16:15:00 [MarketCondition] VIX=14.5, HistVol=14.9%
+2023-11-09 00:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,177, 亏损=-3.18%, 阈值=25%
+2023-11-09 00:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,177, 回撤=2.07%, 阈值=15%
+2023-11-09 00:00:00 [MarketCondition] VIX=14.5, HistVol=14.9%
+2023-11-09 16:00:00 [OOE] ('MCHP', 'ON') OrderId=75 Status=Filled → 配对状态:PENDING
+2023-11-09 16:00:00 [OOE] ('MCHP', 'ON') OrderId=76 Status=Filled → 配对状态:COMPLETED
+2023-11-09 16:00:00 [OOE] ('MCHP', 'ON') 订单全部成交,配对解锁
+2023-11-09 16:00:00 [OOE] ('OXY', 'WMB') OrderId=77 Status=Filled → 配对状态:PENDING
+2023-11-09 16:00:00 [OOE] ('OXY', 'WMB') OrderId=78 Status=Filled → 配对状态:COMPLETED
+2023-11-09 16:00:00 [OOE] ('OXY', 'WMB') 订单全部成交,配对解锁
+2023-11-09 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,260, 亏损=-3.26%, 阈值=25%
+2023-11-09 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,260, 回撤=1.99%, 阈值=15%
+2023-11-09 16:00:00 [MarketCondition] VIX=14.5, HistVol=15.0%
+2023-11-09 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,260, 亏损=-3.26%, 阈值=25%
+2023-11-09 16:15:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,260, 回撤=1.99%, 阈值=15%
+2023-11-09 16:15:00 [MarketCondition] VIX=15.3, HistVol=15.0%
+2023-11-10 00:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,260, 亏损=-3.26%, 阈值=25%
+2023-11-10 00:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,260, 回撤=1.99%, 阈值=15%
+2023-11-10 00:00:00 [MarketCondition] VIX=15.3, HistVol=15.0%
+2023-11-10 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,521, 亏损=-3.52%, 阈值=25%
+2023-11-10 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,521, 回撤=1.75%, 阈值=15%
+2023-11-10 16:00:00 [Pair风控] HoldingTimeoutRule (priority=60) -> pair_close
+2023-11-10 16:00:00 [Pair风控] ('OKE', 'OXY') 触发平仓风控
+2023-11-10 16:00:00 [TM注册] ('OKE', 'OXY') CLOSE 2个订单 状态:PENDING
+2023-11-10 16:00:00   └─ 持仓超时: 已持仓31天 > 上限30天 (开仓时间: 2023-10-10)
+2023-11-10 16:00:00 [MarketCondition] VIX=15.3, HistVol=15.8%
+2023-11-10 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,521, 亏损=-3.52%, 阈值=25%
+2023-11-10 16:15:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,521, 回撤=1.75%, 阈值=15%
+2023-11-10 16:15:00 [Pair风控] HoldingTimeoutRule (priority=60) -> pair_close
+2023-11-10 16:15:00 [MarketCondition] VIX=14.2, HistVol=15.8%
+2023-11-13 00:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,521, 亏损=-3.52%, 阈值=25%
+2023-11-13 00:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,521, 回撤=1.75%, 阈值=15%
+2023-11-13 00:00:00 [Pair风控] HoldingTimeoutRule (priority=60) -> pair_close
+2023-11-13 00:00:00 [MarketCondition] VIX=14.2, HistVol=15.8%
+2023-11-13 16:00:00 [OOE] ('OKE', 'OXY') OrderId=79 Status=Filled → 配对状态:PENDING
+2023-11-13 16:00:00 [OOE] ('OKE', 'OXY') OrderId=80 Status=Filled → 配对状态:COMPLETED
+2023-11-13 16:00:00 [OOE] ('OKE', 'OXY') 订单全部成交,配对解锁
+2023-11-13 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,684, 亏损=-3.68%, 阈值=25%
+2023-11-13 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,684, 回撤=1.59%, 阈值=15%
+2023-11-13 16:00:00 [MarketCondition] VIX=14.2, HistVol=15.5%
+2023-11-13 16:00:00 [TM注册] ('MRK', 'PFE') OPEN 2个订单 状态:PENDING
+2023-11-13 16:00:00 [TM注册] ('EW', 'MDT') OPEN 2个订单 状态:PENDING
+2023-11-13 16:00:00 [TM注册] ('EXC', 'NI') OPEN 2个订单 状态:PENDING
+2023-11-13 16:00:00 [开仓] 成功开仓3/4个配对
+2023-11-13 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,684, 亏损=-3.68%, 阈值=25%
+2023-11-13 16:15:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,684, 回撤=1.59%, 阈值=15%
+2023-11-13 16:15:00 [MarketCondition] VIX=14.8, HistVol=15.5%
+2023-11-14 00:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,684, 亏损=-3.68%, 阈值=25%
+2023-11-14 00:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,684, 回撤=1.59%, 阈值=15%
+2023-11-14 00:00:00 [MarketCondition] VIX=14.8, HistVol=15.5%
+2023-11-14 16:00:00 [OOE] ('MRK', 'PFE') OrderId=81 Status=Filled → 配对状态:PENDING
+2023-11-14 16:00:00 [OOE] ('MRK', 'PFE') OrderId=82 Status=Filled → 配对状态:COMPLETED
+2023-11-14 16:00:00 [OOE] ('MRK', 'PFE') 订单全部成交,配对解锁
+2023-11-14 16:00:00 [OOE] ('EW', 'MDT') OrderId=83 Status=Filled → 配对状态:PENDING
+2023-11-14 16:00:00 [OOE] ('EW', 'MDT') OrderId=84 Status=Filled → 配对状态:COMPLETED
+2023-11-14 16:00:00 [OOE] ('EW', 'MDT') 订单全部成交,配对解锁
+2023-11-14 16:00:00 [OOE] ('EXC', 'NI') OrderId=85 Status=Filled → 配对状态:PENDING
+2023-11-14 16:00:00 [OOE] ('EXC', 'NI') OrderId=86 Status=Filled → 配对状态:COMPLETED
+2023-11-14 16:00:00 [OOE] ('EXC', 'NI') 订单全部成交,配对解锁
+2023-11-14 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$104,038, 亏损=-4.04%, 阈值=25%
+2023-11-14 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$104,038, 回撤=1.26%, 阈值=15%
+2023-11-14 16:00:00 [MarketCondition] VIX=14.8, HistVol=16.8%
+2023-11-14 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$104,038, 亏损=-4.04%, 阈值=25%
+2023-11-14 16:15:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$104,038, 回撤=1.26%, 阈值=15%
+2023-11-14 16:15:00 [MarketCondition] VIX=14.2, HistVol=16.8%
+2023-11-15 00:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$104,038, 亏损=-4.04%, 阈值=25%
+2023-11-15 00:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$104,038, 回撤=1.26%, 阈值=15%
+2023-11-15 00:00:00 [MarketCondition] VIX=14.2, HistVol=16.8%
+2023-11-15 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,457, 亏损=-3.46%, 阈值=25%
+2023-11-15 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,457, 回撤=1.81%, 阈值=15%
+2023-11-15 16:00:00 [Pair风控] PairDrawdownRule (priority=50) -> pair_close
+2023-11-15 16:00:00 [Pair风控] ('CNP', 'D') 触发平仓风控
+2023-11-15 16:00:00 [TM注册] ('CNP', 'D') CLOSE 2个订单 状态:PENDING
+2023-11-15 16:00:00   └─ 配对回撤: 16.6% >= 15.0% (PnL: $-1,557.67, HWM: $54.07, 成本: $9,729.79)
+2023-11-15 16:00:00 [MarketCondition] VIX=14.2, HistVol=15.9%
+2023-11-15 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,457, 亏损=-3.46%, 阈值=25%
+2023-11-15 16:15:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,457, 回撤=1.81%, 阈值=15%
+2023-11-15 16:15:00 [Pair风控] PairDrawdownRule (priority=50) -> pair_close
+2023-11-15 16:15:00 [MarketCondition] VIX=14.2, HistVol=15.9%
+2023-11-16 00:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,457, 亏损=-3.46%, 阈值=25%
+2023-11-16 00:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,457, 回撤=1.81%, 阈值=15%
+2023-11-16 00:00:00 [Pair风控] PairDrawdownRule (priority=50) -> pair_close
+2023-11-16 00:00:00 [MarketCondition] VIX=14.2, HistVol=15.9%
+2023-11-16 16:00:00 [OOE] ('CNP', 'D') OrderId=87 Status=Filled → 配对状态:PENDING
+2023-11-16 16:00:00 [OOE] ('CNP', 'D') OrderId=88 Status=Filled → 配对状态:COMPLETED
+2023-11-16 16:00:00 [OOE] ('CNP', 'D') 订单全部成交,配对解锁
+2023-11-16 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$102,591, 亏损=-2.59%, 阈值=25%
+2023-11-16 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$102,591, 回撤=2.63%, 阈值=15%
+2023-11-16 16:00:00 [MarketCondition] VIX=14.2, HistVol=15.4%
+2023-11-16 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$102,591, 亏损=-2.59%, 阈值=25%
+2023-11-16 16:15:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$102,591, 回撤=2.63%, 阈值=15%
+2023-11-16 16:15:00 [MarketCondition] VIX=14.3, HistVol=15.4%
+2023-11-17 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$102,724, 亏损=-2.72%, 阈值=25%
+2023-11-17 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$102,724, 回撤=2.50%, 阈值=15%
+2023-11-17 16:00:00 [MarketCondition] VIX=14.3, HistVol=14.4%
+2023-11-17 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$102,724, 亏损=-2.72%, 阈值=25%
+2023-11-17 16:15:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$102,724, 回撤=2.50%, 阈值=15%
+2023-11-17 16:15:00 [MarketCondition] VIX=13.8, HistVol=14.4%
+2023-11-20 00:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$102,724, 亏损=-2.72%, 阈值=25%
+2023-11-20 00:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$102,724, 回撤=2.50%, 阈值=15%
+2023-11-20 00:00:00 [MarketCondition] VIX=13.8, HistVol=14.4%
+2023-11-20 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$102,454, 亏损=-2.45%, 阈值=25%
+2023-11-20 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$102,454, 回撤=2.76%, 阈值=15%
+2023-11-20 16:00:00 [平仓] ('ENB', 'FTI') Z-score回归
+2023-11-20 16:00:00 [TM注册] ('ENB', 'FTI') CLOSE 2个订单 状态:PENDING
+2023-11-20 16:00:00 [止损] ('MCHP', 'ON') Z-score超限
+2023-11-20 16:00:00 [TM注册] ('MCHP', 'ON') CLOSE 2个订单 状态:PENDING
+2023-11-20 16:00:00 [MarketCondition] VIX=13.8, HistVol=14.3%
+2023-11-20 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$102,454, 亏损=-2.45%, 阈值=25%
+2023-11-20 16:15:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$102,454, 回撤=2.76%, 阈值=15%
+2023-11-20 16:15:00 [MarketCondition] VIX=13.4, HistVol=14.3%
+2023-11-21 00:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$102,454, 亏损=-2.45%, 阈值=25%
+2023-11-21 00:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$102,454, 回撤=2.76%, 阈值=15%
+2023-11-21 00:00:00 [MarketCondition] VIX=13.4, HistVol=14.3%
+2023-11-21 16:00:00 [OOE] ('ENB', 'FTI') OrderId=89 Status=Filled → 配对状态:PENDING
+2023-11-21 16:00:00 [OOE] ('ENB', 'FTI') OrderId=90 Status=Filled → 配对状态:COMPLETED
+2023-11-21 16:00:00 [OOE] ('ENB', 'FTI') 订单全部成交,配对解锁
+2023-11-21 16:00:00 [OOE] ('MCHP', 'ON') OrderId=91 Status=Filled → 配对状态:PENDING
+2023-11-21 16:00:00 [OOE] ('MCHP', 'ON') OrderId=92 Status=Filled → 配对状态:COMPLETED
+2023-11-21 16:00:00 [OOE] ('MCHP', 'ON') 订单全部成交,配对解锁
+2023-11-21 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$101,954, 亏损=-1.95%, 阈值=25%
+2023-11-21 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$101,954, 回撤=3.23%, 阈值=15%
+2023-11-21 16:00:00 [MarketCondition] VIX=13.4, HistVol=14.4%
+2023-11-21 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$101,954, 亏损=-1.95%, 阈值=25%
+2023-11-21 16:15:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$101,954, 回撤=3.23%, 阈值=15%
+2023-11-21 16:15:00 [MarketCondition] VIX=13.3, HistVol=14.4%
+2023-11-22 00:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$101,954, 亏损=-1.95%, 阈值=25%
+2023-11-22 00:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$101,954, 回撤=3.23%, 阈值=15%
+2023-11-22 00:00:00 [MarketCondition] VIX=13.3, HistVol=14.4%
+2023-11-22 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$101,916, 亏损=-1.92%, 阈值=25%
+2023-11-22 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$101,916, 回撤=3.27%, 阈值=15%
+2023-11-22 16:00:00 [MarketCondition] VIX=13.3, HistVol=12.9%
+2023-11-22 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$101,916, 亏损=-1.92%, 阈值=25%
+2023-11-22 16:15:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$101,916, 回撤=3.27%, 阈值=15%
+2023-11-22 16:15:00 [MarketCondition] VIX=12.8, HistVol=12.9%
+2023-11-24 13:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$101,800, 亏损=-1.80%, 阈值=25%
+2023-11-24 13:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$101,800, 回撤=3.38%, 阈值=15%
+2023-11-24 13:00:00 [MarketCondition] VIX=12.8, HistVol=N/A
+2023-11-24 13:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$101,800, 亏损=-1.80%, 阈值=25%
+2023-11-24 13:15:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$101,800, 回撤=3.38%, 阈值=15%
+2023-11-24 13:15:00 [MarketCondition] VIX=12.5, HistVol=N/A
+2023-11-27 00:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$101,800, 亏损=-1.80%, 阈值=25%
+2023-11-27 00:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$101,800, 回撤=3.38%, 阈值=15%
+2023-11-27 00:00:00 [MarketCondition] VIX=12.5, HistVol=11.5%
+2023-11-27 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$101,902, 亏损=-1.90%, 阈值=25%
+2023-11-27 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$101,902, 回撤=3.28%, 阈值=15%
+2023-11-27 16:00:00 [止损] ('CAG', 'KHC') Z-score超限
+2023-11-27 16:00:00 [TM注册] ('CAG', 'KHC') CLOSE 2个订单 状态:PENDING
+2023-11-27 16:00:00 [MarketCondition] VIX=12.5, HistVol=11.3%
+2023-11-27 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$101,902, 亏损=-1.90%, 阈值=25%
+2023-11-27 16:15:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$101,902, 回撤=3.28%, 阈值=15%
+2023-11-27 16:15:00 [MarketCondition] VIX=12.7, HistVol=11.3%
+2023-11-28 16:00:00 [OOE] ('CAG', 'KHC') OrderId=93 Status=Filled → 配对状态:PENDING
+2023-11-28 16:00:00 [OOE] ('CAG', 'KHC') OrderId=94 Status=Filled → 配对状态:COMPLETED
+2023-11-28 16:00:00 [OOE] ('CAG', 'KHC') 订单全部成交,配对解锁
+2023-11-28 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$101,721, 亏损=-1.72%, 阈值=25%
+2023-11-28 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$101,721, 回撤=3.45%, 阈值=15%
+2023-11-28 16:00:00 [MarketCondition] VIX=12.7, HistVol=11.1%
+2023-11-28 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$101,721, 亏损=-1.72%, 阈值=25%
+2023-11-28 16:15:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$101,721, 回撤=3.45%, 阈值=15%
+2023-11-28 16:15:00 [MarketCondition] VIX=12.7, HistVol=11.1%
+2023-11-29 00:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$101,721, 亏损=-1.72%, 阈值=25%
+2023-11-29 00:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$101,721, 回撤=3.45%, 阈值=15%
+2023-11-29 00:00:00 [MarketCondition] VIX=12.7, HistVol=11.1%
+2023-11-29 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$101,622, 亏损=-1.62%, 阈值=25%
+2023-11-29 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$101,622, 回撤=3.55%, 阈值=15%
+2023-11-29 16:00:00 [MarketCondition] VIX=12.7, HistVol=11.2%
+2023-11-29 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$101,622, 亏损=-1.62%, 阈值=25%
+2023-11-29 16:15:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$101,622, 回撤=3.55%, 阈值=15%
+2023-11-29 16:15:00 [MarketCondition] VIX=13.0, HistVol=11.2%
+2023-11-30 00:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$101,622, 亏损=-1.62%, 阈值=25%
+2023-11-30 00:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$101,622, 回撤=3.55%, 阈值=15%
+2023-11-30 00:00:00 [MarketCondition] VIX=13.0, HistVol=11.2%
+2023-11-30 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$101,224, 亏损=-1.22%, 阈值=25%
+2023-11-30 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$101,224, 回撤=3.93%, 阈值=15%
+2023-11-30 16:00:00 [MarketCondition] VIX=13.0, HistVol=11.0%
+2023-11-30 16:00:00 [TM注册] ('CMCSA', 'T') OPEN 2个订单 状态:PENDING
+2023-11-30 16:00:00 [TM注册] ('OXY', 'SLB') OPEN 2个订单 状态:PENDING
+2023-11-30 16:00:00 [开仓] 成功开仓2/5个配对
+2023-11-30 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$101,224, 亏损=-1.22%, 阈值=25%
+2023-11-30 16:15:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$101,224, 回撤=3.93%, 阈值=15%
+2023-11-30 16:15:00 [MarketCondition] VIX=12.9, HistVol=11.0%
+2023-12-01 00:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$101,224, 亏损=-1.22%, 阈值=25%
+2023-12-01 00:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$101,224, 回撤=3.93%, 阈值=15%
+2023-12-01 00:00:00 [MarketCondition] VIX=12.9, HistVol=11.0%
+2023-12-01 16:00:00 [OOE] ('CMCSA', 'T') OrderId=95 Status=Filled → 配对状态:PENDING
+2023-12-01 16:00:00 [OOE] ('CMCSA', 'T') OrderId=96 Status=Filled → 配对状态:COMPLETED
+2023-12-01 16:00:00 [OOE] ('CMCSA', 'T') 订单全部成交,配对解锁
+2023-12-01 16:00:00 [OOE] ('OXY', 'SLB') OrderId=97 Status=Filled → 配对状态:PENDING
+2023-12-01 16:00:00 [OOE] ('OXY', 'SLB') OrderId=98 Status=Filled → 配对状态:COMPLETED
+2023-12-01 16:00:00 [OOE] ('OXY', 'SLB') 订单全部成交,配对解锁
+2023-12-01 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$101,985, 亏损=-1.98%, 阈值=25%
+2023-12-01 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$101,985, 回撤=3.20%, 阈值=15%
+2023-12-01 16:00:00 [MarketCondition] VIX=12.9, HistVol=9.5%
+2023-12-01 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$101,985, 亏损=-1.98%, 阈值=25%
+2023-12-01 16:15:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$101,985, 回撤=3.20%, 阈值=15%
+2023-12-01 16:15:00 [MarketCondition] VIX=12.7, HistVol=9.5%
+2023-12-02 00:00:00 第【3】次选股: 粗选161只 -> 最终86只
+2023-12-02 00:00:00 财务淘汰48: PE高13, 负债高13, 杠杆高35
+2023-12-02 00:00:00 波动率淘汰27: 高波动27, 数据不足0
+2023-12-02 00:00:00 [选股] 最终通过: 86只股票（未分组，将由CointegrationAnalyzer按子行业分组）
+2023-12-02 00:00:00 [选股] 子行业分布TOP10: 30910(12只), 31110(7只), 20720(7只), 31120(5只), 0(5只), 20620(5只), 10280(4只), 10420(4只), 31130(4只), 10150(3只)
+2023-12-02 00:00:00 [DataProcessor] 数据处理: 87→87只 ()
+2023-12-02 00:00:00 [协整分析] 分组失败7只: VIX(invalid_data), ALLY(invalid_data), MRO(invalid_data), PCG(invalid_data), WBA(invalid_data) 等
+2023-12-02 00:00:00 [协整分析] 子行业31120: 候选5只 → 选中5只
+2023-12-02 00:00:00 [协整分析] 子行业20620: 候选5只 → 选中5只
+2023-12-02 00:00:00 [协整分析] 子行业30810: 候选3只 → 选中3只
+2023-12-02 00:00:00 [协整分析] 子行业30910: 候选12只 → 选中12只
+2023-12-02 00:00:00 [协整分析] 子行业20720: 候选6只 → 选中6只
+2023-12-02 00:00:00 [协整分析] 子行业10150: 候选3只 → 选中3只
+2023-12-02 00:00:00 [协整分析] 子行业30830: 候选3只 → 选中3只
+2023-12-02 00:00:00 [协整分析] 子行业31130: 候选4只 → 选中4只
+2023-12-02 00:00:00 [协整分析] 子行业20520: 候选3只 → 选中3只
+2023-12-02 00:00:00 [协整分析] 子行业20525: 候选3只 → 选中3只
+2023-12-02 00:00:00 [协整分析] 子行业10420: 候选4只 → 选中4只
+2023-12-02 00:00:00 [协整分析] 子行业31110: 候选7只 → 选中7只
+2023-12-02 00:00:00 [协整分析] 子行业10280: 候选4只 → 选中4只
+2023-12-02 00:00:00 [协整分析] 跳过13个子行业(股票数<3): 20650(2只), 31080(2只), 20630(1只), 30820(2只), 10200(2只), 10240(1只), 10360(1只), 31010(1只), 10290(1只), 10160(1只), 10110(1只), 20550(2只), 20645(1只)
+2023-12-02 00:00:00 [协整分析] 发现17个协整对 (测试155对，来自13个子行业)
+2023-12-02 00:00:00 [BayesianModeler] 建模完成: 成功16对, 失败0对 (完全建模7对, 动态更新9对)
+2023-12-02 00:00:00 [PairsManager] 更新配对 ('OXY', 'SLB')
+2023-12-02 00:00:00 [PairsManager] 更新配对 ('OXY', 'XOM')
+2023-12-02 00:00:00 [PairsManager] 更新配对 ('INTC', 'MU')
+2023-12-02 00:00:00 [PairsManager] 更新配对 ('EXC', 'NEE')
+2023-12-02 00:00:00 [PairsManager] 更新配对 ('EXC', 'PPL')
+2023-12-02 00:00:00 [PairsManager] 更新配对 ('CMCSA', 'T')
+2023-12-02 00:00:00 [PairsManager] 更新配对 ('EXC', 'NI')
+2023-12-02 00:00:00 [PairsManager] 添加新配对 ('KMI', 'SLB')
+2023-12-02 00:00:00 [PairsManager] 添加新配对 ('OXY', 'SU')
+2023-12-02 00:00:00 [PairsManager] 添加新配对 ('CVE', 'HAL')
+2023-12-02 00:00:00 [PairsManager] 添加新配对 ('KMI', 'WMB')
+2023-12-02 00:00:00 [PairsManager] 添加新配对 ('CVE', 'SLB')
+2023-12-02 00:00:00 [PairsManager] 更新配对 ('CTRA', 'ENB')
+2023-12-02 00:00:00 [PairsManager] 更新配对 ('CNP', 'NEE')
+2023-12-02 00:00:00 [PairsManager] 添加新配对 ('GILD', 'PFE')
+2023-12-02 00:00:00 [PairsManager] 添加新配对 ('CPNG', 'M')
+2023-12-02 00:00:00 [PairsManager] 第5轮更新完成: 活跃=16, 遗留=7, 休眠=23, 总计=46
+2023-12-02 00:00:00 [配对分析] 完成: 创建16个新配对, 共管理46个配对
+2023-12-02 00:00:00 12/2/2023 12:00:00 AM: SecurityChanges:  Added: AA WF7IHVI76I5H,HOU R735QTJ8XC9X,CRM SZQUJUA9SVOL,CTVA X510I4TJEPNP,CWAN XS41T1JZZH45,DOCU WU16SJRONF51,CEY S67FQV7Z62CL,FOXAV X2S9UGTP4UHX,GILD R735QTJ8XC9X,HAL R735QTJ8XC9X,JNJ R735QTJ8XC9X,KR R735QTJ8XC9X,FD R735QTJ8XC9X,OKTA WJI3OJXP6YCL,OPCH XBQ911FW5JZ9,PD X3KTT6FLCQ5H,SU R735QTJ8XC9X,WMT R735QTJ8XC9X Removed: ABT R735QTJ8XC9X,ANET VR60JOYTXC2T,AXTA VVIKMK4O3ALH,BEN R735QTJ8XC9X,BHGE WLXQGVHQ03MT,BSX R735QTJ8XC9X,CARRW XCXKP5JBIR1H,CCJ R735QTJ8XC9X,P R735QTJ8XC9X,CTSH RBOKUIZLS38L,DOW R735QTJ8XC9X,DXCM T7TBFF72DG11,EL R735QTJ8XC9X,EPD RCQZA696RIHX,EW RTKJ7O7ZTI79,GE R735QTJ8XC9X,GIS R735QTJ8XC9X,JCI R735QTJ8XC9X,MCHP R735QTJ8XC9X,PEP R735QTJ8XC9X,TJX R735QTJ8XC9X,COH RYMOWYW7Z2W5,TRMB R735QTJ8XC9X,TXN R735QTJ8XC9X,YUMC WF7IHVI76I5H,ZTS VDRJHVQ4FNFP
+2023-12-04 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$101,587, 亏损=-1.59%, 阈值=25%
+2023-12-04 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$101,587, 回撤=3.58%, 阈值=15%
+2023-12-04 16:00:00 [Pair风控] HoldingTimeoutRule (priority=60) -> pair_close
+2023-12-04 16:00:00 [Pair风控] ('INTC', 'MU') 触发平仓风控
+2023-12-04 16:00:00 [TM注册] ('INTC', 'MU') CLOSE 2个订单 状态:PENDING
+2023-12-04 16:00:00   └─ 持仓超时: 已持仓32天 > 上限30天 (开仓时间: 2023-11-02)
+2023-12-04 16:00:00 [Pair风控] ('D', 'PPL') 触发平仓风控
+2023-12-04 16:00:00 [TM注册] ('D', 'PPL') CLOSE 2个订单 状态:PENDING
+2023-12-04 16:00:00   └─ 持仓超时: 已持仓32天 > 上限30天 (开仓时间: 2023-11-02)
+2023-12-04 16:00:00 [Pair风控] ('CTRA', 'SLB') 触发平仓风控
+2023-12-04 16:00:00 [TM注册] ('CTRA', 'SLB') CLOSE 2个订单 状态:PENDING
+2023-12-04 16:00:00   └─ 持仓超时: 已持仓32天 > 上限30天 (开仓时间: 2023-11-02)
+2023-12-04 16:00:00 [MarketCondition] VIX=12.7, HistVol=9.7%
+2023-12-04 16:00:00 [TM注册] ('OXY', 'XOM') OPEN 2个订单 状态:PENDING
+2023-12-04 16:00:00 [开仓] 成功开仓1/9个配对
+2023-12-04 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$101,587, 亏损=-1.59%, 阈值=25%
+2023-12-04 16:15:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$101,587, 回撤=3.58%, 阈值=15%
+2023-12-04 16:15:00 [Pair风控] HoldingTimeoutRule (priority=60) -> pair_close
+2023-12-04 16:15:00 [MarketCondition] VIX=13.1, HistVol=9.7%
+2023-12-05 00:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$101,587, 亏损=-1.59%, 阈值=25%
+2023-12-05 00:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$101,587, 回撤=3.58%, 阈值=15%
+2023-12-05 00:00:00 [Pair风控] HoldingTimeoutRule (priority=60) -> pair_close
+2023-12-05 00:00:00 [MarketCondition] VIX=13.1, HistVol=9.7%
+2023-12-05 16:00:00 [OOE] ('INTC', 'MU') OrderId=99 Status=Filled → 配对状态:PENDING
+2023-12-05 16:00:00 [OOE] ('INTC', 'MU') OrderId=100 Status=Filled → 配对状态:COMPLETED
+2023-12-05 16:00:00 [OOE] ('INTC', 'MU') 订单全部成交,配对解锁
+2023-12-05 16:00:00 [OOE] ('D', 'PPL') OrderId=101 Status=Filled → 配对状态:PENDING
+2023-12-05 16:00:00 [OOE] ('D', 'PPL') OrderId=102 Status=Filled → 配对状态:COMPLETED
+2023-12-05 16:00:00 [OOE] ('D', 'PPL') 订单全部成交,配对解锁
+2023-12-05 16:00:00 [OOE] ('CTRA', 'SLB') OrderId=103 Status=Filled → 配对状态:PENDING
+2023-12-05 16:00:00 [OOE] ('CTRA', 'SLB') OrderId=104 Status=Filled → 配对状态:COMPLETED
+2023-12-05 16:00:00 [OOE] ('CTRA', 'SLB') 订单全部成交,配对解锁
+2023-12-05 16:00:00 [OOE] ('OXY', 'XOM') OrderId=105 Status=Filled → 配对状态:PENDING
+2023-12-05 16:00:00 [OOE] ('OXY', 'XOM') OrderId=106 Status=Filled → 配对状态:COMPLETED
+2023-12-05 16:00:00 [OOE] ('OXY', 'XOM') 订单全部成交,配对解锁
+2023-12-05 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$102,362, 亏损=-2.36%, 阈值=25%
+2023-12-05 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$102,362, 回撤=2.85%, 阈值=15%
+2023-12-05 16:00:00 [MarketCondition] VIX=13.1, HistVol=9.7%
+2023-12-05 16:00:00 [TM注册] ('EXC', 'PPL') OPEN 2个订单 状态:PENDING
+2023-12-05 16:00:00 [TM注册] ('KMI', 'SLB') OPEN 2个订单 状态:PENDING
+2023-12-05 16:00:00 [TM注册] ('OXY', 'SU') OPEN 2个订单 状态:PENDING
+2023-12-05 16:00:00 [TM注册] ('CVE', 'HAL') OPEN 2个订单 状态:PENDING
+2023-12-05 16:00:00 [TM注册] ('CVE', 'SLB') OPEN 2个订单 状态:PENDING
+2023-12-05 16:00:00 [TM注册] ('CNP', 'NEE') OPEN 2个订单 状态:PENDING
+2023-12-05 16:00:00 [TM注册] ('GILD', 'PFE') OPEN 2个订单 状态:PENDING
+2023-12-05 16:00:00 [开仓] 成功开仓7/7个配对
+2023-12-05 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$102,362, 亏损=-2.36%, 阈值=25%
+2023-12-05 16:15:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$102,362, 回撤=2.85%, 阈值=15%
+2023-12-05 16:15:00 [MarketCondition] VIX=12.8, HistVol=9.7%
+2023-12-06 00:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$102,362, 亏损=-2.36%, 阈值=25%
+2023-12-06 00:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$102,362, 回撤=2.85%, 阈值=15%
+2023-12-06 00:00:00 [MarketCondition] VIX=12.8, HistVol=9.7%
+2023-12-06 16:00:00 [OOE] ('EXC', 'PPL') OrderId=107 Status=Filled → 配对状态:PENDING
+2023-12-06 16:00:00 [OOE] ('EXC', 'PPL') OrderId=108 Status=Filled → 配对状态:COMPLETED
+2023-12-06 16:00:00 [OOE] ('EXC', 'PPL') 订单全部成交,配对解锁
+2023-12-06 16:00:00 [OOE] ('KMI', 'SLB') OrderId=109 Status=Filled → 配对状态:PENDING
+2023-12-06 16:00:00 [OOE] ('KMI', 'SLB') OrderId=110 Status=Filled → 配对状态:COMPLETED
+2023-12-06 16:00:00 [OOE] ('KMI', 'SLB') 订单全部成交,配对解锁
+2023-12-06 16:00:00 [OOE] ('OXY', 'SU') OrderId=111 Status=Filled → 配对状态:PENDING
+2023-12-06 16:00:00 [OOE] ('OXY', 'SU') OrderId=112 Status=Filled → 配对状态:COMPLETED
+2023-12-06 16:00:00 [OOE] ('OXY', 'SU') 订单全部成交,配对解锁
+2023-12-06 16:00:00 [OOE] ('CVE', 'HAL') OrderId=113 Status=Filled → 配对状态:PENDING
+2023-12-06 16:00:00 [OOE] ('CVE', 'HAL') OrderId=114 Status=Filled → 配对状态:COMPLETED
+2023-12-06 16:00:00 [OOE] ('CVE', 'HAL') 订单全部成交,配对解锁
+2023-12-06 16:00:00 [OOE] ('CVE', 'SLB') OrderId=115 Status=Filled → 配对状态:PENDING
+2023-12-06 16:00:00 [OOE] ('CVE', 'SLB') OrderId=116 Status=Filled → 配对状态:COMPLETED
+2023-12-06 16:00:00 [OOE] ('CVE', 'SLB') 订单全部成交,配对解锁
+2023-12-06 16:00:00 [OOE] ('CNP', 'NEE') OrderId=117 Status=Filled → 配对状态:PENDING
+2023-12-06 16:00:00 [OOE] ('CNP', 'NEE') OrderId=118 Status=Filled → 配对状态:COMPLETED
+2023-12-06 16:00:00 [OOE] ('CNP', 'NEE') 订单全部成交,配对解锁
+2023-12-06 16:00:00 [OOE] ('GILD', 'PFE') OrderId=119 Status=Filled → 配对状态:PENDING
+2023-12-06 16:00:00 [OOE] ('GILD', 'PFE') OrderId=120 Status=Filled → 配对状态:COMPLETED
+2023-12-06 16:00:00 [OOE] ('GILD', 'PFE') 订单全部成交,配对解锁
+2023-12-06 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$102,989, 亏损=-2.99%, 阈值=25%
+2023-12-06 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$102,989, 回撤=2.25%, 阈值=15%
+2023-12-06 16:00:00 [MarketCondition] VIX=12.8, HistVol=10.0%
+2023-12-06 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$102,989, 亏损=-2.99%, 阈值=25%
+2023-12-06 16:15:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$102,989, 回撤=2.25%, 阈值=15%
+2023-12-06 16:15:00 [MarketCondition] VIX=12.9, HistVol=10.0%
+2023-12-07 00:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$102,989, 亏损=-2.99%, 阈值=25%
+2023-12-07 00:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$102,989, 回撤=2.25%, 阈值=15%
+2023-12-07 00:00:00 [MarketCondition] VIX=12.9, HistVol=10.0%
+2023-12-07 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$102,775, 亏损=-2.78%, 阈值=25%
+2023-12-07 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$102,775, 回撤=2.45%, 阈值=15%
+2023-12-07 16:00:00 [Pair风控] HoldingTimeoutRule (priority=60) -> pair_close
+2023-12-07 16:00:00 [Pair风控] ('CMCSA', 'VZ') 触发平仓风控
+2023-12-07 16:00:00 [TM注册] ('CMCSA', 'VZ') CLOSE 2个订单 状态:PENDING
+2023-12-07 16:00:00   └─ 持仓超时: 已持仓31天 > 上限30天 (开仓时间: 2023-11-06)
+2023-12-07 16:00:00 [MarketCondition] VIX=12.9, HistVol=10.1%
+2023-12-07 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$102,775, 亏损=-2.78%, 阈值=25%
+2023-12-07 16:15:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$102,775, 回撤=2.45%, 阈值=15%
+2023-12-07 16:15:00 [Pair风控] HoldingTimeoutRule (priority=60) -> pair_close
+2023-12-07 16:15:00 [MarketCondition] VIX=13.1, HistVol=10.1%
+2023-12-08 00:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$102,775, 亏损=-2.78%, 阈值=25%
+2023-12-08 00:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$102,775, 回撤=2.45%, 阈值=15%
+2023-12-08 00:00:00 [Pair风控] HoldingTimeoutRule (priority=60) -> pair_close
+2023-12-08 00:00:00 [MarketCondition] VIX=13.1, HistVol=10.1%
+2023-12-08 16:00:00 [OOE] ('CMCSA', 'VZ') OrderId=121 Status=Filled → 配对状态:PENDING
+2023-12-08 16:00:00 [OOE] ('CMCSA', 'VZ') OrderId=122 Status=Filled → 配对状态:COMPLETED
+2023-12-08 16:00:00 [OOE] ('CMCSA', 'VZ') 订单全部成交,配对解锁
+2023-12-08 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$102,533, 亏损=-2.53%, 阈值=25%
+2023-12-08 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$102,533, 回撤=2.68%, 阈值=15%
+2023-12-08 16:00:00 [Pair风控] HoldingTimeoutRule (priority=60) -> pair_close
+2023-12-08 16:00:00 [Pair风控] ('GOOG', 'GOOGL') 触发平仓风控
+2023-12-08 16:00:00 [TM注册] ('GOOG', 'GOOGL') CLOSE 2个订单 状态:PENDING
+2023-12-08 16:00:00   └─ 持仓超时: 已持仓31天 > 上限30天 (开仓时间: 2023-11-07)
+2023-12-08 16:00:00 [MarketCondition] VIX=13.1, HistVol=9.4%
+2023-12-08 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$102,533, 亏损=-2.53%, 阈值=25%
+2023-12-08 16:15:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$102,533, 回撤=2.68%, 阈值=15%
+2023-12-08 16:15:00 [Pair风控] HoldingTimeoutRule (priority=60) -> pair_close
+2023-12-08 16:15:00 [MarketCondition] VIX=12.4, HistVol=9.4%
+2023-12-11 16:00:00 [OOE] ('GOOG', 'GOOGL') OrderId=123 Status=Filled → 配对状态:PENDING
+2023-12-11 16:00:00 [OOE] ('GOOG', 'GOOGL') OrderId=124 Status=Filled → 配对状态:COMPLETED
+2023-12-11 16:00:00 [OOE] ('GOOG', 'GOOGL') 订单全部成交,配对解锁
+2023-12-11 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$102,716, 亏损=-2.72%, 阈值=25%
+2023-12-11 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$102,716, 回撤=2.51%, 阈值=15%
+2023-12-11 16:00:00 [Pair风控] HoldingTimeoutRule (priority=60) -> pair_close
+2023-12-11 16:00:00 [Pair风控] ('OXY', 'WMB') 触发平仓风控
+2023-12-11 16:00:00 [TM注册] ('OXY', 'WMB') CLOSE 2个订单 状态:PENDING
+2023-12-11 16:00:00   └─ 持仓超时: 已持仓33天 > 上限30天 (开仓时间: 2023-11-08)
+2023-12-11 16:00:00 [MarketCondition] VIX=12.4, HistVol=8.3%
+2023-12-11 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$102,716, 亏损=-2.72%, 阈值=25%
+2023-12-11 16:15:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$102,716, 回撤=2.51%, 阈值=15%
+2023-12-11 16:15:00 [Pair风控] HoldingTimeoutRule (priority=60) -> pair_close
+2023-12-11 16:15:00 [MarketCondition] VIX=12.6, HistVol=8.3%
+2023-12-12 00:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$102,716, 亏损=-2.72%, 阈值=25%
+2023-12-12 00:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$102,716, 回撤=2.51%, 阈值=15%
+2023-12-12 00:00:00 [Pair风控] HoldingTimeoutRule (priority=60) -> pair_close
+2023-12-12 00:00:00 [MarketCondition] VIX=12.6, HistVol=8.3%
+2023-12-12 16:00:00 [OOE] ('OXY', 'WMB') OrderId=125 Status=Filled → 配对状态:PENDING
+2023-12-12 16:00:00 [OOE] ('OXY', 'WMB') OrderId=126 Status=Filled → 配对状态:COMPLETED
+2023-12-12 16:00:00 [OOE] ('OXY', 'WMB') 订单全部成交,配对解锁
+2023-12-12 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$102,716, 亏损=-2.72%, 阈值=25%
+2023-12-12 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$102,716, 回撤=2.51%, 阈值=15%
+2023-12-12 16:00:00 [止损] ('GILD', 'PFE') Z-score超限
+2023-12-12 16:00:00 [TM注册] ('GILD', 'PFE') CLOSE 2个订单 状态:PENDING
+2023-12-12 16:00:00 [止损] ('CVE', 'HAL') Z-score超限
+2023-12-12 16:00:00 [TM注册] ('CVE', 'HAL') CLOSE 2个订单 状态:PENDING
+2023-12-12 16:00:00 [MarketCondition] VIX=12.6, HistVol=8.2%
+2023-12-12 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$102,716, 亏损=-2.72%, 阈值=25%
+2023-12-12 16:15:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$102,716, 回撤=2.51%, 阈值=15%
+2023-12-12 16:15:00 [MarketCondition] VIX=12.1, HistVol=8.2%
+2023-12-13 16:00:00 [OOE] ('GILD', 'PFE') OrderId=127 Status=Filled → 配对状态:PENDING
+2023-12-13 16:00:00 [OOE] ('GILD', 'PFE') OrderId=128 Status=Filled → 配对状态:COMPLETED
+2023-12-13 16:00:00 [OOE] ('GILD', 'PFE') 订单全部成交,配对解锁
+2023-12-13 16:00:00 [OOE] ('CVE', 'HAL') OrderId=129 Status=Filled → 配对状态:PENDING
+2023-12-13 16:00:00 [OOE] ('CVE', 'HAL') OrderId=130 Status=Filled → 配对状态:COMPLETED
+2023-12-13 16:00:00 [OOE] ('CVE', 'HAL') 订单全部成交,配对解锁
+2023-12-13 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,204, 亏损=-3.20%, 阈值=25%
+2023-12-13 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,204, 回撤=2.05%, 阈值=15%
+2023-12-13 16:00:00 [平仓] ('EXC', 'NI') Z-score回归
+2023-12-13 16:00:00 [TM注册] ('EXC', 'NI') CLOSE 2个订单 状态:PENDING
+2023-12-13 16:00:00 [止损] ('CNP', 'NEE') Z-score超限
+2023-12-13 16:00:00 [TM注册] ('CNP', 'NEE') CLOSE 2个订单 状态:PENDING
+2023-12-13 16:00:00 [MarketCondition] VIX=12.1, HistVol=6.9%
+2023-12-13 16:00:00 [TM注册] ('EXC', 'NEE') OPEN 2个订单 状态:PENDING
+2023-12-13 16:00:00 [TM注册] ('KMI', 'WMB') OPEN 2个订单 状态:PENDING
+2023-12-13 16:00:00 [开仓] 成功开仓2/2个配对
+2023-12-13 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,204, 亏损=-3.20%, 阈值=25%
+2023-12-13 16:15:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,204, 回撤=2.05%, 阈值=15%
+2023-12-13 16:15:00 [MarketCondition] VIX=12.2, HistVol=6.9%
+2023-12-14 00:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,204, 亏损=-3.20%, 阈值=25%
+2023-12-14 00:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,204, 回撤=2.05%, 阈值=15%
+2023-12-14 00:00:00 [MarketCondition] VIX=12.2, HistVol=6.9%
+2023-12-14 16:00:00 [OOE] ('EXC', 'NI') OrderId=131 Status=Filled → 配对状态:PENDING
+2023-12-14 16:00:00 [OOE] ('EXC', 'NI') OrderId=132 Status=Filled → 配对状态:COMPLETED
+2023-12-14 16:00:00 [OOE] ('EXC', 'NI') 订单全部成交,配对解锁
+2023-12-14 16:00:00 [OOE] ('CNP', 'NEE') OrderId=133 Status=Filled → 配对状态:PENDING
+2023-12-14 16:00:00 [OOE] ('CNP', 'NEE') OrderId=134 Status=Filled → 配对状态:COMPLETED
+2023-12-14 16:00:00 [OOE] ('CNP', 'NEE') 订单全部成交,配对解锁
+2023-12-14 16:00:00 [OOE] ('EXC', 'NEE') OrderId=135 Status=Filled → 配对状态:PENDING
+2023-12-14 16:00:00 [OOE] ('EXC', 'NEE') OrderId=136 Status=Filled → 配对状态:COMPLETED
+2023-12-14 16:00:00 [OOE] ('EXC', 'NEE') 订单全部成交,配对解锁
+2023-12-14 16:00:00 [OOE] ('KMI', 'WMB') OrderId=137 Status=Filled → 配对状态:PENDING
+2023-12-14 16:00:00 [OOE] ('KMI', 'WMB') OrderId=138 Status=Filled → 配对状态:COMPLETED
+2023-12-14 16:00:00 [OOE] ('KMI', 'WMB') 订单全部成交,配对解锁
+2023-12-14 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,560, 亏损=-3.56%, 阈值=25%
+2023-12-14 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,560, 回撤=1.71%, 阈值=15%
+2023-12-14 16:00:00 [Pair风控] HoldingTimeoutRule (priority=60) -> pair_close
+2023-12-14 16:00:00 [Pair风控] ('MRK', 'PFE') 触发平仓风控
+2023-12-14 16:00:00 [TM注册] ('MRK', 'PFE') CLOSE 2个订单 状态:PENDING
+2023-12-14 16:00:00   └─ 持仓超时: 已持仓31天 > 上限30天 (开仓时间: 2023-11-13)
+2023-12-14 16:00:00 [Pair风控] ('EW', 'MDT') 触发平仓风控
+2023-12-14 16:00:00 [TM注册] ('EW', 'MDT') CLOSE 2个订单 状态:PENDING
+2023-12-14 16:00:00   └─ 持仓超时: 已持仓31天 > 上限30天 (开仓时间: 2023-11-13)
+2023-12-14 16:00:00 [止损] ('EXC', 'PPL') Z-score超限
+2023-12-14 16:00:00 [TM注册] ('EXC', 'PPL') CLOSE 2个订单 状态:PENDING
+2023-12-14 16:00:00 [MarketCondition] VIX=12.2, HistVol=6.9%
+2023-12-14 16:00:00 [TM注册] ('INTC', 'MU') OPEN 2个订单 状态:PENDING
+2023-12-14 16:00:00 [开仓] 成功开仓1/2个配对
+2023-12-14 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,560, 亏损=-3.56%, 阈值=25%
+2023-12-14 16:15:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,560, 回撤=1.71%, 阈值=15%
+2023-12-14 16:15:00 [Pair风控] HoldingTimeoutRule (priority=60) -> pair_close
+2023-12-14 16:15:00 [MarketCondition] VIX=12.5, HistVol=6.9%
+2023-12-15 00:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,560, 亏损=-3.56%, 阈值=25%
+2023-12-15 00:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,560, 回撤=1.71%, 阈值=15%
+2023-12-15 00:00:00 [Pair风控] HoldingTimeoutRule (priority=60) -> pair_close
+2023-12-15 00:00:00 [MarketCondition] VIX=12.5, HistVol=6.9%
+2023-12-15 16:00:00 [OOE] ('MRK', 'PFE') OrderId=139 Status=Filled → 配对状态:PENDING
+2023-12-15 16:00:00 [OOE] ('MRK', 'PFE') OrderId=140 Status=Filled → 配对状态:COMPLETED
+2023-12-15 16:00:00 [OOE] ('MRK', 'PFE') 订单全部成交,配对解锁
+2023-12-15 16:00:00 [OOE] ('EW', 'MDT') OrderId=141 Status=Filled → 配对状态:PENDING
+2023-12-15 16:00:00 [OOE] ('EW', 'MDT') OrderId=142 Status=Filled → 配对状态:COMPLETED
+2023-12-15 16:00:00 [OOE] ('EW', 'MDT') 订单全部成交,配对解锁
+2023-12-15 16:00:00 [OOE] ('EXC', 'PPL') OrderId=143 Status=Filled → 配对状态:PENDING
+2023-12-15 16:00:00 [OOE] ('EXC', 'PPL') OrderId=144 Status=Filled → 配对状态:COMPLETED
+2023-12-15 16:00:00 [OOE] ('EXC', 'PPL') 订单全部成交,配对解锁
+2023-12-15 16:00:00 [OOE] ('INTC', 'MU') OrderId=145 Status=Filled → 配对状态:PENDING
+2023-12-15 16:00:00 [OOE] ('INTC', 'MU') OrderId=146 Status=Filled → 配对状态:COMPLETED
+2023-12-15 16:00:00 [OOE] ('INTC', 'MU') 订单全部成交,配对解锁
+2023-12-15 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,123, 亏损=-3.12%, 阈值=25%
+2023-12-15 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,123, 回撤=2.12%, 阈值=15%
+2023-12-15 16:00:00 [平仓] ('OXY', 'XOM') Z-score回归
+2023-12-15 16:00:00 [TM注册] ('OXY', 'XOM') CLOSE 2个订单 状态:PENDING
+2023-12-15 16:00:00 [止损] ('EXC', 'NEE') Z-score超限
+2023-12-15 16:00:00 [TM注册] ('EXC', 'NEE') CLOSE 2个订单 状态:PENDING
+2023-12-15 16:00:00 [MarketCondition] VIX=12.5, HistVol=7.0%
+2023-12-15 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,123, 亏损=-3.12%, 阈值=25%
+2023-12-15 16:15:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,123, 回撤=2.12%, 阈值=15%
+2023-12-15 16:15:00 [MarketCondition] VIX=12.3, HistVol=7.0%
+2023-12-18 16:00:00 [OOE] ('OXY', 'XOM') OrderId=147 Status=Filled → 配对状态:PENDING
+2023-12-18 16:00:00 [OOE] ('OXY', 'XOM') OrderId=148 Status=Filled → 配对状态:COMPLETED
+2023-12-18 16:00:00 [OOE] ('OXY', 'XOM') 订单全部成交,配对解锁
+2023-12-18 16:00:00 [OOE] ('EXC', 'NEE') OrderId=149 Status=Filled → 配对状态:PENDING
+2023-12-18 16:00:00 [OOE] ('EXC', 'NEE') OrderId=150 Status=Filled → 配对状态:COMPLETED
+2023-12-18 16:00:00 [OOE] ('EXC', 'NEE') 订单全部成交,配对解锁
+2023-12-18 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,134, 亏损=-3.13%, 阈值=25%
+2023-12-18 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,134, 回撤=2.11%, 阈值=15%
+2023-12-18 16:00:00 [MarketCondition] VIX=12.3, HistVol=7.1%
+2023-12-18 16:00:00 [TM注册] ('GOOG', 'GOOGL') OPEN 2个订单 状态:PENDING
+2023-12-18 16:00:00 [TM注册] ('CMCSA', 'VZ') OPEN 2个订单 状态:PENDING
+2023-12-18 16:00:00 [TM注册] ('D', 'PPL') OPEN 2个订单 状态:PENDING
+2023-12-18 16:00:00 [开仓] 成功开仓3/3个配对
+2023-12-18 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,134, 亏损=-3.13%, 阈值=25%
+2023-12-18 16:15:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,134, 回撤=2.11%, 阈值=15%
+2023-12-18 16:15:00 [MarketCondition] VIX=12.6, HistVol=7.1%
+2023-12-19 00:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,134, 亏损=-3.13%, 阈值=25%
+2023-12-19 00:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,134, 回撤=2.11%, 阈值=15%
+2023-12-19 00:00:00 [MarketCondition] VIX=12.6, HistVol=7.1%
+2023-12-19 16:00:00 [OOE] ('GOOG', 'GOOGL') OrderId=151 Status=Filled → 配对状态:PENDING
+2023-12-19 16:00:00 [OOE] ('GOOG', 'GOOGL') OrderId=152 Status=Filled → 配对状态:COMPLETED
+2023-12-19 16:00:00 [OOE] ('GOOG', 'GOOGL') 订单全部成交,配对解锁
+2023-12-19 16:00:00 [OOE] ('CMCSA', 'VZ') OrderId=153 Status=Filled → 配对状态:PENDING
+2023-12-19 16:00:00 [OOE] ('CMCSA', 'VZ') OrderId=154 Status=Filled → 配对状态:COMPLETED
+2023-12-19 16:00:00 [OOE] ('CMCSA', 'VZ') 订单全部成交,配对解锁
+2023-12-19 16:00:00 [OOE] ('D', 'PPL') OrderId=155 Status=Filled → 配对状态:PENDING
+2023-12-19 16:00:00 [OOE] ('D', 'PPL') OrderId=156 Status=Filled → 配对状态:COMPLETED
+2023-12-19 16:00:00 [OOE] ('D', 'PPL') 订单全部成交,配对解锁
+2023-12-19 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,412, 亏损=-3.41%, 阈值=25%
+2023-12-19 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,412, 回撤=1.85%, 阈值=15%
+2023-12-19 16:00:00 [MarketCondition] VIX=12.6, HistVol=7.0%
+2023-12-19 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,412, 亏损=-3.41%, 阈值=25%
+2023-12-19 16:15:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,412, 回撤=1.85%, 阈值=15%
+2023-12-19 16:15:00 [MarketCondition] VIX=12.5, HistVol=7.0%
+2023-12-20 00:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,412, 亏损=-3.41%, 阈值=25%
+2023-12-20 00:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,412, 回撤=1.85%, 阈值=15%
+2023-12-20 00:00:00 [MarketCondition] VIX=12.5, HistVol=7.0%
+2023-12-20 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$102,907, 亏损=-2.91%, 阈值=25%
+2023-12-20 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$102,907, 回撤=2.33%, 阈值=15%
+2023-12-20 16:00:00 [MarketCondition] VIX=12.5, HistVol=8.9%
+2023-12-20 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$102,907, 亏损=-2.91%, 阈值=25%
+2023-12-20 16:15:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$102,907, 回撤=2.33%, 阈值=15%
+2023-12-20 16:15:00 [MarketCondition] VIX=13.7, HistVol=8.9%
+2023-12-21 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,602, 亏损=-3.60%, 阈值=25%
+2023-12-21 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,602, 回撤=1.67%, 阈值=15%
+2023-12-21 16:00:00 [MarketCondition] VIX=13.7, HistVol=9.2%
+2023-12-21 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,602, 亏损=-3.60%, 阈值=25%
+2023-12-21 16:15:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,602, 回撤=1.67%, 阈值=15%
+2023-12-21 16:15:00 [MarketCondition] VIX=13.7, HistVol=9.2%
+2023-12-22 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,800, 亏损=-3.80%, 阈值=25%
+2023-12-22 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,800, 回撤=1.48%, 阈值=15%
+2023-12-22 16:00:00 [MarketCondition] VIX=13.7, HistVol=9.2%
+2023-12-22 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,800, 亏损=-3.80%, 阈值=25%
+2023-12-22 16:15:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,800, 回撤=1.48%, 阈值=15%
+2023-12-22 16:15:00 [MarketCondition] VIX=13.0, HistVol=9.2%
+2023-12-26 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,696, 亏损=-3.70%, 阈值=25%
+2023-12-26 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,696, 回撤=1.58%, 阈值=15%
+2023-12-26 16:00:00 [平仓] ('OXY', 'SLB') Z-score回归
+2023-12-26 16:00:00 [TM注册] ('OXY', 'SLB') CLOSE 2个订单 状态:PENDING
+2023-12-26 16:00:00 [MarketCondition] VIX=13.0, HistVol=9.1%
+2023-12-26 16:00:00 [TM注册] ('EXC', 'NEE') OPEN 2个订单 状态:PENDING
+2023-12-26 16:00:00 [TM注册] ('EXC', 'PPL') OPEN 2个订单 状态:PENDING
+2023-12-26 16:00:00 [开仓] 成功开仓2/7个配对
+2023-12-26 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,696, 亏损=-3.70%, 阈值=25%
+2023-12-26 16:15:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,696, 回撤=1.58%, 阈值=15%
+2023-12-26 16:15:00 [MarketCondition] VIX=13.0, HistVol=9.1%
+2023-12-27 16:00:00 [OOE] ('OXY', 'SLB') OrderId=157 Status=Filled → 配对状态:PENDING
+2023-12-27 16:00:00 [OOE] ('OXY', 'SLB') OrderId=158 Status=Filled → 配对状态:COMPLETED
+2023-12-27 16:00:00 [OOE] ('OXY', 'SLB') 订单全部成交,配对解锁
+2023-12-27 16:00:00 [OOE] ('EXC', 'NEE') OrderId=159 Status=Filled → 配对状态:PENDING
+2023-12-27 16:00:00 [OOE] ('EXC', 'NEE') OrderId=160 Status=Filled → 配对状态:COMPLETED
+2023-12-27 16:00:00 [OOE] ('EXC', 'NEE') 订单全部成交,配对解锁
+2023-12-27 16:00:00 [OOE] ('EXC', 'PPL') OrderId=161 Status=Filled → 配对状态:PENDING
+2023-12-27 16:00:00 [OOE] ('EXC', 'PPL') OrderId=162 Status=Filled → 配对状态:COMPLETED
+2023-12-27 16:00:00 [OOE] ('EXC', 'PPL') 订单全部成交,配对解锁
+2023-12-27 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,190, 亏损=-3.19%, 阈值=25%
+2023-12-27 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,190, 回撤=2.06%, 阈值=15%
+2023-12-27 16:00:00 [止损] ('EXC', 'PPL') Z-score超限
+2023-12-27 16:00:00 [TM注册] ('EXC', 'PPL') CLOSE 2个订单 状态:PENDING
+2023-12-27 16:00:00 [止损] ('EXC', 'NEE') Z-score超限
+2023-12-27 16:00:00 [TM注册] ('EXC', 'NEE') CLOSE 2个订单 状态:PENDING
+2023-12-27 16:00:00 [MarketCondition] VIX=13.0, HistVol=9.1%
+2023-12-27 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,190, 亏损=-3.19%, 阈值=25%
+2023-12-27 16:15:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,190, 回撤=2.06%, 阈值=15%
+2023-12-27 16:15:00 [MarketCondition] VIX=12.4, HistVol=9.1%
+2023-12-28 00:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,190, 亏损=-3.19%, 阈值=25%
+2023-12-28 00:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,190, 回撤=2.06%, 阈值=15%
+2023-12-28 00:00:00 [MarketCondition] VIX=12.4, HistVol=9.1%
+2023-12-28 16:00:00 [OOE] ('EXC', 'PPL') OrderId=163 Status=Filled → 配对状态:PENDING
+2023-12-28 16:00:00 [OOE] ('EXC', 'PPL') OrderId=164 Status=Filled → 配对状态:COMPLETED
+2023-12-28 16:00:00 [OOE] ('EXC', 'PPL') 订单全部成交,配对解锁
+2023-12-28 16:00:00 [OOE] ('EXC', 'NEE') OrderId=165 Status=Filled → 配对状态:PENDING
+2023-12-28 16:00:00 [OOE] ('EXC', 'NEE') OrderId=166 Status=Filled → 配对状态:COMPLETED
+2023-12-28 16:00:00 [OOE] ('EXC', 'NEE') 订单全部成交,配对解锁
+2023-12-28 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,053, 亏损=-3.05%, 阈值=25%
+2023-12-28 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,053, 回撤=2.19%, 阈值=15%
+2023-12-28 16:00:00 [MarketCondition] VIX=12.4, HistVol=9.1%
+2023-12-28 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,053, 亏损=-3.05%, 阈值=25%
+2023-12-28 16:15:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,053, 回撤=2.19%, 阈值=15%
+2023-12-28 16:15:00 [MarketCondition] VIX=12.5, HistVol=9.1%
+2023-12-29 00:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,053, 亏损=-3.05%, 阈值=25%
+2023-12-29 00:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,053, 回撤=2.19%, 阈值=15%
+2023-12-29 00:00:00 [MarketCondition] VIX=12.5, HistVol=9.1%
+2023-12-29 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$102,976, 亏损=-2.98%, 阈值=25%
+2023-12-29 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$102,976, 回撤=2.26%, 阈值=15%
+2023-12-29 16:00:00 [MarketCondition] VIX=12.5, HistVol=9.2%
+2023-12-29 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$102,976, 亏损=-2.98%, 阈值=25%
+2023-12-29 16:15:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$102,976, 回撤=2.26%, 阈值=15%
+2023-12-29 16:15:00 [MarketCondition] VIX=12.5, HistVol=9.2%
+2024-01-02 00:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$102,976, 亏损=-2.98%, 阈值=25%
+2024-01-02 00:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$102,976, 回撤=2.26%, 阈值=15%
+2024-01-02 00:00:00 [Pair风控] HoldingTimeoutRule (priority=60) -> pair_close
+2024-01-02 00:00:00 [Pair风控] ('CMCSA', 'T') 触发平仓风控
+2024-01-02 00:00:00 [TM注册] ('CMCSA', 'T') CLOSE 2个订单 状态:PENDING
+2024-01-02 00:00:00   └─ 持仓超时: 已持仓32天 > 上限30天 (开仓时间: 2023-11-30)
+2024-01-02 00:00:00 [MarketCondition] VIX=12.5, HistVol=9.2%
+2024-01-02 16:00:00 [OOE] ('CMCSA', 'T') OrderId=167 Status=Filled → 配对状态:PENDING
+2024-01-02 16:00:00 [OOE] ('CMCSA', 'T') OrderId=168 Status=Filled → 配对状态:COMPLETED
+2024-01-02 16:00:00 [OOE] ('CMCSA', 'T') 订单全部成交,配对解锁
+2024-01-02 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,689, 亏损=-3.69%, 阈值=25%
+2024-01-02 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,689, 回撤=1.59%, 阈值=15%
+2024-01-02 16:00:00 [MarketCondition] VIX=12.5, HistVol=9.5%
+2024-01-02 16:00:00 [TM注册] ('EXC', 'NI') OPEN 2个订单 状态:PENDING
+2024-01-02 16:00:00 [TM注册] ('OXY', 'WMB') OPEN 2个订单 状态:PENDING
+2024-01-02 16:00:00 [TM注册] ('CVE', 'HAL') OPEN 2个订单 状态:PENDING
+2024-01-02 16:00:00 [TM注册] ('CNP', 'NEE') OPEN 2个订单 状态:PENDING
+2024-01-02 16:00:00 [开仓] 成功开仓4/5个配对
+2024-01-02 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,689, 亏损=-3.69%, 阈值=25%
+2024-01-02 16:15:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,689, 回撤=1.59%, 阈值=15%
+2024-01-02 16:15:00 [MarketCondition] VIX=13.2, HistVol=9.5%
+2024-01-03 00:00:00 第【4】次选股: 粗选141只 -> 最终80只
+2024-01-03 00:00:00 财务淘汰37: PE高10, 负债高10, 杠杆高26
+2024-01-03 00:00:00 波动率淘汰24: 高波动24, 数据不足0
+2024-01-03 00:00:00 [选股] 最终通过: 80只股票（未分组，将由CointegrationAnalyzer按子行业分组）
+2024-01-03 00:00:00 [选股] 子行业分布TOP10: 30910(11只), 31130(8只), 31120(6只), 20620(5只), 20525(5只), 20720(5只), 10280(4只), 20650(4只), 20520(4只), 10420(4只)
+2024-01-03 00:00:00 [DataProcessor] 数据处理: 81→81只 ()
+2024-01-03 00:00:00 [协整分析] 分组失败4只: VIX(invalid_data), MRO(invalid_data), PCG(invalid_data), WBA(invalid_data)
+2024-01-03 00:00:00 [协整分析] 子行业31120: 候选6只 → 选中6只
+2024-01-03 00:00:00 [协整分析] 子行业20650: 候选4只 → 选中4只
+2024-01-03 00:00:00 [协整分析] 子行业20620: 候选5只 → 选中5只
+2024-01-03 00:00:00 [协整分析] 子行业30810: 候选3只 → 选中3只
+2024-01-03 00:00:00 [协整分析] 子行业30910: 候选11只 → 选中11只
+2024-01-03 00:00:00 [协整分析] 子行业20720: 候选4只 → 选中4只
+2024-01-03 00:00:00 [协整分析] 子行业30830: 候选3只 → 选中3只
+2024-01-03 00:00:00 [协整分析] 子行业31130: 候选8只 → 选中8只
+2024-01-03 00:00:00 [协整分析] 子行业20520: 候选4只 → 选中4只
+2024-01-03 00:00:00 [协整分析] 子行业20525: 候选5只 → 选中5只
+2024-01-03 00:00:00 [协整分析] 子行业10420: 候选4只 → 选中4只
+2024-01-03 00:00:00 [协整分析] 子行业10280: 候选4只 → 选中4只
+2024-01-03 00:00:00 [协整分析] 跳过13个子行业(股票数<3): 31080(2只), 20630(1只), 30820(1只), 10150(2只), 10200(1只), 31110(2只), 10240(1只), 10360(1只), 31010(1只), 10160(1只), 20550(1只), 31040(1只), 20610(1只)
+2024-01-03 00:00:00 [协整分析] 发现9个协整对 (测试154对，来自12个子行业)
+2024-01-03 00:00:00 [BayesianModeler] 建模完成: 成功9对, 失败0对 (完全建模5对, 动态更新4对)
+2024-01-03 00:00:00 [PairsManager] 添加新配对 ('BMY', 'PFE')
+2024-01-03 00:00:00 [PairsManager] 更新配对 ('INTC', 'MU')
+2024-01-03 00:00:00 [PairsManager] 更新配对 ('OXY', 'SLB')
+2024-01-03 00:00:00 [PairsManager] 添加新配对 ('AMAT', 'NVDA')
+2024-01-03 00:00:00 [PairsManager] 更新配对 ('OXY', 'XOM')
+2024-01-03 00:00:00 [PairsManager] 添加新配对 ('BAX', 'MDT')
+2024-01-03 00:00:00 [PairsManager] 更新配对 ('EXC', 'NEE')
+2024-01-03 00:00:00 [PairsManager] 添加新配对 ('EXC', 'PNM')
+2024-01-03 00:00:00 [PairsManager] 添加新配对 ('FTI', 'WMB')
+2024-01-03 00:00:00 [PairsManager] 第6轮更新完成: 活跃=9, 遗留=7, 休眠=35, 总计=51
+2024-01-03 00:00:00 [配对分析] 完成: 创建9个新配对, 共管理51个配对
+2024-01-03 00:00:00 1/3/2024 12:00:00 AM: SecurityChanges:  Added: AEOS R735QTJ8XC9X,AMAT R735QTJ8XC9X,BAX R735QTJ8XC9X,BSX R735QTJ8XC9X,CAG R735QTJ8XC9X,FLEXF R735QTJ8XC9X,FTI S5ITKJ2R97C5,GIS R735QTJ8XC9X,JCI R735QTJ8XC9X,MCHP R735QTJ8XC9X,MRNA X05QXHPHSF39,NVDA RHM8UTD8DT2D,PEP R735QTJ8XC9X,PK WGYJ3UX02SF9,PNM R735QTJ8XC9X,TXN R735QTJ8XC9X Removed: AA WF7IHVI76I5H,ABNB XK8H247DY6W5,ALLY VPLW2D47KBXH,HOU R735QTJ8XC9X,CRM SZQUJUA9SVOL,CTVA X510I4TJEPNP,CWAN XS41T1JZZH45,D R735QTJ8XC9X,DOCU WU16SJRONF51,IPPIF R735QTJ8XC9X,FOXAV X2S9UGTP4UHX,AHC R735QTJ8XC9X,KR R735QTJ8XC9X,FD R735QTJ8XC9X,NI R735QTJ8XC9X,OKTA WJI3OJXP6YCL,OPCH XBQ911FW5JZ9,PD X3KTT6FLCQ5H,DOC VICYLL6HAEED,HCP R735QTJ8XC9X,FCAU VUP17R5LSNS5,SU R735QTJ8XC9X
+2024-01-03 00:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,689, 亏损=-3.69%, 阈值=25%
+2024-01-03 00:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,689, 回撤=1.59%, 阈值=15%
+2024-01-03 00:00:00 [MarketCondition] VIX=13.2, HistVol=9.5%
+2024-01-03 16:00:00 [OOE] ('EXC', 'NI') OrderId=169 Status=Filled → 配对状态:PENDING
+2024-01-03 16:00:00 [OOE] ('EXC', 'NI') OrderId=170 Status=Filled → 配对状态:COMPLETED
+2024-01-03 16:00:00 [OOE] ('EXC', 'NI') 订单全部成交,配对解锁
+2024-01-03 16:00:00 [OOE] ('OXY', 'WMB') OrderId=171 Status=Filled → 配对状态:PENDING
+2024-01-03 16:00:00 [OOE] ('OXY', 'WMB') OrderId=172 Status=Filled → 配对状态:COMPLETED
+2024-01-03 16:00:00 [OOE] ('OXY', 'WMB') 订单全部成交,配对解锁
+2024-01-03 16:00:00 [OOE] ('CVE', 'HAL') OrderId=173 Status=Filled → 配对状态:PENDING
+2024-01-03 16:00:00 [OOE] ('CVE', 'HAL') OrderId=174 Status=Filled → 配对状态:COMPLETED
+2024-01-03 16:00:00 [OOE] ('CVE', 'HAL') 订单全部成交,配对解锁
+2024-01-03 16:00:00 [OOE] ('CNP', 'NEE') OrderId=175 Status=Filled → 配对状态:PENDING
+2024-01-03 16:00:00 [OOE] ('CNP', 'NEE') OrderId=176 Status=Filled → 配对状态:COMPLETED
+2024-01-03 16:00:00 [OOE] ('CNP', 'NEE') 订单全部成交,配对解锁
+2024-01-03 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$104,175, 亏损=-4.18%, 阈值=25%
+2024-01-03 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$104,175, 回撤=1.13%, 阈值=15%
+2024-01-03 16:00:00 [MarketCondition] VIX=13.2, HistVol=9.8%
+2024-01-03 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$104,175, 亏损=-4.18%, 阈值=25%
+2024-01-03 16:15:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$104,175, 回撤=1.13%, 阈值=15%
+2024-01-03 16:15:00 [MarketCondition] VIX=14.0, HistVol=9.8%
+2024-01-04 00:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$104,175, 亏损=-4.18%, 阈值=25%
+2024-01-04 00:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$104,175, 回撤=1.13%, 阈值=15%
+2024-01-04 00:00:00 [MarketCondition] VIX=14.0, HistVol=9.8%
+2024-01-04 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,708, 亏损=-3.71%, 阈值=25%
+2024-01-04 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,708, 回撤=1.57%, 阈值=15%
+2024-01-04 16:00:00 [MarketCondition] VIX=14.0, HistVol=10.0%
+2024-01-04 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,708, 亏损=-3.71%, 阈值=25%
+2024-01-04 16:15:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,708, 回撤=1.57%, 阈值=15%
+2024-01-04 16:15:00 [MarketCondition] VIX=14.1, HistVol=10.0%
+2024-01-05 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,959, 亏损=-3.96%, 阈值=25%
+2024-01-05 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,959, 回撤=1.33%, 阈值=15%
+2024-01-05 16:00:00 [Pair风控] HoldingTimeoutRule (priority=60) -> pair_close
+2024-01-05 16:00:00 [Pair风控] ('KMI', 'SLB') 触发平仓风控
+2024-01-05 16:00:00 [TM注册] ('KMI', 'SLB') CLOSE 2个订单 状态:PENDING
+2024-01-05 16:00:00   └─ 持仓超时: 已持仓31天 > 上限30天 (开仓时间: 2023-12-05)
+2024-01-05 16:00:00 [Pair风控] ('OXY', 'SU') 触发平仓风控
+2024-01-05 16:00:00 [TM注册] ('OXY', 'SU') CLOSE 2个订单 状态:PENDING
+2024-01-05 16:00:00   └─ 持仓超时: 已持仓31天 > 上限30天 (开仓时间: 2023-12-05)
+2024-01-05 16:00:00 [Pair风控] ('CVE', 'SLB') 触发平仓风控
+2024-01-05 16:00:00 [TM注册] ('CVE', 'SLB') CLOSE 2个订单 状态:PENDING
+2024-01-05 16:00:00   └─ 持仓超时: 已持仓31天 > 上限30天 (开仓时间: 2023-12-05)
+2024-01-05 16:00:00 [MarketCondition] VIX=14.1, HistVol=9.8%
+2024-01-05 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,959, 亏损=-3.96%, 阈值=25%
+2024-01-05 16:15:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,959, 回撤=1.33%, 阈值=15%
+2024-01-05 16:15:00 [Pair风控] HoldingTimeoutRule (priority=60) -> pair_close
+2024-01-05 16:15:00 [MarketCondition] VIX=13.3, HistVol=9.8%
+2024-01-08 16:00:00 [OOE] ('KMI', 'SLB') OrderId=177 Status=Filled → 配对状态:PENDING
+2024-01-08 16:00:00 [OOE] ('KMI', 'SLB') OrderId=178 Status=Filled → 配对状态:COMPLETED
+2024-01-08 16:00:00 [OOE] ('KMI', 'SLB') 订单全部成交,配对解锁
+2024-01-08 16:00:00 [OOE] ('OXY', 'SU') OrderId=179 Status=Filled → 配对状态:PENDING
+2024-01-08 16:00:00 [OOE] ('OXY', 'SU') OrderId=180 Status=Filled → 配对状态:COMPLETED
+2024-01-08 16:00:00 [OOE] ('OXY', 'SU') 订单全部成交,配对解锁
+2024-01-08 16:00:00 [OOE] ('CVE', 'SLB') OrderId=181 Status=Filled → 配对状态:PENDING
+2024-01-08 16:00:00 [OOE] ('CVE', 'SLB') OrderId=182 Status=Filled → 配对状态:COMPLETED
+2024-01-08 16:00:00 [OOE] ('CVE', 'SLB') 订单全部成交,配对解锁
+2024-01-08 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,757, 亏损=-3.76%, 阈值=25%
+2024-01-08 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,757, 回撤=1.52%, 阈值=15%
+2024-01-08 16:00:00 [MarketCondition] VIX=13.3, HistVol=10.5%
+2024-01-08 16:00:00 [TM注册] ('OXY', 'SLB') OPEN 2个订单 状态:PENDING
+2024-01-08 16:00:00 [TM注册] ('BAX', 'MDT') OPEN 2个订单 状态:PENDING
+2024-01-08 16:00:00 [TM注册] ('EXC', 'NEE') OPEN 2个订单 状态:PENDING
+2024-01-08 16:00:00 [开仓] 成功开仓3/4个配对
+2024-01-08 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,757, 亏损=-3.76%, 阈值=25%
+2024-01-08 16:15:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,757, 回撤=1.52%, 阈值=15%
+2024-01-08 16:15:00 [MarketCondition] VIX=13.1, HistVol=10.5%
+2024-01-09 00:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,757, 亏损=-3.76%, 阈值=25%
+2024-01-09 00:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,757, 回撤=1.52%, 阈值=15%
+2024-01-09 00:00:00 [MarketCondition] VIX=13.1, HistVol=10.5%
+2024-01-09 16:00:00 [OOE] ('OXY', 'SLB') OrderId=183 Status=Filled → 配对状态:PENDING
+2024-01-09 16:00:00 [OOE] ('OXY', 'SLB') OrderId=184 Status=Filled → 配对状态:COMPLETED
+2024-01-09 16:00:00 [OOE] ('OXY', 'SLB') 订单全部成交,配对解锁
+2024-01-09 16:00:00 [OOE] ('BAX', 'MDT') OrderId=185 Status=Filled → 配对状态:PENDING
+2024-01-09 16:00:00 [OOE] ('BAX', 'MDT') OrderId=186 Status=Filled → 配对状态:COMPLETED
+2024-01-09 16:00:00 [OOE] ('BAX', 'MDT') 订单全部成交,配对解锁
+2024-01-09 16:00:00 [OOE] ('EXC', 'NEE') OrderId=187 Status=Filled → 配对状态:PENDING
+2024-01-09 16:00:00 [OOE] ('EXC', 'NEE') OrderId=188 Status=Filled → 配对状态:COMPLETED
+2024-01-09 16:00:00 [OOE] ('EXC', 'NEE') 订单全部成交,配对解锁
+2024-01-09 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,552, 亏损=-3.55%, 阈值=25%
+2024-01-09 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,552, 回撤=1.72%, 阈值=15%
+2024-01-09 16:00:00 [MarketCondition] VIX=13.1, HistVol=10.5%
+2024-01-09 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,552, 亏损=-3.55%, 阈值=25%
+2024-01-09 16:15:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,552, 回撤=1.72%, 阈值=15%
+2024-01-09 16:15:00 [MarketCondition] VIX=12.8, HistVol=10.5%
+2024-01-10 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,381, 亏损=-3.38%, 阈值=25%
+2024-01-10 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,381, 回撤=1.88%, 阈值=15%
+2024-01-10 16:00:00 [MarketCondition] VIX=12.8, HistVol=10.6%
+2024-01-10 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,381, 亏损=-3.38%, 阈值=25%
+2024-01-10 16:15:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,381, 回撤=1.88%, 阈值=15%
+2024-01-10 16:15:00 [MarketCondition] VIX=12.7, HistVol=10.6%
+2024-01-11 00:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,381, 亏损=-3.38%, 阈值=25%
+2024-01-11 00:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,381, 回撤=1.88%, 阈值=15%
+2024-01-11 00:00:00 [MarketCondition] VIX=12.7, HistVol=10.6%
+2024-01-11 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$102,866, 亏损=-2.87%, 阈值=25%
+2024-01-11 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$102,866, 回撤=2.37%, 阈值=15%
+2024-01-11 16:00:00 [MarketCondition] VIX=12.7, HistVol=10.6%
+2024-01-11 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$102,866, 亏损=-2.87%, 阈值=25%
+2024-01-11 16:15:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$102,866, 回撤=2.37%, 阈值=15%
+2024-01-11 16:15:00 [MarketCondition] VIX=12.4, HistVol=10.6%
+2024-01-12 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$102,869, 亏损=-2.87%, 阈值=25%
+2024-01-12 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$102,869, 回撤=2.37%, 阈值=15%
+2024-01-12 16:00:00 [MarketCondition] VIX=12.4, HistVol=9.6%
+2024-01-12 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$102,869, 亏损=-2.87%, 阈值=25%
+2024-01-12 16:15:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$102,869, 回撤=2.37%, 阈值=15%
+2024-01-12 16:15:00 [MarketCondition] VIX=12.7, HistVol=9.6%
+2024-01-16 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,126, 亏损=-3.13%, 阈值=25%
+2024-01-16 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,126, 回撤=2.12%, 阈值=15%
+2024-01-16 16:00:00 [Pair风控] HoldingTimeoutRule (priority=60) -> pair_close
+2024-01-16 16:00:00 [Pair风控] ('INTC', 'MU') 触发平仓风控
+2024-01-16 16:00:00 [TM注册] ('INTC', 'MU') CLOSE 2个订单 状态:PENDING
+2024-01-16 16:00:00   └─ 持仓超时: 已持仓33天 > 上限30天 (开仓时间: 2023-12-14)
+2024-01-16 16:00:00 [Pair风控] ('KMI', 'WMB') 触发平仓风控
+2024-01-16 16:00:00 [TM注册] ('KMI', 'WMB') CLOSE 2个订单 状态:PENDING
+2024-01-16 16:00:00   └─ 持仓超时: 已持仓34天 > 上限30天 (开仓时间: 2023-12-13)
+2024-01-16 16:00:00 [止损] ('EXC', 'NEE') Z-score超限
+2024-01-16 16:00:00 [TM注册] ('EXC', 'NEE') CLOSE 2个订单 状态:PENDING
+2024-01-16 16:00:00 [MarketCondition] VIX=12.7, HistVol=9.7%
+2024-01-16 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$103,126, 亏损=-3.13%, 阈值=25%
+2024-01-16 16:15:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$103,126, 回撤=2.12%, 阈值=15%
+2024-01-16 16:15:00 [Pair风控] HoldingTimeoutRule (priority=60) -> pair_close
+2024-01-16 16:15:00 [MarketCondition] VIX=13.8, HistVol=9.7%
+2024-01-17 16:00:00 [OOE] ('INTC', 'MU') OrderId=189 Status=Filled → 配对状态:PENDING
+2024-01-17 16:00:00 [OOE] ('INTC', 'MU') OrderId=190 Status=Filled → 配对状态:COMPLETED
+2024-01-17 16:00:00 [OOE] ('INTC', 'MU') 订单全部成交,配对解锁
+2024-01-17 16:00:00 [OOE] ('KMI', 'WMB') OrderId=191 Status=Filled → 配对状态:PENDING
+2024-01-17 16:00:00 [OOE] ('KMI', 'WMB') OrderId=192 Status=Filled → 配对状态:COMPLETED
+2024-01-17 16:00:00 [OOE] ('KMI', 'WMB') 订单全部成交,配对解锁
+2024-01-17 16:00:00 [OOE] ('EXC', 'NEE') OrderId=193 Status=Filled → 配对状态:PENDING
+2024-01-17 16:00:00 [OOE] ('EXC', 'NEE') OrderId=194 Status=Filled → 配对状态:COMPLETED
+2024-01-17 16:00:00 [OOE] ('EXC', 'NEE') 订单全部成交,配对解锁
+2024-01-17 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$102,724, 亏损=-2.72%, 阈值=25%
+2024-01-17 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$102,724, 回撤=2.50%, 阈值=15%
+2024-01-17 16:00:00 [MarketCondition] VIX=13.8, HistVol=9.9%
+2024-01-17 16:00:00 [TM注册] ('KMI', 'SLB') OPEN 2个订单 状态:PENDING
+2024-01-17 16:00:00 [TM注册] ('CVE', 'SLB') OPEN 2个订单 状态:PENDING
+2024-01-17 16:00:00 [开仓] 成功开仓2/2个配对
+2024-01-17 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$102,724, 亏损=-2.72%, 阈值=25%
+2024-01-17 16:15:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$102,724, 回撤=2.50%, 阈值=15%
+2024-01-17 16:15:00 [MarketCondition] VIX=14.8, HistVol=9.9%
+2024-01-18 00:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$102,724, 亏损=-2.72%, 阈值=25%
+2024-01-18 00:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$102,724, 回撤=2.50%, 阈值=15%
+2024-01-18 00:00:00 [MarketCondition] VIX=14.8, HistVol=9.9%
+2024-01-18 16:00:00 [OOE] ('KMI', 'SLB') OrderId=195 Status=Filled → 配对状态:PENDING
+2024-01-18 16:00:00 [OOE] ('KMI', 'SLB') OrderId=196 Status=Filled → 配对状态:COMPLETED
+2024-01-18 16:00:00 [OOE] ('KMI', 'SLB') 订单全部成交,配对解锁
+2024-01-18 16:00:00 [OOE] ('CVE', 'SLB') OrderId=197 Status=Filled → 配对状态:PENDING
+2024-01-18 16:00:00 [OOE] ('CVE', 'SLB') OrderId=198 Status=Filled → 配对状态:COMPLETED
+2024-01-18 16:00:00 [OOE] ('CVE', 'SLB') 订单全部成交,配对解锁
+2024-01-18 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$102,580, 亏损=-2.58%, 阈值=25%
+2024-01-18 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$102,580, 回撤=2.64%, 阈值=15%
+2024-01-18 16:00:00 [Pair风控] HoldingTimeoutRule (priority=60) -> pair_close
+2024-01-18 16:00:00 [Pair风控] ('CMCSA', 'VZ') 触发平仓风控
+2024-01-18 16:00:00 [TM注册] ('CMCSA', 'VZ') CLOSE 2个订单 状态:PENDING
+2024-01-18 16:00:00   └─ 持仓超时: 已持仓31天 > 上限30天 (开仓时间: 2023-12-18)
+2024-01-18 16:00:00 [Pair风控] ('GOOG', 'GOOGL') 触发平仓风控
+2024-01-18 16:00:00 [TM注册] ('GOOG', 'GOOGL') CLOSE 2个订单 状态:PENDING
+2024-01-18 16:00:00   └─ 持仓超时: 已持仓31天 > 上限30天 (开仓时间: 2023-12-18)
+2024-01-18 16:00:00 [Pair风控] ('D', 'PPL') 触发平仓风控
+2024-01-18 16:00:00 [TM注册] ('D', 'PPL') CLOSE 2个订单 状态:PENDING
+2024-01-18 16:00:00   └─ 持仓超时: 已持仓31天 > 上限30天 (开仓时间: 2023-12-18)
+2024-01-18 16:00:00 [止损] ('CVE', 'SLB') Z-score超限
+2024-01-18 16:00:00 [TM注册] ('CVE', 'SLB') CLOSE 2个订单 状态:PENDING
+2024-01-18 16:00:00 [MarketCondition] VIX=14.8, HistVol=10.2%
+2024-01-18 16:15:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$102,580, 亏损=-2.58%, 阈值=25%
+2024-01-18 16:15:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$102,580, 回撤=2.64%, 阈值=15%
+2024-01-18 16:15:00 [Pair风控] HoldingTimeoutRule (priority=60) -> pair_close
+2024-01-18 16:15:00 [MarketCondition] VIX=14.1, HistVol=10.2%
+2024-01-19 00:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$102,580, 亏损=-2.58%, 阈值=25%
+2024-01-19 00:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$102,580, 回撤=2.64%, 阈值=15%
+2024-01-19 00:00:00 [Pair风控] HoldingTimeoutRule (priority=60) -> pair_close
+2024-01-19 00:00:00 [MarketCondition] VIX=14.1, HistVol=10.2%
+2024-01-19 16:00:00 [OOE] ('CMCSA', 'VZ') OrderId=199 Status=Filled → 配对状态:PENDING
+2024-01-19 16:00:00 [OOE] ('CMCSA', 'VZ') OrderId=200 Status=Filled → 配对状态:COMPLETED
+2024-01-19 16:00:00 [OOE] ('CMCSA', 'VZ') 订单全部成交,配对解锁
+2024-01-19 16:00:00 [OOE] ('GOOG', 'GOOGL') OrderId=201 Status=Filled → 配对状态:PENDING
+2024-01-19 16:00:00 [OOE] ('GOOG', 'GOOGL') OrderId=202 Status=Filled → 配对状态:COMPLETED
+2024-01-19 16:00:00 [OOE] ('GOOG', 'GOOGL') 订单全部成交,配对解锁
+2024-01-19 16:00:00 [OOE] ('D', 'PPL') OrderId=203 Status=Filled → 配对状态:PENDING
+2024-01-19 16:00:00 [OOE] ('D', 'PPL') OrderId=204 Status=Filled → 配对状态:COMPLETED
+2024-01-19 16:00:00 [OOE] ('D', 'PPL') 订单全部成交,配对解锁
+2024-01-19 16:00:00 [OOE] ('CVE', 'SLB') OrderId=205 Status=Filled → 配对状态:PENDING
+2024-01-19 16:00:00 [OOE] ('CVE', 'SLB') OrderId=206 Status=Filled → 配对状态:COMPLETED
+2024-01-19 16:00:00 [OOE] ('CVE', 'SLB') 订单全部成交,配对解锁
+2024-01-19 16:00:00 [AccountBlowup] 检查: 初始=$100,000, 当前=$102,487, 亏损=-2.49%, 阈值=25%
+2024-01-19 16:00:00 [ExcessiveDrawdown] 检查: HWM=$105,361, 当前=$102,487, 回撤=2.73%, 阈值=15%
+2024-01-19 16:00:00 [MarketCondition] VIX=14.1, HistVol=10.8%
+2024-01-19 16:00:00 [TM注册] ('AMAT', 'NVDA') OPEN 2个订单 状态:PENDING
+You currently have a maximum of 100kb of log data per backtest, and 100kb total max per day. Have you tried step-by-step debugging? See more at https://qnt.co/debugging or upgrade your organization type for more logs at https://www.quantconnect.com/pricing
