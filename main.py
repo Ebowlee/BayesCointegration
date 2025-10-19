@@ -149,13 +149,13 @@ class BayesianCointegrationStrategy(QCAlgorithm):
             return
 
         # === 步骤3&4: 质量评估和配对筛选 ===
-        selected_pairs = self.pair_selector.selection_procedure(raw_pairs, clean_data)
+        selected_pairs, pair_data_dict = self.pair_selector.selection_procedure(raw_pairs, clean_data)
 
         if not selected_pairs:
             return
 
-        # === 步骤5: 贝叶斯建模 ===
-        modeling_results = self.bayesian_modeler.modeling_procedure(selected_pairs, clean_data)
+        # === 步骤5: 贝叶斯建模（复用PairData字典） ===
+        modeling_results = self.bayesian_modeler.modeling_procedure(selected_pairs, pair_data_dict)
 
         if not modeling_results:
             return

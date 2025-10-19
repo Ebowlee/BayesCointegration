@@ -4,6 +4,7 @@ from collections import defaultdict
 import numpy as np
 import pandas as pd
 from scipy import stats  # 用于OLS回归估计AR(1)系数
+from src.analysis.PairData import PairData
 # endregion
 
 
@@ -35,63 +36,93 @@ class PairSelector:
 
     def selection_procedure(self, raw_pairs, clean_data):
         """
-        执行配对筛选流程 - 评估质量并筛选最佳配对
-        """
-        # 步骤1：评估配对质量
-        scored_pairs = self.evaluate_quality(raw_pairs, clean_data)
+        执行配对筛选流程 - 评估质量并筛选最佳配对（重构版）
 
-        # 步骤2：筛选最佳配对
+        Args:
+            raw_pairs: CointegrationAnalyzer输出的配对列表
+            clean_data: 清洗后的OHLCV数据
+
+        Returns:
+            tuple: (selected_pairs, pair_data_dict)
+                - selected_pairs: 筛选后的配对列表（包含质量分数和OLS参数）
+                - pair_data_dict: {pair_key: PairData} 预构建的PairData对象字典
+
+        性能优化:
+        - 预先构建PairData对象字典,消除重复np.log()调用
+        - 返回pair_data_dict供BayesianModeler复用,避免重复构建
+        """
+        # 步骤1: 构建PairData对象字典（一次性完成对数转换）
+        pair_data_dict = {}
+        for pair_info in raw_pairs:
+            pair_key = (pair_info['symbol1'], pair_info['symbol2'])
+            pair_data_dict[pair_key] = PairData.from_clean_data(pair_info, clean_data)
+
+        # 步骤2: 评估配对质量（使用预计算的对数价格）
+        scored_pairs = self.evaluate_quality(raw_pairs, pair_data_dict, clean_data)
+
+        # 步骤3: 筛选最佳配对
         selected_pairs = self.select_best(scored_pairs)
 
-        return selected_pairs
+        # 返回筛选结果和PairData字典（供BayesianModeler复用）
+        return selected_pairs, pair_data_dict
 
 
-    def evaluate_quality(self, raw_pairs, clean_data):
+    def evaluate_quality(self, raw_pairs, pair_data_dict, clean_data):
         """
-        评估配对质量
+        评估配对质量（重构版 - 使用PairData消除重复np.log()）
+
+        Args:
+            raw_pairs: CointegrationAnalyzer输出的配对列表
+            pair_data_dict: {pair_key: PairData} 预构建的PairData对象字典
+            clean_data: 清洗后的OHLCV数据（用于流动性评分的volume字段）
 
         设计说明: 使用252天长期窗口与BayesianModeler保持一致
         - 协整是长期概念,评分应基于稳定的长期关系
         - 避免短期窗口捕捉到"伪协整"或运气好的配对
         - 确保评分高的配对在实际交易中也表现良好
+
+        性能优化:
+        - 对数价格从PairData获取（预计算，消除重复np.log()）
+        - Volume数据从clean_data获取（避免PairData膨胀）
         """
         scored_pairs = []
 
         for pair_info in raw_pairs:
             symbol1 = pair_info['symbol1']
             symbol2 = pair_info['symbol2']
+            pair_key = (symbol1, symbol2)
+
+            # 获取PairData对象（包含预计算的对数价格）
+            pair_data = pair_data_dict[pair_key]
 
             # 统计质量分数（基于p值的对数转换）
             # 使用Log10转换反映p值的统计学对数特性
             # p=0.001→1.0, p=0.01→0.667, p=0.05→0.434
             pvalue_score = min(1.0, -np.log10(pair_info['pvalue']) / 3.0)
 
-            # 获取数据(DataProcessor保证DataFrame输出)
-            data1 = clean_data[symbol1]
-            data2 = clean_data[symbol2]
-            prices1 = data1['close']
-            prices2 = data2['close']
+            # ⭐ 使用PairData的预计算对数价格（消除重复np.log()调用）
+            if len(pair_data.log_prices1) >= self.lookback_days:
+                log_prices1_recent = pair_data.log_prices1[-self.lookback_days:]
+                log_prices2_recent = pair_data.log_prices2[-self.lookback_days:]
 
-            # ⭐ 预先计算252天窗口数据和beta（只计算一次，用于Half-Life评分）
-            if len(prices1) >= self.lookback_days and len(prices2) >= self.lookback_days:
-                prices1_recent = prices1[-self.lookback_days:]
-                prices2_recent = prices2[-self.lookback_days:]
-
-                # 估计beta（OLS回归，每配对只计算一次）
-                linreg_result = stats.linregress(np.log(prices2_recent), np.log(prices1_recent))
+                # 估计beta（OLS回归，使用预计算的对数价格）
+                linreg_result = stats.linregress(log_prices2_recent, log_prices1_recent)
                 slope = linreg_result.slope
                 intercept = linreg_result.intercept
                 beta = slope if slope > 0 else 1.0  # 安全检查: beta应为正
 
-                # 计算半衰期分数（传入预计算的数据）
-                half_life_score = self._calculate_half_life_score(prices1_recent, prices2_recent, beta)
+                # 计算半衰期分数（传入预计算的对数价格）
+                half_life_score = self._calculate_half_life_score(log_prices1_recent, log_prices2_recent, beta)
             else:
                 # 数据不足，分数为0
                 slope = None
                 intercept = None
                 half_life_score = 0
 
-            # 流动性分数（基于成交量，独立计算）
+            # 流动性分数（从clean_data获取volume数据）
+            # 注意: PairData不存储volume（避免膨胀），保持简洁设计
+            data1 = clean_data[symbol1]
+            data2 = clean_data[symbol2]
             liquidity_score = self._calculate_liquidity_score(data1, data2)
 
             # 综合质量分数（三指标体系）
@@ -176,20 +207,20 @@ class PairSelector:
             return max_score - (value - min_val) * (max_score - min_score) / (max_val - min_val)
 
 
-    def _calculate_half_life_score(self, prices1_recent, prices2_recent, beta):
+    def _calculate_half_life_score(self, log_prices1_recent, log_prices2_recent, beta):
         """
         计算半衰期分数（基于价格序列的均值回归速度）
 
         使用AR(1)模型估计半衰期: half_life = -log(2) / log(ρ)
 
         Args:
-            prices1_recent: 最近120天的价格序列（symbol1）
-            prices2_recent: 最近120天的价格序列（symbol2）
+            log_prices1_recent: 最近252天的对数价格序列（symbol1）- 来自PairData预计算
+            log_prices2_recent: 最近252天的对数价格序列（symbol2）- 来自PairData预计算
             beta: 预先计算的协整系数
         """
         try:
-            # Beta调整价差（直接使用传入的beta，无需重复计算）
-            spread = np.log(prices1_recent) - beta * np.log(prices2_recent)
+            # Beta调整价差（使用预计算的对数价格，消除np.log()重复调用）
+            spread = log_prices1_recent - beta * log_prices2_recent
 
             if len(spread) < 2:
                 return 0  # 无数据，返回0分

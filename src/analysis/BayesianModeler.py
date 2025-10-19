@@ -57,23 +57,30 @@ class BayesianModeler:
             )
 
 
-    def modeling_procedure(self, cointegrated_pairs: List[Dict], clean_data: Dict) -> List[Dict]:
+    def modeling_procedure(self, cointegrated_pairs: List[Dict], pair_data_dict: Dict) -> List[Dict]:
         """
-        执行贝叶斯建模流程 - 对所有协整对进行参数估计
+        执行贝叶斯建模流程 - 对所有协整对进行参数估计（重构版）
+
+        Args:
+            cointegrated_pairs: 配对列表
+            pair_data_dict: {pair_key: PairData} 预构建的PairData对象字典（从PairSelector传入）
 
         Returns:
             List[Dict]: 建模结果列表，每个元素包含配对的完整模型参数
+
+        性能优化:
+        - 复用PairSelector构建的PairData对象，避免重复对数转换
         """
         # 清理过期的历史后验
         self._cleanup_historical_posteriors()
 
         # 里面的元素是字典结构，每一个元素都是一个协整对的信息信息，包括 pair_id, 后验，行业分类等
         modeling_results = []
-        
+
         statistics = defaultdict(int, total_pairs=len(cointegrated_pairs))
 
         for pair in cointegrated_pairs:
-            result = self._model_single_pair(pair, clean_data)
+            result = self._model_single_pair(pair, pair_data_dict)
             if result:
                 modeling_results.append(result)
                 statistics['successful'] += 1
@@ -86,11 +93,12 @@ class BayesianModeler:
         return modeling_results
 
 
-    def _model_single_pair(self, pair: Dict, clean_data: Dict) -> Dict:
+    def _model_single_pair(self, pair: Dict, pair_data_dict: Dict) -> Dict:
         """单个配对的建模流程（重构版）"""
         try:
-            # Step 1: 数据层
-            pair_data = PairData.from_clean_data(pair, clean_data)
+            # Step 1: 数据层（从pair_data_dict获取预构建的PairData对象）
+            pair_key = (pair['symbol1'], pair['symbol2'])
+            pair_data = pair_data_dict[pair_key]
 
             # Step 2: 先验层（三级策略）
             prior_params, prior_type = self._select_prior(pair, pair_data.pair_key)
