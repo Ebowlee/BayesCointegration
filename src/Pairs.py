@@ -151,6 +151,44 @@ class Pairs:
         elif action == OrderAction.CLOSE:
             self.position_closed_time = fill_time
 
+            # === 在清零之前捕获交易快照（传给TradeJournal） ===
+            # 注意：必须在清零之前捕获，因为清零后数据丢失
+            if hasattr(self.algorithm, 'trade_journal'):
+                # 提取平仓价格和盈亏
+                exit_price1 = None
+                exit_price2 = None
+                for ticket in tickets:
+                    if ticket is not None and ticket.Status == OrderStatus.Filled:
+                        if ticket.Symbol == self.symbol1:
+                            exit_price1 = ticket.AverageFillPrice
+                        elif ticket.Symbol == self.symbol2:
+                            exit_price2 = ticket.AverageFillPrice
+
+                # 计算最终盈亏
+                pnl = self.get_pair_pnl() if self.has_normal_position() else 0.0
+
+                # 确定平仓原因（从订单Tag中提取或使用默认值）
+                # Tag格式: "('AAPL', 'MSFT')_CLOSE_20240101_093000"
+                close_reason = 'CLOSE'  # 默认值
+                if tickets and tickets[0] is not None:
+                    tag = tickets[0].Tag
+                    # 可以根据Tag或其他上下文推断平仓原因
+                    # 这里使用简化逻辑：默认为 CLOSE
+                    # 更精确的方法需要在close_position()时传递reason参数
+                    close_reason = 'CLOSE'
+
+                # 创建快照并记录
+                from src.TradeHistory import TradeSnapshot
+                if exit_price1 is not None and exit_price2 is not None:
+                    snapshot = TradeSnapshot.from_pair(
+                        pair=self,
+                        close_reason=close_reason,
+                        exit_price1=exit_price1,
+                        exit_price2=exit_price2,
+                        pnl=pnl if pnl is not None else 0.0
+                    )
+                    self.algorithm.trade_journal.record(snapshot)
+
             # 平仓后清零所有追踪变量
             self.tracked_qty1 = 0
             self.tracked_qty2 = 0
