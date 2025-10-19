@@ -119,7 +119,7 @@ class ExecutionManager:
             if action == 'pair_close':
                 # 风控触发平仓
                 self.algorithm.Debug(f"[Pair风控] {pair_id} 触发平仓风控")
-                tickets = pair.close_position()
+                tickets = pair.close_position(reason='RISK_TRIGGER')
                 if tickets:
                     self.tickets_manager.register_tickets(pair_id, tickets, OrderAction.CLOSE)
                     # 记录触发的规则详情
@@ -168,7 +168,7 @@ class ExecutionManager:
                 continue
 
             # 通过pair平仓(保持订单追踪)
-            tickets = pair.close_position()
+            tickets = pair.close_position(reason='RISK_TRIGGER')
             if tickets:
                 self.tickets_manager.register_tickets(pair.pair_id, tickets, OrderAction.CLOSE)
                 closed_count += 1
@@ -212,13 +212,13 @@ class ExecutionManager:
             # 处理平仓信号
             if signal == TradingSignal.CLOSE:
                 self.algorithm.Debug(f"[平仓] {pair.pair_id} Z-score回归")
-                tickets = pair.close_position()
+                tickets = pair.close_position(reason='CLOSE')
                 if tickets:
                     self.tickets_manager.register_tickets(pair.pair_id, tickets, OrderAction.CLOSE)
 
             elif signal == TradingSignal.STOP_LOSS:
                 self.algorithm.Debug(f"[止损] {pair.pair_id} Z-score超限")
-                tickets = pair.close_position()
+                tickets = pair.close_position(reason='STOP_LOSS')
                 if tickets:
                     self.tickets_manager.register_tickets(pair.pair_id, tickets, OrderAction.CLOSE)
 

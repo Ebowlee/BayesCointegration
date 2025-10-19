@@ -167,15 +167,23 @@ class Pairs:
                 # 计算最终盈亏
                 pnl = self.get_pair_pnl() if self.has_normal_position() else 0.0
 
-                # 确定平仓原因（从订单Tag中提取或使用默认值）
-                # Tag格式: "('AAPL', 'MSFT')_CLOSE_20240101_093000"
+                # 从订单Tag中解析平仓原因
+                # Tag格式: "('AAPL', 'MSFT')_CLOSE_STOP_LOSS_20240101_093000"
+                # 或旧格式: "('AAPL', 'MSFT')_CLOSE_20240101_093000"
                 close_reason = 'CLOSE'  # 默认值
                 if tickets and tickets[0] is not None:
                     tag = tickets[0].Tag
-                    # 可以根据Tag或其他上下文推断平仓原因
-                    # 这里使用简化逻辑：默认为 CLOSE
-                    # 更精确的方法需要在close_position()时传递reason参数
-                    close_reason = 'CLOSE'
+                    # 解析Tag: pair_id_CLOSE_reason_timestamp
+                    parts = tag.split('_')
+                    if len(parts) >= 4 and parts[2] == 'CLOSE':
+                        # 新格式: 包含reason
+                        # parts[0-1]: pair_id, parts[2]: 'CLOSE', parts[3]: reason, parts[4-5]: timestamp
+                        potential_reason = parts[3]
+                        # 验证是否为有效的平仓原因
+                        valid_reasons = ['CLOSE', 'STOP_LOSS', 'TIMEOUT', 'RISK_TRIGGER']
+                        if potential_reason in valid_reasons:
+                            close_reason = potential_reason
+                    # 否则使用默认值 'CLOSE'
 
                 # 创建快照并记录
                 from src.TradeHistory import TradeSnapshot
@@ -413,14 +421,22 @@ class Pairs:
         return [ticket1, ticket2]
 
 
-    def close_position(self):
+    def close_position(self, reason='CLOSE'):
         """
         平仓该配对的所有持仓
         纯执行方法,不做任何检查
 
+        Args:
+            reason: 平仓原因 (默认 'CLOSE')
+                   可选值: 'CLOSE', 'STOP_LOSS', 'TIMEOUT', 'RISK_TRIGGER'
+
         返回:
             List[OrderTicket]: 订单票据列表,供TicketsManager追踪
             无持仓时返回None
+
+        设计要点:
+        - reason 参数会编码到订单Tag中
+        - on_position_filled() 将从Tag中解析reason并传递给TradeSnapshot
         """
         # 获取当前持仓信息
         info = self.get_position_info()
@@ -431,8 +447,8 @@ class Pairs:
         if qty1 == 0 and qty2 == 0:
             return None
 
-        # 创建平仓Tag
-        tag = self.create_order_tag(OrderAction.CLOSE)
+        # 创建平仓Tag (包含reason)
+        tag = self.create_order_tag(OrderAction.CLOSE, reason)
 
         # 使用MarketOrder平仓(支持tag参数)
         # 收集实际提交的订单票据
@@ -682,15 +698,29 @@ class Pairs:
 
     # ===== 7. 辅助方法 =====
 
-    def create_order_tag(self, action: str):
+    def create_order_tag(self, action: str, reason: str = None):
         """
         创建标准化的订单Tag
-        action: OrderAction.OPEN 或 OrderAction.CLOSE
-        返回格式: "('AAPL', 'MSFT')_OPEN_20240101_093000"
+
+        Args:
+            action: OrderAction.OPEN 或 OrderAction.CLOSE
+            reason: 平仓原因 (仅用于 CLOSE 动作)
+                   可选值: 'CLOSE', 'STOP_LOSS', 'TIMEOUT', 'RISK_TRIGGER'
+
+        返回格式:
+            OPEN:  "('AAPL', 'MSFT')_OPEN_20240101_093000"
+            CLOSE: "('AAPL', 'MSFT')_CLOSE_STOP_LOSS_20240101_093000"
 
         注意: 时间戳精确到秒,防止同一天内多次信号的Tag冲突
         """
-        return f"{self.pair_id}_{action}_{self.algorithm.Time.strftime('%Y%m%d_%H%M%S')}"
+        timestamp = self.algorithm.Time.strftime('%Y%m%d_%H%M%S')
+
+        if action == OrderAction.CLOSE and reason:
+            # 平仓时包含reason
+            return f"{self.pair_id}_{action}_{reason}_{timestamp}"
+        else:
+            # 开仓时或没有reason时的标准格式
+            return f"{self.pair_id}_{action}_{timestamp}"
 
 
     def get_planned_allocation_pct(self) -> float:
