@@ -4,6 +4,7 @@ import numpy as np
 import pymc as pm
 from typing import Dict, List, Tuple
 from collections import defaultdict
+from src.analysis.PairData import PairData
 # endregion
 
 
@@ -86,185 +87,179 @@ class BayesianModeler:
 
 
     def _model_single_pair(self, pair: Dict, clean_data: Dict) -> Dict:
-        """处理单个配对的建模"""
+        """单个配对的建模流程（重构版）"""
         try:
-            # 符号顺序已在CointegrationAnalyzer中规范化
-            symbol1, symbol2 = pair['symbol1'], pair['symbol2']
+            # Step 1: 数据层
+            pair_data = PairData.from_clean_data(pair, clean_data)
 
-            # 提取价格数据
-            prices1 = clean_data[symbol1]['close'].values
-            prices2 = clean_data[symbol2]['close'].values
+            # Step 2: 先验层（三级策略）
+            prior_params, prior_type = self._select_prior(pair, pair_data.pair_key)
 
-            # 先验数据：构造或者将历史后验作为先验输入
-            prior_params = self._setup_prior_params(symbol1, symbol2)
+            # Step 3: 建模层
+            trace = self._sample_posterior(pair_data, prior_params)
 
-            # 执行贝叶斯建模
-            trace, x_data, y_data = self._build_and_sample_model(prices1, prices2, prior_params)
+            # Step 4: 后验层
+            posterior_stats = self._extract_posterior_stats(trace, pair_data)
 
-            # 提取并保存后验统计量（合并函数：同时返回和保存）
-            posterior_stats = self._extract_and_save_posterior_stats(trace, x_data, y_data, symbol1, symbol2)
-
-            # 构建结果（核心字段优先，最后合并统计量）
-            result = {
-                'symbol1': symbol1,
-                'symbol2': symbol2,
-                'industry_group': pair['industry_group'],
-                'quality_score': pair['quality_score'],  # 必须存在，由 PairSelector 提供
-                'modeling_type': prior_params['prior_type'],  # 使用实际的先验类型
-                'modeling_time': self.algorithm.Time,
-                **posterior_stats  # 展开后验统计量字典
-            }
+            # Step 5: 结果构建
+            result = self._build_result(pair, pair_data, prior_type, posterior_stats)
 
             return result
 
         except Exception as e:
-            self.algorithm.Debug(f"[BayesianModeler] 建模失败 {symbol1.Value}&{symbol2.Value}: {str(e)}")
+            self.algorithm.Debug(f"[BayesianModeler] 建模失败: {str(e)}")
             return None
 
 
-    def _setup_prior_params(self, symbol1: Symbol, symbol2: Symbol) -> Dict:
-        """
-        无信息的情况下构造先验参数
-        有信息的情况下获取后验数据作为先验参数
-        注意：只返回参数值，不创建分布对象
-        """
-        pair_key = (symbol1, symbol2)
+    # ===== 先验选择系统 (三级策略) =====
 
-        if (pair_key not in self.historical_posteriors or
-        (self.algorithm.UtcTime - self.historical_posteriors[pair_key]['update_time']).days > self.lookback_days):
-            # 无信息先验
-            uninformed = self.bayesian_priors['uninformed']
-            params = {
-                'alpha_mu': 0,
-                'alpha_sigma': uninformed['alpha_sigma'],
-                'beta_mu': 1,
-                'beta_sigma': uninformed['beta_sigma'],
-                'sigma_sigma': uninformed['sigma_sigma'],
-                'tune': self.mcmc_warmup_samples,
-                'draws': self.mcmc_posterior_samples,
-                'prior_type': 'full'  # 完全建模
-            }
-        else:
-            # 信息先验（使用历史后验）
-            informed = self.bayesian_priors['informed']
-            reduction_factor = informed['sample_reduction_factor']
-            sigma_multiplier = informed['sigma_multiplier']
+    def _select_prior(self, pair_info: Dict, pair_key: tuple) -> tuple:
+        """先验选择策略（三级体系）"""
+        # Level 1: 历史后验先验（强信息）
+        if self._has_valid_historical_posterior(pair_key):
+            return self._create_historical_prior(pair_key), 'historical_posterior'
 
-            # 从历史后验中提取参数
-            historical = self.historical_posteriors[pair_key]
+        # Level 2: OLS弱信息先验（使用PairSelector的OLS结果）
+        if pair_info.get('ols_beta') is not None and pair_info.get('ols_alpha') is not None:
+            return self._create_ols_prior(pair_info), 'ols_informed'
 
-            # sigma使用历史均值和标准差信息，通过放大系数避免过度收缩
-            sigma_prior = max(historical['sigma_std'] * sigma_multiplier, historical['sigma_mean'] * 0.5)
-
-            params = {
-                'alpha_mu': historical['alpha_mean'],
-                'alpha_sigma': historical['alpha_std'],
-                'beta_mu': historical['beta_mean'],
-                'beta_sigma': historical['beta_std'],
-                'sigma_sigma': sigma_prior,
-                'tune': int(self.mcmc_warmup_samples * reduction_factor),
-                'draws': int(self.mcmc_posterior_samples * reduction_factor),
-                'prior_type': 'dynamic'  # 动态更新
-            }
-
-        return params
+        # Level 3: 完全无信息先验（降级方案）
+        self.algorithm.Debug(f"[BayesianModeler] {pair_key} 使用完全无信息先验 (原因: 无历史后验且OLS失败)")
+        return self._create_uninformed_prior(), 'uninformed'
 
 
-    def _build_and_sample_model(self, prices1: np.ndarray, prices2: np.ndarray, prior_params: Dict):
-        """
-        构建贝叶斯线性回归模型并执行MCMC采样
-        模型: log(price1) = alpha + beta * log(price2) + epsilon
-        """
-        # 对数转换
-        x_data = np.log(prices2)
-        y_data = np.log(prices1)
+    def _has_valid_historical_posterior(self, pair_key: tuple) -> bool:
+        """检查是否存在有效的历史后验"""
+        if pair_key not in self.historical_posteriors:
+            return False
 
-        # 提取采样参数
-        tune = prior_params['tune']
-        draws = prior_params['draws']
+        validity_days = self.bayesian_priors['informed'].get('validity_days', 60)
+        days_old = (self.algorithm.UtcTime - self.historical_posteriors[pair_key]['update_time']).days
+
+        return days_old <= validity_days
+
+
+    def _create_ols_prior(self, pair_info: Dict) -> Dict:
+        """创建OLS弱信息先验（关键优化）"""
+        config = self.bayesian_priors['uninformed']
+
+        return {
+            'alpha_mu': pair_info['ols_alpha'],
+            'alpha_sigma': config['alpha_sigma'],
+            'beta_mu': pair_info['ols_beta'],
+            'beta_sigma': config['beta_sigma'],
+            'sigma_sigma': config['sigma_sigma'],
+            'tune': self.mcmc_warmup_samples,
+            'draws': self.mcmc_posterior_samples,
+        }
+
+
+    def _create_historical_prior(self, pair_key: tuple) -> Dict:
+        """创建历史后验先验"""
+        config = self.bayesian_priors['informed']
+        historical = self.historical_posteriors[pair_key]
+
+        sigma_prior = max(
+            historical['sigma_std'] * config['sigma_multiplier'],
+            historical['sigma_mean'] * 1.0
+        )
+
+        return {
+            'alpha_mu': historical['alpha_mean'],
+            'alpha_sigma': historical['alpha_std'],
+            'beta_mu': historical['beta_mean'],
+            'beta_sigma': historical['beta_std'],
+            'sigma_sigma': sigma_prior,
+            'tune': int(self.mcmc_warmup_samples * config['sample_reduction_factor']),
+            'draws': int(self.mcmc_posterior_samples * config['sample_reduction_factor']),
+        }
+
+
+    def _create_uninformed_prior(self) -> Dict:
+        """创建完全无信息先验（降级方案）"""
+        config = self.bayesian_priors['uninformed']
+
+        return {
+            'alpha_mu': 0,
+            'alpha_sigma': config['alpha_sigma'],
+            'beta_mu': 1,
+            'beta_sigma': config['beta_sigma'],
+            'sigma_sigma': config['sigma_sigma'],
+            'tune': self.mcmc_warmup_samples,
+            'draws': self.mcmc_posterior_samples,
+        }
+
+
+    # ===== 建模执行系统 =====
+
+
+    def _sample_posterior(self, pair_data: PairData, prior_params: Dict):
+        """执行MCMC采样"""
+        x_data = pair_data.log_prices2
+        y_data = pair_data.log_prices1
 
         with pm.Model() as model:
-            # 在模型上下文中创建先验分布
-            alpha = pm.Normal('alpha',
-                            mu=prior_params['alpha_mu'],
-                            sigma=prior_params['alpha_sigma'])
+            alpha = pm.Normal('alpha', mu=prior_params['alpha_mu'], sigma=prior_params['alpha_sigma'])
+            beta = pm.Normal('beta', mu=prior_params['beta_mu'], sigma=prior_params['beta_sigma'])
+            sigma = pm.HalfNormal('sigma', sigma=prior_params['sigma_sigma'])
 
-            beta = pm.Normal('beta',
-                           mu=prior_params['beta_mu'],
-                           sigma=prior_params['beta_sigma'])
-
-            sigma = pm.HalfNormal('sigma',
-                                sigma=prior_params['sigma_sigma'])
-
-            # 定义线性关系
             mu = alpha + beta * x_data
-
-            # 定义似然函数
             likelihood = pm.Normal('y', mu=mu, sigma=sigma, observed=y_data)
-
-            # 计算残差
             residuals = pm.Deterministic('residuals', y_data - mu)
 
-            # MCMC采样
             trace = pm.sample(
-                draws=draws,
-                tune=tune,
+                draws=prior_params['draws'],
+                tune=prior_params['tune'],
                 chains=self.mcmc_chains,
                 return_inferencedata=False,
                 progressbar=False
             )
 
-        return trace, x_data, y_data
+        return trace
 
 
-    def _extract_and_save_posterior_stats(self, trace, x_data, y_data, symbol1: Symbol, symbol2: Symbol) -> Dict:
-        """
-        提取后验统计量并保存到历史记录
-
-        Returns:
-            Dict: 包含所有后验统计量的字典，可直接用于构建结果
-        """
-        # 提取后验样本
-        alpha_samples = trace['alpha']
-        beta_samples = trace['beta']
-        sigma_samples = trace['sigma']
-        residuals_samples = trace['residuals']
-
-        # 计算统计量
+    def _extract_posterior_stats(self, trace, pair_data: PairData) -> Dict:
+        """提取后验统计量并保存到历史记录"""
         stats = {
-            # 参数统计
-            'alpha_mean': float(np.mean(alpha_samples)),
-            'alpha_std': float(np.std(alpha_samples)),
-            'beta_mean': float(np.mean(beta_samples)),
-            'beta_std': float(np.std(beta_samples)),
-            'sigma_mean': float(np.mean(sigma_samples)),
-            'sigma_std': float(np.std(sigma_samples)),
-
-            # 残差统计（用于Z-score信号生成）
-            'residual_mean': float(np.mean(residuals_samples)),  # 理论上接近0
-            'residual_std': float(np.std(residuals_samples)),
-
-            # 更新时间 (timezone-naive UTC,与比较逻辑保持一致)
+            'alpha_mean': float(np.mean(trace['alpha'])),
+            'alpha_std': float(np.std(trace['alpha'])),
+            'beta_mean': float(np.mean(trace['beta'])),
+            'beta_std': float(np.std(trace['beta'])),
+            'sigma_mean': float(np.mean(trace['sigma'])),
+            'sigma_std': float(np.std(trace['sigma'])),
+            'residual_mean': float(np.mean(trace['residuals'])),
+            'residual_std': float(np.std(trace['residuals'])),
             'update_time': self.algorithm.UtcTime
         }
 
-        # 保存到历史后验（供未来作为先验使用）
-        pair_key = (symbol1, symbol2)
-        self.historical_posteriors[pair_key] = stats.copy()  # 保存副本
+        self.historical_posteriors[pair_data.pair_key] = stats.copy()
 
-        return stats  # 返回统计量供立即使用
+        return stats
+
+
+    def _build_result(self, pair_info: Dict, pair_data: PairData,
+                     prior_type: str, posterior_stats: Dict) -> Dict:
+        """构建建模结果字典"""
+        return {
+            'symbol1': pair_data.symbol1,
+            'symbol2': pair_data.symbol2,
+            'industry_group': pair_info['industry_group'],
+            'quality_score': pair_info['quality_score'],
+            'modeling_type': prior_type,
+            'modeling_time': self.algorithm.Time,
+            **posterior_stats
+        }
 
 
     def _log_statistics(self, statistics: dict):
-        """
-        输出建模统计信息
-        """
+        """输出建模统计信息（重构版）"""
         successful = statistics.get('successful', 0)
         failed = statistics.get('failed', 0)
-        full = statistics.get('full_modeling', 0)
-        dynamic = statistics.get('dynamic_modeling', 0)
+        ols_informed = statistics.get('ols_informed_modeling', 0)
+        historical_posterior = statistics.get('historical_posterior_modeling', 0)
+        uninformed = statistics.get('uninformed_modeling', 0)
 
         self.algorithm.Debug(
             f"[BayesianModeler] 建模完成: 成功{successful}对, 失败{failed}对 "
-            f"(完全建模{full}对, 动态更新{dynamic}对)"
+            f"(OLS弱信息{ols_informed}对, 历史后验{historical_posterior}对, 完全无信息{uninformed}对)"
         )

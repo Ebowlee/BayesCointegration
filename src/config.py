@@ -151,14 +151,15 @@ class StrategyConfig:
 
             # 先验配置
             'bayesian_priors': {
-                'uninformed': {                 # 无信息先验(首次建模)
+                'uninformed': {                 # 完全无信息先验(降级方案,OLS失败时使用)
                     'alpha_sigma': 10,          # 截距项标准差
                     'beta_sigma': 5,            # 斜率项标准差
                     'sigma_sigma': 5.0          # 噪声项标准差
                 },
-                'informed': {                   # 信息先验(动态更新)
-                    'sigma_multiplier': 1.5,    # sigma放大系数
-                    'sample_reduction_factor': 0.5  # 采样减少比例
+                'informed': {                   # 历史后验先验(强信息,重复建模时使用)
+                    'sigma_multiplier': 2.0,    # sigma放大系数(从1.5调整为2.0,更宽松)
+                    'sample_reduction_factor': 0.5,  # 采样减少比例
+                    'validity_days': 60         # 历史后验有效期(天,从252天调整为60天)
                 }
             }
         }
