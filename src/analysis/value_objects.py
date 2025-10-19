@@ -83,3 +83,62 @@ class PairData:
                 f"{self.symbol1.Value} log_prices={len(self.log_prices1)} vs prices={len(self.prices1)}, "
                 f"{self.symbol2.Value} log_prices={len(self.log_prices2)} vs prices={len(self.prices2)}"
             )
+
+    @classmethod
+    def from_clean_data(cls, pair_info: Dict, clean_data: Dict) -> 'PairData':
+        """
+        工厂方法：从 clean_data 自动提取和转换价格数据
+
+        封装数据提取和对数转换逻辑，提供简洁的对象创建接口。
+
+        Args:
+            pair_info: 配对信息字典（必须包含 'symbol1' 和 'symbol2'）
+                格式: {'symbol1': Symbol, 'symbol2': Symbol, ...}
+            clean_data: 清洗后的价格数据字典
+                格式: {Symbol: DataFrame with 'close' column}
+
+        Returns:
+            PairData: 包含原始价格和对数价格的不可变对象
+
+        Raises:
+            KeyError: 如果 symbol 不在 clean_data 中
+            ValueError: 如果数据验证失败（由 __post_init__ 触发）
+
+        示例:
+            >>> pair_info = {'symbol1': SPY, 'symbol2': QQQ, ...}
+            >>> clean_data = {SPY: DataFrame(...), QQQ: DataFrame(...)}
+            >>> pair_data = PairData.from_clean_data(pair_info, clean_data)
+            >>> # 自动完成数据提取和对数转换
+
+        设计理念:
+        - 封装实现细节：使用者无需知道如何从DataFrame提取数据
+        - 一次性转换：对数转换只执行一次，提升性能
+        - 自动验证：创建时自动触发 __post_init__ 验证
+        """
+        # 提取股票代码
+        symbol1 = pair_info['symbol1']
+        symbol2 = pair_info['symbol2']
+
+        # 从 clean_data 提取价格序列（DataFrame → np.ndarray）
+        try:
+            prices1 = clean_data[symbol1]['close'].values
+            prices2 = clean_data[symbol2]['close'].values
+        except KeyError as e:
+            raise KeyError(
+                f"clean_data 中缺少股票数据: {e}. "
+                f"可用股票: {list(clean_data.keys())}"
+            )
+
+        # 执行对数转换（只计算一次！）
+        log_prices1 = np.log(prices1)
+        log_prices2 = np.log(prices2)
+
+        # 调用构造函数（会自动触发 __post_init__ 验证）
+        return cls(
+            symbol1=symbol1,
+            symbol2=symbol2,
+            prices1=prices1,
+            prices2=prices2,
+            log_prices1=log_prices1,
+            log_prices2=log_prices2
+        )
