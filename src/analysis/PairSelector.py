@@ -55,7 +55,6 @@ class PairSelector:
         - 确保评分高的配对在实际交易中也表现良好
         """
         scored_pairs = []
-        recent_window = self.lookback_days  # 252天,与BayesianModeler统一
 
         for pair_info in raw_pairs:
             symbol1 = pair_info['symbol1']
@@ -73,9 +72,9 @@ class PairSelector:
             prices2 = data2['close']
 
             # ⭐ 预先计算252天窗口数据和beta（只计算一次，用于Half-Life评分）
-            if len(prices1) >= recent_window and len(prices2) >= recent_window:
-                prices1_recent = prices1[-recent_window:]
-                prices2_recent = prices2[-recent_window:]
+            if len(prices1) >= self.lookback_days and len(prices2) >= self.lookback_days:
+                prices1_recent = prices1[-self.lookback_days:]
+                prices2_recent = prices2[-self.lookback_days:]
 
                 # 估计beta（OLS回归，每配对只计算一次）
                 slope, _, _, _, _ = stats.linregress(np.log(prices2_recent), np.log(prices1_recent))

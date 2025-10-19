@@ -1,5 +1,6 @@
 # region imports
 from AlgorithmImports import *
+import pandas as pd
 from System import Action
 from src.config import StrategyConfig
 from src.UniverseSelection import SectorBasedUniverseSelection
@@ -239,9 +240,12 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         try:
             spy_history = self.History(self.market_benchmark, self.StartDate, self.EndDate, Resolution.Daily)
             if not spy_history.empty:
-                spy_prices = {}
-                for index, row in spy_history.iterrows():
-                    spy_prices[index.date()] = row['close']
+                # 处理可能的MultiIndex结构 (Symbol, Time)
+                if isinstance(spy_history.index, pd.MultiIndex):
+                    spy_history = spy_history.droplevel(0)  # 删除Symbol层,保留Time层
+
+                # 现在保证是单层DatetimeIndex,可以安全调用.date()
+                spy_prices = {index.date(): row['close'] for index, row in spy_history.iterrows()}
             else:
                 spy_prices = None
                 self.Debug("[回测报告] 无法获取SPY历史数据,跳过基准对比")

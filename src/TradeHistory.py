@@ -559,6 +559,8 @@ class TradeAnalyzer:
         Example:
             # 在 OnEndOfAlgorithm 中
             spy_history = self.History(self.market_benchmark, self.StartDate, self.EndDate, Resolution.Daily)
+            if isinstance(spy_history.index, pd.MultiIndex):
+                spy_history = spy_history.droplevel(0)
             spy_prices = {index.date(): row['close'] for index, row in spy_history.iterrows()}
 
             stats = TradeAnalyzer.analyze_global(
