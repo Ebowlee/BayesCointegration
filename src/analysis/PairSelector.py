@@ -27,6 +27,7 @@ class PairSelector:
         # 从module_config读取
         self.max_symbol_repeats = module_config['max_symbol_repeats']
         self.max_pairs = module_config['max_pairs']
+        self.min_quality_threshold = module_config['min_quality_threshold']
         self.liquidity_benchmark = module_config['liquidity_benchmark']
         self.quality_weights = module_config['quality_weights']
         self.scoring_thresholds = module_config['scoring_thresholds']
@@ -77,13 +78,17 @@ class PairSelector:
                 prices2_recent = prices2[-self.lookback_days:]
 
                 # 估计beta（OLS回归，每配对只计算一次）
-                slope, _, _, _, _ = stats.linregress(np.log(prices2_recent), np.log(prices1_recent))
+                linreg_result = stats.linregress(np.log(prices2_recent), np.log(prices1_recent))
+                slope = linreg_result.slope
+                intercept = linreg_result.intercept
                 beta = slope if slope > 0 else 1.0  # 安全检查: beta应为正
 
                 # 计算半衰期分数（传入预计算的数据）
                 half_life_score = self._calculate_half_life_score(prices1_recent, prices2_recent, beta)
             else:
                 # 数据不足，分数为0
+                slope = None
+                intercept = None
                 half_life_score = 0
 
             # 流动性分数（基于成交量，独立计算）
@@ -96,11 +101,13 @@ class PairSelector:
                 self.quality_weights['liquidity'] * liquidity_score
             )
 
-            # 添加评分结果
+            # 添加评分结果和OLS结果（供BayesianModeler复用）
             pair_info.update({
                 'quality_score': quality_score,
                 'half_life_score': half_life_score,
-                'liquidity_score': liquidity_score
+                'liquidity_score': liquidity_score,
+                'ols_beta': slope,      # OLS原始斜率（可能为负）
+                'ols_alpha': intercept  # OLS截距
             })
             scored_pairs.append(pair_info)
 
@@ -110,11 +117,30 @@ class PairSelector:
     def select_best(self, scored_pairs):
         """
         筛选最佳配对
-        根据质量分数排序，并确保单个股票不会出现在过多配对中
-        """
-        # 按质量分数排序（从高到低）
-        sorted_pairs = sorted(scored_pairs, key=lambda x: x['quality_score'], reverse=True)
 
+        流程:
+        1. 过滤低于最低分数阈值的配对（质量门槛）
+        2. 按质量分数排序
+        3. 确保单个股票不会出现在过多配对中
+        """
+        # Step 1: 最低质量门槛过滤（严格大于阈值）
+        min_threshold = self.min_quality_threshold  # 从config读取
+        qualified_pairs = [
+            p for p in scored_pairs
+            if p['quality_score'] > min_threshold  # 严格大于（不包含等于）
+        ]
+
+        # 诊断日志：记录淘汰的配对数量
+        rejected_count = len(scored_pairs) - len(qualified_pairs)
+        if rejected_count > 0:
+            self.algorithm.Debug(
+                f"[PairSelector] 质量阈值过滤: {rejected_count}个配对 <= {min_threshold:.2f}分"
+            )
+
+        # Step 2: 按质量分数排序（从高到低）
+        sorted_pairs = sorted(qualified_pairs, key=lambda x: x['quality_score'], reverse=True)
+
+        # Step 3: 单股重复限制（确保单个股票不会出现在过多配对中）
         selected = []
         symbol_counts = defaultdict(int)
 

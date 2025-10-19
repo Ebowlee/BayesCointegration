@@ -118,6 +118,9 @@ class StrategyConfig:
             'max_symbol_repeats': 3,            # 单股最多配对数(允许高质量股票参与多个配对)
             'max_pairs': 30,                    # 最大配对数(配合max_symbol_repeats放宽)
 
+            # 质量门槛
+            'min_quality_threshold': 0.40,      # 最低质量分数阈值(严格大于,异常beta配对理论上限=0.40)
+
             # 流动性基准
             'liquidity_benchmark': 5e8,         # 流动性评分基准(5亿美元)
 
