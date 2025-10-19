@@ -142,3 +142,63 @@ class PairData:
             log_prices1=log_prices1,
             log_prices2=log_prices2
         )
+
+    @property
+    def length(self) -> int:
+        """
+        返回价格序列长度
+
+        Returns:
+            int: 价格序列的元素数量
+
+        示例:
+            >>> pair_data.length
+            252
+
+        设计理念:
+        - 提供统一接口：无需访问 len(prices1)
+        - 类型安全：明确返回int类型
+        - 只读属性：使用@property，不能修改
+        """
+        return len(self.prices1)
+
+    @property
+    def pair_key(self) -> tuple:
+        """
+        返回配对唯一标识符
+
+        Returns:
+            tuple: (symbol1, symbol2) 元组，可用作字典键
+
+        示例:
+            >>> pair_data.pair_key
+            (<Symbol SPY>, <Symbol QQQ>)
+            >>> cache[pair_data.pair_key] = result  # 用作字典键
+
+        设计理念:
+        - 统一标识符格式：避免手动构造 (symbol1, symbol2)
+        - 可哈希：tuple可作为字典键（dataclass默认不可哈希）
+        - 语义清晰：pair_key 明确表示"配对的唯一标识"
+        """
+        return (self.symbol1, self.symbol2)
+
+    def __repr__(self) -> str:
+        """
+        自定义字符串表示（用于调试和日志）
+
+        Returns:
+            str: 简洁的字符串表示
+
+        示例:
+            >>> print(pair_data)
+            PairData(SPY & QQQ, n=252)
+
+        设计理念:
+        - 简洁输出：只显示关键信息（股票代码和数据长度）
+        - 易于阅读：适合日志输出和调试
+        - 覆盖默认：dataclass默认输出过于冗长
+        """
+        return (
+            f"PairData({self.symbol1.Value} & {self.symbol2.Value}, "
+            f"n={self.length})"
+        )
