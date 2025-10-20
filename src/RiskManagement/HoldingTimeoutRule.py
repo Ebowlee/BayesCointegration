@@ -12,7 +12,7 @@ class HoldingTimeoutRule(RiskRule):
     如果持仓超过max_days仍未回归,说明协整关系可能失效,应止损退出。
 
     触发条件:
-    - 持仓天数 > max_days (从pair.position_opened_time到当前时间)
+    - 持仓天数 > max_days (从pair.pair_opened_time到当前时间)
 
     响应动作:
     - 'pair_close': 正常平仓
@@ -83,7 +83,7 @@ class HoldingTimeoutRule(RiskRule):
         # 3. 判断是否超时
         if holding_days > self.max_days:
             # 获取开仓时间用于日志 (如果存在)
-            entry_time = getattr(pair, 'position_opened_time', None)
+            entry_time = getattr(pair, 'pair_opened_time', None)
             entry_time_str = entry_time.strftime('%Y-%m-%d') if entry_time else "未知"
 
             description = (

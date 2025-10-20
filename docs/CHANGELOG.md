@@ -4,6 +4,302 @@
 
 ---
 
+## [v7.0.0_Intent模式重构@20250120]
+
+### 版本定义
+**架构重构版本**: Intent Pattern - 意图生成与订单执行分离
+
+### 核心改动
+
+**架构变更**:
+- **新增模块**:
+  - `OrderExecutor.py`: 统一订单执行引擎,负责将意图对象转换为实际的市场订单
+  - `OrderIntent.py`: 意图值对象定义(OpenIntent, CloseIntent),作为不可变数据载体
+- **Pairs.py 职责变更**:
+  - ✅ 新增: `get_open_intent()`, `get_close_intent()` - 生成交易意图对象
+  - ❌ 移除: `open_position()`, `close_position()` - 不再直接执行订单
+  - 🔧 优化: `get_pair_pnl()` 支持两种模式:
+    - 持仓中(`exit_price=None`): 使用实时价格计算浮动PnL
+    - 已平仓(`exit_price≠None`): 使用退出价格计算最终PnL
+  - 🔧 优化: `exit_price1/2` 与 `entry_price1/2` 统一清零管理
+- **ExecutionManager.py 角色变更**:
+  - 从"执行器"转变为"协调器"
+  - 协调 Pairs(意图生成) → OrderExecutor(订单执行) → TicketsManager(票据管理)
+
+### 设计原则
+
+**关注点分离**:
+```
+业务逻辑层(Pairs)        ↓ 生成意图对象
+------------------------
+执行层(OrderExecutor)     ↓ 提交市场订单
+------------------------
+跟踪层(TicketsManager)    ↓ 管理订单生命周期
+```
+
+**好处**:
+1. **可测试性**: Pairs.get_open_intent() 可独立测试,无需mock订单系统
+2. **可扩展性**: OrderExecutor可支持多种订单类型(市价/限价/止损)而不影响Pairs
+3. **责任清晰**: 意图生成(what) vs 订单执行(how) 解耦
+4. **调试友好**: Intent对象可序列化记录,便于问题定位
+
+### 实施细节
+
+**1. 意图对象设计** (OrderIntent.py):
+```python
+@dataclass
+class OpenIntent:
+    """开仓意图 - 不可变值对象"""
+    pair_id: tuple           # 配对ID
+    symbol1: Symbol          # 标的1
+    symbol2: Symbol          # 标的2
+    qty1: int                # 标的1数量(正=买入,负=卖出)
+    qty2: int                # 标的2数量(正=买入,负=卖出)
+    signal: str              # 信号类型(LONG_SPREAD/SHORT_SPREAD)
+    tag: str                 # 订单标签(用于追踪)
+
+@dataclass
+class CloseIntent:
+    """平仓意图 - 不可变值对象"""
+    pair_id: tuple
+    symbol1: Symbol
+    symbol2: Symbol
+    qty1: int                # 平仓数量(从Portfolio查询得到)
+    qty2: int
+    reason: str              # 平仓原因(CLOSE/STOP_LOSS/TIMEOUT等)
+    tag: str
+```
+
+**2. Pairs.py 方法重构**:
+
+**新增方法**:
+```python
+def get_open_intent(self, amount_allocated: float, data) -> Optional[OpenIntent]:
+    """生成开仓意图(不执行)"""
+    # 1. 计算beta对冲数量
+    qty1, qty2 = self._calculate_hedge_quantities(amount_allocated, data)
+
+    # 2. 获取当前信号
+    signal = self.get_signal(data)
+
+    # 3. 验证信号有效性
+    if signal not in [TradingSignal.LONG_SPREAD, TradingSignal.SHORT_SPREAD]:
+        return None
+
+    # 4. 返回意图对象
+    return OpenIntent(
+        pair_id=self.pair_id,
+        symbol1=self.symbol1,
+        symbol2=self.symbol2,
+        qty1=qty1,
+        qty2=-qty2,  # 做空方向取反
+        signal=signal.value,
+        tag=f"OPEN_{signal.value}_{self.pair_id}"
+    )
+
+def get_close_intent(self, reason='CLOSE') -> Optional[CloseIntent]:
+    """生成平仓意图(不执行)"""
+    portfolio = self.algorithm.Portfolio
+
+    # 1. 查询当前持仓
+    qty1 = portfolio[self.symbol1].Quantity
+    qty2 = portfolio[self.symbol2].Quantity
+
+    # 2. 验证持仓存在
+    if qty1 == 0 or qty2 == 0:
+        return None
+
+    # 3. 返回意图对象
+    return CloseIntent(
+        pair_id=self.pair_id,
+        symbol1=self.symbol1,
+        symbol2=self.symbol2,
+        qty1=-qty1,  # 平仓方向取反
+        qty2=-qty2,
+        reason=reason,
+        tag=f"CLOSE_{reason}_{self.pair_id}"
+    )
+```
+
+**优化方法**:
+```python
+def get_pair_pnl(self) -> float:
+    """计算配对盈亏 - 双模式支持"""
+    # 模式1: 持仓中 → 使用实时价格(浮动PnL)
+    if self.exit_price1 is None or self.exit_price2 is None:
+        portfolio = self.algorithm.Portfolio
+        price1 = portfolio[self.symbol1].Price
+        price2 = portfolio[self.symbol2].Price
+    # 模式2: 已平仓 → 使用退出价格(最终PnL)
+    else:
+        price1 = self.exit_price1
+        price2 = self.exit_price2
+
+    # 计算PnL = leg1_pnl + leg2_pnl
+    pnl1 = self.qty1 * (price1 - self.entry_price1)
+    pnl2 = self.qty2 * (price2 - self.entry_price2)
+    return pnl1 + pnl2
+
+def on_position_filled(self, action: str, fill_price1: float, fill_price2: float):
+    """订单成交回调 - 统一清零逻辑"""
+    if action == 'OPEN':
+        self.entry_price1 = fill_price1
+        self.entry_price2 = fill_price2
+        self.entry_time = self.algorithm.Time
+    elif action == 'CLOSE':
+        self.exit_price1 = fill_price1
+        self.exit_price2 = fill_price2
+        # 统一清零(记录TradeSnapshot后清理)
+        self.entry_price1 = None
+        self.entry_price2 = None
+        self.exit_price1 = None
+        self.exit_price2 = None
+```
+
+**3. OrderExecutor.py 实现**:
+```python
+class OrderExecutor:
+    """订单执行引擎 - 将意图转换为市场订单"""
+
+    def __init__(self, algorithm):
+        self.algorithm = algorithm
+
+    def execute_open(self, intent: OpenIntent) -> Optional[List[OrderTicket]]:
+        """执行开仓意图"""
+        try:
+            # 提交市价单
+            ticket1 = self.algorithm.MarketOrder(
+                intent.symbol1,
+                intent.qty1,
+                tag=intent.tag
+            )
+            ticket2 = self.algorithm.MarketOrder(
+                intent.symbol2,
+                intent.qty2,
+                tag=intent.tag
+            )
+
+            return [ticket1, ticket2] if ticket1 and ticket2 else None
+
+        except Exception as e:
+            self.algorithm.Debug(f"[OrderExecutor] 开仓执行失败: {str(e)}")
+            return None
+
+    def execute_close(self, intent: CloseIntent) -> Optional[List[OrderTicket]]:
+        """执行平仓意图"""
+        try:
+            ticket1 = self.algorithm.MarketOrder(
+                intent.symbol1,
+                intent.qty1,
+                tag=intent.tag
+            )
+            ticket2 = self.algorithm.MarketOrder(
+                intent.symbol2,
+                intent.qty2,
+                tag=intent.tag
+            )
+
+            return [ticket1, ticket2] if ticket1 and ticket2 else None
+
+        except Exception as e:
+            self.algorithm.Debug(f"[OrderExecutor] 平仓执行失败: {str(e)}")
+            return None
+```
+
+**4. ExecutionManager.py 协调流程**:
+
+**旧流程(v6.9.4)**:
+```python
+# 直接执行模式
+tickets = pair.open_position(signal, margin_allocated, data)
+if tickets:
+    tickets_manager.register_tickets(pair_id, tickets, OrderAction.OPEN)
+```
+
+**新流程(v7.0.0)**:
+```python
+# Intent模式 - 三步协调
+# 1. 生成意图
+intent = pair.get_open_intent(amount_allocated, data)
+
+# 2. 执行意图
+if intent:
+    tickets = order_executor.execute_open(intent)
+
+    # 3. 注册票据
+    if tickets:
+        tickets_manager.register_tickets(
+            intent.pair_id,
+            tickets,
+            OrderAction.OPEN
+        )
+```
+
+### 数据流更新
+
+**v6.9.4 数据流**:
+```
+OnData → Pairs.get_signal() → Pairs.open_position() → MarketOrder → TicketsManager
+```
+
+**v7.0.0 数据流**:
+```
+OnData → Pairs.get_signal() → Pairs.get_open_intent() → OrderExecutor.execute_open() → MarketOrder → TicketsManager
+```
+
+**关键差异**:
+- Pairs不再依赖 `self.algorithm.MarketOrder()`
+- 新增了清晰的意图层(Intent objects)
+- ExecutionManager变为纯协调器,不含执行逻辑
+
+### 向后兼容性
+
+**破坏性变更**:
+- ❌ `Pairs.open_position()` 方法移除
+- ❌ `Pairs.close_position()` 方法移除
+
+**迁移指南**:
+```python
+# 旧代码(v6.9.4)
+tickets = pair.open_position(signal, margin, data)
+
+# 新代码(v7.0.0)
+intent = pair.get_open_intent(margin, data)
+if intent:
+    tickets = order_executor.execute_open(intent)
+```
+
+### 测试要点
+
+**单元测试**:
+1. `Pairs.get_open_intent()` - 验证数量计算正确性(无需mock MarketOrder)
+2. `OrderExecutor.execute_open()` - 验证订单提交逻辑(可mock MarketOrder)
+3. `CloseIntent/OpenIntent` - 验证不可变性和序列化
+
+**集成测试**:
+1. ExecutionManager协调流程 - 验证三步协调完整性
+2. 异常场景 - 验证意图生成失败、执行失败的处理
+3. OrderTicket注册 - 验证TicketsManager锁定机制
+
+### 预期收益
+
+**可维护性**:
+- Pairs模块从520行减少至480行(移除直接执行逻辑)
+- 新增OrderExecutor 80行(专注订单执行)
+- 职责边界清晰,未来修改更聚焦
+
+**可测试性**:
+- Pairs业务逻辑可独立测试(返回Intent对象即可验证)
+- OrderExecutor可独立测试(mock MarketOrder验证调用参数)
+- 减少集成测试复杂度
+
+**可扩展性**:
+- 未来支持限价单: 修改OrderExecutor.execute_open()添加price参数
+- 未来支持批量执行: OrderExecutor可聚合多个Intent批量提交
+- 未来支持订单预检: 在execute_open()前添加风控检查层
+
+---
+
 ## [v6.7.2_子行业分组重构@20250117]
 
 ### 版本定义

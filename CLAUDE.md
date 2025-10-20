@@ -6,21 +6,24 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is a **Bayesian Cointegration** pairs trading strategy built for the QuantConnect platform. The strategy uses advanced statistical methods including Bayesian inference with MCMC sampling to identify and trade mean-reverting relationships between securities within the same industry sectors.
 
-## Architecture Pattern (v6.4.4 OnData + Order Tracking)
+## Architecture Pattern (v7.0.0 OnData + Intent Pattern)
 
-The strategy uses **OnData-driven architecture** (migrated from Algorithm Framework in v6.0.0):
+The strategy uses **OnData-driven architecture** with **Intent Pattern** (migrated from Algorithm Framework in v6.0.0, Intent Pattern introduced in v7.0.0):
 
 - **main.py**: Central orchestrator using `BayesianCointegrationStrategy(QCAlgorithm)` with OnData event handling
 - **UniverseSelection**: Multi-stage fundamental screening with sector-based selection
-- **Pairs**: Core pair trading object encapsulating signal generation and trade execution
+- **Pairs**: Core pair trading object encapsulating signal generation and intent generation
+- **OrderExecutor**: Unified order execution engine (separates intent from execution)
+- **OrderIntent**: Intent value objects (OpenIntent, CloseIntent) for trade intentions
 - **PairsManager**: Lifecycle manager for all pairs (active, legacy, dormant states)
 - **RiskManagement**: Two-tier risk control system with separation of concerns (detection vs execution)
 - **Analysis modules**: DataProcessor, CointegrationAnalyzer, BayesianModeler, PairSelector
 
-Key architectural principles (v6.4.4):
+Key architectural principles (v7.0.0):
 - **OnData-driven** - All trading logic flows through OnData method, no Framework modules
-- **Object-oriented pairs** - Pairs class encapsulates all pair-specific logic
-- **Separation of concerns** - Risk managers detect risks, main.py executes actions
+- **Intent-based execution** - Intent generation (Pairs) separated from order execution (OrderExecutor)
+- **Object-oriented pairs** - Pairs class encapsulates all pair-specific logic and intent generation
+- **Separation of concerns** - Risk managers detect risks, main.py coordinates execution
 - **Smart lifecycle management** - PairsManager tracks pairs through active/legacy/dormant states
 - **Order lifecycle tracking** - TicketsManager prevents duplicate orders via order locking mechanism
 - **Margin-based allocation** - Position sizing uses margin requirements (50% long, 150% short)
@@ -97,11 +100,12 @@ git commit -m "v2.4.8_strategy-optimize@20250720"
 - **Configuration**: All parameters in `src/config.py` via `StrategyConfig` class
 
 ### 2. Pairs.py - Pair Trading Object
-- **Purpose**: Encapsulates all pair-specific logic (data provider, not checker)
-- **Design Principle** (v6.9.4): "Data Provider, Not Checker"
-  - ✅ **Provides**: PnL calculation, position data, holding time, signal generation
-  - ❌ **Does NOT**: Risk checking, HWM tracking, drawdown calculation
+- **Purpose**: Encapsulates all pair-specific logic (data provider, signal generator, intent generator)
+- **Design Principle** (v7.0.0): "Data Provider + Intent Generator"
+  - ✅ **Provides**: PnL calculation, position data, holding time, signal generation, intent generation
+  - ❌ **Does NOT**: Risk checking, HWM tracking, drawdown calculation, order execution
   - **Removed** (v6.9.4): `check_position_integrity()` (unused), `get_pair_drawdown()` (moved to PairDrawdownRule), `pair_hwm` attribute
+  - **Removed** (v7.0.0): `open_position()`, `close_position()` (replaced by get_*_intent + OrderExecutor)
 - **Creation Pattern** (v6.9.2):
   - **Recommended**: Use classmethod factory `Pairs.from_model_result(algorithm, model_result, config)`
   - **Avoid**: Direct constructor `Pairs(algorithm, model_result, config)`
@@ -109,15 +113,44 @@ git commit -m "v2.4.8_strategy-optimize@20250720"
 - **Key Methods**:
   - `get_signal()`: Generate trading signals (LONG_SPREAD, SHORT_SPREAD, CLOSE, STOP_LOSS, HOLD)
   - `get_zscore()`: Calculate current Z-score
-  - `open_position()`: Execute beta-hedged opening trades
-  - `close_position()`: Execute closing trades
+  - `get_open_intent()`: Generate opening intent (returns OpenIntent object - v7.0.0)
+  - `get_close_intent()`: Generate closing intent (returns CloseIntent object - v7.0.0)
   - `get_position_info()`: Query position status (with @property position_mode - v6.9.3)
-  - `get_pair_pnl()`: Calculate floating PnL (pure function, no side effects - v6.9.4)
+  - `get_pair_pnl()`: Calculate PnL in two modes: real-time (持仓中) or final (已平仓) - v7.0.0
+  - `get_pair_cost()`: Calculate total margin required for the pair
   - `get_pair_holding_days()`: Calculate holding days (data query for HoldingTimeoutRule)
   - `is_in_cooldown()`: Check cooldown period (part of signal generation logic)
-- **Features**: Cooldown management, beta hedging, position tracking
+- **Features**: Cooldown management, beta hedging, position tracking, intent generation
 
-### 3. PairsManager.py - Lifecycle Management
+### 3. OrderExecutor.py - Order Execution Engine (v7.0.0)
+- **Purpose**: Unified order execution engine (separates intent from execution)
+- **Design Principle**: "Execute Intent, Not Business Logic"
+  - ✅ **Responsible for**: Submitting MarketOrder via QuantConnect API
+  - ❌ **NOT responsible for**: Signal generation, risk checking, position tracking
+- **Key Methods**:
+  - `execute_open(intent: OpenIntent)`: Execute opening orders, returns List[OrderTicket]
+  - `execute_close(intent: CloseIntent)`: Execute closing orders, returns List[OrderTicket]
+- **Error Handling**: Logs failed orders, returns None for failed legs
+- **Benefits**:
+  - Centralized order submission logic
+  - Pairs module independent of QuantConnect order API
+  - Easy to mock for testing
+
+### 4. OrderIntent.py - Intent Value Objects (v7.0.0)
+- **Purpose**: Encapsulate trade intentions as immutable data objects
+- **Design Principle**: Value Objects (immutable, no business logic)
+- **OpenIntent**:
+  - Fields: `pair_id`, `symbol1`, `symbol2`, `qty1`, `qty2`, `signal`, `tag`
+  - Usage: Generated by `Pairs.get_open_intent()`, consumed by `OrderExecutor.execute_open()`
+- **CloseIntent**:
+  - Fields: `pair_id`, `symbol1`, `symbol2`, `qty1`, `qty2`, `reason`, `tag`
+  - Usage: Generated by `Pairs.get_close_intent()`, consumed by `OrderExecutor.execute_close()`
+- **Benefits**:
+  - Testable without QuantConnect (pure data objects)
+  - Serializable for logging/debugging
+  - Clear separation of intent and execution
+
+### 5. PairsManager.py - Lifecycle Management
 - **Purpose**: Manage all pairs through their lifecycle (storage and classification only)
 - **Design Principle** (v6.9.3): "Storage vs Business Logic" separation
   - **Responsible for**: Storing pairs, state classification, simple queries
@@ -134,7 +167,7 @@ git commit -m "v2.4.8_strategy-optimize@20250720"
   - `get_pair_by_id()`: Retrieve specific pair by ID
   - `reclassify_pairs()`: Reclassify pairs into active/legacy/dormant states
 
-### 4. RiskManagement.py - Two-Tier Risk Control
+### 6. RiskManagement.py - Two-Tier Risk Control
 - **Purpose**: Risk detection and analysis (execution handled by main.py)
 - **Design Principle**: Separation of concerns - risk managers detect, main.py executes
 - **Dependency Injection** (v6.9.3): Receives `pairs_manager` to query pair data for concentration analysis
@@ -148,22 +181,24 @@ git commit -m "v2.4.8_strategy-optimize@20250720"
   - `check_position_anomaly()`: Detects partial or same-direction positions
   - `check_pair_drawdown()`: Detects pair drawdown > 20% from pair HWM
 
-### 5. ExecutionManager.py - Unified Execution Engine (v6.9.3)
-- **Purpose**: Execute all trading actions (risk-driven and signal-driven)
-- **Design Principle**: "Execution Preparation" - aggregates signals and manages fund allocation
+### 7. ExecutionManager.py - Unified Execution Coordinator (v7.0.0)
+- **Purpose**: Coordinate all trading actions through Intent Pattern
+- **Design Principle**: "Coordinator, Not Executor" - orchestrates intent generation and execution
 - **Key Methods**:
-  - `handle_portfolio_risk_action()`: Execute portfolio-level risk actions (e.g., liquidate all)
-  - `handle_pair_risk_actions()`: Execute pair-level risk actions (e.g., close specific pairs)
-  - `handle_signal_closings()`: Execute normal closing signals from pairs
-  - `handle_position_openings()`: Execute opening logic with dynamic margin allocation
+  - `handle_portfolio_risk_action()`: Coordinate portfolio-level risk actions (e.g., liquidate all)
+  - `handle_pair_risk_actions()`: Coordinate pair-level risk actions (e.g., close specific pairs)
+  - `handle_signal_closings()`: Coordinate normal closing signals from pairs
+  - `handle_position_openings()`: Coordinate opening logic with dynamic margin allocation
   - `get_entry_candidates()`: Aggregate opening signals sorted by quality (v6.9.3: migrated from PairsManager)
-- **Responsibilities** (v6.9.3 expanded):
+- **Responsibilities** (v7.0.0 updated):
   - Signal aggregation for opening candidates
   - Dynamic fund allocation based on quality scores
-  - Order submission and ticket registration
-  - Interaction with PairsManager (queries) and TicketsManager (order tracking)
+  - Intent generation coordination (calls Pairs.get_*_intent)
+  - Order execution coordination (calls OrderExecutor.execute_*)
+  - Ticket registration (calls TicketsManager.register_tickets)
+  - Interaction with PairsManager, TicketsManager, and OrderExecutor
 
-### 6. UniverseSelection.py - Stock Selection
+### 8. UniverseSelection.py - Stock Selection
 - **Purpose**: Monthly universe refresh
 - **Two-stage filtering**:
   - Coarse: Price > $20, Volume > $5M, IPO > 3 years
@@ -171,7 +206,7 @@ git commit -m "v2.4.8_strategy-optimize@20250720"
 - **Sector-based selection**: Top stocks per Morningstar sector
 - **Triggers**: Monthly via `Schedule.On()` → `TriggerSelection()`
 
-### 7. TicketsManager.py - Order Lifecycle Tracking (v6.4.4)
+### 9. TicketsManager.py - Order Lifecycle Tracking (v6.4.4)
 - **Purpose**: Prevent duplicate orders via order locking mechanism
 - **Key Features**:
   - Real-time order status calculation (PENDING/COMPLETED/ANOMALY)
@@ -184,7 +219,7 @@ git commit -m "v2.4.8_strategy-optimize@20250720"
   - `get_anomaly_pairs()`: Detect pairs with order anomalies for risk management
 - **Design Principle**: Single source of truth - status derived from OrderTicket.Status
 
-### 8. Analysis Modules (src/analysis/)
+### 10. Analysis Modules (src/analysis/)
 - **DataProcessor**: Clean and prepare historical data (252-day lookback)
 - **CointegrationAnalyzer**: Engle-Granger cointegration tests (p-value < 0.05)
 - **BayesianModeler**: PyMC MCMC parameter estimation (500 warmup + 500 samples, 2 chains)
@@ -205,7 +240,7 @@ git commit -m "v2.4.8_strategy-optimize@20250720"
    - Close positions for pairs with exit/stop signals or risk triggers
    - Open new positions using intelligent fund allocation
 
-### Closing Logic (Pairs with Positions)
+### Closing Logic (Pairs with Positions) - v7.0.0 Intent Pattern
 ```python
 # Process pairs with positions
 pairs_with_position = pairs_manager.get_pairs_with_position()
@@ -214,22 +249,33 @@ for pair in pairs_with_position.values():
     if tickets_manager.is_pair_locked(pair.pair_id):
         continue  # Skip if orders are still pending
 
-    # Check pair-level risks (main.py executes liquidation)
+    # Check pair-level risks (main.py coordinates execution)
     if pair_level_risk_manager.check_holding_timeout(pair):
-        tickets = pair.close_position()
-        if tickets:
-            tickets_manager.register_tickets(pair.pair_id, tickets)  # Register and lock
+        # v7.0.0: Intent Pattern (3-step coordination)
+        intent = pair.get_close_intent(reason='TIMEOUT')
+        if intent:
+            tickets = order_executor.execute_close(intent)
+            if tickets:
+                tickets_manager.register_tickets(pair.pair_id, tickets, OrderAction.CLOSE)
         continue
 
     # Check for trading signals
     signal = pair.get_signal(data)
-    if signal in [TradingSignal.CLOSE, TradingSignal.STOP_LOSS]:
-        tickets = pair.close_position()
-        if tickets:
-            tickets_manager.register_tickets(pair.pair_id, tickets)  # Register and lock
+    if signal == TradingSignal.CLOSE:
+        intent = pair.get_close_intent(reason='CLOSE')
+        if intent:
+            tickets = order_executor.execute_close(intent)
+            if tickets:
+                tickets_manager.register_tickets(pair.pair_id, tickets, OrderAction.CLOSE)
+    elif signal == TradingSignal.STOP_LOSS:
+        intent = pair.get_close_intent(reason='STOP_LOSS')
+        if intent:
+            tickets = order_executor.execute_close(intent)
+            if tickets:
+                tickets_manager.register_tickets(pair.pair_id, tickets, OrderAction.CLOSE)
 ```
 
-### Opening Logic (Pairs without Positions) - v6.9.3 Updated
+### Opening Logic (Pairs without Positions) - v7.0.0 Intent Pattern
 ```python
 # Get pairs without positions
 pairs_without_position = pairs_manager.get_pairs_without_position()
@@ -247,19 +293,21 @@ for pair, signal, quality_score, planned_pct in entry_candidates:
     if tickets_manager.is_pair_locked(pair.pair_id):
         continue  # Skip if orders are still pending
 
-    # Calculate scaled margin allocation
+    # Calculate scaled amount allocation
     current_margin = (Portfolio.MarginRemaining - buffer) * planned_pct
     scale_factor = initial_margin / (Portfolio.MarginRemaining - buffer)
-    margin_allocated = current_margin * scale_factor
+    amount_allocated = current_margin * scale_factor
 
     # Check minimum investment threshold
-    if margin_allocated < min_investment:
+    if amount_allocated < min_investment:
         continue
 
-    # Execute opening and register orders
-    tickets = pair.open_position(signal, margin_allocated, data)
-    if tickets:
-        tickets_manager.register_tickets(pair.pair_id, tickets)  # Register and lock
+    # v7.0.0: Intent Pattern (3-step coordination)
+    intent = pair.get_open_intent(amount_allocated, data)
+    if intent:
+        tickets = order_executor.execute_open(intent)
+        if tickets:
+            tickets_manager.register_tickets(pair.pair_id, tickets, OrderAction.OPEN)
 ```
 
 ### Position Sizing (v6.4.4 Margin-Based Model)
@@ -370,16 +418,17 @@ required_margin = long_value * 0.5 + short_value * 1.5
 3. **Fundamental filters**: PE < 100, ROE > 0%, Debt-to-Assets < 70%, Leverage < 5x
 4. **Volatility filter**: Annual volatility < 50%
 
-## Cross-Module Communication (v6.4.4 OnData + Order Tracking)
+## Cross-Module Communication (v7.0.0 OnData + Intent Pattern)
 
 ### Data Flow
 1. **Universe Changes**: `OnSecuritiesChanged()` → triggers pair analysis
 2. **Analysis Pipeline**: DataProcessor → CointegrationAnalyzer → BayesianModeler → PairSelector
 3. **Pair Creation**: Direct Pairs object creation → PairsManager.update_pairs()
-4. **Trading Flow**: OnData → Risk detection → Order lock check → main.py execution → Pairs.get_signal() → Trade execution
-5. **Order Tracking**: Pairs.open/close_position() → Returns tickets → TicketsManager.register_tickets() → Order lock activated
+4. **Trading Flow (Intent Pattern)**: OnData → Risk detection → Order lock check → Pairs.get_*_intent() → OrderExecutor.execute() → Trade execution
+5. **Order Tracking**: Pairs.get_*_intent() → Returns Intent → OrderExecutor.execute() → Returns tickets → TicketsManager.register_tickets() → Order lock activated
 6. **Order Events**: QCAlgorithm.OnOrderEvent() → TicketsManager.on_order_event() → Status update (PENDING/COMPLETED/ANOMALY)
 7. **State Updates**: PairsManager maintains pair lifecycle states (active/legacy/dormant)
+8. **Intent Flow** (v7.0.0): Pairs (generate intent) → OrderExecutor (execute intent) → TicketsManager (track orders)
 
 ### State Management
 - **Pair States**: Active (tradeable), Legacy (position only), Dormant (inactive)
@@ -427,17 +476,42 @@ self.algorithm.Debug(f"[ModuleName] Description: value")
 # - False: Only logs when debug_mode=True (production - currently all logs shown when enabled)
 ```
 
-### Order Lock Check Pattern (Critical for v6.4.4)
+### Intent Pattern (v7.0.0 - Recommended)
+```python
+# Step 1: Generate intent from Pairs
+intent = pair.get_open_intent(amount_allocated, data)
+if not intent:
+    return  # No valid intent (e.g., no signal, insufficient data)
+
+# Step 2: Execute intent via OrderExecutor
+tickets = self.order_executor.execute_open(intent)
+if not tickets:
+    return  # Execution failed (e.g., insufficient buying power)
+
+# Step 3: Register tickets for tracking
+self.tickets_manager.register_tickets(pair.pair_id, tickets, OrderAction.OPEN)
+
+# Closing example:
+intent = pair.get_close_intent(reason='STOP_LOSS')
+if intent:
+    tickets = self.order_executor.execute_close(intent)
+    if tickets:
+        self.tickets_manager.register_tickets(pair.pair_id, tickets, OrderAction.CLOSE)
+```
+
+### Order Lock Check Pattern (Critical for v6.4.4+)
 ```python
 # ALWAYS check order lock before executing trades
 if self.tickets_manager.is_pair_locked(pair.pair_id):
     self.Debug(f"[Trade] {pair.pair_id} 订单处理中,跳过", 2)
     continue
 
-# Execute trade and register tickets
-tickets = pair.open_position(signal, margin_allocated, data)
-if tickets:
-    self.tickets_manager.register_tickets(pair.pair_id, tickets)
+# v7.0.0: Intent Pattern (3 steps)
+intent = pair.get_open_intent(amount_allocated, data)
+if intent:
+    tickets = self.order_executor.execute_open(intent)
+    if tickets:
+        self.tickets_manager.register_tickets(pair.pair_id, tickets, OrderAction.OPEN)
 ```
 
 ### Module Access Pattern
@@ -556,6 +630,7 @@ for pair in tradeable_pairs.values():
 
 ## Recent Optimization History
 
+- **v7.0.0** (Jan 2025): Intent Pattern refactor - separated intent generation (Pairs) from order execution (OrderExecutor), introduced OrderExecutor and OrderIntent modules, Pairs new methods: get_open_intent/get_close_intent, get_pair_pnl supports two modes (real-time for positions, final for closed trades), exit_price1/2 unified cleanup management
 - **v6.9.4** (Jan 2025): Pairs responsibility clarification - removed risk checking methods (check_position_integrity, get_pair_drawdown), migrated HWM tracking to PairDrawdownRule, eliminated side effects in get_pair_pnl(), added automatic HWM cleanup in TicketsManager
 - **v6.9.3** (Jan 2025): Module responsibility refactor - separated storage/business logic in PairsManager, migrated signal aggregation to ExecutionManager, migrated concentration analysis to RiskManager, added @property position_mode to Pairs for DRY principle
 - **v6.9.2** (Jan 2025): Classmethod factory pattern for Pairs creation (consistency with PairData and TradeSnapshot)
@@ -578,6 +653,7 @@ for pair in tradeable_pairs.values():
 - **v6.9.0-v6.9.2**: PairData optimization + classmethod factory pattern (performance + consistency)
 - **v6.9.3**: Module responsibility clarification (storage vs business logic separation)
 - **v6.9.4**: Pairs responsibility clarification (data provider vs risk checker separation)
+- **v7.0.0**: Intent Pattern (intent generation separated from order execution, testability + extensibility)
 
 ## Files to Avoid Modifying
 
@@ -592,10 +668,14 @@ for pair in tradeable_pairs.values():
   - **analysis/**: Data processing and statistical analysis (DataProcessor, CointegrationAnalyzer, BayesianModeler, PairSelector)
   - **config.py**: Centralized configuration via StrategyConfig class
   - **UniverseSelection.py**: Multi-stage stock filtering
-  - **Pairs.py**: Pair trading object with signal generation and execution
+  - **Pairs.py**: Pair trading object with signal generation and intent generation (v7.0.0)
+  - **OrderExecutor.py**: Order execution engine (unified order submission - v7.0.0)
+  - **OrderIntent.py**: Intent value objects (OpenIntent, CloseIntent - v7.0.0)
   - **PairsManager.py**: Lifecycle management for all pairs
+  - **ExecutionManager.py**: Execution coordinator (orchestrates intent generation and execution - v7.0.0)
   - **RiskManagement.py**: Two-tier risk detection system
   - **TicketsManager.py**: Order lifecycle tracking and duplicate order prevention (v6.4.4)
+  - **TradeHistory.py**: Trade snapshot and journal for post-trade analysis
 - **docs/**: Documentation and version history
   - **CHANGELOG.md**: Complete version history with detailed change tracking
 - **research/**: Jupyter notebooks for strategy research and analysis

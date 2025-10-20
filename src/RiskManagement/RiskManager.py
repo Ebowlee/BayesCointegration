@@ -48,7 +48,9 @@ class RiskManager:
     for pair in pairs:
         action, triggered = self.risk_manager.check_pair_risks(pair)
         if action == 'pair_close':
-            pair.close_position()
+            intent = pair.get_close_intent(reason='RISK_TRIGGER')
+            tickets = order_executor.execute_close(intent)
+            tickets_manager.register_tickets(pair.pair_id, tickets, OrderAction.CLOSE)
     ```
     """
 
@@ -454,7 +456,7 @@ class RiskManager:
         4. 返回最高优先级规则的action + 完整触发列表
 
         Args:
-            pair: Pairs对象,必须包含position_opened_time等属性
+            pair: Pairs对象,必须包含pair_opened_time等属性
 
         Returns:
             (action, triggered_rules)

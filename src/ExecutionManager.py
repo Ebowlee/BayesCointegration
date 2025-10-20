@@ -1,15 +1,16 @@
 """
-ExecutionManager - 统一执行器
+ExecutionManager - 统一执行器 (v7.0.0: Intent模式重构)
 
 职责:
 - 执行风控响应(Portfolio和Pair层面)
 - 执行正常交易(信号驱动的开仓和平仓)
-- 与pairs_manager, tickets_manager交互
-- 处理所有订单提交和注册
+- 协调 Pairs(意图生成) + OrderExecutor(订单执行)
+- 与 pairs_manager, tickets_manager, order_executor 交互
 
 设计原则:
-- 职责单一: 只负责执行,不负责检测或信号生成
+- 职责单一: 只负责协调,不负责检测或信号生成
 - 依赖注入: 通过构造函数注入所需依赖
+- Intent模式: Pairs生成意图,OrderExecutor执行订单
 - 统一接口: 风控和正常交易统一管理
 """
 
@@ -19,31 +20,34 @@ from src.Pairs import OrderAction, TradingSignal
 
 class ExecutionManager:
     """
-    统一执行器
+    统一执行器 (v7.0.0: Intent模式重构)
 
-    负责执行所有交易动作,包括:
+    负责协调所有交易动作,包括:
     - 风控执行: Portfolio层面(全部清仓、减仓等) + Pair层面(配对平仓)
     - 正常交易: 信号驱动的开仓和平仓
 
-    设计特点:
+    设计特点(v7.0.0):
     - 与RiskManager配合使用(检测与执行分离)
     - 与Pairs配合使用(信号生成与执行分离)
-    - 依赖注入: algorithm, pairs_manager, tickets_manager
+    - 与OrderExecutor配合使用(意图与执行分离)
+    - 依赖注入: algorithm, pairs_manager, tickets_manager, order_executor
     - 完全统一的执行接口
     """
 
-    def __init__(self, algorithm, pairs_manager, tickets_manager):
+    def __init__(self, algorithm, pairs_manager, tickets_manager, order_executor):
         """
-        初始化统一执行器
+        初始化统一执行器 (v7.0.0: 新增order_executor依赖)
 
         Args:
             algorithm: QuantConnect算法实例
             pairs_manager: 配对管理器
             tickets_manager: 订单追踪管理器
+            order_executor: 订单执行器(v7.0.0新增)
         """
         self.algorithm = algorithm
         self.pairs_manager = pairs_manager
         self.tickets_manager = tickets_manager
+        self.order_executor = order_executor
 
 
     def handle_portfolio_risk_action(self, action: str, triggered_rules: list):
@@ -117,14 +121,16 @@ class ExecutionManager:
 
             # 根据action执行相应操作
             if action == 'pair_close':
-                # 风控触发平仓
+                # 风控触发平仓 (v7.0.0: Intent模式)
                 self.algorithm.Debug(f"[Pair风控] {pair_id} 触发平仓风控")
-                tickets = pair.close_position(reason='RISK_TRIGGER')
-                if tickets:
-                    self.tickets_manager.register_tickets(pair_id, tickets, OrderAction.CLOSE)
-                    # 记录触发的规则详情
-                    for _, desc in triggered_rules:
-                        self.algorithm.Debug(f"  └─ {desc}")
+                intent = pair.get_close_intent(reason='RISK_TRIGGER')
+                if intent:
+                    tickets = self.order_executor.execute_close(intent)
+                    if tickets:
+                        self.tickets_manager.register_tickets(pair_id, tickets, OrderAction.CLOSE)
+                        # 记录触发的规则详情
+                        for _, desc in triggered_rules:
+                            self.algorithm.Debug(f"  └─ {desc}")
 
             else:
                 # 未来可能有其他action类型
@@ -138,16 +144,15 @@ class ExecutionManager:
         执行流程:
         1. 获取所有有持仓的配对
         2. 检查订单锁定状态(is_pair_locked)
-        3. 通过pair.close_position()平仓(保持订单追踪)
+        3. 通过pair.get_close_intent()生成意图,order_executor执行(保持订单追踪)
         4. 注册订单到tickets_manager
         5. 记录详细日志
 
         设计决策:
         - 不使用QC的Liquidate()方法,原因:
-          1. 绕过pair.close_position()
-          2. 绕过tickets_manager.register_tickets()
-          3. 破坏订单追踪体系
-          4. 可能导致重复下单
+          1. 绕过Intent模式和订单追踪
+          2. 破坏tickets_manager订单追踪体系
+          3. 可能导致重复下单
         - 只通过pairs_manager管理的配对进行平仓
         - 保持TicketsManager的订单追踪完整性
         """
@@ -167,12 +172,14 @@ class ExecutionManager:
                 self.algorithm.Debug(f"[风控清仓] {pair.pair_id} 订单处理中,跳过")
                 continue
 
-            # 通过pair平仓(保持订单追踪)
-            tickets = pair.close_position(reason='RISK_TRIGGER')
-            if tickets:
-                self.tickets_manager.register_tickets(pair.pair_id, tickets, OrderAction.CLOSE)
-                closed_count += 1
-                self.algorithm.Debug(f"[风控清仓] {pair.pair_id} 已提交平仓订单")
+            # 通过pair平仓(保持订单追踪) - v7.0.0: Intent模式
+            intent = pair.get_close_intent(reason='RISK_TRIGGER')
+            if intent:
+                tickets = self.order_executor.execute_close(intent)
+                if tickets:
+                    self.tickets_manager.register_tickets(pair.pair_id, tickets, OrderAction.CLOSE)
+                    closed_count += 1
+                    self.algorithm.Debug(f"[风控清仓] {pair.pair_id} 已提交平仓订单")
 
         self.algorithm.Debug(f"[风控清仓] 完成: 平仓{closed_count}/{len(pairs_with_position)}个配对")
 
@@ -194,7 +201,7 @@ class ExecutionManager:
         2. 检查订单锁(跳过风控已处理或订单执行中的配对)
         3. 获取交易信号(pair.get_signal(data))
         4. 处理CLOSE和STOP_LOSS信号
-        5. 调用pair.close_position()并注册订单
+        5. 生成Intent并通过order_executor执行,注册订单
 
         设计特点:
         - 完全独立于风控平仓
@@ -209,18 +216,22 @@ class ExecutionManager:
             # 获取交易信号
             signal = pair.get_signal(data)
 
-            # 处理平仓信号
+            # 处理平仓信号 (v7.0.0: Intent模式)
             if signal == TradingSignal.CLOSE:
                 self.algorithm.Debug(f"[平仓] {pair.pair_id} Z-score回归")
-                tickets = pair.close_position(reason='CLOSE')
-                if tickets:
-                    self.tickets_manager.register_tickets(pair.pair_id, tickets, OrderAction.CLOSE)
+                intent = pair.get_close_intent(reason='CLOSE')
+                if intent:
+                    tickets = self.order_executor.execute_close(intent)
+                    if tickets:
+                        self.tickets_manager.register_tickets(pair.pair_id, tickets, OrderAction.CLOSE)
 
             elif signal == TradingSignal.STOP_LOSS:
                 self.algorithm.Debug(f"[止损] {pair.pair_id} Z-score超限")
-                tickets = pair.close_position(reason='STOP_LOSS')
-                if tickets:
-                    self.tickets_manager.register_tickets(pair.pair_id, tickets, OrderAction.CLOSE)
+                intent = pair.get_close_intent(reason='STOP_LOSS')
+                if intent:
+                    tickets = self.order_executor.execute_close(intent)
+                    if tickets:
+                        self.tickets_manager.register_tickets(pair.pair_id, tickets, OrderAction.CLOSE)
 
 
     def get_entry_candidates(self, pairs_without_position: dict, data) -> list:
@@ -316,27 +327,29 @@ class ExecutionManager:
                 break
 
             scale_factor = initial_margin / (self.algorithm.Portfolio.MarginRemaining - buffer)
-            margin_allocated = current_margin * scale_factor
+            amount_allocated = current_margin * scale_factor
 
             # 检查1: 订单锁定检查
             if self.tickets_manager.is_pair_locked(pair_id):
                 continue
 
             # 检查2: 最小投资额
-            if margin_allocated < self.algorithm.min_investment:
+            if amount_allocated < self.algorithm.min_investment:
                 continue
 
-            # 检查3: 保证金是否仍足够
+            # 检查3: 资金是否仍足够
             available_for_check = self.algorithm.Portfolio.MarginRemaining - buffer
-            if margin_allocated > available_for_check:
-                self.algorithm.Debug(f"[开仓失败] {pair_id} 保证金不足: 需要${margin_allocated:,.0f}, 可用${available_for_check:,.0f}")
+            if amount_allocated > available_for_check:
+                self.algorithm.Debug(f"[开仓失败] {pair_id} 资金不足: 需要${amount_allocated:,.0f}, 可用${available_for_check:,.0f}")
                 continue
 
-            # 执行开仓并注册订单追踪
-            tickets = pair.open_position(signal, margin_allocated, data)
-            if tickets:
-                self.tickets_manager.register_tickets(pair_id, tickets, OrderAction.OPEN)
-                actual_opened += 1
+            # 执行开仓并注册订单追踪 (v7.0.0: Intent模式 - 简化为3行)
+            intent = pair.get_open_intent(amount_allocated, data)
+            if intent:
+                tickets = self.order_executor.execute_open(intent)
+                if tickets:
+                    self.tickets_manager.register_tickets(pair_id, tickets, OrderAction.OPEN)
+                    actual_opened += 1
 
         # 执行结果
         if actual_opened > 0:

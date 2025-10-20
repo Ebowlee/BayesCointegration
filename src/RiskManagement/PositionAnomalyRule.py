@@ -23,7 +23,7 @@ class PositionAnomalyRule(RiskRule):
     设计特点:
     - 最高优先级: priority=100,异常持仓需要立即处理
     - 无需冷却期: 订单锁机制(tickets_manager.is_pair_locked)已防止重复提交
-    - 复用基础设施: 直接调用pair.has_anomaly()方法,避免重复实现
+    - 复用基础设施: 直接调用pair.has_anomaly_position()方法,避免重复实现
     - 与TicketsManager协同: TicketsManager.get_anomaly_pairs()提供初步检测
 
     配置示例:
@@ -61,7 +61,7 @@ class PositionAnomalyRule(RiskRule):
         4. 根据异常类型生成描述信息
 
         Args:
-            pair: Pairs对象,必须实现has_anomaly()和get_position_info()方法
+            pair: Pairs对象,必须实现has_anomaly_position()和get_position_info()方法
 
         Returns:
             (is_triggered, description)
@@ -69,7 +69,7 @@ class PositionAnomalyRule(RiskRule):
             - description: 详细描述(包含异常类型、持仓数量)
 
         设计说明:
-            - 复用Pairs.has_anomaly()方法,遵循DRY原则
+            - 复用Pairs.has_anomaly_position()方法,遵循DRY原则
             - 该方法内部调用get_position_info()自动检测异常模式
             - 与HoldingTimeoutRule类似,避免重复实现检测逻辑
 
@@ -81,8 +81,8 @@ class PositionAnomalyRule(RiskRule):
         if not self.enabled:
             return False, ""
 
-        # 2. 调用pair.has_anomaly()检测异常(复用Pairs自带方法)
-        if not pair.has_anomaly():
+        # 2. 调用pair.has_anomaly_position()检测异常(复用Pairs自带方法)
+        if not pair.has_anomaly_position():
             return False, ""
 
         # 3. 获取持仓详情用于生成描述

@@ -83,8 +83,13 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # v6.9.3: 传递 pairs_manager 用于集中度分析
         self.risk_manager = RiskManager(self, self.config, self.pairs_manager)
 
+        # === 初始化订单执行器(v7.0.0新增) ===
+        from src.OrderExecutor import OrderExecutor
+        self.order_executor = OrderExecutor(self)
+
         # === 初始化统一执行器 ===
-        self.execution_manager = ExecutionManager(self, self.pairs_manager, self.tickets_manager)
+        # v7.0.0: 新增 order_executor 依赖注入
+        self.execution_manager = ExecutionManager(self, self.pairs_manager, self.tickets_manager, self.order_executor)
 
         # === 初始化交易历史追踪 ===
         self.trade_journal = TradeJournal(self)

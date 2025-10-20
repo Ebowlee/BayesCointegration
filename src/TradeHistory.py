@@ -17,6 +17,7 @@ class TradeSnapshot:
     1. 不可变：创建后不能修改（frozen=True）
     2. 自包含：包含重现交易的所有信息
     3. 轻量级：仅存储数据，不包含业务逻辑
+    4. 职责分离：配对身份（隐式提取）vs 交易数据（显式传入）vs 衍生数据（懒计算）
 
     用途：
     - 记录每一笔配对交易的完整信息
@@ -24,36 +25,32 @@ class TradeSnapshot:
     - 提供交易历史的可追溯性
     """
 
-    # ===== 配对标识 =====
+    # ===== 配对身份（隐式提取，不变的）=====
     pair_id: tuple                  # 配对ID (symbol1, symbol2)
     industry_group: str             # 行业分组（Morningstar sector）
-
-    # ===== 时间信息 =====
-    open_time: datetime             # 开仓时间
-    close_time: datetime            # 平仓时间
-
-    # ===== 交易方向 =====
-    direction: str                  # 'LONG_SPREAD' 或 'SHORT_SPREAD'
-    close_reason: str               # 平仓原因（'CLOSE', 'STOP_LOSS', 'TIMEOUT', 'RISK_TRIGGER'）
-
-    # ===== 开仓信息 =====
-    entry_price1: float             # symbol1 开仓价格
-    entry_price2: float             # symbol2 开仓价格
-    qty1: int                       # symbol1 持仓数量
-    qty2: int                       # symbol2 持仓数量
-    entry_cost: float               # 开仓成本（margin allocated）
-
-    # ===== 平仓信息 =====
-    exit_price1: float              # symbol1 平仓价格
-    exit_price2: float              # symbol2 平仓价格
-    pnl: float                      # 盈亏（已扣除手续费）
-
-    # ===== 统计参数 =====
     beta: float                     # Beta系数（协整系数）
     quality_score: float            # 配对质量分数
 
+    # ===== 交易数据（显式传入，会变化的）=====
+    entry_price1: float             # symbol1 开仓价格
+    entry_price2: float             # symbol2 开仓价格
+    exit_price1: float              # symbol1 平仓价格
+    exit_price2: float              # symbol2 平仓价格
 
-    # ===== 计算型属性（懒计算） =====
+    # 数量信息（保持原始符号：多头为正，空头为负）
+    qty1: int                       # symbol1 持仓数量（带符号）
+    qty2: int                       # symbol2 持仓数量（带符号）
+
+    open_time: datetime             # 开仓时间
+    close_time: datetime            # 平仓时间
+
+    close_reason: str               # 平仓原因（'CLOSE', 'STOP_LOSS', 'TIMEOUT', 'RISK_TRIGGER'）
+
+    pair_cost: float                # 配对保证金成本 (Regulation T margin: 0.5 for long, 1.5 for short)
+    pair_pnl: float                 # 配对盈亏 (使用 exit 价格计算)
+
+
+    # ===== 衍生数据（懒计算，从已有字段推导）=====
 
     @property
     def symbol1(self) -> str:
@@ -72,66 +69,91 @@ class TradeSnapshot:
 
     @property
     def return_pct(self) -> float:
-        """收益率（%）"""
-        if self.entry_cost <= 0:
+        """收益率（%）= pair_pnl / pair_cost * 100"""
+        if self.pair_cost <= 0:
             return 0.0
-        return (self.pnl / self.entry_cost) * 100
+        return (self.pair_pnl / self.pair_cost) * 100
 
 
     # ===== 工厂方法（便捷创建） =====
 
     @classmethod
-    def from_pair(cls, pair, close_reason: str, exit_price1: float, exit_price2: float, pnl: float):
+    def from_pair(cls, pair, close_reason: str,
+                  entry_price1: float, entry_price2: float,
+                  exit_price1: float, exit_price2: float,
+                  qty1: int, qty2: int,
+                  open_time, close_time,
+                  pair_cost: float, pair_pnl: float):
         """
         从 Pairs 对象创建 TradeSnapshot（工厂方法）
 
-        自动提取功能：
-        - 从 pair 对象中自动提取 13 个字段
-        - 调用者只需提供 4 个平仓特定字段
+        设计理念（职责分离）：
+        - 交易数据（会变化的）→ 显式传入（11个字段：9个原始 + 2个计算）
+        - 配对身份（不变的）→ 从 pair 对象隐式提取（4个字段）
+        - 计算数据（显式传入）→ pair_cost, pair_pnl（Pairs已计算好）
+        - 懒计算（从已有字段推导）→ symbol1, symbol2, holding_days, return_pct
 
         Args:
-            pair: Pairs 对象（包含所有开仓信息）
+            pair: Pairs 对象（包含配对身份信息）
             close_reason: 平仓原因（'CLOSE', 'STOP_LOSS', 'TIMEOUT', 'RISK_TRIGGER'）
+            entry_price1: symbol1 开仓价格
+            entry_price2: symbol2 开仓价格
             exit_price1: symbol1 平仓价格
             exit_price2: symbol2 平仓价格
-            pnl: 盈亏（已扣除手续费）
+            qty1: symbol1 持仓数量（保持原始符号：多头为正，空头为负）
+            qty2: symbol2 持仓数量（保持原始符号：多头为正，空头为负）
+            open_time: 配对开仓时间
+            close_time: 配对平仓时间
+            pair_cost: 配对保证金成本（调用 pair.get_pair_cost() 计算）
+            pair_pnl: 配对盈亏（使用 exit 价格计算）
 
         Returns:
             TradeSnapshot: 不可变的交易快照对象
 
         Example:
-            # 在 main.py 平仓时调用
+            # 在 Pairs.on_position_filled(CLOSE) 中调用
+            pair_cost = self.get_pair_cost()
+            exit_value = self.tracked_qty1 * exit_price1 + self.tracked_qty2 * exit_price2
+            entry_value = self.tracked_qty1 * self.entry_price1 + self.tracked_qty2 * self.entry_price2
+            pair_pnl = exit_value - entry_value
+
             snapshot = TradeSnapshot.from_pair(
-                pair=pair,
-                close_reason='CLOSE',
-                exit_price1=current_price1,
-                exit_price2=current_price2,
-                pnl=realized_pnl
+                pair=self,
+                close_reason=close_reason,
+                entry_price1=self.entry_price1,
+                entry_price2=self.entry_price2,
+                exit_price1=exit_price1,
+                exit_price2=exit_price2,
+                qty1=self.tracked_qty1,  # 保持原始符号
+                qty2=self.tracked_qty2,  # 保持原始符号
+                open_time=self.pair_opened_time,
+                close_time=self.pair_closed_time,
+                pair_cost=pair_cost,
+                pair_pnl=pair_pnl
             )
         """
-        # 判断交易方向（基于 tracked_qty1 的符号）
-        direction = 'LONG_SPREAD' if pair.tracked_qty1 > 0 else 'SHORT_SPREAD'
+        # 判断交易方向（基于 qty1 的符号）
+        direction = 'LONG_SPREAD' if qty1 > 0 else 'SHORT_SPREAD'
 
         return cls(
-            # 自动提取的 13 个字段
+            # 隐式提取的配对身份信息（4个字段）
             pair_id=pair.pair_id,
             industry_group=pair.industry_group,
-            open_time=pair.position_opened_time,
-            close_time=pair.position_closed_time,
-            direction=direction,
-            entry_price1=pair.entry_price1,
-            entry_price2=pair.entry_price2,
-            qty1=abs(pair.tracked_qty1),          # 转为正数存储
-            qty2=abs(pair.tracked_qty2),          # 转为正数存储
-            entry_cost=pair.entry_cost,
             beta=pair.beta_mean,
             quality_score=pair.quality_score,
 
-            # 手动输入的 4 个字段
+            # 显式传入的交易数据（11个字段：9个原始 + 2个计算）
             close_reason=close_reason,
+            entry_price1=entry_price1,
+            entry_price2=entry_price2,
             exit_price1=exit_price1,
             exit_price2=exit_price2,
-            pnl=pnl
+            qty1=qty1,        # 保持原始符号（多头为正，空头为负）
+            qty2=qty2,        # 保持原始符号（多头为正，空头为负）
+            open_time=open_time,
+            close_time=close_time,
+            pair_cost=pair_cost,  # 显式传入（Pairs已计算）
+            pair_pnl=pair_pnl     # 显式传入（Pairs已计算）
         )
 
 
@@ -198,7 +220,7 @@ class TradeJournal:
         # Debug 日志
         self.algorithm.Debug(
             f"[交易记录] {snapshot.pair_id} {snapshot.direction} "
-            f"PnL=${snapshot.pnl:.2f} ({snapshot.return_pct:.2f}%) "
+            f"PnL=${snapshot.pair_pnl:.2f} ({snapshot.return_pct:.2f}%) "
             f"原因={snapshot.close_reason}"
         )
 
@@ -355,9 +377,9 @@ class TradeJournal:
                 continue
             if close_reason is not None and snapshot.close_reason != close_reason:
                 continue
-            if min_pnl is not None and snapshot.pnl < min_pnl:
+            if min_pnl is not None and snapshot.pair_pnl < min_pnl:
                 continue
-            if max_pnl is not None and snapshot.pnl > max_pnl:
+            if max_pnl is not None and snapshot.pair_pnl > max_pnl:
                 continue
             if min_return_pct is not None and snapshot.return_pct < min_return_pct:
                 continue
@@ -380,16 +402,21 @@ class TradeJournal:
 
         设计要点：
         - 每个 TradeSnapshot 字段成为 DataFrame 的一列
-        - 包含计算型属性（symbol1, symbol2, holding_days, return_pct）
+        - 包含计算型属性（symbol1, symbol2, entry_cost, pnl, holding_days, return_pct）
+        - 数量字段提供双重视图：qty_signed（原始符号）和 qty_abs（绝对值）
         - 支持后续数据分析和可视化
 
         Returns:
             pd.DataFrame: 包含所有交易记录的数据框
-            列包括：pair_id, symbol1, symbol2, industry_group, open_time,
-                   close_time, direction, close_reason, entry_price1,
-                   entry_price2, qty1, qty2, entry_cost, exit_price1,
-                   exit_price2, pnl, beta, quality_score, holding_days,
-                   return_pct
+            核心列：
+            - 配对身份：pair_id, symbol1, symbol2, industry_group, beta, quality_score
+            - 时间信息：open_time, close_time, holding_days
+            - 交易方向：direction, close_reason
+            - 价格信息：entry_price1, entry_price2, exit_price1, exit_price2
+            - 数量信息（双重视图）：
+              * qty1_signed, qty2_signed（原始符号：多头为正，空头为负）
+              * qty1_abs, qty2_abs（绝对值：便于可读性）
+            - 衍生数据：pair_cost（显式字段）, pair_pnl（显式字段）, return_pct（懒计算）
 
         复杂度：O(n) - n 为交易总数
 
@@ -397,11 +424,15 @@ class TradeJournal:
             # 导出数据并分析
             df = trade_journal.to_dataframe()
 
+            # 使用带符号数量计算 PnL（技术分析）
+            df['pnl_check'] = df['qty1_signed'] * (df['exit_price1'] - df['entry_price1']) + \
+                              df['qty2_signed'] * (df['exit_price2'] - df['entry_price2'])
+
+            # 使用绝对值数量统计交易规模（业务可读性）
+            df['total_shares'] = df['qty1_abs'] + df['qty2_abs']
+
             # 按行业分组统计
             industry_stats = df.groupby('industry_group')['pnl'].agg(['sum', 'mean', 'count'])
-
-            # 计算胜率
-            win_rate = (df['pnl'] > 0).sum() / len(df)
 
             # 保存为 CSV
             df.to_csv('trade_history.csv', index=False)
@@ -414,26 +445,39 @@ class TradeJournal:
         records = []
         for snapshot in self._snapshots:
             records.append({
+                # 配对身份
                 'pair_id': snapshot.pair_id,
                 'symbol1': snapshot.symbol1,
                 'symbol2': snapshot.symbol2,
                 'industry_group': snapshot.industry_group,
-                'open_time': snapshot.open_time,
-                'close_time': snapshot.close_time,
-                'direction': snapshot.direction,
-                'close_reason': snapshot.close_reason,
-                'entry_price1': snapshot.entry_price1,
-                'entry_price2': snapshot.entry_price2,
-                'qty1': snapshot.qty1,
-                'qty2': snapshot.qty2,
-                'entry_cost': snapshot.entry_cost,
-                'exit_price1': snapshot.exit_price1,
-                'exit_price2': snapshot.exit_price2,
-                'pnl': snapshot.pnl,
                 'beta': snapshot.beta,
                 'quality_score': snapshot.quality_score,
+
+                # 时间信息
+                'open_time': snapshot.open_time,
+                'close_time': snapshot.close_time,
                 'holding_days': snapshot.holding_days,
-                'return_pct': snapshot.return_pct
+
+                # 交易方向
+                'direction': snapshot.direction,
+                'close_reason': snapshot.close_reason,
+
+                # 价格信息
+                'entry_price1': snapshot.entry_price1,
+                'entry_price2': snapshot.entry_price2,
+                'exit_price1': snapshot.exit_price1,
+                'exit_price2': snapshot.exit_price2,
+
+                # 数量信息（双重视图）
+                'qty1_signed': snapshot.qty1,      # 原始符号（技术分析）
+                'qty2_signed': snapshot.qty2,
+                'qty1_abs': abs(snapshot.qty1),    # 绝对值（业务可读性）
+                'qty2_abs': abs(snapshot.qty2),
+
+                # 衍生数据（显式字段 + 懒计算）
+                'pair_cost': snapshot.pair_cost,    # 显式字段
+                'pair_pnl': snapshot.pair_pnl,      # 显式字段
+                'return_pct': snapshot.return_pct   # 懒计算
             })
 
         return pd.DataFrame(records)
@@ -499,14 +543,14 @@ class TradeAnalyzer:
             }
 
         total_trades = len(snapshots)
-        wins = [s for s in snapshots if s.pnl > 0]
+        wins = [s for s in snapshots if s.pair_pnl > 0]
         win_rate = len(wins) / total_trades
 
         returns = [s.return_pct for s in snapshots]
         avg_return_pct = np.mean(returns)
         std_return_pct = np.std(returns, ddof=1) if total_trades > 1 else 0
 
-        pnls = [s.pnl for s in snapshots]
+        pnls = [s.pair_pnl for s in snapshots]
         max_win = max(pnls)
         max_loss = min(pnls)
 
@@ -585,7 +629,7 @@ class TradeAnalyzer:
         # === 基础摘要 ===
         summary = {
             'total_trades': len(snapshots),
-            'total_pnl': sum(s.pnl for s in snapshots),
+            'total_pnl': sum(s.pair_pnl for s in snapshots),
             'avg_holding_days': np.mean([s.holding_days for s in snapshots])
         }
 
