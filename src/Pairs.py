@@ -114,6 +114,56 @@ class Pairs:
         self.reactivation_count += 1
 
 
+    @classmethod
+    def from_model_result(cls, algorithm, model_result: Dict, config: Dict) -> 'Pairs':
+        """
+        工厂方法：从贝叶斯建模结果创建 Pairs 对象
+
+        设计理念（与 PairData.from_clean_data() 和 TradeSnapshot.from_pair() 保持一致）：
+        - 封装创建逻辑：调用者无需了解构造函数参数细节
+        - 语义清晰：明确表达"从建模结果创建"的意图
+        - 扩展性：未来可添加其他工厂方法（from_dict, from_historical_data）
+
+        技术细节：
+        - cls 是 Pairs 类本身（Python 自动传递）
+        - cls(...) 调用构造函数 __init__，创建并返回 Pairs 实例对象
+        - 返回值是 Pairs 实例，可直接调用实例方法（get_signal, open_position 等）
+
+        Args:
+            algorithm: QCAlgorithm 实例
+            model_result: BayesianModeler 输出的单个建模结果
+                格式: {
+                    'symbol1': Symbol, 'symbol2': Symbol,
+                    'alpha_mean': float, 'beta_mean': float,
+                    'residual_mean': float, 'residual_std': float,
+                    'sigma_mean': float, 'sigma_std': float,
+                    'quality_score': float, 'industry_group': str
+                }
+            config: 配对交易配置字典（src/config.py 的 pairs_trading 部分）
+
+        Returns:
+            Pairs: 新创建的 Pairs 实例对象
+
+        Example:
+            # main.py 中调用
+            for model_result in modeling_results:
+                pair = Pairs.from_model_result(self, model_result, self.config.pairs_trading)
+                # pair 是 Pairs 实例，可以调用实例方法
+                signal = pair.get_signal(data)
+                pair.open_position(signal, margin, data)
+
+        与构造函数的对比：
+            # 方式 1：直接调用构造函数（不推荐）
+            pair = Pairs(self, model_result, self.config.pairs_trading)
+
+            # 方式 2：通过类方法工厂（推荐）✅
+            pair = Pairs.from_model_result(self, model_result, self.config.pairs_trading)
+
+            优势：语义清晰、与项目其他值对象一致、便于扩展
+        """
+        return cls(algorithm, model_result, config)
+
+
     def on_position_filled(self, action: str, fill_time, tickets):
         """
         订单成交回调(由TicketsManager调用)

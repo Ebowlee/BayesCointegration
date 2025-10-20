@@ -167,11 +167,11 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         if not modeling_results:
             return
 
-        # === 步骤6: 直接创建Pairs对象 ===
+        # === 步骤6: 通过类方法工厂创建Pairs对象 ===
         new_pairs_dict = {}
         for model_result in modeling_results:
-            # 直接使用model_result创建Pairs对象
-            pair = Pairs(self, model_result, self.config.pairs_trading)
+            # 使用类方法工厂创建Pairs对象（与PairData.from_clean_data()一致）
+            pair = Pairs.from_model_result(self, model_result, self.config.pairs_trading)
             new_pairs_dict[pair.pair_id] = pair
 
         # === 步骤7: 交给PairsManager管理 ===

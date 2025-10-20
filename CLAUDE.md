@@ -98,6 +98,11 @@ git commit -m "v2.4.8_strategy-optimize@20250720"
 
 ### 2. Pairs.py - Pair Trading Object
 - **Purpose**: Encapsulates all pair-specific logic
+- **Creation Pattern** (v6.9.2):
+  - **Recommended**: Use classmethod factory `Pairs.from_model_result(algorithm, model_result, config)`
+  - **Avoid**: Direct constructor `Pairs(algorithm, model_result, config)`
+  - **Consistency**: Follows same pattern as `PairData.from_clean_data()` and `TradeSnapshot.from_pair()`
+  - **Extensibility**: Future factories可添加 `from_dict()`, `from_historical_data()` 等方法
 - **Key Methods**:
   - `get_signal()`: Generate trading signals (LONG_SPREAD, SHORT_SPREAD, CLOSE, STOP_LOSS, HOLD)
   - `get_zscore()`: Calculate current Z-score
@@ -522,6 +527,9 @@ for pair in tradeable_pairs.values():
 
 ## Recent Optimization History
 
+- **v6.9.2** (Jan 2025): Classmethod factory pattern for Pairs creation (consistency with PairData and TradeSnapshot)
+- **v6.9.1** (Jan 2025): PairData architecture optimization - eliminated duplicate np.log() calls (67% performance improvement)
+- **v6.9.0** (Jan 2025): PairData value object introduction - pre-computed log prices for analysis modules
 - **v6.4.4** (Jan 2025): Order lifecycle tracking system (TicketsManager) replaces deduplication mechanism, prevents duplicate orders via order locking
 - **v6.4.0** (Jan 2025): Risk management refactor with separation of concerns, removed hard pair limits, margin-based allocation model
 - **v6.3.1** (Jan 2025): Quality scoring system overhaul - replaced correlation with half_life and volatility_ratio, optimized risk parameters
@@ -536,6 +544,7 @@ for pair in tradeable_pairs.values():
 - **v6.3**: Quality-based pair selection (4-metric scoring system)
 - **v6.4.0**: Margin-based allocation (removed hard pair limits)
 - **v6.4.4**: Order lifecycle tracking (duplicate order prevention)
+- **v6.9.0-v6.9.2**: PairData optimization + classmethod factory pattern (performance + consistency)
 
 ## Files to Avoid Modifying
 
