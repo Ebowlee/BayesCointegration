@@ -327,6 +327,41 @@ class RiskManager:
         return self.market_condition.is_safe_to_open_positions()
 
 
+    def cleanup_pair_hwm(self, pair_id: tuple):
+        """
+        清理配对的 HWM 状态 (v6.9.4 新增)
+
+        职责:
+        - 转发清理请求到 PairDrawdownRule
+        - 避免 main.py 直接访问 Rule 内部
+
+        调用时机:
+        - 配对平仓后立即调用
+        - main.py 在 OnData 中检测到平仓完成后调用
+
+        Args:
+            pair_id: 配对标识符元组 (symbol1, symbol2)
+
+        示例:
+        ```python
+        # main.py 中
+        if not pair.has_position():  # 检测到平仓完成
+            self.risk_manager.cleanup_pair_hwm(pair.pair_id)
+        ```
+
+        设计原则:
+        - 封装 Rule 内部细节
+        - 提供统一的清理接口
+        - 防止内存泄漏(长期运行策略)
+        """
+        # 转发到 PairDrawdownRule (通过 pair_rules 查找)
+        for rule in self.pair_rules:
+            # 只有 PairDrawdownRule 有 on_pair_closed 方法
+            if hasattr(rule, 'on_pair_closed'):
+                rule.on_pair_closed(pair_id)
+                break
+
+
     def get_sector_concentration(self) -> dict:
         """
         获取子行业集中度分析

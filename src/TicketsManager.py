@@ -236,6 +236,10 @@ class TicketsManager:
                 # 回调Pairs记录时间和数量(传递tickets引用)
                 pairs_obj.on_position_filled(action, fill_time, tickets)
 
+                # v6.9.4: 平仓完成后清理 HWM (委托给 RiskManager)
+                if action == "CLOSE" and hasattr(self.algorithm, 'risk_manager'):
+                    self.algorithm.risk_manager.cleanup_pair_hwm(pair_id)
+
             self.algorithm.Debug(
                 f"[OOE] {pair_id} 订单全部成交,配对解锁")
         elif current_status == "ANOMALY":

@@ -93,7 +93,8 @@ class Pairs:
         self.entry_cost = 0.0                                                  # 配对总成本(abs(qty1*price1)+abs(qty2*price2))
 
         # === 风控追踪 ===
-        self.pair_hwm = 0.0                                                    # 配对级别高水位(浮动盈亏PnL)
+        # v6.9.4: pair_hwm 已迁移到 PairDrawdownRule.pair_hwm_dict
+        # 设计原则: 风控状态由风控系统管理,Pairs 只负责数据提供
 
 
     def update_params(self, new_pair):
@@ -188,7 +189,7 @@ class Pairs:
                         self.tracked_qty2 = ticket.QuantityFilled
                         self.entry_price2 = ticket.AverageFillPrice
 
-            # 计算配对总成本(用于回撤计算分母)
+            # 计算配对总成本(用于 PnL 计算和风控分析)
             if self.entry_price1 is not None and self.entry_price2 is not None:
                 cost1 = abs(self.tracked_qty1 * self.entry_price1)
                 cost2 = abs(self.tracked_qty2 * self.entry_price2)
@@ -196,8 +197,7 @@ class Pairs:
             else:
                 self.entry_cost = 0.0
 
-            # 开仓时重置HWM为0(起点为盈亏平衡)
-            self.pair_hwm = 0.0
+            # v6.9.4: HWM 初始化已移至 PairDrawdownRule.check() 方法
 
         elif action == OrderAction.CLOSE:
             self.position_closed_time = fill_time
@@ -253,7 +253,7 @@ class Pairs:
             self.entry_price1 = None
             self.entry_price2 = None
             self.entry_cost = 0.0
-            self.pair_hwm = 0.0
+            # v6.9.4: HWM 清理由 PairDrawdownRule.on_pair_closed() 负责
 
 
     # ===== 2. 交易信号生成 =====
@@ -612,44 +612,7 @@ class Pairs:
         return value_A, value_B
 
 
-    # ===== 6. 风控检查 =====
-
-    def check_position_integrity(self):
-        """
-        检查持仓完整性（优化后：使用 @property position_mode）
-
-        返回:
-            (is_valid: bool, error_msg: str)
-        """
-        # 获取完整持仓信息（一次性获取所有字段）
-        info = self.get_position_info()
-        mode = self.position_mode  # 使用 @property 简化代码
-
-        # 场景1: 无持仓 → 正常
-        if mode == PositionMode.NONE:
-            return True, ""
-
-        # 场景2: 单边持仓异常
-        if mode in [PositionMode.PARTIAL_LEG1, PositionMode.PARTIAL_LEG2]:
-            return False, f"单边持仓: {self.symbol1}={info['qty1']}, {self.symbol2}={info['qty2']}"
-
-        # 场景3: 同向持仓异常
-        if mode == PositionMode.ANOMALY_SAME:
-            return False, f"持仓方向错误: {self.symbol1}={info['qty1']}, {self.symbol2}={info['qty2']}"
-
-        # 场景4: 正常持仓,检查比例(仅针对LONG_SPREAD/SHORT_SPREAD)
-        expected_ratio = abs(self.beta_mean)
-        actual_ratio = abs(info['qty2'] / info['qty1']) if info['qty1'] != 0 else 0
-        ratio_error = abs(actual_ratio - expected_ratio) / expected_ratio if expected_ratio > 0 else 0
-
-        if ratio_error > 0.20:  # 20%容差
-            return False, (
-                f"持仓比例异常: 期望{expected_ratio:.2f}, "
-                f"实际{actual_ratio:.2f}, 误差{ratio_error:.1%}"
-            )
-
-        return True, ""
-
+    # ===== 6. 数据查询方法（供风控使用，但不执行检查） =====
 
     def get_pair_holding_days(self):
         """
@@ -688,7 +651,7 @@ class Pairs:
 
     def get_pair_pnl(self) -> Optional[float]:
         """
-        计算配对当前浮动盈亏(配对专属,不受其他配对干扰)
+        计算配对当前浮动盈亏 (v6.9.4: 纯数据计算,无副作用)
 
         公式:
         - 当前市值 = qty1 * current_price1 + qty2 * current_price2
@@ -700,6 +663,11 @@ class Pairs:
         - 使用entry_price而非Portfolio.AveragePrice(全局均价)
         - 空头的qty为负数,自动处理方向
         - 完全配对专属计算,即使symbol出现在多个配对中也不会混淆
+
+        设计变化 (v6.9.4):
+        - 移除HWM追踪逻辑(已迁移到 PairDrawdownRule)
+        - 成为纯函数(无状态修改),遵循函数式编程原则
+        - 调用方: PairDrawdownRule, TradeSnapshot
 
         返回:
             浮动盈亏(美元) 或 None(无持仓或数据不完整)
@@ -729,42 +697,6 @@ class Pairs:
         pnl = current_value - entry_value
 
         return pnl
-
-
-    def get_pair_drawdown(self) -> Optional[float]:
-        """
-        计算配对回撤比例
-
-        回撤定义:
-        - drawdown = (HWM - current_pnl) / entry_cost
-        - HWM(高水位)会随着pnl上涨而更新
-        - entry_cost使用开仓时的总成本作为分母(归一化)
-
-        设计特点:
-        - 自动追踪HWM(调用时自动更新)
-        - 回撤基于entry_cost归一化,便于跨配对比较
-        - 开仓时HWM=0,从盈亏平衡点开始追踪
-
-        返回:
-            回撤比例(0.15表示15%回撤) 或 None(无持仓或无法计算)
-        """
-        # 必须有正常持仓
-        if not self.has_normal_position():
-            return None
-
-        # 获取当前PnL
-        pnl = self.get_pair_pnl()
-        if pnl is None or self.entry_cost <= 0:
-            return None
-
-        # 更新HWM(如果当前PnL更高)
-        if pnl > self.pair_hwm:
-            self.pair_hwm = pnl
-
-        # 计算回撤比例
-        drawdown = (self.pair_hwm - pnl) / self.entry_cost
-
-        return drawdown
 
 
     # ===== 7. 辅助方法 =====

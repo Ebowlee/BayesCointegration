@@ -97,18 +97,24 @@ git commit -m "v2.4.8_strategy-optimize@20250720"
 - **Configuration**: All parameters in `src/config.py` via `StrategyConfig` class
 
 ### 2. Pairs.py - Pair Trading Object
-- **Purpose**: Encapsulates all pair-specific logic
+- **Purpose**: Encapsulates all pair-specific logic (data provider, not checker)
+- **Design Principle** (v6.9.4): "Data Provider, Not Checker"
+  - ✅ **Provides**: PnL calculation, position data, holding time, signal generation
+  - ❌ **Does NOT**: Risk checking, HWM tracking, drawdown calculation
+  - **Removed** (v6.9.4): `check_position_integrity()` (unused), `get_pair_drawdown()` (moved to PairDrawdownRule), `pair_hwm` attribute
 - **Creation Pattern** (v6.9.2):
   - **Recommended**: Use classmethod factory `Pairs.from_model_result(algorithm, model_result, config)`
   - **Avoid**: Direct constructor `Pairs(algorithm, model_result, config)`
   - **Consistency**: Follows same pattern as `PairData.from_clean_data()` and `TradeSnapshot.from_pair()`
-  - **Extensibility**: Future factories可添加 `from_dict()`, `from_historical_data()` 等方法
 - **Key Methods**:
   - `get_signal()`: Generate trading signals (LONG_SPREAD, SHORT_SPREAD, CLOSE, STOP_LOSS, HOLD)
   - `get_zscore()`: Calculate current Z-score
   - `open_position()`: Execute beta-hedged opening trades
   - `close_position()`: Execute closing trades
-  - `get_position_info()`: Query position status
+  - `get_position_info()`: Query position status (with @property position_mode - v6.9.3)
+  - `get_pair_pnl()`: Calculate floating PnL (pure function, no side effects - v6.9.4)
+  - `get_pair_holding_days()`: Calculate holding days (data query for HoldingTimeoutRule)
+  - `is_in_cooldown()`: Check cooldown period (part of signal generation logic)
 - **Features**: Cooldown management, beta hedging, position tracking
 
 ### 3. PairsManager.py - Lifecycle Management
@@ -550,6 +556,7 @@ for pair in tradeable_pairs.values():
 
 ## Recent Optimization History
 
+- **v6.9.4** (Jan 2025): Pairs responsibility clarification - removed risk checking methods (check_position_integrity, get_pair_drawdown), migrated HWM tracking to PairDrawdownRule, eliminated side effects in get_pair_pnl(), added automatic HWM cleanup in TicketsManager
 - **v6.9.3** (Jan 2025): Module responsibility refactor - separated storage/business logic in PairsManager, migrated signal aggregation to ExecutionManager, migrated concentration analysis to RiskManager, added @property position_mode to Pairs for DRY principle
 - **v6.9.2** (Jan 2025): Classmethod factory pattern for Pairs creation (consistency with PairData and TradeSnapshot)
 - **v6.9.1** (Jan 2025): PairData architecture optimization - eliminated duplicate np.log() calls (67% performance improvement)
@@ -570,6 +577,7 @@ for pair in tradeable_pairs.values():
 - **v6.4.4**: Order lifecycle tracking (duplicate order prevention)
 - **v6.9.0-v6.9.2**: PairData optimization + classmethod factory pattern (performance + consistency)
 - **v6.9.3**: Module responsibility clarification (storage vs business logic separation)
+- **v6.9.4**: Pairs responsibility clarification (data provider vs risk checker separation)
 
 ## Files to Avoid Modifying
 

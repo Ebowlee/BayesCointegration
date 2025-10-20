@@ -55,28 +55,33 @@ class PairDrawdownRule(RiskRule):
         """
         super().__init__(algorithm, config)
 
+        # v6.9.4: HWM 追踪从 Pairs 迁移到 Rule (职责分离)
+        # 设计原则: 风控状态应该由风控系统管理,而非配对实体
+        self.pair_hwm_dict = {}  # {pair_id: hwm_pnl}
+
 
     def check(self, pair) -> Tuple[bool, str]:
         """
-        检查配对是否触发回撤风控
+        检查配对是否触发回撤风控 (v6.9.4: Rule 自己管理 HWM)
 
         检查流程:
         1. 检查规则是否启用
-        2. 调用pair.get_pair_drawdown()获取回撤比例(自动更新HWM)
-        3. 与阈值比较判断是否触发
+        2. 获取配对当前 PnL (调用 pair.get_pair_pnl())
+        3. 更新该配对的 HWM (Rule 内部状态)
+        4. 计算回撤并与阈值比较
 
         Args:
-            pair: Pairs对象,必须实现get_pair_drawdown()和get_pair_pnl()方法
+            pair: Pairs对象,必须实现 get_pair_pnl() 方法
 
         Returns:
             (is_triggered, description)
             - is_triggered: True表示触发风控,False表示正常
             - description: 详细描述(包含回撤比例、PnL、HWM、成本)
 
-        设计说明:
-            - 完全复用Pairs.get_pair_drawdown()方法,遵循DRY原则
-            - 该方法内部自动更新HWM和计算回撤
-            - 与HoldingTimeoutRule/PositionAnomalyRule类似,避免重复实现逻辑
+        设计变化 (v6.9.4):
+            - HWM 从 Pairs.pair_hwm 迁移到 Rule.pair_hwm_dict
+            - Pairs 只提供数据 (get_pair_pnl),Rule 负责风控逻辑
+            - 遵循 "检测者管理状态,被检测者提供数据" 原则
 
         示例:
             triggered, desc = rule.check(pair=pair_obj)
@@ -86,21 +91,33 @@ class PairDrawdownRule(RiskRule):
         if not self.enabled:
             return False, ""
 
-        # 2. 调用pair.get_pair_drawdown()获取回撤(自动更新HWM)
-        drawdown = pair.get_pair_drawdown()
-        if drawdown is None:
+        # 2. 获取当前 PnL (Pairs 提供数据)
+        pnl = pair.get_pair_pnl()
+        if pnl is None or pair.entry_cost <= 0:
             return False, ""
 
-        # 3. 获取阈值
-        threshold = self.config['threshold']
+        # 3. 管理 HWM (Rule 的职责)
+        pair_id = pair.pair_id
 
-        # 4. 判断是否触发
+        # 初始化 HWM (开仓时为 0)
+        if pair_id not in self.pair_hwm_dict:
+            self.pair_hwm_dict[pair_id] = 0.0
+
+        # 更新 HWM
+        if pnl > self.pair_hwm_dict[pair_id]:
+            self.pair_hwm_dict[pair_id] = pnl
+
+        hwm = self.pair_hwm_dict[pair_id]
+
+        # 4. 计算回撤
+        drawdown = (hwm - pnl) / pair.entry_cost
+
+        # 5. 判断是否触发
+        threshold = self.config['threshold']
         if drawdown >= threshold:
-            # 获取PnL用于描述
-            pnl = pair.get_pair_pnl()
             description = (
                 f"配对回撤: {drawdown*100:.1f}% >= {threshold*100:.1f}% "
-                f"(PnL: ${pnl:,.2f}, HWM: ${pair.pair_hwm:,.2f}, "
+                f"(PnL: ${pnl:,.2f}, HWM: ${hwm:,.2f}, "
                 f"成本: ${pair.entry_cost:,.2f})"
             )
             return True, description
@@ -116,3 +133,29 @@ class PairDrawdownRule(RiskRule):
             'pair_close': 正常平仓动作(统一动作,无强制清算)
         """
         return self.config.get('action', 'pair_close')
+
+
+    def on_pair_closed(self, pair_id: tuple):
+        """
+        配对平仓后的清理回调 (v6.9.4 新增)
+
+        职责:
+        - 清理该配对的 HWM 状态
+        - 避免内存泄漏 (长期运行策略的关键)
+
+        调用时机:
+        - main.py 在执行平仓后立即调用
+        - ExecutionManager.handle_signal_closings() / handle_pair_risk_actions()
+
+        Args:
+            pair_id: 配对标识符元组 (symbol1, symbol2)
+
+        示例:
+            # main.py 中
+            tickets = pair.close_position(reason='STOP_LOSS')
+            if tickets:
+                # 订单提交后立即清理 HWM
+                self.risk_manager.pair_drawdown_rule.on_pair_closed(pair.pair_id)
+        """
+        if pair_id in self.pair_hwm_dict:
+            del self.pair_hwm_dict[pair_id]
