@@ -392,22 +392,43 @@ class Pairs:
         return {'position_mode': position_mode, 'qty1': qty1, 'qty2': qty2, 'value1': value1, 'value2': value2}
 
 
+    @property
+    def position_mode(self):
+        """
+        获取当前持仓模式（功能冗余优化 v6.9.3）
+
+        设计目标：
+        - 消除 has_position(), has_normal_position(), has_anomaly() 中的重复代码
+        - 提供清晰直观的接口：self.position_mode 比 self.get_position_info()['position_mode'] 更简洁
+        - 遵循 DRY 原则：字典键访问封装为属性，避免 4 处重复
+
+        实现细节：
+        - 内部调用 get_position_info()['position_mode']
+        - Portfolio.Price 是 O(1) 的字典查询（已被 QuantConnect 缓存）
+        - 无需额外缓存机制（性能成本 ~0.001ms，复杂度不值得）
+
+        Returns:
+            PositionMode 常量之一：
+            - NONE: 无持仓
+            - LONG_SPREAD / SHORT_SPREAD: 正常持仓
+            - PARTIAL_LEG1 / PARTIAL_LEG2 / ANOMALY_SAME: 异常持仓
+        """
+        return self.get_position_info()['position_mode']
+
+
     def has_position(self) -> bool:
-        """检查是否有持仓"""
-        mode = self.get_position_info()['position_mode']
-        return mode != PositionMode.NONE
+        """检查是否有持仓（优化后：使用 @property）"""
+        return self.position_mode != PositionMode.NONE
 
 
     def has_normal_position(self) -> bool:
-        """检查是否有正常持仓"""
-        mode = self.get_position_info()['position_mode']
-        return mode in [PositionMode.LONG_SPREAD, PositionMode.SHORT_SPREAD]
+        """检查是否有正常持仓（优化后：使用 @property）"""
+        return self.position_mode in [PositionMode.LONG_SPREAD, PositionMode.SHORT_SPREAD]
 
 
     def has_anomaly(self) -> bool:
-        """检查是否有异常持仓"""
-        mode = self.get_position_info()['position_mode']
-        return mode in [PositionMode.PARTIAL_LEG1, PositionMode.PARTIAL_LEG2, PositionMode.ANOMALY_SAME]
+        """检查是否有异常持仓（优化后：使用 @property）"""
+        return self.position_mode in [PositionMode.PARTIAL_LEG1, PositionMode.PARTIAL_LEG2, PositionMode.ANOMALY_SAME]
 
 
     def get_position_value(self) -> float:
@@ -595,14 +616,14 @@ class Pairs:
 
     def check_position_integrity(self):
         """
-        检查持仓完整性(复用get_position_info避免重复查询)
+        检查持仓完整性（优化后：使用 @property position_mode）
 
         返回:
             (is_valid: bool, error_msg: str)
         """
-        # 复用现有方法获取持仓状态
+        # 获取完整持仓信息（一次性获取所有字段）
         info = self.get_position_info()
-        mode = info['position_mode']
+        mode = self.position_mode  # 使用 @property 简化代码
 
         # 场景1: 无持仓 → 正常
         if mode == PositionMode.NONE:

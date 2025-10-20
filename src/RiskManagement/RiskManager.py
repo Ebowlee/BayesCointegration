@@ -52,16 +52,18 @@ class RiskManager:
     ```
     """
 
-    def __init__(self, algorithm, config):
+    def __init__(self, algorithm, config, pairs_manager=None):
         """
         初始化风控调度器
 
         Args:
             algorithm: QuantConnect算法实例
             config: StrategyConfig配置对象
+            pairs_manager: PairsManager实例（v6.9.3新增，用于集中度分析）
         """
         self.algorithm = algorithm
         self.config = config
+        self.pairs_manager = pairs_manager  # v6.9.3: 用于 get_sector_concentration()
 
         # 全局开关
         self.enabled = config.risk_management.get('enabled', True)
@@ -323,6 +325,87 @@ class RiskManager:
         - MarketCondition有自己独立的enabled开关
         """
         return self.market_condition.is_safe_to_open_positions()
+
+
+    def get_sector_concentration(self) -> dict:
+        """
+        获取子行业集中度分析
+
+        从 PairsManager.get_sector_concentration() 迁移而来 (v6.9.3)
+
+        职责:
+        - RiskManager 负责风控分析（集中度计算）
+        - 通过 PairsManager 查询配对列表（职责分离）
+        - 不直接访问 PairsManager 内部状态
+
+        Returns:
+            Dict[str, Dict]: 集中度分析结果
+            {
+                'IndustryGroup名称': {
+                    'concentration': float,  # 占总资产比例
+                    'value': float,          # 该行业持仓总值
+                    'pairs': List[Pairs],    # 该行业的配对列表
+                    'pair_count': int        # 配对数量
+                }
+            }
+
+        设计理念:
+        - 依赖注入: 通过 self.pairs_manager 获取数据
+        - 接口复用: 调用 get_all_tradeable_pairs() 而非直接访问 pairs 字典
+        - 单一职责: 只负责分析计算，不负责存储管理
+
+        示例:
+        ```python
+        # 在 main.py 中调用
+        concentrations = self.risk_manager.get_sector_concentration()
+        for industry, data in concentrations.items():
+            if data['concentration'] > 0.4:  # 超过40%集中度
+                self.Debug(f"[风控] {industry} 集中度过高: {data['concentration']:.1%}")
+        ```
+        """
+        portfolio = self.algorithm.Portfolio
+        total_value = portfolio.TotalPortfolioValue
+
+        if total_value <= 0:
+            return {}
+
+        # 防御性检查: pairs_manager 未注入
+        if self.pairs_manager is None:
+            return {}
+
+        industry_group_data = {}
+
+        # 从 PairsManager 获取配对列表（依赖注入 + 接口调用）
+        tradeable_pairs = self.pairs_manager.get_all_tradeable_pairs()
+
+        for pair in tradeable_pairs.values():
+            if not pair.has_position():
+                continue
+
+            info = pair.get_position_info()
+
+            industry_group = pair.industry_group
+            if industry_group not in industry_group_data:
+                industry_group_data[industry_group] = {
+                    'value': 0,
+                    'pairs': []
+                }
+
+            industry_group_data[industry_group]['value'] += info['value1'] + info['value2']
+            industry_group_data[industry_group]['pairs'].append(pair)
+
+        # 计算集中度并格式化返回
+        result = {}
+        for industry_group, data in industry_group_data.items():
+            concentration = data['value'] / total_value
+            result[industry_group] = {
+                'concentration': concentration,
+                'value': data['value'],
+                'pairs': data['pairs'],
+                'pair_count': len(data['pairs'])
+            }
+
+        return result
 
 
     def check_pair_risks(self, pair) -> Tuple[Optional[str], List[Tuple[RiskRule, str]]]:

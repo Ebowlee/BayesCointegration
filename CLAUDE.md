@@ -112,32 +112,52 @@ git commit -m "v2.4.8_strategy-optimize@20250720"
 - **Features**: Cooldown management, beta hedging, position tracking
 
 ### 3. PairsManager.py - Lifecycle Management
-- **Purpose**: Manage all pairs through their lifecycle
+- **Purpose**: Manage all pairs through their lifecycle (storage and classification only)
+- **Design Principle** (v6.9.3): "Storage vs Business Logic" separation
+  - **Responsible for**: Storing pairs, state classification, simple queries
+  - **NOT responsible for**: Signal aggregation, risk analysis, fund allocation (delegated to ExecutionManager and RiskManager)
 - **State Management**:
   - **Active pairs**: Currently passing cointegration tests
   - **Legacy pairs**: Have positions but failed recent tests
   - **Dormant pairs**: No positions and failed tests
-- **Key Methods**:
-  - `create_pairs_from_models()`: Create new Pairs objects
-  - `get_pairs_with_position()`: Filter pairs with positions
-  - `get_pairs_without_position()`: Filter pairs without positions
-  - `can_open_new_position()`: Check global position limits
-  - `get_sector_concentration()`: Calculate industry exposure
+- **Key Methods** (v6.9.3 simplified):
+  - `update_pairs()`: Update pair collection from monthly selection
+  - `get_all_tradeable_pairs()`: Get active + legacy pairs
+  - `get_pairs_with_position()`: Filter pairs with positions (simple query)
+  - `get_pairs_without_position()`: Filter pairs without positions (simple query)
+  - `get_pair_by_id()`: Retrieve specific pair by ID
+  - `reclassify_pairs()`: Reclassify pairs into active/legacy/dormant states
 
 ### 4. RiskManagement.py - Two-Tier Risk Control
-- **Purpose**: Risk detection only (execution handled by main.py)
+- **Purpose**: Risk detection and analysis (execution handled by main.py)
 - **Design Principle**: Separation of concerns - risk managers detect, main.py executes
+- **Dependency Injection** (v6.9.3): Receives `pairs_manager` to query pair data for concentration analysis
 - **PortfolioLevelRiskManager**:
   - `is_account_blowup()`: Detects loss > 30% of initial capital
   - `is_excessive_drawdown()`: Detects drawdown > 15% from high water mark
   - `is_high_market_volatility()`: Detects SPY 20-day annualized volatility > 30%
-  - `check_sector_concentration()`: Returns sectors exceeding 40% exposure
+  - `get_sector_concentration()`: Calculate industry exposure (v6.9.3: migrated from PairsManager)
 - **PairLevelRiskManager**:
   - `check_holding_timeout()`: Detects positions held > 30 days
   - `check_position_anomaly()`: Detects partial or same-direction positions
   - `check_pair_drawdown()`: Detects pair drawdown > 20% from pair HWM
 
-### 5. UniverseSelection.py - Stock Selection
+### 5. ExecutionManager.py - Unified Execution Engine (v6.9.3)
+- **Purpose**: Execute all trading actions (risk-driven and signal-driven)
+- **Design Principle**: "Execution Preparation" - aggregates signals and manages fund allocation
+- **Key Methods**:
+  - `handle_portfolio_risk_action()`: Execute portfolio-level risk actions (e.g., liquidate all)
+  - `handle_pair_risk_actions()`: Execute pair-level risk actions (e.g., close specific pairs)
+  - `handle_signal_closings()`: Execute normal closing signals from pairs
+  - `handle_position_openings()`: Execute opening logic with dynamic margin allocation
+  - `get_entry_candidates()`: Aggregate opening signals sorted by quality (v6.9.3: migrated from PairsManager)
+- **Responsibilities** (v6.9.3 expanded):
+  - Signal aggregation for opening candidates
+  - Dynamic fund allocation based on quality scores
+  - Order submission and ticket registration
+  - Interaction with PairsManager (queries) and TicketsManager (order tracking)
+
+### 6. UniverseSelection.py - Stock Selection
 - **Purpose**: Monthly universe refresh
 - **Two-stage filtering**:
   - Coarse: Price > $20, Volume > $5M, IPO > 3 years
@@ -145,7 +165,7 @@ git commit -m "v2.4.8_strategy-optimize@20250720"
 - **Sector-based selection**: Top stocks per Morningstar sector
 - **Triggers**: Monthly via `Schedule.On()` → `TriggerSelection()`
 
-### 6. TicketsManager.py - Order Lifecycle Tracking (v6.4.4)
+### 7. TicketsManager.py - Order Lifecycle Tracking (v6.4.4)
 - **Purpose**: Prevent duplicate orders via order locking mechanism
 - **Key Features**:
   - Real-time order status calculation (PENDING/COMPLETED/ANOMALY)
@@ -158,7 +178,7 @@ git commit -m "v2.4.8_strategy-optimize@20250720"
   - `get_anomaly_pairs()`: Detect pairs with order anomalies for risk management
 - **Design Principle**: Single source of truth - status derived from OrderTicket.Status
 
-### 7. Analysis Modules (src/analysis/)
+### 8. Analysis Modules (src/analysis/)
 - **DataProcessor**: Clean and prepare historical data (252-day lookback)
 - **CointegrationAnalyzer**: Engle-Granger cointegration tests (p-value < 0.05)
 - **BayesianModeler**: PyMC MCMC parameter estimation (500 warmup + 500 samples, 2 chains)
@@ -203,10 +223,13 @@ for pair in pairs_with_position.values():
             tickets_manager.register_tickets(pair.pair_id, tickets)  # Register and lock
 ```
 
-### Opening Logic (Pairs without Positions)
+### Opening Logic (Pairs without Positions) - v6.9.3 Updated
 ```python
-# Get entry candidates sorted by quality (descending)
-entry_candidates = pairs_manager.get_sequenced_entry_candidates(data)
+# Get pairs without positions
+pairs_without_position = pairs_manager.get_pairs_without_position()
+
+# Get entry candidates sorted by quality (descending) - v6.9.3: migrated to ExecutionManager
+entry_candidates = execution_manager.get_entry_candidates(pairs_without_position, data)
 
 # Calculate available margin (95% of MarginRemaining, keep 5% buffer)
 initial_margin = Portfolio.MarginRemaining * 0.95
@@ -527,6 +550,7 @@ for pair in tradeable_pairs.values():
 
 ## Recent Optimization History
 
+- **v6.9.3** (Jan 2025): Module responsibility refactor - separated storage/business logic in PairsManager, migrated signal aggregation to ExecutionManager, migrated concentration analysis to RiskManager, added @property position_mode to Pairs for DRY principle
 - **v6.9.2** (Jan 2025): Classmethod factory pattern for Pairs creation (consistency with PairData and TradeSnapshot)
 - **v6.9.1** (Jan 2025): PairData architecture optimization - eliminated duplicate np.log() calls (67% performance improvement)
 - **v6.9.0** (Jan 2025): PairData value object introduction - pre-computed log prices for analysis modules
@@ -545,6 +569,7 @@ for pair in tradeable_pairs.values():
 - **v6.4.0**: Margin-based allocation (removed hard pair limits)
 - **v6.4.4**: Order lifecycle tracking (duplicate order prevention)
 - **v6.9.0-v6.9.2**: PairData optimization + classmethod factory pattern (performance + consistency)
+- **v6.9.3**: Module responsibility clarification (storage vs business logic separation)
 
 ## Files to Avoid Modifying
 

@@ -80,7 +80,8 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         self.tickets_manager = TicketsManager(self, self.pairs_manager)
 
         # === 初始化风控管理器 ===
-        self.risk_manager = RiskManager(self, self.config)
+        # v6.9.3: 传递 pairs_manager 用于集中度分析
+        self.risk_manager = RiskManager(self, self.config, self.pairs_manager)
 
         # === 初始化统一执行器 ===
         self.execution_manager = ExecutionManager(self, self.pairs_manager, self.tickets_manager)

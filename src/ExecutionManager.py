@@ -223,6 +223,43 @@ class ExecutionManager:
                     self.tickets_manager.register_tickets(pair.pair_id, tickets, OrderAction.CLOSE)
 
 
+    def get_entry_candidates(self, pairs_without_position: dict, data) -> list:
+        """
+        获取所有有开仓信号的配对，按质量分数降序排序
+
+        从 PairsManager.get_sequenced_entry_candidates() 迁移而来 (v6.9.3)
+
+        职责: ExecutionManager 负责"执行准备"逻辑
+        - 遍历配对获取信号（调用 Pairs.get_signal()）
+        - 过滤开仓信号
+        - 计算计划分配比例
+        - 按质量分数排序
+
+        Args:
+            pairs_without_position: 无持仓的可交易配对字典 {pair_id: Pairs对象}
+            data: 数据切片
+
+        Returns:
+            List[(pair, signal, quality_score, planned_pct), ...] 按质量降序排序
+
+        设计理念:
+            - 信号聚合属于"执行准备"，不属于"配对管理"
+            - 调用 pair.get_signal() 等业务逻辑是执行器的职责
+            - PairsManager 只负责存储和分类，不应调用业务逻辑
+        """
+        candidates = []
+
+        for pair in pairs_without_position.values():
+            signal = pair.get_signal(data)
+            if signal in [TradingSignal.LONG_SPREAD, TradingSignal.SHORT_SPREAD]:
+                planned_pct = pair.get_planned_allocation_pct()
+                candidates.append((pair, signal, pair.quality_score, planned_pct))
+
+        # 按质量分数降序排序
+        candidates.sort(key=lambda x: x[2], reverse=True)
+        return candidates
+
+
     def handle_position_openings(self, pairs_without_position, data):
         """
         处理正常开仓逻辑
@@ -234,7 +271,7 @@ class ExecutionManager:
             data: 数据切片
 
         执行流程:
-        1. 获取开仓候选(pairs_manager.get_sequenced_entry_candidates)
+        1. 获取开仓候选(get_entry_candidates) - v6.9.3更新
         2. 计算可用保证金(MarginRemaining * 0.95)
         3. 动态分配保证金给各配对(质量分数驱动)
         4. 逐个执行开仓(三重检查: 订单锁/最小投资/保证金充足)
@@ -245,8 +282,8 @@ class ExecutionManager:
         - 动态缩放保证金分配(公平性)
         - 质量分数驱动的分配比例
         """
-        # 获取开仓候选(已按质量降序)
-        entry_candidates = self.pairs_manager.get_sequenced_entry_candidates(data)
+        # 获取开仓候选(已按质量降序) - v6.9.3: 改为调用自己的方法
+        entry_candidates = self.get_entry_candidates(pairs_without_position, data)
         if not entry_candidates:
             return
 

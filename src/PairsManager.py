@@ -1,7 +1,7 @@
 # region imports
 from AlgorithmImports import *
-from src.Pairs import PositionMode, TradingSignal
-from typing import Dict, Set, List
+from src.Pairs import PositionMode
+from typing import Dict, Set
 # endregion
 
 
@@ -143,70 +143,7 @@ class PairsManager:
         return self.all_pairs.get(pair_id)
 
 
-    def get_sequenced_entry_candidates(self, data) -> List:
-        """
-        获取所有有开仓信号的配对,按质量分数降序排序
-        返回: [(pair, signal, quality_score, planned_pct), ...]
-        """
-        candidates = []
-
-        # 只检查无持仓的可交易配对
-        for pair in self.get_pairs_without_position().values():
-            signal = pair.get_signal(data)
-            if signal in [TradingSignal.LONG_SPREAD, TradingSignal.SHORT_SPREAD]:
-                # 计算计划分配比例
-                planned_pct = pair.get_planned_allocation_pct()
-                candidates.append((pair, signal, pair.quality_score, planned_pct))
-
-        # 按质量分数降序排序
-        candidates.sort(key=lambda x: x[2], reverse=True)
-        return candidates
-
-
-    # ===== 4. 风控分析 =====
-
-    def get_sector_concentration(self) -> Dict[str, Dict]:
-        """
-        获取子行业集中度分析 (v6.7.2: 使用IndustryGroup分类)
-        """
-        portfolio = self.algorithm.Portfolio
-        total_value = portfolio.TotalPortfolioValue
-
-        if total_value <= 0:
-            return {}
-
-        industry_group_data = {}
-
-        # 遍历所有可交易配对
-        for pair in self.get_all_tradeable_pairs().values():
-            if not pair.has_position():
-                continue
-            info = pair.get_position_info()
-
-            industry_group = pair.industry_group
-            if industry_group not in industry_group_data:
-                industry_group_data[industry_group] = {
-                    'value': 0,
-                    'pairs': []
-                }
-            industry_group_data[industry_group]['value'] += info['value1'] + info['value2']
-            industry_group_data[industry_group]['pairs'].append(pair)
-
-        # 计算集中度
-        result = {}
-        for industry_group, data in industry_group_data.items():
-            concentration = data['value'] / total_value
-            result[industry_group] = {
-                'concentration': concentration,
-                'value': data['value'],
-                'pairs': data['pairs'],
-                'pair_count': len(data['pairs'])
-            }
-
-        return result
-
-
-    # ===== 5. 日志与统计 =====
+    # ===== 4. 日志与统计 =====
 
     def log_statistics(self):
         """输出统计信息"""
