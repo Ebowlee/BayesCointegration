@@ -45,7 +45,14 @@
       "Bash(git branch:*)",
       "Bash(git fetch:*)",
       "Bash(dir:*)",
-      "Bash(iconv:*)"
+      "Bash(iconv:*)",
+      "Bash(if [ -d \".Trash-0\" ])",
+      "Bash(then rm -rf .Trash-0)",
+      "Bash(else echo \".Trash-0目录不存在\")",
+      "Bash(fi)",
+      "Bash(if [ -d \".ipynb_checkpoints\" ])",
+      "Bash(then rm -rf .ipynb_checkpoints)",
+      "Bash(else echo \".ipynb_checkpoints目录不存在\")"
     ],
     "deny": []
   },
