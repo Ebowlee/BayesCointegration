@@ -4,6 +4,118 @@
 
 ---
 
+## [v7.0.1_PairsManager参数更新优化@20250121]
+
+### 版本定义
+**优化版本**: 持仓期间参数冻结 + PairsManager 状态语义优化
+
+### 核心改动
+
+#### 1. Pairs.update_params() - 持仓期间参数冻结
+
+**设计理念**: "让信号说话"
+- 持仓期间不更新 beta/alpha 等统计参数,保持开仓时的决策基础
+- 避免"参数漂移"导致信号逻辑混乱
+- 信号系统(Entry/Exit/Stop 阈值)已能自动处理 beta 变化风险
+
+**实施细节**:
+```python
+def update_params(self, new_pair):
+    """更新统计参数 - 持仓期间冻结"""
+    if self.has_position():
+        # 有持仓:不更新任何参数
+        self.algorithm.Debug(f"[Pairs] {self.pair_id} 有持仓,参数保持冻结")
+        return
+
+    # 无持仓:更新所有贝叶斯模型参数
+    self.alpha_mean = new_pair.alpha_mean
+    self.beta_mean = new_pair.beta_mean
+    ...
+```
+
+**技术原因**:
+1. **协整延续场景** (本月和上月都通过检验):
+   - Beta 理论上应保持稳定 (±5-10% 小幅波动属正常)
+   - 剧烈变化 (>20%) 会触发 Stop-Loss 信号自动平仓
+   - 无需通过更新参数来"帮助"系统
+
+2. **Legacy 配对场景** (未通过检验但有持仓):
+   - Beta 可能已大幅变化,Z-score 会偏离正常范围
+   - 自动触发止损或超时平仓,无需参数更新
+
+3. **持仓-参数一致性**:
+   - 开仓数量基于 T0 时刻的 beta 计算 (对冲比例)
+   - 持仓期间更新 beta 会导致 Z-score 计算与实际持仓不匹配
+
+#### 2. PairsManager - 状态语义优化
+
+**新增 PairState 枚举类**:
+```python
+class PairState:
+    """配对状态常量"""
+    COINTEGRATED = 'cointegrated'  # 替代 'active' (避免歧义)
+    LEGACY = 'legacy'              # 保持不变
+    ARCHIVED = 'archived'          # 替代 'dormant' (更准确)
+```
+
+**命名改进理由**:
+- `COINTEGRATED` > `active`:
+  - "active" 容易产生歧义 (激活状态?活跃交易?)
+  - "cointegrated" 明确表达"本轮通过协整检验"
+
+- `ARCHIVED` > `dormant`:
+  - "dormant" 暗示"休眠状态,可能唤醒"
+  - "archived" 更准确表达"已归档,不参与交易"
+
+**统计输出优化**:
+- 字段重命名: `cointegrated_count`, `archived_count`
+- 日志输出: "协整=3, 遗留=1, 归档=2"
+
+**代码改进**:
+- 使用枚举常量替代魔法字符串,类型更安全
+- 与其他常量类 (TradingSignal, PositionMode) 风格一致
+
+### 设计原则
+
+**1. 参数冻结策略**:
+```
+持仓期间参数冻结 → 维持开仓决策基础一致性 → 避免参数漂移
+```
+
+**2. 信号系统自洽性**:
+```
+Entry (±1.0σ) → Exit (±0.3σ) → Stop (±3.0σ)
+        ↓
+    自动处理 beta 变化风险
+```
+
+**3. 语义准确性**:
+```
+COINTEGRATED (协整检验通过)
+LEGACY (遗留持仓,需管理)
+ARCHIVED (已归档,不交易)
+```
+
+### 影响范围
+
+**修改文件**:
+- `src/Pairs.py`: update_params() 添加持仓检查
+- `src/PairsManager.py`: 新增 PairState 枚举,优化状态分类
+
+**向后兼容性**:
+- ✅ 变量名不变 (active_ids, legacy_ids, dormant_ids)
+- ✅ 外部接口不变 (通过 PairsManager 查询接口访问)
+- ✅ 仅内部实现优化,零外部影响
+
+### 优化收益
+
+1. **逻辑更严谨**: 持仓期间参数冻结,符合"让信号说话"的设计哲学
+2. **命名更准确**: COINTEGRATED/ARCHIVED 语义更清晰
+3. **可维护性提升**: 枚举化减少魔法字符串,降低拼写错误风险
+4. **一致性增强**: 与 TradingSignal/PositionMode 风格统一
+
+---
+
 ## [v7.0.0_Intent模式重构@20250120]
 
 ### 版本定义

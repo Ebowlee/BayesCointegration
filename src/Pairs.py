@@ -96,9 +96,25 @@ class Pairs:
     def update_params(self, new_pair):
         """
         从新的Pairs对象更新统计参数(当配对重新出现时调用)
-        只更新模型参数,不更新身份信息和配置
+
+        更新策略:
+            - 有持仓: 不更新,保持参数冻结(维持开仓时的决策基础)
+            - 无持仓: 完全更新所有模型参数
+
+        设计理念:
+            - 持仓期间参数冻结,避免"参数漂移"导致信号混乱
+            - 信号系统(Entry/Exit/Stop)已经能够处理beta变化风险
+            - "让信号说话" - 不通过频繁调参来干预系统
         """
-        # 只更新贝叶斯模型参数
+        # 持仓检查:有持仓时不更新
+        if self.has_position():
+            self.algorithm.Debug(
+                f"[Pairs] {self.pair_id} 有持仓,参数保持冻结 "
+                f"(beta={self.beta_mean:.3f}, 开仓时间={self.pair_opened_time})"
+            )
+            return
+
+        # 无持仓时:更新所有贝叶斯模型参数
         self.alpha_mean = new_pair.alpha_mean
         self.beta_mean = new_pair.beta_mean
         self.residual_mean = new_pair.residual_mean
