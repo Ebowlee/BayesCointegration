@@ -7,7 +7,7 @@ from src.UniverseSelection import SectorBasedUniverseSelection
 from src.Pairs import Pairs
 from src.TicketsManager import TicketsManager
 from src.RiskManagement import RiskManager
-from src.ExecutionManager import ExecutionManager
+from src.execution import ExecutionManager, OrderExecutor
 from src.TradeHistory import TradeJournal, TradeAnalyzer
 # endregion
 
@@ -84,7 +84,6 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         self.risk_manager = RiskManager(self, self.config, self.pairs_manager)
 
         # === 初始化订单执行器(v7.0.0新增) ===
-        from src.OrderExecutor import OrderExecutor
         self.order_executor = OrderExecutor(self)
 
         # === 初始化统一执行器 ===

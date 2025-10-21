@@ -4,6 +4,87 @@
 
 ---
 
+## [v7.0.4_Execution模块重构@20250121]
+
+### 版本定义
+**架构优化版本**: 创建 execution/ 文件夹,统一管理执行层模块
+
+### 核心改动
+
+#### 文件结构重组
+
+**新建文件夹**: `src/execution/`
+```
+src/
+├── execution/           ← 新建
+│   ├── __init__.py      ← 统一导出接口
+│   ├── OrderIntent.py   ← 从 src/ 移动
+│   ├── OrderExecutor.py ← 从 src/ 移动
+│   └── ExecutionManager.py ← 从 src/ 移动
+├── analysis/            (已有:分析层)
+├── RiskManagement/      (已有:风控层)
+└── ...
+```
+
+**移动文件**:
+- `src/OrderIntent.py` → `src/execution/OrderIntent.py`
+- `src/OrderExecutor.py` → `src/execution/OrderExecutor.py`
+- `src/ExecutionManager.py` → `src/execution/ExecutionManager.py`
+
+**更新 import 路径**:
+- `main.py`: `from src.execution import ExecutionManager, OrderExecutor`
+- `src/Pairs.py`: `from src.execution import OpenIntent, CloseIntent`
+- `src/execution/OrderExecutor.py`: `from .OrderIntent import ...` (相对导入)
+
+### 设计原则
+
+**模块化分层**:
+```
+src/
+├── analysis/        # 分析层(协整检验、贝叶斯建模、质量评分)
+├── execution/       # 执行层(意图生成、订单执行、协调管理)
+├── RiskManagement/  # 风控层(组合级风控、配对级风控)
+├── Pairs.py         # 业务对象(配对交易核心逻辑)
+├── PairsManager.py  # 管理器(配对生命周期管理)
+└── ...
+```
+
+**职责清晰**:
+- `execution/OrderIntent`: 意图值对象(数据载体)
+- `execution/OrderExecutor`: 订单执行引擎(意图→QuantConnect订单)
+- `execution/ExecutionManager`: 执行协调器(信号聚合→意图生成→执行→跟踪)
+
+**导入路径语义化**:
+```python
+# 改前:平铺导入,职责不明
+from src.OrderIntent import OpenIntent
+from src.OrderExecutor import OrderExecutor
+from src.ExecutionManager import ExecutionManager
+
+# 改后:明确归属执行层
+from src.execution import OpenIntent, OrderExecutor, ExecutionManager
+```
+
+### 影响范围
+
+**修改文件**:
+- 新增: `src/execution/__init__.py`
+- 移动: 3个执行层文件
+- 修改: `main.py`, `src/Pairs.py`, `src/execution/OrderExecutor.py` (import路径)
+
+**向后兼容性**:
+- ✅ 功能完全不变,仅文件位置和import路径调整
+- ✅ 通过 `__init__.py` 统一导出,外部调用更简洁
+
+### 优化收益
+
+1. **架构更清晰**: 执行层模块集中管理,与 analysis、RiskManagement 文件夹结构一致
+2. **职责更明确**: execution 文件夹明确标识"执行层"职责
+3. **导入更简洁**: 一次导入多个执行层组件,语义清晰
+4. **可维护性提升**: 执行层相关修改集中在一个文件夹,便于定位和维护
+
+---
+
 ## [v7.0.2_日志准确性优化@20250121]
 
 ### 版本定义

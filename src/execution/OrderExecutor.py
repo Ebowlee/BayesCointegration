@@ -1,7 +1,7 @@
 # region imports
 from AlgorithmImports import *
 from typing import List, Optional
-from src.OrderIntent import OpenIntent, CloseIntent
+from .OrderIntent import OpenIntent, CloseIntent
 # endregion
 
 

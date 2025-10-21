@@ -3,7 +3,7 @@ from AlgorithmImports import *
 import numpy as np
 from typing import Dict, Optional, Tuple
 from src.TradeHistory import TradeSnapshot
-from src.OrderIntent import OpenIntent, CloseIntent
+from src.execution import OpenIntent, CloseIntent
 # endregion
 
 
