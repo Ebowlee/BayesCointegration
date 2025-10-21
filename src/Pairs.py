@@ -93,7 +93,7 @@ class Pairs:
         self.exit_price2 = None                                                # symbol2平仓价(None=持仓中, 有值=已平仓)
 
 
-    def update_params(self, new_pair):
+    def update_params(self, new_pair) -> bool:
         """
         从新的Pairs对象更新统计参数(当配对重新出现时调用)
 
@@ -105,6 +105,9 @@ class Pairs:
             - 持仓期间参数冻结,避免"参数漂移"导致信号混乱
             - 信号系统(Entry/Exit/Stop)已经能够处理beta变化风险
             - "让信号说话" - 不通过频繁调参来干预系统
+
+        Returns:
+            bool: True=更新成功, False=有持仓未更新
         """
         # 持仓检查:有持仓时不更新
         if self.has_position():
@@ -112,7 +115,7 @@ class Pairs:
                 f"[Pairs] {self.pair_id} 有持仓,参数保持冻结 "
                 f"(beta={self.beta_mean:.3f}, 开仓时间={self.pair_opened_time})"
             )
-            return
+            return False
 
         # 无持仓时:更新所有贝叶斯模型参数
         self.alpha_mean = new_pair.alpha_mean
@@ -123,6 +126,7 @@ class Pairs:
 
         # 记录重新激活
         self.reactivation_count += 1
+        return True
 
 
     @classmethod

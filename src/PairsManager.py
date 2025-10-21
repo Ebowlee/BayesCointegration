@@ -132,9 +132,15 @@ class PairsManager:
         # 第一步:处理本轮出现的配对
         for pair_id, new_pair in new_pairs_dict.items():
             if pair_id in self.all_pairs:
-                # 已存在的配对:直接传递new_pair对象更新参数
-                self.all_pairs[pair_id].update_params(new_pair)
-                self.algorithm.Debug(f"[PairsManager] 更新配对 {pair_id}")
+                # 已存在的配对:调用 update_params 并检查返回值
+                old_pair = self.all_pairs[pair_id]
+                if old_pair.update_params(new_pair):
+                    # 更新成功:输出确认日志(含beta值)
+                    self.algorithm.Debug(
+                        f"[PairsManager] 更新配对 {pair_id} "
+                        f"(beta: {old_pair.beta_mean:.3f})"
+                    )
+                # 更新失败(有持仓):Pairs内部已输出冻结日志,这里不重复
             else:
                 # 新配对:直接添加
                 self.all_pairs[pair_id] = new_pair
