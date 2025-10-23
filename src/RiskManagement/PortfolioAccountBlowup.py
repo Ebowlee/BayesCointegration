@@ -75,7 +75,8 @@ class AccountBlowupRule(RiskRule):
         """
         # 检查是否在冷却期内
         if self.is_in_cooldown():
-            self.algorithm.Debug(f"[AccountBlowup] 跳过: 冷却期至{self.cooldown_until}")
+            if self.algorithm.config.main.get('debug_mode', False):
+                self.algorithm.Debug(f"[AccountBlowup] 跳过: 冷却期至{self.cooldown_until}")
             return False, ""
 
         # 获取当前账户总价值

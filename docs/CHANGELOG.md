@@ -4,6 +4,105 @@
 
 ---
 
+## [v7.0.8_RiskManagement模块优化@20250123]
+
+### 版本定义
+**优化版本**: 统一日志策略、澄清文档、提升调试体验
+
+### 核心改动
+
+#### 1. 统一 Portfolio 规则的日志策略
+
+**问题**: AccountBlowup 和 ExcessiveDrawdown 的 cooldown 日志不一致
+- AccountBlowup: 无条件输出日志
+- ExcessiveDrawdown: 仅在 debug_mode 下输出
+
+**修改**:
+```python
+# 改前 (AccountBlowup Line 76-79)
+if self.is_in_cooldown():
+    self.algorithm.Debug(f"[AccountBlowup] 跳过: 冷却期至{self.cooldown_until}")
+    return False, ""
+
+# 改后 (与 ExcessiveDrawdown 保持一致)
+if self.is_in_cooldown():
+    if self.algorithm.config.main.get('debug_mode', False):
+        self.algorithm.Debug(f"[AccountBlowup] 跳过: 冷却期至{self.cooldown_until}")
+    return False, ""
+```
+
+**收益**:
+- ✅ 减少生产环境日志噪音
+- ✅ 与 ExcessiveDrawdown 保持一致
+- ✅ Cooldown 跳过不是异常,无需每次记录
+
+---
+
+#### 2. 澄清基类文档 - cooldown 检查的防御性质
+
+**问题**: 基类 docstring 建议在 `check()` 中检查 cooldown,但没有说明这是防御性的
+
+**修改** (PortfolioBaseRule.py Line 76-82):
+```python
+# 改前
+# 实现要点:
+# 1. 先检查 self.enabled，如果False直接返回(False, "")
+# 2. 再检查 self.is_in_cooldown()，如果True直接返回(False, "")
+
+# 改后
+# 实现要点:
+# 1. 先检查 self.enabled，如果False直接返回(False, "")
+# 2. (可选)检查 self.is_in_cooldown()，如果True直接返回(False, "")
+#    注意: RiskManager应保证不调用冷却期内的规则,此检查为Fail-Safe机制
+```
+
+**收益**:
+- ✅ 澄清这是防御性检查,不是必需的
+- ✅ 帮助开发者理解设计意图
+
+---
+
+#### 3. 添加 __repr__() 方法便于调试
+
+**新增** (PortfolioBaseRule.py Line 55-61):
+```python
+def __repr__(self):
+    """便于调试的字符串表示"""
+    cooldown_status = f"冷却至{self.cooldown_until}" if self.cooldown_until else "无冷却"
+    return (
+        f"<{self.__class__.__name__} "
+        f"enabled={self.enabled} priority={self.priority} {cooldown_status}>"
+    )
+```
+
+**使用示例**:
+```python
+>>> print(account_blowup_rule)
+<AccountBlowupRule enabled=True priority=100 冷却至2025-02-22 10:30:00>
+
+>>> print(drawdown_rule)
+<ExcessiveDrawdownRule enabled=True priority=90 无冷却>
+```
+
+**收益**:
+- ✅ 调试时可以直接 `print(rule)` 查看状态
+- ✅ 日志输出更清晰
+- ✅ 不影响性能 (仅在需要时调用)
+
+---
+
+### 影响范围
+- 修改: `src/RiskManagement/PortfolioAccountBlowup.py` (统一日志策略)
+- 修改: `src/RiskManagement/PortfolioBaseRule.py` (文档澄清 + __repr__ 方法)
+
+### 设计原则体现
+- **一致性原则**: 统一 Portfolio 规则的日志输出行为
+- **防御性编程**: cooldown 检查作为 Fail-Safe 机制保留
+- **可调试性**: 通过 __repr__() 提升调试体验
+- **文档驱动**: 通过清晰的注释说明设计意图
+
+---
+
 ## [v7.0.7_PairsManager架构简化@20250123]
 
 ### 版本定义

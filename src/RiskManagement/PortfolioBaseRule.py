@@ -52,6 +52,15 @@ class RiskRule(ABC):
         self.cooldown_until = None
 
 
+    def __repr__(self):
+        """便于调试的字符串表示"""
+        cooldown_status = f"冷却至{self.cooldown_until}" if self.cooldown_until else "无冷却"
+        return (
+            f"<{self.__class__.__name__} "
+            f"enabled={self.enabled} priority={self.priority} {cooldown_status}>"
+        )
+
+
     @abstractmethod
     def check(self, **kwargs) -> Tuple[bool, str]:
         """
@@ -75,7 +84,8 @@ class RiskRule(ABC):
 
         实现要点:
         1. 先检查 self.enabled，如果False直接返回(False, "")
-        2. 再检查 self.is_in_cooldown()，如果True直接返回(False, "")
+        2. (可选)检查 self.is_in_cooldown()，如果True直接返回(False, "")
+           注意: RiskManager应保证不调用冷却期内的规则,此检查为Fail-Safe机制
         3. 执行具体检测逻辑
         4. 如果触发，返回(True, 详细描述)
         5. 如果未触发，返回(False, "")
