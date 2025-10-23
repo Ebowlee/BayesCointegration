@@ -45,26 +45,12 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         date_rule = getattr(self.DateRules, self.config.main['schedule_frequency'])()
         time_rule = self.TimeRules.At(*self.config.main['schedule_time'])
         self.Schedule.On(date_rule, time_rule, Action(self.universe_selector.trigger_selection))
+
         # === 初始化分析工具 ===
-        self.data_processor = DataProcessor(
-            self,
-            self.config.analysis_shared,
-            self.config.data_processor
-        )
-        self.cointegration_analyzer = CointegrationAnalyzer(
-            self,
-            self.config.cointegration_analyzer
-        )
-        self.bayesian_modeler = BayesianModeler(
-            self,
-            self.config.analysis_shared,
-            self.config.bayesian_modeler
-        )
-        self.pair_selector = PairSelector(
-            self,
-            self.config.analysis_shared,
-            self.config.pair_selector
-        )
+        self.data_processor = DataProcessor(self, self.config.analysis_shared, self.config.data_processor)
+        self.cointegration_analyzer = CointegrationAnalyzer(self, self.config.cointegration_analyzer)
+        self.pair_selector = PairSelector(self, self.config.analysis_shared,self.config.pair_selector)
+        self.bayesian_modeler = BayesianModeler(self, self.config.analysis_shared, self.config.bayesian_modeler)
         self.pairs_manager = PairsManager(self, self.config.pairs_trading)
 
 
@@ -149,10 +135,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
             return
 
         # === 步骤2: 协整检验 ===
-        cointegration_result = self.cointegration_analyzer.cointegration_procedure(
-            valid_symbols,
-            clean_data
-        )
+        cointegration_result = self.cointegration_analyzer.cointegration_procedure(valid_symbols, clean_data)
         raw_pairs = cointegration_result['raw_pairs']
 
         if not raw_pairs:

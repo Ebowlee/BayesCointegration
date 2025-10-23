@@ -516,7 +516,7 @@ class RiskManager:
 
         设计理念:
         - 依赖注入: 通过 self.pairs_manager 获取数据
-        - 接口复用: 调用 get_all_tradeable_pairs() 而非直接访问 pairs 字典
+        - 接口复用: 调用 get_tradeable_pairs() 而非直接访问 pairs 字典
         - 单一职责: 只负责分析计算，不负责存储管理
 
         示例:
@@ -541,7 +541,7 @@ class RiskManager:
         industry_group_data = {}
 
         # 从 PairsManager 获取配对列表（依赖注入 + 接口调用）
-        tradeable_pairs = self.pairs_manager.get_all_tradeable_pairs()
+        tradeable_pairs = self.pairs_manager.get_tradeable_pairs()
 
         for pair in tradeable_pairs.values():
             if not pair.has_position():

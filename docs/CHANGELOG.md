@@ -4,6 +4,112 @@
 
 ---
 
+## [v7.0.7_PairsManager架构简化@20250123]
+
+### 版本定义
+**优化版本**: 消除过度设计、统一命名规范、简化查询接口
+
+### 核心改动
+
+#### 1. 合并 PairClassifier 到 PairState
+
+**问题**: PairClassifier 和 PairState 职责重叠,过度设计
+**分析**:
+- PairClassifier 只有一个 `classify()` 方法,功能单一
+- 状态常量和分类逻辑天然紧密相关,分离降低内聚性
+- 其他常量类(TradingSignal, PositionMode)无独立"分类器"
+
+**修改**:
+```python
+# 改前: 两个独立的类
+class PairState:
+    COINTEGRATED = 'current cointegrated pairs'
+    LEGACY = 'past cointegrated pairs currently still with postion'  # typo
+    ARCHIVED = 'past cointegrated pairs without position'
+
+class PairClassifier:
+    @staticmethod
+    def classify(pair_id, pair, current_pair_ids):
+        # ... 分类逻辑
+
+# 改后: 合并为一个类
+class PairState:
+    # 状态常量(简短值,便于日志输出)
+    COINTEGRATED = 'cointegrated'  # 本轮通过协整检验(current cointegrated pairs)
+    LEGACY = 'legacy'               # 历史配对但仍有持仓(past with position)
+    ARCHIVED = 'archived'           # 历史配对且无持仓(past without position)
+
+    @staticmethod
+    def classify(pair_id, pair, current_pair_ids):
+        # ... 分类逻辑
+```
+
+**收益**:
+- ✅ 消除过度设计,提升代码内聚性
+- ✅ 修正拼写错误(postion → position)
+- ✅ 统一常量命名风格(简短值 + 完整注释)
+
+---
+
+#### 2. 优化状态常量命名
+
+**用户建议**: 采用时间维度命名(current/past)以区分本轮和历史配对
+**采纳方案**: 简短常量值 + 完整注释(兼顾日志友好性和语义完整性)
+
+**理由**:
+- 日志输出简洁: `协整=5, 遗留=2, 归档=10` (vs 冗长的完整描述)
+- 代码一致性: 与 `TradingSignal.LONG_SPREAD`, `PositionMode.BOTH_LEGS` 风格一致
+- 语义保留: 通过注释传达完整含义(包含时间维度)
+
+---
+
+#### 3. 重命名查询方法
+
+**改名**: `get_all_tradeable_pairs()` → `get_tradeable_pairs()`
+
+**理由**:
+- "all" 前缀冗余,不影响语义
+- 更简洁,符合 Python 命名惯例
+- 返回值已明确(cointegrated + legacy pairs)
+
+**影响文件**:
+- `src/PairsManager.py` (方法定义,增强文档字符串)
+- `src/RiskManagement/RiskManager.py` (调用方 + 注释)
+- `CLAUDE.md` (文档更新)
+
+---
+
+#### 4. 保留现有查询接口(不添加新方法)
+
+**用户提问**: 是否添加 `get_current_cointegrated_pairs()`, `get_legacy_pairs()`?
+**决策**: **不添加** - 无使用场景
+
+**分析**:
+- main.py: 只需按持仓分类(`get_pairs_with_position`, `get_pairs_without_position`)
+- RiskManager: 需要所有可交易配对,不区分 cointegrated vs legacy
+- 添加未使用的方法违反 YAGNI 原则(You Aren't Gonna Need It)
+
+**保留接口**:
+- `has_tradeable_pairs()`: O(1) 性能检查(优于 `len(get_tradeable_pairs()) > 0`)
+- `get_tradeable_pairs()`: 获取所有可交易配对
+- `get_pairs_with_position()`: 按持仓过滤
+- `get_pairs_without_position()`: 按持仓过滤
+
+---
+
+### 影响范围
+- 修改: `src/PairsManager.py` (删除 PairClassifier 类,合并到 PairState)
+- 修改: `src/RiskManagement/RiskManager.py` (更新方法调用)
+- 修改: `CLAUDE.md` (更新 PairsManager 文档,状态管理说明)
+
+### 设计原则体现
+- **YAGNI原则** (You Aren't Gonna Need It): 不添加无使用场景的方法
+- **高内聚**: 状态定义和分类逻辑内聚在同一个类中
+- **命名一致性**: 与项目其他常量类(TradingSignal, PositionMode)保持风格统一
+- **简洁优于复杂** (Zen of Python): 删除过度设计的 PairClassifier
+
+---
+
 ## [v7.0.6_Pairs防御性编程优化@20250123]
 
 ### 版本定义

@@ -152,20 +152,24 @@ git commit -m "v2.4.8_strategy-optimize@20250720"
 
 ### 5. PairsManager.py - Lifecycle Management
 - **Purpose**: Manage all pairs through their lifecycle (storage and classification only)
-- **Design Principle** (v6.9.3): "Storage vs Business Logic" separation
+- **Design Principle** (v7.0.7): "Storage vs Business Logic" separation
   - **Responsible for**: Storing pairs, state classification, simple queries
   - **NOT responsible for**: Signal aggregation, risk analysis, fund allocation (delegated to ExecutionManager and RiskManager)
-- **State Management**:
-  - **Active pairs**: Currently passing cointegration tests
-  - **Legacy pairs**: Have positions but failed recent tests
-  - **Dormant pairs**: No positions and failed tests
-- **Key Methods** (v6.9.3 simplified):
+- **State Management** (v7.0.7 - PairState unified):
+  - **COINTEGRATED**: Currently passing cointegration tests (本轮通过协整检验)
+  - **LEGACY**: Have positions but failed recent tests (历史配对但仍有持仓)
+  - **ARCHIVED**: No positions and failed tests (历史配对且无持仓)
+- **PairState Class** (v7.0.7): Merged PairClassifier into PairState
+  - Contains both state constants and `classify()` method
+  - Simplifies architecture by combining related functionality
+- **Key Methods** (v7.0.7 updated):
   - `update_pairs()`: Update pair collection from monthly selection
-  - `get_all_tradeable_pairs()`: Get active + legacy pairs
+  - `get_tradeable_pairs()`: Get cointegrated + legacy pairs (renamed from get_all_tradeable_pairs)
   - `get_pairs_with_position()`: Filter pairs with positions (simple query)
   - `get_pairs_without_position()`: Filter pairs without positions (simple query)
   - `get_pair_by_id()`: Retrieve specific pair by ID
-  - `reclassify_pairs()`: Reclassify pairs into active/legacy/dormant states
+  - `has_tradeable_pairs()`: Check if any tradeable pairs exist (O(1) performance)
+  - `reclassify_pairs()`: Reclassify pairs using PairState.classify()
 
 ### 6. RiskManagement.py - Two-Tier Risk Control
 - **Purpose**: Risk detection and analysis (execution handled by main.py)
@@ -594,15 +598,15 @@ for pair_id in anomaly_pairs:
 ```
 
 ### Pair State Confusion
-**Problem**: Trading with dormant pairs (failed cointegration, no position)
-**Solution**: Only trade pairs from `active_ids | legacy_ids`
+**Problem**: Trading with archived pairs (failed cointegration, no position)
+**Solution**: Only trade pairs from cointegrated + legacy states
 ```python
-# ❌ WRONG - May trade dormant pairs
+# ❌ WRONG - May trade archived pairs
 for pair in pairs_manager.all_pairs.values():
     signal = pair.get_signal(data)
 
-# ✅ CORRECT - Only trade active or legacy pairs
-tradeable_pairs = pairs_manager.get_all_tradeable_pairs()
+# ✅ CORRECT - Only trade cointegrated or legacy pairs
+tradeable_pairs = pairs_manager.get_tradeable_pairs()
 for pair in tradeable_pairs.values():
     signal = pair.get_signal(data)
 ```

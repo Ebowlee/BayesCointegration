@@ -7,45 +7,32 @@ from typing import Dict, Set
 
 class PairState:
     """
-    配对状态常量
+    配对状态常量与分类逻辑
 
-    三分类原则:
-        - COINTEGRATED: 本轮通过协整检验(替代 'active',避免"激活状态"的歧义)
-        - LEGACY: 未通过协整但有持仓(需继续管理,语义清晰)
-        - ARCHIVED: 未通过协整且无持仓(替代 'dormant',归档比休眠更准确)
+    三分类原则(时间维度):
+        - COINTEGRATED: 本轮通过协整检验的配对(current)
+        - LEGACY: 历史配对但仍有持仓(past with position)
+        - ARCHIVED: 历史配对且无持仓(past without position)
 
     设计说明:
         - 使用类常量而非 Enum: 保持与其他常量类(TradingSignal, PositionMode)一致
-        - 字符串值保持小写: 便于日志输出和调试
-        - 避免模糊词汇: active(激活?活跃?), dormant(休眠?沉睡?)容易产生歧义
+        - 字符串值保持简短: 便于日志输出和调试
+        - 合并分类逻辑: 状态定义和分类规则内聚在同一个类中
     """
-    COINTEGRATED = 'cointegrated'
-    LEGACY = 'legacy'
-    ARCHIVED = 'archived'
-
-
-class PairClassifier:
-    """
-    配对状态分类器
-
-    职责: 封装配对分类规则,符合单一职责原则
-
-    设计说明:
-        - 使用 @staticmethod: 分类逻辑是纯函数,不依赖实例状态
-        - 返回 PairState 常量: 类型安全,避免魔法字符串
-        - 策略与执行分离: 分类器决定"是什么",PairsManager 执行"怎么做"
-        - 易于扩展: 将来添加新状态只需修改 classify() 方法和 PairState 类
-    """
+    # 状态常量(简短值,便于日志输出)
+    COINTEGRATED = 'cointegrated'  # 本轮通过协整检验(current cointegrated pairs)
+    LEGACY = 'legacy'               # 历史配对但仍有持仓(past with position)
+    ARCHIVED = 'archived'           # 历史配对且无持仓(past without position)
 
     @staticmethod
     def classify(pair_id: tuple, pair, current_pair_ids: Set) -> str:
         """
-        判断配对应该属于哪个分类
+        配对分类逻辑
 
         分类规则:
-            - COINTEGRATED: 本轮通过协整检验 (在 current_pair_ids 中)
-            - LEGACY: 未通过协整但有持仓 (需要继续管理风险)
-            - ARCHIVED: 未通过协整且无持仓 (已归档,不参与交易)
+            - COINTEGRATED: 本轮通过协整检验(在 current_pair_ids 中)
+            - LEGACY: 历史配对但仍有持仓(需要继续管理风险)
+            - ARCHIVED: 历史配对且无持仓(已归档,不参与交易)
 
         Args:
             pair_id: 配对ID元组 (symbol1, symbol2)
@@ -56,7 +43,7 @@ class PairClassifier:
             str: PairState.COINTEGRATED | PairState.LEGACY | PairState.ARCHIVED
 
         Example:
-            >>> PairClassifier.classify(('AAPL', 'MSFT'), pair, {('AAPL', 'MSFT')})
+            >>> PairState.classify(('AAPL', 'MSFT'), pair, {('AAPL', 'MSFT')})
             'cointegrated'
         """
         if pair_id in current_pair_ids:
@@ -80,7 +67,7 @@ class PairsManager:
             config: 风控配置字典
         """
         self.algorithm = algorithm
-        self.config = config  # 保存完整配置,创建Pairs时需要
+        self.config = config  
 
         # 主存储:所有曾经出现过的配对
         self.all_pairs = {}  # {pair_id: Pairs对象}
@@ -117,6 +104,7 @@ class PairsManager:
             Set[tuple]: 可交易配对的 pair_id 集合
         """
         return self.cointegrated_ids | self.legacy_ids
+
 
     def update_pairs(self, new_pairs_dict: Dict):
         """
@@ -155,30 +143,30 @@ class PairsManager:
 
     def reclassify_pairs(self, current_pair_ids: Set):
         """
-        重新分类所有配对 - 使用分类器
+        重新分类所有配对
 
         Args:
             current_pair_ids: 本轮建模成功的pair_id集合(已通过协整检验、质量筛选和贝叶斯建模)
 
-        设计改进:
-            - 使用 PairClassifier.classify() 封装分类逻辑
-            - 策略与执行分离: 分类器决定"是什么",PairsManager 执行"怎么做"
-            - 易于扩展: 将来添加新状态(如 'warning', 'frozen')只需修改分类器
+        设计说明:
+            - 使用 PairState.classify() 封装分类逻辑
+            - 状态定义和分类规则内聚在 PairState 类中
+            - 易于扩展: 将来添加新状态只需修改 PairState.classify()
         """
         # 清空分类
         self.cointegrated_ids.clear()
         self.legacy_ids.clear()
         self.archived_ids.clear()
 
-        # 使用分类器重新分类所有配对
+        # 使用 PairState.classify() 重新分类所有配对
         for pair_id, pair in self.all_pairs.items():
-            category = PairClassifier.classify(pair_id, pair, current_pair_ids)
+            category = PairState.classify(pair_id, pair, current_pair_ids)
 
             if category == PairState.COINTEGRATED:
                 self.cointegrated_ids.add(pair_id)
             elif category == PairState.LEGACY:
                 self.legacy_ids.add(pair_id)
-            else:  # PairState.ARCHIVED
+            else:
                 self.archived_ids.add(pair_id)
 
 
@@ -189,8 +177,17 @@ class PairsManager:
         return len(self.tradeable_ids) > 0
 
 
-    def get_all_tradeable_pairs(self) -> Dict:
-        """获取所有需要管理的配对字典(保留用于兼容)"""
+    def get_tradeable_pairs(self) -> Dict:
+        """
+        获取所有可交易的配对字典
+
+        Returns:
+            Dict[tuple, Pairs]: {pair_id: Pairs对象} 字典
+
+        包含范围:
+            - COINTEGRATED: 本轮通过协整检验的配对
+            - LEGACY: 历史配对但仍有持仓的配对
+        """
         return {pair_id: self.all_pairs[pair_id] for pair_id in self.tradeable_ids}
 
 
@@ -245,15 +242,6 @@ class PairsManager:
             - 数据结构化: 返回字典而非打印字符串
             - 接口隔离: 统计数据可被其他模块复用(如监控、分析、测试)
             - 可测试性: 便于单元测试验证统计值
-
-        Returns:
-            Dict: 包含以下键的统计字典
-                - update_count: 更新次数(选股轮次)
-                - cointegrated_count: 协整配对数量 (COINTEGRATED)
-                - legacy_count: 遗留配对数量 (LEGACY)
-                - archived_count: 已归档配对数量 (ARCHIVED)
-                - total_count: 总配对数量
-                - last_update_time: 上次更新时间
 
         使用场景:
             - 日志输出: log_statistics() 调用此方法
