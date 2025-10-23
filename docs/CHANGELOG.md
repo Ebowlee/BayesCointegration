@@ -4,6 +4,81 @@
 
 ---
 
+## [v7.0.6_Pairs防御性编程优化@20250123]
+
+### 版本定义
+**优化版本**: 清理冗余检查、增强类型安全、改进诊断能力
+
+### 核心改动
+
+#### 1. 删除冗余的 hasattr 检查
+
+**问题**: `Pairs.on_position_filled()` 中使用 `hasattr(self.algorithm, 'trade_journal')` 检查
+**分析**:
+- `trade_journal` 在 `main.py:99` 的 `Initialize()` 中创建
+- `Pairs` 对象创建于 `OnData()` → `analyze_and_create_pairs()`
+- QuantConnect 生命周期保证 `Initialize()` 先于 `OnData()` 执行
+- hasattr 检查是不必要的防御性编程
+
+**修改**:
+```python
+# 改前 (Pairs.py L218)
+if hasattr(self.algorithm, 'trade_journal'):
+    # ... 处理交易快照
+
+# 改后
+# trade_journal 已在 Initialize() 中创建,无需 hasattr 检查
+# ... 处理交易快照
+```
+
+**收益**:
+- ✅ 减少1层嵌套,代码更扁平化
+- ✅ 消除冗余检查,提升可读性
+
+---
+
+#### 2. 增强防御性检查 - 同时验证 pair_cost 和 pair_pnl
+
+**问题**: 只检查 `pair_cost is None`,未检查 `pair_pnl`
+**分析**:
+- `TradeSnapshot` 的 `pair_cost` 和 `pair_pnl` 字段类型为 `float` (不接受 None)
+- `get_pair_cost()` 和 `get_pair_pnl()` 都返回 `Optional[float]` (都可能失败)
+- 当前代码只验证 pair_cost,如果 pair_pnl=None 会传递 None 给 TradeSnapshot (类型错误)
+
+**修改**:
+```python
+# 改前 (Pairs.py L247)
+if pair_cost is None:
+    self.algorithm.Debug(
+        f"[平仓警告] {self.pair_id} pair_cost计算失败，跳过交易记录"
+    )
+
+# 改后
+if pair_cost is None or pair_pnl is None:
+    self.algorithm.Debug(
+        f"[平仓警告] {self.pair_id} 计算失败 "
+        f"(pair_cost={'None' if pair_cost is None else 'OK'}, "
+        f"pair_pnl={'None' if pair_pnl is None else 'OK'}), 跳过交易记录"
+    )
+```
+
+**收益**:
+- ✅ 防止传递 None 给 TradeSnapshot (类型安全)
+- ✅ 改进日志输出,精确定位哪个计算失败 (诊断能力提升)
+
+---
+
+### 影响范围
+- 修改: `src/Pairs.py` (L218-268: on_position_filled 方法)
+
+### 设计原则体现
+- **防御性编程三层次**:
+  1. 过度防御 (hasattr): 检查已保证存在的属性 → 代码冗余 ❌
+  2. 适度防御 (检查 pair_cost): 验证可能失败的计算 → 避免传递 None ✅
+  3. 完整防御 (检查 pair_cost AND pair_pnl): 验证所有 Optional 返回值 → 类型安全 ✅✅
+
+---
+
 ## [v7.0.5_配置优化与风控重构@20250123]
 
 ### 版本定义

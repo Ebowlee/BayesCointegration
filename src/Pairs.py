@@ -46,7 +46,7 @@ class Pairs:
         """
         # === 算法引用 ===
         self.algorithm = algorithm
-        self.config = config  # 保存配置以供后续方法使用
+        self.config = config
 
         # === 基础信息 ===
         self.symbol1 = model_data['symbol1']
@@ -215,64 +215,57 @@ class Pairs:
             self.pair_closed_time = fill_time
 
             # === 在清零之前捕获交易快照（传给TradeJournal） ===
-            # 注意：必须在清零之前捕获，因为清零后数据丢失
-            if hasattr(self.algorithm, 'trade_journal'):
-                # 提取平仓价格并保存到实例变量
-                # OrderStatus 来自 AlgorithmImports (QuantConnect SDK)
-                for ticket in tickets:
-                    if ticket is not None and ticket.Status == OrderStatus.Filled:
-                        if ticket.Symbol == self.symbol1:
-                            self.exit_price1 = ticket.AverageFillPrice
-                        elif ticket.Symbol == self.symbol2:
-                            self.exit_price2 = ticket.AverageFillPrice
+            # trade_journal 已在 Initialize() 中创建,无需 hasattr 检查
+            # OrderStatus 来自 AlgorithmImports (QuantConnect SDK)
+            for ticket in tickets:
+                if ticket is not None and ticket.Status == OrderStatus.Filled:
+                    if ticket.Symbol == self.symbol1:
+                        self.exit_price1 = ticket.AverageFillPrice
+                    elif ticket.Symbol == self.symbol2:
+                        self.exit_price2 = ticket.AverageFillPrice
 
-                # 从订单Tag中解析平仓原因
-                # Tag格式: "('AAPL', 'MSFT')_CLOSE_STOP_LOSS_20240101_093000"
-                # 或旧格式: "('AAPL', 'MSFT')_CLOSE_20240101_093000"
-                close_reason = 'CLOSE'  # 默认值
-                if tickets and tickets[0] is not None:
-                    tag = tickets[0].Tag
-                    # 解析Tag: pair_id_CLOSE_reason_timestamp
-                    parts = tag.split('_')
-                    if len(parts) >= 4 and parts[2] == 'CLOSE':
-                        # 新格式: 包含reason
-                        # parts[0-1]: pair_id, parts[2]: 'CLOSE', parts[3]: reason, parts[4-5]: timestamp
-                        potential_reason = parts[3]
-                        # 验证是否为有效的平仓原因
-                        valid_reasons = ['CLOSE', 'STOP_LOSS', 'TIMEOUT', 'RISK_TRIGGER']
-                        if potential_reason in valid_reasons:
-                            close_reason = potential_reason
- 
-                # 创建快照并记录
-                # 职责分离：Pairs 负责计算，TradeSnapshot 负责存储
-                if self.exit_price1 is not None and self.exit_price2 is not None:
-                    # 计算保证金成本（Regulation T margin rates）
-                    pair_cost = self.get_pair_cost()
+            # 从订单Tag中解析平仓原因
+            close_reason = 'CLOSE'  # 默认值
+            if tickets and tickets[0] is not None:
+                tag = tickets[0].Tag
+                parts = tag.split('_')
+                if len(parts) >= 4 and parts[2] == 'CLOSE':
+                    # parts[0-1]: pair_id, parts[2]: 'CLOSE', parts[3]: reason, parts[4-5]: timestamp
+                    potential_reason = parts[3]
+                    # 验证是否为有效的平仓原因
+                    valid_reasons = ['CLOSE', 'STOP_LOSS', 'TIMEOUT', 'RISK_TRIGGER']
+                    if potential_reason in valid_reasons:
+                        close_reason = potential_reason
 
-                    # 计算盈亏（get_pair_pnl会自动判断使用exit_price还是实时价格）
-                    pair_pnl = self.get_pair_pnl()
-
-                    # 防御性检查：确保计算成功
-                    if pair_cost is None:
-                        self.algorithm.Debug(
-                            f"[平仓警告] {self.pair_id} pair_cost计算失败，跳过交易记录"
-                        )
-                    else:
-                        snapshot = TradeSnapshot.from_pair(
-                            pair=self,
-                            close_reason=close_reason,
-                            entry_price1=self.entry_price1,
-                            entry_price2=self.entry_price2,
-                            exit_price1=self.exit_price1,  # 使用实例变量
-                            exit_price2=self.exit_price2,  # 使用实例变量
-                            qty1=self.tracked_qty1,        # 保持原始符号
-                            qty2=self.tracked_qty2,        # 保持原始符号
-                            open_time=self.pair_opened_time,
-                            close_time=self.pair_closed_time,
-                            pair_cost=pair_cost,          
-                            pair_pnl=pair_pnl              
-                        )
-                        self.algorithm.trade_journal.record(snapshot)
+            # 创建快照并记录
+            if self.exit_price1 is not None and self.exit_price2 is not None:
+                # 计算保证金成本（Regulation T margin rates）
+                pair_cost = self.get_pair_cost()
+                # 计算盈亏（get_pair_pnl会自动判断使用exit_price还是实时价格）
+                pair_pnl = self.get_pair_pnl()
+                # 防御性检查：确保两个计算都成功
+                if pair_cost is None or pair_pnl is None:
+                    self.algorithm.Debug(
+                        f"[平仓警告] {self.pair_id} 计算失败 "
+                        f"(pair_cost={'None' if pair_cost is None else 'OK'}, "
+                        f"pair_pnl={'None' if pair_pnl is None else 'OK'}), 跳过交易记录"
+                    )
+                else:
+                    snapshot = TradeSnapshot.from_pair(
+                        pair=self,
+                        close_reason=close_reason,
+                        entry_price1=self.entry_price1,
+                        entry_price2=self.entry_price2,
+                        exit_price1=self.exit_price1,  # 使用实例变量
+                        exit_price2=self.exit_price2,  # 使用实例变量
+                        qty1=self.tracked_qty1,        # 保持原始符号
+                        qty2=self.tracked_qty2,        # 保持原始符号
+                        open_time=self.pair_opened_time,
+                        close_time=self.pair_closed_time,
+                        pair_cost=pair_cost,
+                        pair_pnl=pair_pnl
+                    )
+                    self.algorithm.trade_journal.record(snapshot)
 
             # 清零所有追踪变量
             self.tracked_qty1 = 0
@@ -323,7 +316,7 @@ class Pairs:
         qty1 = self.tracked_qty1
         qty2 = self.tracked_qty2
 
-        # 市值仍需从Portfolio获取(需要当前价格)
+        # 市价仍需从Portfolio获取(需要当前价格)
         if qty1 != 0:
             value1 = abs(qty1 * portfolio[self.symbol1].Price)
         else:
@@ -392,7 +385,7 @@ class Pairs:
         if entry_time is not None:
             return (self.algorithm.UtcTime - entry_time).days
 
-        return None  # 无法获取入场时间
+        return None  
 
 
     def get_pair_frozen_days(self) -> Optional[int]:
@@ -455,12 +448,10 @@ class Pairs:
             price2 = self.exit_price2
 
         # 计算当前市值(考虑方向: 多头为正,空头为负)
-        current_value = (self.tracked_qty1 * price1 +
-                        self.tracked_qty2 * price2)
+        current_value = (self.tracked_qty1 * price1 + self.tracked_qty2 * price2)
 
-        # 计算开仓成本(考虑方向)
-        entry_value = (self.tracked_qty1 * self.entry_price1 +
-                      self.tracked_qty2 * self.entry_price2)
+        # 计算开仓成本
+        entry_value = (self.tracked_qty1 * self.entry_price1 + self.tracked_qty2 * self.entry_price2)
 
         # PnL = 当前市值 - 开仓成本
         pnl = current_value - entry_value
