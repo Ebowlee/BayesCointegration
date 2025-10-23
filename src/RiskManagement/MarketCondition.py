@@ -52,11 +52,12 @@ class MarketCondition:
         self.algorithm = algorithm
         self.config = config
 
-        # 从config.main读取配置
-        self.enabled = config.main.get('market_condition_enabled', True)
-        self.vix_threshold = config.main.get('vix_threshold', 30)
-        self.hist_vol_threshold = config.main.get('spy_volatility_threshold', 0.25)
-        self.window_size = config.main.get('spy_volatility_window', 20)
+        # 从config.risk_management['market_condition']读取配置
+        mc_config = config.risk_management.get('market_condition', {})
+        self.enabled = mc_config.get('enabled', True)
+        self.vix_threshold = mc_config.get('vix_threshold', 30)
+        self.hist_vol_threshold = mc_config.get('spy_volatility_threshold', 0.25)
+        self.window_size = mc_config.get('spy_volatility_window', 20)
 
         self.algorithm.Debug(
             f"[MarketCondition] 初始化: "

@@ -1,56 +1,81 @@
 """
-RiskManager - 风控调度器
+RiskManager - 风控调度器 (v7.1.0 Intent Pattern重构)
 
-统一管理Portfolio和Pair层面的风控规则，按优先级调度，返回最高优先级的风控动作。
+统一管理Portfolio和Pair层面的风控规则，检测风险并生成CloseIntent对象。
+
+v7.1.0核心变更:
+- 规则只负责检测(check)，不再提供get_action()方法
+- RiskManager统一生成CloseIntent对象(reason基于Rule→Reason映射)
+- cooldown激活延后到Intent执行成功后(activate_cooldown_for_portfolio/pairs)
+- 完全分离: Rule检测 → RiskManager生成Intent → ExecutionManager执行 → RiskManager激活cooldown
 """
 
 from AlgorithmImports import *
-from .base import RiskRule
-from .AccountBlowupRule import AccountBlowupRule
-from .ExcessiveDrawdownRule import ExcessiveDrawdownRule
+from .PortfolioBaseRule import RiskRule
+from .PortfolioAccountBlowup import AccountBlowupRule
+from .PortfolioDrawdown import ExcessiveDrawdownRule
 from .MarketCondition import MarketCondition
 from .HoldingTimeoutRule import HoldingTimeoutRule
 from .PositionAnomalyRule import PositionAnomalyRule
 from .PairDrawdownRule import PairDrawdownRule
+from src.execution.OrderIntent import CloseIntent  # v7.1.0: Intent Pattern
 from typing import List, Tuple, Optional
 
 
 class RiskManager:
     """
-    风控调度器
+    风控调度器 (v7.1.0 Intent Pattern重构)
 
     职责:
     - 注册和管理所有Portfolio和Pair层面的风控规则
-    - 按优先级检查规则，返回最高优先级的动作
-    - 不执行实际操作（由main.py执行）
+    - 按优先级检查规则，生成CloseIntent对象
+    - 为执行成功的Intent激活对应Rule的cooldown
+    - 不执行实际操作（由ExecutionManager执行）
 
-    设计原则:
+    设计原则 (v7.1.0更新):
     - 配置驱动：从config自动注册规则
-    - 无状态调度：不保存触发历史，规则自己管理冷却期
-    - 优先级排序：始终返回最高优先级规则的动作
-    - 分层检查：Portfolio和Pair分开调度
+    - Intent生成：Rule检测 → RiskManager生成Intent → ExecutionManager执行
+    - 映射机制：Rule类名→reason字符串, pair_id→Rule实例
+    - 延迟cooldown：Intent执行成功后再激活cooldown
+    - 优先级排序：始终返回最高优先级规则的Intent
+    - 分层检查：Portfolio和Pair分开调度，API完全对称
 
-    使用示例:
+    v7.1.0核心API变更:
+    - check_portfolio_risks() → List[CloseIntent] (旧: (action, triggered_rules))
+    - check_pair_risks(pair) → Optional[CloseIntent] (旧: (action, triggered_rules))
+    - check_all_pair_risks() → List[CloseIntent] (旧: Dict[pair_id, (action, triggered)])
+    - activate_cooldown_for_portfolio(executed_pair_ids) (新增)
+    - activate_cooldown_for_pairs(executed_pair_ids) (新增)
+
+    使用示例 (v7.1.0):
     ```python
     # 在main.py的Initialize()中
     from src.RiskManagement import RiskManager
-    self.risk_manager = RiskManager(self, self.config)
+    self.risk_manager = RiskManager(self, self.config, self.pairs_manager)
 
     # 在OnData()中检查Portfolio风控
-    action, triggered = self.risk_manager.check_portfolio_risks()
-    if action == 'portfolio_liquidate_all':
-        self._liquidate_all_positions()
-        # 激活触发规则的冷却期
-        for rule, desc in triggered:
-            rule.activate_cooldown()
+    intents = self.risk_manager.check_portfolio_risks()
+    if intents:
+        executed_pair_ids = []
+        for intent in intents:
+            tickets = self.order_executor.execute_close(intent)
+            if tickets:
+                executed_pair_ids.append(intent.pair_id)
+                self.tickets_manager.register_tickets(intent.pair_id, tickets, OrderAction.CLOSE)
+        # Intent执行后激活cooldown
+        self.risk_manager.activate_cooldown_for_portfolio(executed_pair_ids)
 
-    # 在交易循环中检查Pair风控
-    for pair in pairs:
-        action, triggered = self.risk_manager.check_pair_risks(pair)
-        if action == 'pair_close':
-            intent = pair.get_close_intent(reason='RISK_TRIGGER')
-            tickets = order_executor.execute_close(intent)
-            tickets_manager.register_tickets(pair.pair_id, tickets, OrderAction.CLOSE)
+    # 检查Pair风控
+    intents = self.risk_manager.check_all_pair_risks(pairs_with_position)
+    if intents:
+        executed_pair_ids = []
+        for intent in intents:
+            tickets = self.order_executor.execute_close(intent)
+            if tickets:
+                executed_pair_ids.append(intent.pair_id)
+                self.tickets_manager.register_tickets(intent.pair_id, tickets, OrderAction.CLOSE)
+        # Intent执行后激活cooldown
+        self.risk_manager.activate_cooldown_for_pairs(executed_pair_ids)
     ```
     """
 
@@ -78,6 +103,25 @@ class RiskManager:
 
         # 初始化市场条件检查器（独立于风控规则）
         self.market_condition = MarketCondition(algorithm, config)
+
+        # v7.1.0 新增: Portfolio层映射机制(Intent Pattern)
+        # Rule类名 → CloseIntent的reason字符串
+        self._portfolio_rule_to_reason_map = {
+            'AccountBlowupRule': 'RISK_TRIGGER',
+            'ExcessiveDrawdownRule': 'RISK_TRIGGER',
+        }
+        # pair_id → Rule实例的映射(用于Intent执行后激活cooldown)
+        self._portfolio_intent_to_rule_map = {}
+
+        # v7.1.0 新增: Pair层映射机制(Intent Pattern)
+        # Rule类名 → CloseIntent的reason字符串
+        self._pair_rule_to_reason_map = {
+            'HoldingTimeoutRule': 'TIMEOUT',
+            'PositionAnomalyRule': 'ANOMALY',
+            'PairDrawdownRule': 'DRAWDOWN',
+        }
+        # pair_id → Rule实例的映射(用于Intent执行后激活cooldown)
+        self._pair_intent_to_rule_map = {}
 
         # 调试信息
         if self.enabled:
@@ -210,67 +254,151 @@ class RiskManager:
         return rules
 
 
-    def check_portfolio_risks(self) -> Tuple[Optional[str], List[Tuple[RiskRule, str]]]:
+    def check_portfolio_risks(self) -> List[CloseIntent]:
         """
-        检查Portfolio层面风控
+        检查Portfolio层面风控,返回需要平仓的CloseIntent列表 (v7.1.0重构)
 
         调度逻辑:
         1. 检查全局enabled开关
-        2. 遍历所有Portfolio规则（已按priority降序排序）
-        3. 跳过disabled和冷却中的规则
-        4. 调用rule.check()收集所有触发的规则
-        5. 返回最高优先级规则的action + 完整触发列表
+        2. 清空Intent→Rule映射(新OnData周期开始)
+        3. 遍历所有Portfolio规则(已按priority降序排序)
+        4. 跳过disabled和冷却中的规则
+        5. 调用rule.check()检测是否触发
+        6. 如果触发,生成所有持仓的CloseIntent并记录映射
+        7. 返回CloseIntent列表(ExecutionManager执行后激活cooldown)
 
         Returns:
-            (action, triggered_rules)
-            - action: 'portfolio_liquidate_all'等，或None（未触发）
-            - triggered_rules: [(rule, description), ...] 所有触发的规则列表
+            List[CloseIntent]: 需要平仓的Intent列表,空列表表示未触发
 
-        注意:
-        - 返回action后，main.py负责执行动作并激活rule.activate_cooldown()
-        - 本方法不修改任何状态，纯粹的检查和返回
+        v7.1.0变更:
+        - 返回值从(action, triggered_rules)改为List[CloseIntent]
+        - RiskManager负责生成Intent(不再依赖Rule.get_action())
+        - 记录Intent→Rule映射(用于后续激活cooldown)
+        - Portfolio规则触发后立即返回(最高优先级)
+
+        使用示例:
+            intents = self.risk_manager.check_portfolio_risks()
+            if intents:
+                self.execution_manager.handle_portfolio_risk_intents(intents, self.risk_manager)
         """
         # 全局禁用时直接返回
         if not self.enabled:
-            return None, []
+            return []
 
-        triggered_rules = []
+        # 清空Intent→Rule映射(每次OnData重新生成)
+        self._portfolio_intent_to_rule_map.clear()
 
-        # 遍历所有Portfolio规则（已按priority降序排序）
+        # v7.1.0修复: Portfolio规则排他性检查
+        # 任何一个Portfolio规则在cooldown，阻止所有风控检查（全局冻结）
+        for rule in self.portfolio_rules:
+            if rule.is_in_cooldown():
+                # 发现cooldown规则，直接返回空列表
+                # 原因: Portfolio规则影响全局，一个规则触发cooldown应阻止所有交易
+                return []
+
+        # 遍历所有Portfolio规则(已按priority降序排序)
         for rule in self.portfolio_rules:
             # 跳过禁用的规则
             if not rule.enabled:
                 continue
 
-            # 跳过冷却期内的规则
-            if rule.is_in_cooldown():
-                continue
+            # 注意: 无需再检查cooldown（已在上方统一检查）
 
             # 检查规则
             try:
                 triggered, description = rule.check()
                 if triggered:
-                    triggered_rules.append((rule, description))
+                    # 日志记录触发信息
+                    self.algorithm.Debug(
+                        f"[Portfolio风控] {rule.__class__.__name__} "
+                        f"(priority={rule.priority}): {description}"
+                    )
+
+                    # 获取reason字符串
+                    reason = self._portfolio_rule_to_reason_map.get(
+                        rule.__class__.__name__,
+                        'RISK_TRIGGER'  # 默认reason
+                    )
+
+                    # 生成所有持仓的CloseIntent
+                    pairs = self.pairs_manager.get_pairs_with_position()
+                    intents = []
+                    for pair in pairs.values():
+                        intent = pair.get_close_intent(reason=reason)
+                        if intent:
+                            intents.append(intent)
+                            # 记录映射: pair_id → rule (用于后续激活cooldown)
+                            self._portfolio_intent_to_rule_map[intent.pair_id] = rule
+
+                    # Portfolio规则触发后立即返回(最高优先级,不检查其他规则)
+                    if intents:
+                        self.algorithm.Debug(
+                            f"[Portfolio风控] 生成{len(intents)}个CloseIntent"
+                        )
+                        return intents
+
             except Exception as e:
                 self.algorithm.Debug(
-                    f"[RiskManager] 规则检查异常 {rule.__class__.__name__}: {str(e)}"
+                    f"[RiskManager] Portfolio规则检查异常 {rule.__class__.__name__}: {str(e)}"
                 )
 
-        # 如果有触发，返回最高优先级规则的动作
-        if triggered_rules:
-            # triggered_rules已经按priority排序（因为self.portfolio_rules是排序的）
-            highest_priority_rule, description = triggered_rules[0]
-            action = highest_priority_rule.get_action()
+        # 没有规则触发,返回空列表
+        return []
 
-            self.algorithm.Debug(
-                f"[风控触发] Portfolio: {highest_priority_rule.__class__.__name__} "
-                f"(priority={highest_priority_rule.priority}) -> {action}"
-            )
-            self.algorithm.Debug(f"[风控描述] {description}")
 
-            return action, triggered_rules
-        else:
-            return None, []
+    def activate_cooldown_for_portfolio(self, executed_pair_ids: List[Tuple]) -> None:
+        """
+        为已执行的Portfolio层Intent激活对应Rule的cooldown (v7.1.0新增)
+
+        触发时机:
+        - ExecutionManager执行完Portfolio风控的CloseIntent后调用
+        - 传入所有成功执行的pair_id列表
+        - 根据_portfolio_intent_to_rule_map查找对应的Rule并激活cooldown
+
+        设计原则:
+        - 去重: 同一个Rule只激活一次cooldown(即使生成了多个Intent)
+        - 容错: 如果pair_id不在映射中(理论上不应该),跳过不报错
+        - 日志: 每个激活的Rule都记录日志,方便追踪
+
+        Args:
+            executed_pair_ids: 已成功执行的pair_id列表
+                              (ExecutionManager根据OrderTicket执行结果传入)
+
+        示例:
+        ```python
+        # ExecutionManager中:
+        intents = self.risk_manager.check_portfolio_risks()
+        if intents:
+            executed_pair_ids = self.executor.execute_intents(intents)
+            # 激活cooldown
+            self.risk_manager.activate_cooldown_for_portfolio(executed_pair_ids)
+        ```
+
+        v7.1.0变更:
+        - 新增方法,替代原check_portfolio_risks()中的cooldown激活逻辑
+        - cooldown激活延后到Intent执行成功后,而非检测时
+        - 支持部分执行场景(只为成功执行的Intent激活cooldown)
+        """
+        activated_rules = set()  # 用于去重,防止同一Rule被多次激活
+
+        for pair_id in executed_pair_ids:
+            # 查找该pair_id对应的Rule
+            if pair_id in self._portfolio_intent_to_rule_map:
+                rule = self._portfolio_intent_to_rule_map[pair_id]
+
+                # 检查是否已激活过(去重)
+                if rule not in activated_rules:
+                    rule.activate_cooldown()
+                    activated_rules.add(rule)
+
+                    # 记录日志
+                    self.algorithm.Debug(
+                        f"[Portfolio风控] {rule.__class__.__name__} "
+                        f"冷却期激活至 {rule.cooldown_until}"
+                    )
+
+        # 清空映射(防止下次OnData误用旧映射)
+        self._portfolio_intent_to_rule_map.clear()
 
 
     def has_any_rule_in_cooldown(self) -> bool:
@@ -445,37 +573,43 @@ class RiskManager:
         return result
 
 
-    def check_pair_risks(self, pair) -> Tuple[Optional[str], List[Tuple[RiskRule, str]]]:
+    def check_pair_risks(self, pair) -> Optional[CloseIntent]:
         """
-        检查Pair层面风控
+        检查Pair层面风控,返回CloseIntent或None (v7.1.0重构)
 
         调度逻辑:
         1. 检查全局enabled开关
         2. 遍历所有Pair规则（已按priority降序排序）
-        3. 调用rule.check(pair=pair)收集所有触发的规则
-        4. 返回最高优先级规则的action + 完整触发列表
+        3. 找到第一个触发的规则立即返回Intent（最高优先级）
+        4. 生成CloseIntent并记录映射(用于后续cooldown激活)
 
         Args:
             pair: Pairs对象,必须包含pair_opened_time等属性
 
         Returns:
-            (action, triggered_rules)
-            - action: 'pair_close'等，或None（未触发）
-            - triggered_rules: [(rule, description), ...] 所有触发的规则列表
+            Optional[CloseIntent]:
+            - CloseIntent对象: 包含pair_id, symbols, quantities, reason, tag
+            - None: 未触发任何规则
+
+        v7.1.0变更:
+        - 返回类型从 (action, triggered_rules) 改为 Optional[CloseIntent]
+        - Rule不再提供get_action(),RiskManager统一生成Intent
+        - 触发时立即返回(最高优先级),不再收集所有触发规则
+        - 记录Intent→Rule映射,供activate_cooldown_for_pairs()使用
 
         注意:
-        - 返回action后，main.py负责执行平仓
-        - 本方法不修改任何状态，纯粹的检查和返回
         - 不检查冷却期(Pair规则无需冷却期,订单锁已保护)
+        - 本方法不修改任何状态,纯粹的检查和返回
+        - Intent执行后由ExecutionManager调用activate_cooldown_for_pairs()
 
         当前支持的规则:
+        - PositionAnomalyRule: 仓位异常检测 (priority=100)
         - HoldingTimeoutRule: 持仓超时检测 (priority=60)
+        - PairDrawdownRule: 配对回撤检测 (priority=50)
         """
         # 全局禁用时直接返回
         if not self.enabled:
-            return None, []
-
-        triggered_rules = []
+            return None
 
         # 遍历所有Pair规则（已按priority降序排序）
         for rule in self.pair_rules:
@@ -487,68 +621,148 @@ class RiskManager:
             try:
                 triggered, description = rule.check(pair=pair)
                 if triggered:
-                    triggered_rules.append((rule, description))
+                    # 找到触发规则,立即生成Intent并返回(最高优先级)
+                    self.algorithm.Debug(
+                        f"[Pair风控] {rule.__class__.__name__} 触发: {description}"
+                    )
+
+                    # 获取reason字符串
+                    reason = self._pair_rule_to_reason_map.get(
+                        rule.__class__.__name__, 'RISK_TRIGGER')
+
+                    # 生成CloseIntent
+                    intent = pair.get_close_intent(reason=reason)
+                    if intent:
+                        # 记录映射: pair_id → rule (用于cooldown激活)
+                        self._pair_intent_to_rule_map[intent.pair_id] = rule
+                        return intent
+                    else:
+                        # 理论上不应该发生(pair有持仓才会被检查)
+                        self.algorithm.Error(
+                            f"[Pair风控] {pair.pair_id} 触发{rule.__class__.__name__}但无法生成Intent"
+                        )
+                        return None
+
             except Exception as e:
                 self.algorithm.Debug(
                     f"[RiskManager] Pair规则检查异常 {rule.__class__.__name__}: {str(e)}"
                 )
 
-        # 如果有触发，返回最高优先级规则的动作
-        if triggered_rules:
-            # triggered_rules已经按priority排序（因为self.pair_rules是排序的）
-            highest_priority_rule, description = triggered_rules[0]
-            action = highest_priority_rule.get_action()
-
-            # Debug日志由main.py统一输出,这里只记录触发事实
-            if self.config.main.get('debug_mode', False):
-                self.algorithm.Debug(
-                    f"[Pair风控] {highest_priority_rule.__class__.__name__} "
-                    f"(priority={highest_priority_rule.priority}) -> {action}"
-                )
-
-            return action, triggered_rules
-        else:
-            return None, []
+        # 没有规则触发,返回None
+        return None
 
 
-    def check_all_pair_risks(self, pairs_with_position) -> dict:
+    def check_all_pair_risks(self, pairs_with_position) -> List[CloseIntent]:
         """
-        批量检测所有配对的风险(对称Portfolio风控)
+        批量检测所有配对的风险,返回CloseIntent列表 (v7.1.0重构)
 
         设计目标:
         - 与check_portfolio_risks()完全对称
         - 实现"检测与执行分离"原则
-        - main.py只负责分发和执行
+        - ExecutionManager只负责执行Intent
 
         Args:
             pairs_with_position: 有持仓的配对字典 {pair_id: Pairs}
 
         Returns:
-            Dict[pair_id, (action, triggered_rules)]
-            - pair_id: 触发风控的配对ID
-            - action: 'pair_close'等
-            - triggered_rules: [(rule, description), ...]
+            List[CloseIntent]: 需要平仓的Intent列表,空列表表示未触发
+
+        v7.1.0变更:
+        - 返回类型从 Dict[pair_id, (action, triggered_rules)] 改为 List[CloseIntent]
+        - 调用check_pair_risks()返回Optional[CloseIntent]
+        - 自动记录Intent→Rule映射(在check_pair_risks()中完成)
 
         示例:
-            risk_actions = risk_manager.check_all_pair_risks(pairs_with_position)
-            # 返回: {
-            #   ('AAPL', 'MSFT'): ('pair_close', [(HoldingTimeoutRule, "持仓超时...")]),
-            #   ('GOOG', 'GOOGL'): ('pair_close', [(PairDrawdownRule, "回撤超限...")])
-            # }
+        ```python
+        # ExecutionManager中:
+        intents = risk_manager.check_all_pair_risks(pairs_with_position)
+        if intents:
+            executed_pair_ids = []
+            for intent in intents:
+                tickets = order_executor.execute_close(intent)
+                if tickets:
+                    executed_pair_ids.append(intent.pair_id)
+                    tickets_manager.register_tickets(intent.pair_id, tickets, OrderAction.CLOSE)
+            # 激活cooldown
+            risk_manager.activate_cooldown_for_pairs(executed_pair_ids)
+        ```
 
         注意:
-        - 只返回触发风控的配对,未触发的不包含在字典中
+        - 只返回触发风控的配对,未触发的不在列表中
         - 与check_pair_risks()内部调用相同逻辑,只是包装为批量接口
         - 实现Portfolio和Pair风控完全对称的架构
         """
-        risk_actions = {}
+        intents = []
 
         for pair in pairs_with_position.values():
-            action, triggered_rules = self.check_pair_risks(pair)
-            if action:
-                risk_actions[pair.pair_id] = (action, triggered_rules)
+            intent = self.check_pair_risks(pair)
+            if intent:
+                intents.append(intent)
 
-        return risk_actions
+        return intents
+
+
+    def activate_cooldown_for_pairs(self, executed_pair_ids: List[Tuple]) -> None:
+        """
+        为已执行的Pair层Intent激活对应Rule的cooldown (v7.1.0新增)
+
+        触发时机:
+        - ExecutionManager执行完Pair风控的CloseIntent后调用
+        - 传入所有成功执行的pair_id列表
+        - 根据_pair_intent_to_rule_map查找对应的Rule并激活cooldown
+
+        设计原则:
+        - 去重: 同一个Rule只激活一次cooldown(即使生成了多个Intent)
+        - 容错: 如果pair_id不在映射中(理论上不应该),跳过不报错
+        - 日志: 每个激活的Rule都记录日志,方便追踪
+
+        Args:
+            executed_pair_ids: 已成功执行的pair_id列表
+                              (ExecutionManager根据OrderTicket执行结果传入)
+
+        示例:
+        ```python
+        # ExecutionManager中:
+        intents = self.risk_manager.check_all_pair_risks(pairs_with_position)
+        if intents:
+            executed_pair_ids = []
+            for intent in intents:
+                tickets = self.executor.execute_close(intent)
+                if tickets:
+                    executed_pair_ids.append(intent.pair_id)
+            # 激活cooldown
+            self.risk_manager.activate_cooldown_for_pairs(executed_pair_ids)
+        ```
+
+        v7.1.0变更:
+        - 新增方法,替代原check_pair_risks()中的cooldown激活逻辑
+        - cooldown激活延后到Intent执行成功后,而非检测时
+        - 支持部分执行场景(只为成功执行的Intent激活cooldown)
+
+        注意:
+        - Pair规则通常不使用cooldown(订单锁已提供保护)
+        - 但架构上保持与Portfolio层完全对称,便于未来扩展
+        """
+        activated_rules = set()  # 用于去重,防止同一Rule被多次激活
+
+        for pair_id in executed_pair_ids:
+            # 查找该pair_id对应的Rule
+            if pair_id in self._pair_intent_to_rule_map:
+                rule = self._pair_intent_to_rule_map[pair_id]
+
+                # 检查是否已激活过(去重)
+                if rule not in activated_rules:
+                    rule.activate_cooldown()
+                    activated_rules.add(rule)
+
+                    # 记录日志
+                    self.algorithm.Debug(
+                        f"[Pair风控] {rule.__class__.__name__} "
+                        f"冷却期激活至 {rule.cooldown_until}"
+                    )
+
+        # 清空映射(防止下次OnData误用旧映射)
+        self._pair_intent_to_rule_map.clear()
 
 
     def get_registered_rules_info(self) -> dict:

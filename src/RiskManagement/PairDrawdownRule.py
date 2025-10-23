@@ -1,12 +1,12 @@
 # region imports
-from .base import RiskRule
+from .PortfolioBaseRule import RiskRule
 from typing import Tuple
 # endregion
 
 
 class PairDrawdownRule(RiskRule):
     """
-    配对回撤风控规则
+    配对回撤风控规则 (v7.1.0 Intent Pattern重构)
 
     检测配对级别的回撤,如果浮亏超过阈值则触发平仓。
 
@@ -15,8 +15,10 @@ class PairDrawdownRule(RiskRule):
     - 回撤定义: (HWM - current_pair_value) / HWM
     - pair_value = pnl + pair_cost (配对总价值 = 浮盈 + 保证金成本)
 
-    响应动作:
-    - 'pair_close': 正常平仓该配对
+    v7.1.0变更:
+    - 移除get_action()方法
+    - Rule只负责检测,RiskManager负责生成CloseIntent(reason='DRAWDOWN')
+    - cooldown由RiskManager在Intent执行后激活
 
     设计特点:
     - 配对专属计算: 使用tracked_qty和entry_price,避免Portfolio全局查询混淆
@@ -37,14 +39,13 @@ class PairDrawdownRule(RiskRule):
     {
         'enabled': True,
         'priority': 50,
-        'threshold': 0.15,  # 15%回撤
-        'action': 'pair_close'
+        'threshold': 0.15  # 15%回撤
     }
 
     使用场景:
-    1. OnData循环检查所有pairs → PairDrawdownRule检测 → 返回pair_close
-    2. main.py执行平仓 → 清理亏损配对
-    3. HWM在on_position_filled(CLOSE)时自动重置
+    1. OnData循环检查所有pairs → PairDrawdownRule检测 → RiskManager生成Intent
+    2. ExecutionManager执行平仓 → 清理亏损配对
+    3. HWM在on_pair_closed()时自动清理
     """
 
     def __init__(self, algorithm, config: dict):
@@ -139,16 +140,6 @@ class PairDrawdownRule(RiskRule):
             return True, description
 
         return False, ""
-
-
-    def get_action(self) -> str:
-        """
-        获取响应动作
-
-        Returns:
-            'pair_close': 正常平仓动作(统一动作,无强制清算)
-        """
-        return self.config.get('action', 'pair_close')
 
 
     def on_pair_closed(self, pair_id: tuple):

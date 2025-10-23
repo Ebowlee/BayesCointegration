@@ -20,19 +20,19 @@ class CointegrationAnalyzer:
 
         Args:
             algorithm: QCAlgorithm实例
-            module_config: 模块配置(cointegration_analyzer)
+            module_config: 模块配置字典
         """
         self.algorithm = algorithm
         self.pvalue_threshold = module_config['pvalue_threshold']
 
-        # v6.7.2: 子行业分组配置
+        # 子行业分组配置
         self.min_stocks_per_group = module_config['min_stocks_per_group']
         self.max_stocks_per_group = module_config['max_stocks_per_group']
 
 
     def cointegration_procedure(self, valid_symbols: List[Symbol], clean_data: Dict[Symbol, pd.DataFrame]) -> Dict:
         """
-        执行协整分析流程（v6.7.2: 按26个子行业分组）
+        执行协整分析流程（按26个子行业分组）
 
         Args:
             valid_symbols: UniverseSelection输出的所有通过筛选的股票
@@ -86,7 +86,7 @@ class CointegrationAnalyzer:
 
     def _analyze_industry_group(self, ig_name: str, symbols: List[Symbol], clean_data: Dict) -> List[Dict]:
         """
-        分析单个子行业内的协整关系（v6.7.2重命名）
+        分析单个子行业内的协整关系
 
         Args:
             ig_name: 子行业名称
@@ -146,7 +146,7 @@ class CointegrationAnalyzer:
 
     def _group_by_industry_group(self, symbols: List[Symbol]) -> Dict[str, List[Symbol]]:
         """
-        按26个子行业分组，每个子行业选TOP stocks（v6.7.2新增）
+        按26个子行业分组，每个子行业选TOP stocks
 
         Args:
             symbols: UniverseSelection输出的所有通过筛选的股票

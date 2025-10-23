@@ -1,24 +1,24 @@
 """
-ExcessiveDrawdownRule - 过度回撤风控规则
+ExcessiveDrawdownRule - 过度回撤风控规则 (v7.1.0 Intent Pattern重构)
 
-检测账户净值从最高水位的回撤比例,如果超过阈值则触发全仓清算。
+检测账户净值从最高水位的回撤比例,如果超过阈值则由RiskManager生成所有持仓的CloseIntent。
 这是Portfolio层面的关键风控规则,优先级仅次于AccountBlowupRule。
 与AccountBlowup的唯一区别是冷却期长度(30天vs永久)。
 """
 
 from AlgorithmImports import *
-from .base import RiskRule
+from .PortfolioBaseRule import RiskRule
 from typing import Tuple
 
 
 class ExcessiveDrawdownRule(RiskRule):
     """
-    过度回撤风控规则
+    过度回撤风控规则 (v7.1.0 Intent Pattern重构)
 
     功能:
     - 追踪账户净值的历史最高水位(high water mark)
     - 检测当前回撤是否超过阈值(默认15%)
-    - 触发后返回'portfolio_liquidate_all'动作(全仓清算)
+    - 触发后由RiskManager生成所有持仓的CloseIntent
     - 支持30天冷却期(可恢复交易)
 
     配置参数:
@@ -26,30 +26,35 @@ class ExcessiveDrawdownRule(RiskRule):
     - priority: 优先级(默认90,仅次于AccountBlowup的100)
     - threshold: 回撤阈值(默认0.15,即15%)
     - cooldown_days: 冷却期天数(默认30,可恢复)
-    - action: 响应动作(默认'portfolio_liquidate_all')
 
     与AccountBlowupRule的区别:
     - 触发条件: 回撤(动态HWM) vs 亏损(固定initial_capital)
     - 冷却期: 30天(可恢复) vs 36500天(永久)
-    - 响应动作: 相同,都是全仓清算
     - HWM重置: 触发时重置HWM为当前净值,避免冷却期后重复触发
 
     触发后行为:
-    1. 执行全仓清算(调用_liquidate_all_positions)
+    1. RiskManager生成所有持仓的CloseIntent
     2. 重置HWM为当前净值(避免冷却期后因回撤持续而重复触发)
-    3. 激活30天冷却期
+    3. ExecutionManager执行Intent后激活30天冷却期
     4. 30天后,如果净值未继续下跌,不会再次触发
+
+    v7.1.0变更:
+    - 移除get_action()方法
+    - Rule只负责检测,RiskManager负责生成Intent
+    - Cooldown由RiskManager在Intent执行后激活
 
     使用示例:
     ```python
+    # 在RiskManager中
     config = self.config.risk_management['portfolio_rules']['excessive_drawdown']
     rule = ExcessiveDrawdownRule(algorithm, config)
 
     triggered, description = rule.check()
     if triggered:
-        action = rule.get_action()  # 'portfolio_liquidate_all'
-        # 执行全仓清算...
-        rule.activate_cooldown()  # 激活30天冷却期
+        # RiskManager生成所有持仓的CloseIntent
+        pairs = self.pairs_manager.get_pairs_with_position()
+        intents = [pair.get_close_intent(reason='RISK_TRIGGER') for pair in pairs.values()]
+        # ExecutionManager执行Intent后激活cooldown
         # HWM已在check()中自动重置
     ```
     """
@@ -144,13 +149,3 @@ class ExcessiveDrawdownRule(RiskRule):
             return True, description
 
         return False, ""
-
-
-    def get_action(self) -> str:
-        """
-        获取响应动作
-
-        Returns:
-            'portfolio_liquidate_all' - 全仓清算(与AccountBlowup相同)
-        """
-        return self.config['action']

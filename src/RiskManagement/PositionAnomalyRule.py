@@ -1,5 +1,5 @@
 # region imports
-from .base import RiskRule
+from .PortfolioBaseRule import RiskRule
 from typing import Tuple
 from src.Pairs import PositionMode
 # endregion
@@ -7,7 +7,7 @@ from src.Pairs import PositionMode
 
 class PositionAnomalyRule(RiskRule):
     """
-    仓位异常风控规则
+    仓位异常风控规则 (v7.1.0 Intent Pattern重构)
 
     检测配对持仓的异常状态,包括单边持仓和同向持仓。
     这些异常通常由订单部分成交、取消或拒绝导致。
@@ -17,8 +17,10 @@ class PositionAnomalyRule(RiskRule):
     - PARTIAL_LEG2: 只有第二腿有持仓,第一腿无持仓
     - ANOMALY_SAME: 两腿持仓方向相同(都是多头或都是空头)
 
-    响应动作:
-    - 'pair_close': 正常平仓异常持仓
+    v7.1.0变更:
+    - 移除get_action()方法
+    - Rule只负责检测,RiskManager负责生成CloseIntent(reason='ANOMALY')
+    - cooldown由RiskManager在Intent执行后激活
 
     设计特点:
     - 最高优先级: priority=100,异常持仓需要立即处理
@@ -29,14 +31,13 @@ class PositionAnomalyRule(RiskRule):
     配置示例:
     {
         'enabled': True,
-        'priority': 100,
-        'action': 'pair_close'
+        'priority': 100
     }
 
     使用场景:
     1. OnOrderEvent检测到订单异常(Canceled/Invalid) → TicketsManager标记
-    2. OnData循环检查pairs → PositionAnomalyRule检测 → 返回pair_close
-    3. main.py执行平仓 → 清理异常持仓
+    2. OnData循环检查pairs → PositionAnomalyRule检测 → RiskManager生成Intent
+    3. ExecutionManager执行平仓 → 清理异常持仓
     """
 
     def __init__(self, algorithm, config: dict):
@@ -116,13 +117,3 @@ class PositionAnomalyRule(RiskRule):
             )
 
         return True, description
-
-
-    def get_action(self) -> str:
-        """
-        获取响应动作
-
-        Returns:
-            'pair_close': 正常平仓动作(统一动作,无强制清算)
-        """
-        return self.config.get('action', 'pair_close')

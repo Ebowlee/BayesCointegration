@@ -85,10 +85,10 @@ class PairsManager:
         # 主存储:所有曾经出现过的配对
         self.all_pairs = {}  # {pair_id: Pairs对象}
 
-        # 分类索引(只存储pair_id)
-        self.active_ids = set()    # 协整配对(本轮通过检验) - 对应 PairState.COINTEGRATED
-        self.legacy_ids = set()    # 遗留配对(未通过检验但有持仓) - 对应 PairState.LEGACY
-        self.dormant_ids = set()   # 已归档配对(未通过检验且无持仓) - 对应 PairState.ARCHIVED
+        # 分类索引(只存储pair_id) - 命名与PairState常量保持一致
+        self.cointegrated_ids = set()  # 对应 PairState.COINTEGRATED
+        self.legacy_ids = set()         # 对应 PairState.LEGACY
+        self.archived_ids = set()       # 对应 PairState.ARCHIVED
 
         # 统计信息
         self.update_count = 0  # 更新次数(选股轮次)
@@ -104,19 +104,19 @@ class PairsManager:
 
         设计说明:
             - 使用 @property 而非方法: 语义上这是"属性查询"而非"操作"
-            - DRY原则: 消除代码中 (self.active_ids | self.legacy_ids) 的重复
+            - DRY原则: 消除代码中的重复集合运算
             - 可读性: self.tradeable_ids 比集合运算更清晰
             - 可维护性: 将来修改"可交易"定义只需改这一处
 
         包含范围:
-            - COINTEGRATED (active_ids): 本轮通过协整检验的配对
-            - LEGACY (legacy_ids): 未通过检验但有持仓的配对
-            - 排除 ARCHIVED (dormant_ids): 未通过检验且无持仓的配对
+            - COINTEGRATED: 本轮通过协整检验的配对
+            - LEGACY: 未通过检验但有持仓的配对
+            - 排除 ARCHIVED: 未通过检验且无持仓的配对
 
         Returns:
             Set[tuple]: 可交易配对的 pair_id 集合
         """
-        return self.active_ids | self.legacy_ids
+        return self.cointegrated_ids | self.legacy_ids
 
     def update_pairs(self, new_pairs_dict: Dict):
         """
@@ -166,20 +166,20 @@ class PairsManager:
             - 易于扩展: 将来添加新状态(如 'warning', 'frozen')只需修改分类器
         """
         # 清空分类
-        self.active_ids.clear()
+        self.cointegrated_ids.clear()
         self.legacy_ids.clear()
-        self.dormant_ids.clear()
+        self.archived_ids.clear()
 
         # 使用分类器重新分类所有配对
         for pair_id, pair in self.all_pairs.items():
             category = PairClassifier.classify(pair_id, pair, current_pair_ids)
 
             if category == PairState.COINTEGRATED:
-                self.active_ids.add(pair_id)
+                self.cointegrated_ids.add(pair_id)
             elif category == PairState.LEGACY:
                 self.legacy_ids.add(pair_id)
             else:  # PairState.ARCHIVED
-                self.dormant_ids.add(pair_id)
+                self.archived_ids.add(pair_id)
 
 
     # ===== 3. 查询接口 =====
@@ -263,9 +263,9 @@ class PairsManager:
         """
         return {
             'update_count': self.update_count,
-            'cointegrated_count': len(self.active_ids),
+            'cointegrated_count': len(self.cointegrated_ids),
             'legacy_count': len(self.legacy_ids),
-            'archived_count': len(self.dormant_ids),
+            'archived_count': len(self.archived_ids),
             'total_count': len(self.all_pairs),
             'last_update_time': self.last_update_time
         }

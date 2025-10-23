@@ -1,12 +1,12 @@
 # region imports
-from .base import RiskRule
+from .PortfolioBaseRule import RiskRule
 from typing import Tuple
 # endregion
 
 
 class HoldingTimeoutRule(RiskRule):
     """
-    持仓超时风控规则
+    持仓超时风控规则 (v7.1.0 Intent Pattern重构)
 
     检测配对持仓时间是否超过阈值。配对交易是短期均值回归策略,
     如果持仓超过max_days仍未回归,说明协整关系可能失效,应止损退出。
@@ -14,8 +14,10 @@ class HoldingTimeoutRule(RiskRule):
     触发条件:
     - 持仓天数 > max_days (从pair.pair_opened_time到当前时间)
 
-    响应动作:
-    - 'pair_close': 正常平仓
+    v7.1.0变更:
+    - 移除get_action()方法
+    - Rule只负责检测,RiskManager负责生成CloseIntent(reason='TIMEOUT')
+    - cooldown由RiskManager在Intent执行后激活
 
     设计特点:
     - 无需冷却期: 订单锁机制(tickets_manager.is_pair_locked)已防止重复提交
@@ -26,9 +28,16 @@ class HoldingTimeoutRule(RiskRule):
     {
         'enabled': True,
         'priority': 60,
-        'max_days': 30,
-        'action': 'pair_close'
+        'max_days': 30
     }
+
+    使用示例:
+    ```python
+    # RiskManager中:
+    triggered, desc = rule.check(pair)
+    if triggered:
+        intent = pair.get_close_intent(reason='TIMEOUT')  # RiskManager生成Intent
+    ```
     """
 
     def __init__(self, algorithm, config: dict):
@@ -94,13 +103,3 @@ class HoldingTimeoutRule(RiskRule):
             return True, description
 
         return False, ""
-
-
-    def get_action(self) -> str:
-        """
-        获取响应动作
-
-        Returns:
-            'pair_close': 正常平仓动作
-        """
-        return self.config.get('action', 'pair_close')

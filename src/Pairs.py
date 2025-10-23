@@ -356,7 +356,7 @@ class Pairs:
     @property
     def position_mode(self):
         """
-        获取当前持仓模式（功能冗余优化 v6.9.3）
+        获取当前持仓模式（避免重复代码）
 
         设计目标：
         - 消除 has_position(), has_normal_position(), has_anomaly() 中的重复代码
@@ -414,7 +414,7 @@ class Pairs:
 
     def get_pair_pnl(self) -> Optional[float]:
         """
-        计算配对当前浮动盈亏 (v6.9.4: 纯数据计算,无副作用)
+        计算配对当前浮动盈亏（纯数据计算，无副作用）
 
         公式:
         - 当前市值 = qty1 * current_price1 + qty2 * current_price2
@@ -427,9 +427,9 @@ class Pairs:
         - 空头的qty为负数,自动处理方向
         - 完全配对专属计算,即使symbol出现在多个配对中也不会混淆
 
-        设计变化 (v6.9.4):
-        - 移除HWM追踪逻辑(已迁移到 PairDrawdownRule)
-        - 成为纯函数(无状态修改),遵循函数式编程原则
+        设计说明:
+        - HWM追踪逻辑已迁移到 PairDrawdownRule
+        - 纯函数设计（无状态修改），遵循函数式编程原则
         - 调用方: PairDrawdownRule, TradeSnapshot
 
         返回:
@@ -642,7 +642,7 @@ class Pairs:
 
     def get_open_intent(self, amount_allocated: float, data):
         """
-        生成开仓意图(v7.0.0: 职责分离 - 意图生成与执行分离)
+        生成开仓意图（意图生成与执行分离）
 
         设计理念:
         - 内部调用get_signal()自动检测开仓信号
@@ -720,7 +720,7 @@ class Pairs:
 
     def get_close_intent(self, reason='CLOSE'):
         """
-        生成平仓意图(v7.0.0: 职责分离 - 意图生成与执行分离)
+        生成平仓意图（意图生成与执行分离）
 
         设计理念:
         - 获取当前持仓信息

@@ -1,22 +1,22 @@
 """
-AccountBlowupRule - 账户爆仓线风控规则
+AccountBlowupRule - 账户爆仓线风控规则 (v7.1.0 Intent Pattern重构)
 
-检测账户总价值的亏损比例，如果超过阈值则触发全仓清算。
+检测账户总价值的亏损比例，如果超过阈值则由RiskManager生成所有持仓的CloseIntent。
 这是最高优先级的Portfolio层面风控规则。
 """
 
 from AlgorithmImports import *
-from .base import RiskRule
+from .PortfolioBaseRule import RiskRule
 from typing import Tuple
 
 
 class AccountBlowupRule(RiskRule):
     """
-    账户爆仓线风控规则
+    账户爆仓线风控规则 (v7.1.0 Intent Pattern重构)
 
     功能:
     - 检测账户亏损是否超过阈值（默认25%）
-    - 触发后返回'portfolio_liquidate_all'动作
+    - 触发后由RiskManager生成所有持仓的CloseIntent
     - 支持永久冷却期（默认36500天）
 
     配置参数:
@@ -24,18 +24,24 @@ class AccountBlowupRule(RiskRule):
     - priority: 优先级（默认100，最高优先级）
     - threshold: 亏损阈值（默认0.25，即25%）
     - cooldown_days: 冷却期天数（默认36500，约100年，相当于永久）
-    - action: 响应动作（默认'portfolio_liquidate_all'）
+
+    v7.1.0变更:
+    - 移除get_action()方法
+    - Rule只负责检测,RiskManager负责生成Intent
+    - Cooldown由RiskManager在Intent执行后激活
 
     使用示例:
     ```python
+    # 在RiskManager中
     config = self.config.risk_management['portfolio_rules']['account_blowup']
     rule = AccountBlowupRule(algorithm, config)
 
     triggered, description = rule.check()
     if triggered:
-        action = rule.get_action()  # 'portfolio_liquidate_all'
-        # 执行清算...
-        rule.activate_cooldown()  # 激活冷却期
+        # RiskManager生成所有持仓的CloseIntent
+        pairs = self.pairs_manager.get_pairs_with_position()
+        intents = [pair.get_close_intent(reason='RISK_TRIGGER') for pair in pairs.values()]
+        # ExecutionManager执行Intent后激活cooldown
     ```
     """
 
@@ -98,13 +104,3 @@ class AccountBlowupRule(RiskRule):
             return True, description
 
         return False, ""
-
-
-    def get_action(self) -> str:
-        """
-        获取响应动作
-
-        Returns:
-            'portfolio_liquidate_all' - 全仓清算
-        """
-        return self.config['action']

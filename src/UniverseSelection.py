@@ -10,7 +10,7 @@ import numpy as np
 
 class FinancialValidator:
     """
-    财务指标验证器 (v6.7.0)
+    财务指标验证器
 
     职责: 根据配置化的规则验证股票的财务指标
     优势: 单一职责、可配置、易测试、易扩展
@@ -56,8 +56,7 @@ class FinancialValidator:
                 continue
 
             # 获取阈值
-            threshold_key = filter_config['threshold_key']
-            threshold = self.config[threshold_key]
+            threshold = filter_config['threshold']
 
             # 比较操作
             operator = filter_config['operator']
@@ -95,7 +94,7 @@ class FinancialValidator:
 
 class SelectionLogger:
     """
-    选股日志记录器 (v6.7.0)
+    选股日志记录器
 
     职责: 统一管理选股过程的日志输出
     优势: 单一职责、格式统一、易于维护
@@ -318,7 +317,7 @@ class SectorBasedUniverseSelection(FineFundamentalUniverseSelectionModel):
     # ========== 筛选辅助方法 ==========
     def _apply_financial_filters(self, stocks: List[FineFundamental]) -> Tuple[List[FineFundamental], Dict[str, int]]:
         """
-        应用财务筛选条件 (v6.7.0: 使用FinancialValidator)
+        应用财务筛选条件
 
         Args:
             stocks: 待筛选的股票列表
@@ -345,7 +344,7 @@ class SectorBasedUniverseSelection(FineFundamentalUniverseSelectionModel):
 
     def _calculate_volatilities(self, stocks: List[FineFundamental]) -> Dict[Symbol, float]:
         """
-        批量计算股票的年化波动率 (v6.7.0: 分离计算逻辑)
+        批量计算股票的年化波动率
 
         Args:
             stocks: 待计算的股票列表
@@ -395,7 +394,7 @@ class SectorBasedUniverseSelection(FineFundamentalUniverseSelectionModel):
     def _apply_volatility_filter(self, stocks: List[FineFundamental],
                                  volatilities: Dict[Symbol, float]) -> Tuple[List[FineFundamental], Dict[str, int]]:
         """
-        应用波动率筛选 (v6.7.0: 接受预计算的波动率)
+        应用波动率筛选
 
         Args:
             stocks: 待筛选的股票列表

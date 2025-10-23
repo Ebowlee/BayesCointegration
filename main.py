@@ -4,11 +4,17 @@ import pandas as pd
 from System import Action
 from src.config import StrategyConfig
 from src.UniverseSelection import SectorBasedUniverseSelection
+from src.analysis.DataProcessor import DataProcessor
+from src.analysis.CointegrationAnalyzer import CointegrationAnalyzer
+from src.analysis.BayesianModeler import BayesianModeler
+from src.analysis.PairSelector import PairSelector
 from src.Pairs import Pairs
+from src.PairsManager import PairsManager
 from src.TicketsManager import TicketsManager
 from src.RiskManagement import RiskManager
 from src.execution import ExecutionManager, OrderExecutor
 from src.TradeHistory import TradeJournal, TradeAnalyzer
+
 # endregion
 
 
@@ -17,55 +23,54 @@ class BayesianCointegrationStrategy(QCAlgorithm):
 
     def Initialize(self):
         """初始化策略"""
-        # === 加载配置 ===
+        # === 加载参数配置 ===
         self.config = StrategyConfig()
         self.debug_mode = self.config.main['debug_mode']
-
-        # === 设置基本参数 ===
         self.SetStartDate(*self.config.main['start_date'])
         self.SetEndDate(*self.config.main['end_date'])
         self.SetCash(self.config.main['cash'])
         self.UniverseSettings.Resolution = self.config.main['resolution']
         self.SetBrokerageModel(self.config.main['brokerage_name'], self.config.main['account_type'])
+        self.market_benchmark = self.AddEquity("SPY", self.config.main['resolution']).Symbol
+        self.SetBenchmark(self.market_benchmark)
+
 
         # === 初始化选股模块 ===
-        self.universe_selector = SectorBasedUniverseSelection(self)
+        # 选股模块
+        self.universe_selector = SectorBasedUniverseSelection(self)             # 在此处做插拔替换
         self.SetUniverseSelection(self.universe_selector)
+        self.symbols = []
 
-        # 定期触发选股（保持原有调度）
+        # 选股触发调度器
         date_rule = getattr(self.DateRules, self.config.main['schedule_frequency'])()
         time_rule = self.TimeRules.At(*self.config.main['schedule_time'])
         self.Schedule.On(date_rule, time_rule, Action(self.universe_selector.trigger_selection))
-
         # === 初始化分析工具 ===
-        from src.analysis.DataProcessor import DataProcessor
-        from src.analysis.CointegrationAnalyzer import CointegrationAnalyzer
-        from src.analysis.BayesianModeler import BayesianModeler
-        from src.analysis.PairSelector import PairSelector
-        from src.PairsManager import PairsManager
-
-        # 使用重构后的配置结构
-        shared_config = self.config.analysis_shared
-        self.data_processor = DataProcessor(self, shared_config, self.config.data_processor)
-        self.cointegration_analyzer = CointegrationAnalyzer(self, self.config.cointegration_analyzer)
-        self.bayesian_modeler = BayesianModeler(self, shared_config, self.config.bayesian_modeler)
-        self.pair_selector = PairSelector(self, shared_config, self.config.pair_selector)
-
-        # === 初始化配对管理器 ===
+        self.data_processor = DataProcessor(
+            self,
+            self.config.analysis_shared,
+            self.config.data_processor
+        )
+        self.cointegration_analyzer = CointegrationAnalyzer(
+            self,
+            self.config.cointegration_analyzer
+        )
+        self.bayesian_modeler = BayesianModeler(
+            self,
+            self.config.analysis_shared,
+            self.config.bayesian_modeler
+        )
+        self.pair_selector = PairSelector(
+            self,
+            self.config.analysis_shared,
+            self.config.pair_selector
+        )
         self.pairs_manager = PairsManager(self, self.config.pairs_trading)
 
-        # === 初始化核心数据结构 ===
-        self.symbols = []  # 当前选中的股票列表
 
         # === 初始化状态管理 ===
         self.is_analyzing = False  # 是否正在分析
         self.last_analysis_time = None  # 上次分析时间
-
-        # === 添加市场基准 ===
-        self.market_benchmark = self.AddEquity("SPY", Resolution.Daily).Symbol
-
-        # 设置SPY为基准（用于计算Alpha/Beta）
-        self.SetBenchmark(self.market_benchmark)
 
         # === 添加VIX指数（用于市场条件检查）===
         self.vix_symbol = self.AddIndex("VIX", Resolution.Daily).Symbol
@@ -74,20 +79,20 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         self.initial_cash = self.config.main['cash']
         # 注意：cash_buffer现在是动态的，将在OnData中计算
         # 最小投资额是固定的
-        self.min_investment = self.initial_cash * self.config.main['min_investment_ratio']
+        self.min_investment = self.initial_cash * self.config.pairs_trading['min_investment_ratio']
 
         # === 订单追踪管理器(替代旧的去重机制) ===
         self.tickets_manager = TicketsManager(self, self.pairs_manager)
 
         # === 初始化风控管理器 ===
-        # v6.9.3: 传递 pairs_manager 用于集中度分析
+        # 传递 pairs_manager 用于集中度分析
         self.risk_manager = RiskManager(self, self.config, self.pairs_manager)
 
-        # === 初始化订单执行器(v7.0.0新增) ===
-        self.order_executor = OrderExecutor(self)
+        # === 初始化订单执行器 ===
+        self.order_executor = OrderExecutor(self, self.tickets_manager)
 
         # === 初始化统一执行器 ===
-        # v7.0.0: 新增 order_executor 依赖注入
+        # 依赖注入 order_executor
         self.execution_manager = ExecutionManager(self, self.pairs_manager, self.tickets_manager, self.order_executor)
 
         # === 初始化交易历史追踪 ===
@@ -192,15 +197,18 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         if self.is_analyzing:
             return
 
-        # === Portfolio层面风控检查（最优先） ===
-        portfolio_action, triggered_rules = self.risk_manager.check_portfolio_risks()
-        if portfolio_action:
-            self.execution_manager.handle_portfolio_risk_action(portfolio_action, triggered_rules)
-            return  # 触发任何风控后，完全停止所有交易
-
-        # 检查是否有任何风控规则在冷却期（统一阻断）
+        # === Portfolio规则cooldown检查（第一道防线） ===
+        # Portfolio规则排他性 - 任何规则在cooldown，阻止所有交易
         if self.risk_manager.has_any_rule_in_cooldown():
             return  # 冷却期内完全停止所有交易
+
+        # === Portfolio层面风控检查（最优先） ===
+        # Intent Pattern - 返回List[CloseIntent]
+        portfolio_intents = self.risk_manager.check_portfolio_risks()
+        if portfolio_intents:
+            # 传递risk_manager用于激活cooldown
+            self.execution_manager.handle_portfolio_risk_intents(portfolio_intents, self.risk_manager)
+            return  # 触发任何风控后，完全停止所有交易
 
         # 如果没有可交易配对，跳过
         if not self.pairs_manager.has_tradeable_pairs():
@@ -211,9 +219,11 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         pairs_without_position = self.pairs_manager.get_pairs_without_position()
 
         # === Pair层面风控检查 ===
-        pair_risk_actions = self.risk_manager.check_all_pair_risks(pairs_with_position)
-        if pair_risk_actions:
-            self.execution_manager.handle_pair_risk_actions(pair_risk_actions)
+        # Intent Pattern - 返回List[CloseIntent]
+        pair_intents = self.risk_manager.check_all_pair_risks(pairs_with_position)
+        if pair_intents:
+            # 传递risk_manager用于激活cooldown和清理HWM
+            self.execution_manager.handle_pair_risk_intents(pair_intents, self.risk_manager)
 
         # === 处理正常平仓 ===
         self.execution_manager.handle_signal_closings(pairs_with_position, data)

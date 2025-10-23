@@ -15,8 +15,8 @@ class DataProcessor:
 
         Args:
             algorithm: QCAlgorithm实例
-            shared_config: 共享配置(analysis_shared)
-            module_config: 模块配置(data_processor)
+            shared_config: 共享配置字典
+            module_config: 模块配置字典
         """
         self.algorithm = algorithm
         self.lookback_days = shared_config['lookback_days']

@@ -7,13 +7,14 @@ from datetime import timedelta
 
 class RiskRule(ABC):
     """
-    风控规则抽象基类
+    风控规则抽象基类 (v7.1.0 Intent Pattern重构)
 
-    所有具体风控规则都必须继承此类并实现抽象方法
+    所有具体风控规则都必须继承此类并实现check()方法
 
     设计原则:
     - 统一接口: 所有规则通过check()检测风险
-    - 职责分离: 规则只负责检测，不执行动作
+    - 职责分离: 规则只负责检测,RiskManager负责生成Intent
+    - Intent Pattern: Rule不再返回action字符串,由RiskManager统一生成CloseIntent
     - 可配置: 通过config字典控制行为
     - 优先级: 支持多规则按优先级排序
     - 冷却期: 避免规则频繁触发
@@ -21,6 +22,11 @@ class RiskRule(ABC):
     适用范围:
     - Portfolio层面风控 (爆仓、回撤、市场波动等)
     - Pair层面风控 (持仓超时、仓位异常、配对回撤等)
+
+    v7.1.0变更:
+    - 移除get_action()抽象方法
+    - Rule只负责检测(check),不生成Intent
+    - Cooldown由RiskManager在Intent执行后激活
     """
 
     def __init__(self, algorithm, config: dict):
@@ -33,11 +39,10 @@ class RiskRule(ABC):
 
         配置示例:
         {
-            'enabled': True,                     # 是否启用
-            'priority': 100,                     # 优先级(数字越大越先执行)
-            'threshold': 0.25,                   # 触发阈值
-            'cooldown_days': 30,                 # 冷却期(天)
-            'action': 'portfolio_liquidate_all'  # 响应动作
+            'enabled': True,        # 是否启用
+            'priority': 100,        # 优先级(数字越大越先执行)
+            'threshold': 0.25,      # 触发阈值
+            'cooldown_days': 30     # 冷却期(天)
         }
         """
         self.algorithm = algorithm
@@ -78,41 +83,6 @@ class RiskRule(ABC):
         pass
 
 
-    @abstractmethod
-    def get_action(self) -> str:
-        """
-        获取响应动作类型（抽象方法，子类必须实现）
-
-        Returns:
-            动作类型字符串，格式: {scope}_{action}_{target}
-
-        命名规范:
-        - Portfolio层面: portfolio_{action}_{target}
-        - Pair层面: pair_{action}
-
-        Portfolio层面动作:
-        - 'portfolio_liquidate_all': 全部清仓
-        - 'portfolio_stop_new_entries': 停止开新仓
-        - 'portfolio_reduce_exposure_50': 减仓50%
-        - 'portfolio_rebalance_sectors': 行业再平衡
-
-        Pair层面动作:
-        - 'pair_close': 平仓单个配对
-        - 'pair_liquidate': 强制清算（异常仓位）
-
-        实现方式:
-        通常直接返回配置中的'action'字段:
-            return self.config['action']
-
-        也可以根据条件动态返回:
-            if self.config['threshold'] > 0.3:
-                return 'portfolio_liquidate_all'
-            else:
-                return 'portfolio_stop_new_entries'
-        """
-        pass
-
-
     def is_in_cooldown(self) -> bool:
         """
         检查是否在冷却期
@@ -144,8 +114,9 @@ class RiskRule(ABC):
         """
         激活冷却期
 
-        调用时机:
-        - 规则触发后，由RiskManager调用
+        调用时机(v7.1.0):
+        - Intent执行成功后，由RiskManager调用
+        - 不在check()检测时激活,而是在订单提交后激活
         - 设置冷却结束时间 = 当前时间 + cooldown_days
 
         冷却期长度建议:

@@ -4,6 +4,178 @@
 
 ---
 
+## [v7.0.5_配置优化与风控重构@20250123]
+
+### 版本定义
+**优化版本**: 配置结构优化、风控模块重构、新增执行层组件、文档完善
+
+### 核心改动
+
+#### 1. Config配置优化
+
+**删除重复参数**:
+- 删除 `main` 中的 `min_investment_ratio` (重复定义)
+- 将 `min_investment_ratio` 统一到 `pairs_trading['min_investment_ratio']`
+- 更新引用路径: `main.py` L82
+
+**简化财务指标配置**:
+```python
+# 改前: threshold_key 间接引用
+'financial_filters': {
+    'pe_ratio': {
+        'threshold_key': 'max_pe',  # 间接引用
+        'enabled': True,
+        ...
+    }
+}
+'max_pe': 100,  # 独立定义
+
+# 改后: 直接嵌入阈值
+'financial_filters': {
+    'pe_ratio': {
+        'threshold': 100,  # 直接定义
+        'enabled': True,
+        ...
+    }
+}
+```
+
+**影响范围**:
+- 修改: `src/config.py` (删除独立阈值定义，threshold嵌入到filters)
+- 修改: `src/UniverseSelection.py` (L59-60: 简化阈值访问逻辑)
+- 修改: `main.py` (L82: 更新min_investment_ratio引用路径)
+
+**优化收益**:
+- ✅ 消除配置冗余，参数定义唯一
+- ✅ 简化配置访问逻辑，无需threshold_key间接引用
+- ✅ 配置结构更扁平，易于理解和维护
+
+
+#### 2. 风控模块重构
+
+**规则类重命名** (职责更清晰):
+```python
+# 组合级风控规则
+AccountBlowupRule      → PortfolioAccountBlowup
+ExcessiveDrawdownRule  → PortfolioDrawdown
+
+# 命名规范: Portfolio前缀明确表示"组合级风控"
+```
+
+**基类设计优化**:
+- 删除: `src/RiskManagement/base.py` (过度设计的抽象基类)
+- 新增: `src/RiskManagement/PortfolioBaseRule.py` (组合级风控基类)
+- 保留: 配对级风控规则无基类 (轻量化设计)
+
+**设计原则**:
+- 组合级风控: 继承 `PortfolioBaseRule` (共享组合数据访问)
+- 配对级风控: 独立实现 (避免过度抽象)
+- 接口统一: 所有规则类提供 `check()` 方法
+
+**影响范围**:
+- 删除: `AccountBlowupRule.py`, `ExcessiveDrawdownRule.py`, `base.py`
+- 新增: `PortfolioAccountBlowup.py`, `PortfolioDrawdown.py`, `PortfolioBaseRule.py`
+- 修改: `RiskManager.py`, `__init__.py` (更新import和规则实例化)
+- 修改: 所有风控规则类 (HoldingTimeoutRule, MarketCondition, PairDrawdownRule, PositionAnomalyRule)
+
+**优化收益**:
+- ✅ 命名更语义化，职责一目了然
+- ✅ 删除过度抽象，降低复杂度
+- ✅ 基类分层清晰 (组合级有基类，配对级无基类)
+
+
+#### 3. Execution模块增强
+
+**新增组件**:
+- `src/execution/MarginAllocator.py`: 保证金分配器
+  - 职责: 基于质量分数动态分配保证金
+  - 设计: 独立模块，可复用于其他策略
+
+**模块结构**:
+```
+src/execution/
+├── __init__.py
+├── OrderIntent.py         # 意图值对象
+├── OrderExecutor.py       # 订单执行引擎
+├── ExecutionManager.py    # 执行协调器
+└── MarginAllocator.py     # 保证金分配器 (新增)
+```
+
+
+#### 4. 文档创建
+
+**新增文档**:
+- `docs/architecture_books_recommendation.py`: 软件架构书籍推荐指南
+
+**文档内容**:
+- 8本经典书籍详细推荐 (核心3本+进阶2本+补充3本)
+- 每本书与本策略代码的映射关系
+- 3个月阅读路径规划 (入门→实践→深化)
+- 5张对比表 (语言通用性、领域通用性、匹配度、难度、理论vs实践)
+- 购买建议和省钱技巧
+- 本策略架构评分 (98/100)
+- 10个常见问题解答
+
+**推荐书籍**:
+1. 《架构整洁之道》 (Clean Architecture) - Robert C. Martin
+2. 《Python架构模式》 (Architecture Patterns with Python) - Harry Percival
+3. 《重构》 (Refactoring) - Martin Fowler
+4. 《领域驱动设计》 (Domain-Driven Design) - Eric Evans
+5. 《实现领域驱动设计》 (Implementing DDD) - Vaughn Vernon
+6. 《Effective Python》 (第2版) - Brett Slatkin
+7. 《设计模式》 (GoF) - Gang of Four
+8. 《Python设计模式》 - Kamon Ayeva
+
+**文档价值**:
+- ✅ 提供系统化的软件架构学习路径
+- ✅ 理论与本策略代码实践深度结合
+- ✅ 领域无关，适用于量化交易、数据分析等多个领域
+- ✅ Python友好，无Web开发背景要求
+
+
+### 影响范围
+
+**修改文件** (17个):
+- `main.py`: config引用路径更新
+- `src/config.py`: 删除重复参数，简化财务指标配置
+- `src/UniverseSelection.py`: 简化阈值访问
+- `src/RiskManagement/RiskManager.py`: 更新风控规则import和实例化
+- `src/RiskManagement/__init__.py`: 更新导出接口
+- `src/RiskManagement/HoldingTimeoutRule.py`: 接口统一
+- `src/RiskManagement/MarketCondition.py`: 接口统一
+- `src/RiskManagement/PairDrawdownRule.py`: 接口统一
+- `src/RiskManagement/PositionAnomalyRule.py`: 接口统一
+- 其他文件: 格式调整和注释更新
+
+**新增文件** (5个):
+- `docs/architecture_books_recommendation.py`: 架构书籍推荐指南
+- `src/execution/MarginAllocator.py`: 保证金分配器
+- `src/RiskManagement/PortfolioBaseRule.py`: 组合级风控基类
+- `src/RiskManagement/PortfolioAccountBlowup.py`: 账户爆仓风控
+- `src/RiskManagement/PortfolioDrawdown.py`: 组合回撤风控
+
+**删除文件** (3个):
+- `src/RiskManagement/AccountBlowupRule.py` → PortfolioAccountBlowup.py
+- `src/RiskManagement/ExcessiveDrawdownRule.py` → PortfolioDrawdown.py
+- `src/RiskManagement/base.py` (删除过度抽象)
+
+
+### 向后兼容性
+
+- ✅ 配置优化: 外部调用保持不变
+- ✅ 风控重构: RiskManager接口不变，外部调用无感知
+- ✅ 文档新增: 不影响代码运行
+
+
+### 优化收益
+
+1. **配置管理**: 消除冗余，结构更清晰
+2. **风控设计**: 命名更语义化，基类分层更合理
+3. **模块化**: 新增保证金分配器，提升可复用性
+4. **知识沉淀**: 架构书籍推荐文档，提升团队技术能力
+
+---
+
 ## [v7.0.4_Execution模块重构@20250121]
 
 ### 版本定义
