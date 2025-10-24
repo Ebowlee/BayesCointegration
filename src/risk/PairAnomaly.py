@@ -53,13 +53,14 @@ class PairAnomalyRule(RiskRule):
 
     def check(self, pair) -> Tuple[bool, str]:
         """
-        检查配对是否有异常持仓
+        检查配对是否有异常持仓 (v7.1.2: 新增per-pair cooldown检查)
 
         检查流程:
         1. 检查规则是否启用
-        2. 调用pair.has_anomaly()判断是否有异常
-        3. 如果有异常,获取position_info详情
-        4. 根据异常类型生成描述信息
+        2. 检查该配对是否在冷却期 (v7.1.2新增)
+        3. 调用pair.has_anomaly()判断是否有异常
+        4. 如果有异常,获取position_info详情
+        5. 根据异常类型生成描述信息
 
         Args:
             pair: Pairs对象,必须实现has_anomaly_position()和get_position_info()方法
@@ -73,6 +74,7 @@ class PairAnomalyRule(RiskRule):
             - 复用Pairs.has_anomaly_position()方法,遵循DRY原则
             - 该方法内部调用get_position_info()自动检测异常模式
             - 与HoldingTimeoutRule类似,避免重复实现检测逻辑
+            - v7.1.2: 新增per-pair cooldown检查,防止同一配对短期内重复触发
 
         示例:
             triggered, desc = rule.check(pair=pair_obj)
@@ -82,17 +84,21 @@ class PairAnomalyRule(RiskRule):
         if not self.enabled:
             return False, ""
 
-        # 2. 调用pair.has_anomaly_position()检测异常(复用Pairs自带方法)
+        # 2. 检查该配对是否在冷却期 (v7.1.2新增)
+        if self.is_in_cooldown(pair_id=pair.pair_id):
+            return False, ""
+
+        # 3. 调用pair.has_anomaly_position()检测异常(复用Pairs自带方法)
         if not pair.has_anomaly_position():
             return False, ""
 
-        # 3. 获取持仓详情用于生成描述
+        # 4. 获取持仓详情用于生成描述
         info = pair.get_position_info()
         mode = info['position_mode']
         qty1 = info['qty1']
         qty2 = info['qty2']
 
-        # 4. 根据异常类型生成描述
+        # 5. 根据异常类型生成描述
         if mode == PositionMode.PARTIAL_LEG1:
             description = (f"单边持仓LEG1: {pair.symbol1}={qty1:+.0f}, " f"{pair.symbol2}=0")
         elif mode == PositionMode.PARTIAL_LEG2:

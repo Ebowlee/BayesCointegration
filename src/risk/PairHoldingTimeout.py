@@ -54,12 +54,13 @@ class PairHoldingTimeoutRule(RiskRule):
 
     def check(self, pair) -> Tuple[bool, str]:
         """
-        检查配对是否触发持仓超时
+        检查配对是否触发持仓超时 (v7.1.2: 新增per-pair cooldown检查)
 
         检查流程:
         1. 检查规则是否启用
-        2. 调用pair.get_pair_holding_days()获取持仓天数
-        3. 判断是否超过max_days阈值
+        2. 检查该配对是否在冷却期 (v7.1.2新增)
+        3. 调用pair.get_pair_holding_days()获取持仓天数
+        4. 判断是否超过max_days阈值
 
         Args:
             pair: Pairs对象,必须实现get_pair_holding_days()方法
@@ -73,6 +74,7 @@ class PairHoldingTimeoutRule(RiskRule):
             - 复用Pairs.get_pair_holding_days()方法,避免重复实现
             - 该方法内部使用algorithm.UtcTime,避免时区问题
             - 符合DRY原则,与Pairs.is_in_cooldown()保持一致
+            - v7.1.2: 新增per-pair cooldown检查,防止同一配对短期内重复触发
 
         示例:
             triggered, desc = rule.check(pair=pair_obj)
@@ -82,14 +84,18 @@ class PairHoldingTimeoutRule(RiskRule):
         if not self.enabled:
             return False, ""
 
-        # 2. 获取持仓天数 (复用Pairs自带方法,避免时区问题)
+        # 2. 检查该配对是否在冷却期 (v7.1.2新增)
+        if self.is_in_cooldown(pair_id=pair.pair_id):
+            return False, ""
+
+        # 3. 获取持仓天数 (复用Pairs自带方法,避免时区问题)
         holding_days = pair.get_pair_holding_days()
 
         # 如果无法获取持仓天数(无持仓或未记录),不触发
         if holding_days is None:
             return False, ""
 
-        # 3. 判断是否超时
+        # 4. 判断是否超时
         if holding_days > self.max_days:
             # 获取开仓时间用于日志 (如果存在)
             entry_time = getattr(pair, 'pair_opened_time', None)

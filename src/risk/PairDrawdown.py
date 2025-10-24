@@ -65,15 +65,16 @@ class PairDrawdownRule(RiskRule):
 
     def check(self, pair) -> Tuple[bool, str]:
         """
-        检查配对是否触发回撤风控 (标准回撤公式)
+        检查配对是否触发回撤风控 (v7.1.2: 新增per-pair cooldown检查)
 
         检查流程:
         1. 检查规则是否启用
-        2. 获取配对当前 PnL 和保证金成本 (调用 pair.get_pair_pnl() 和 pair.get_pair_cost())
-        3. 计算配对总价值: pair_value = pnl + pair_cost
-        4. 更新该配对的 HWM (追踪 pair_value 峰值)
-        5. 计算标准回撤: (HWM - current_pair_value) / HWM
-        6. 与阈值比较
+        2. 检查该配对是否在冷却期 (v7.1.2新增)
+        3. 获取配对当前 PnL 和保证金成本 (调用 pair.get_pair_pnl() 和 pair.get_pair_cost())
+        4. 计算配对总价值: pair_value = pnl + pair_cost
+        5. 更新该配对的 HWM (追踪 pair_value 峰值)
+        6. 计算标准回撤: (HWM - current_pair_value) / HWM
+        7. 与阈值比较
 
         Args:
             pair: Pairs对象,必须实现 get_pair_pnl() 和 get_pair_cost() 方法
@@ -94,6 +95,9 @@ class PairDrawdownRule(RiskRule):
             - Pair: (HWM_pair_value - current_pair_value) / HWM_pair_value
             - 公式结构完全一致,只是追踪对象不同
 
+        v7.1.2变更:
+            - 新增per-pair cooldown检查,防止同一配对短期内重复触发
+
         示例:
             triggered, desc = rule.check(pair=pair_obj)
             # 返回: (True, "配对回撤: 16.5% >= 15.0% (当前价值: $8,350, HWM: $10,000)")
@@ -102,7 +106,11 @@ class PairDrawdownRule(RiskRule):
         if not self.enabled:
             return False, ""
 
-        # 2. 获取当前 PnL 和保证金成本 (Pairs 提供数据)
+        # 2. 检查该配对是否在冷却期 (v7.1.2新增)
+        if self.is_in_cooldown(pair_id=pair.pair_id):
+            return False, ""
+
+        # 3. 获取当前 PnL 和保证金成本 (Pairs 提供数据)
         pnl = pair.get_pair_pnl()
         pair_cost = pair.get_pair_cost()
 
@@ -110,10 +118,10 @@ class PairDrawdownRule(RiskRule):
         if pnl is None or pair_cost is None or pair_cost <= 0:
             return False, ""
 
-        # 3. 计算配对总价值
+        # 4. 计算配对总价值
         pair_value = pnl + pair_cost
 
-        # 4. 管理 HWM (Rule 的职责)
+        # 5. 管理 HWM (Rule 的职责)
         pair_id = pair.pair_id
 
         # 初始化 HWM (开仓时为 pair_cost,此时 pnl=0)
@@ -126,10 +134,10 @@ class PairDrawdownRule(RiskRule):
 
         hwm = self.pair_hwm_dict[pair_id]
 
-        # 5. 计算标准回撤
+        # 6. 计算标准回撤
         drawdown = (hwm - pair_value) / hwm
 
-        # 6. 判断是否触发
+        # 7. 判断是否触发
         threshold = self.config['threshold']
         if drawdown >= threshold:
             description = (
