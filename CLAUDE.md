@@ -175,22 +175,28 @@ git commit -m "v2.4.8_strategy-optimize@20250720"
 - **Purpose**: Risk detection and analysis (execution handled by main.py)
 - **Design Principle**: Separation of concerns - risk managers detect, main.py executes
 - **Dependency Injection** (v6.9.3): Receives `pairs_manager` to query pair data for concentration analysis
-- **PortfolioLevelRiskManager**:
-  - `is_account_blowup()`: Detects loss > 30% of initial capital
-  - `is_portfolio_drawdown()`: Detects drawdown > 15% from high water mark
-  - `is_high_market_volatility()`: Detects SPY 20-day annualized volatility > 30%
-  - `get_sector_concentration()`: Calculate industry exposure (v6.9.3: migrated from PairsManager)
-- **PairLevelRiskManager**:
-  - `check_holding_timeout()`: Detects positions held > 30 days
-  - `check_pair_anomaly()`: Detects partial or same-direction positions
-  - `check_pair_drawdown()`: Detects pair drawdown > 20% from pair HWM
+- **Cooldown Mechanism** (v7.1.2): Per-Pair Cooldown for Pair rules, Global Cooldown for Portfolio rules
+- **Portfolio-Level Rules**:
+  - `AccountBlowupRule`: Detects loss > 30% of initial capital (cooldown: 永久)
+  - `PortfolioDrawdownRule`: Detects drawdown > 15% from high water mark (cooldown: 30天)
+  - Cooldown作用域: **全局** (触发后阻止所有交易)
+- **Pair-Level Rules**:
+  - `PairHoldingTimeoutRule`: Detects positions held > 30 days (cooldown: 30天)
+  - `PairAnomalyRule`: Detects partial or same-direction positions (cooldown: 30天)
+  - `PairDrawdownRule`: Detects pair drawdown > 15% from pair HWM (cooldown: 30天)
+  - Cooldown作用域: **Per-Pair** (只影响触发的配对, 不影响其他配对)
+- **排他性触发** (v7.1.2):
+  - 同一配对多规则触发: 只执行最高优先级规则
+  - 不同配对独立检查: (AAPL,MSFT)和(GOOGL,META)可触发不同规则
+  - 示例: (AAPL,MSFT)同时满足Anomaly+Timeout → 只触发Anomaly (priority=100)
 
 ### 7. ExecutionManager.py - Unified Execution Coordinator (v7.0.0)
 - **Purpose**: Coordinate all trading actions through Intent Pattern
 - **Design Principle**: "Coordinator, Not Executor" - orchestrates intent generation and execution
-- **Key Methods**:
-  - `handle_portfolio_risk_action()`: Coordinate portfolio-level risk actions (e.g., liquidate all)
-  - `handle_pair_risk_actions()`: Coordinate pair-level risk actions (e.g., close specific pairs)
+- **Key Methods** (v7.1.2 updated):
+  - `handle_portfolio_risk_intents()`: Coordinate portfolio-level risk actions (e.g., liquidate all)
+  - `handle_pair_risk_intents()`: Coordinate pair-level risk actions (e.g., close specific pairs)
+  - `cleanup_remaining_positions()`: Clean up residual positions during cooldown period
   - `handle_signal_closings()`: Coordinate normal closing signals from pairs
   - `handle_position_openings()`: Coordinate opening logic with dynamic margin allocation
   - `get_entry_candidates()`: Aggregate opening signals sorted by quality (v6.9.3: migrated from PairsManager)
@@ -201,6 +207,10 @@ git commit -m "v2.4.8_strategy-optimize@20250720"
   - Order execution coordination (calls OrderExecutor.execute_*)
   - Ticket registration (calls TicketsManager.register_tickets)
   - Interaction with PairsManager, TicketsManager, and OrderExecutor
+- **Deprecated Methods** (v7.1.2 removed):
+  - `handle_portfolio_risk_action()`: Replaced by handle_portfolio_risk_intents()
+  - `handle_pair_risk_actions()`: Replaced by handle_pair_risk_intents()
+  - `liquidate_all_positions()`: Replaced by cleanup_remaining_positions()
 
 ### 8. UniverseSelection.py - Stock Selection
 - **Purpose**: Monthly universe refresh

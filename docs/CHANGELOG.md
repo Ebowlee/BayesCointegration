@@ -4,6 +4,241 @@
 
 ---
 
+## [v7.1.2_Per-Pair-Cooldown机制@20251024]
+
+### 版本定义
+**重大功能版本**: Pair规则Per-Pair Cooldown机制 + ExecutionManager废弃代码清理
+
+### 核心改动
+
+#### 1. RiskRule基类升级 - 支持Per-Pair Cooldown
+
+**目标**: 统一接口,同时支持Portfolio和Pair两种cooldown模式
+
+**新增属性**:
+```python
+class RiskRule:
+    def __init__(self, algorithm, config):
+        self.cooldown_until = None    # Portfolio规则: 全局cooldown
+        self.pair_cooldowns = {}      # Pair规则: per-pair cooldown {pair_id: cooldown_until}
+```
+
+**方法签名更新**:
+```python
+# 向后兼容: 默认pair_id=None
+def is_in_cooldown(self, pair_id=None) -> bool:
+    if pair_id is None:
+        # Portfolio规则: 检查全局cooldown_until
+        return self.cooldown_until and Time <= self.cooldown_until
+    else:
+        # Pair规则: 检查pair_cooldowns[pair_id]
+        return pair_id in self.pair_cooldowns and Time <= self.pair_cooldowns[pair_id]
+
+def activate_cooldown(self, pair_id=None):
+    if pair_id is None:
+        # Portfolio规则: 设置全局cooldown
+        self.cooldown_until = Time + timedelta(days=cooldown_days)
+    else:
+        # Pair规则: 设置per-pair cooldown
+        self.pair_cooldowns[pair_id] = Time + timedelta(days=cooldown_days)
+```
+
+**设计特点**:
+- **统一抽象**: 一个方法同时支持两种模式 (通过可选参数pair_id)
+- **向后兼容**: Portfolio规则无需修改 (默认pair_id=None)
+- **完全对称**: Portfolio和Pair风控架构镜像对称
+
+---
+
+#### 2. Pair规则check()方法更新
+
+**新增per-pair cooldown检查** (3个规则):
+- PairHoldingTimeoutRule.check()
+- PairAnomalyRule.check()
+- PairDrawdownRule.check()
+
+**检查流程更新**:
+```python
+def check(self, pair) -> Tuple[bool, str]:
+    # 1. 检查规则是否启用
+    if not self.enabled:
+        return False, ""
+
+    # 2. 检查该配对是否在冷却期 (v7.1.2新增)
+    if self.is_in_cooldown(pair_id=pair.pair_id):
+        return False, ""
+
+    # 3. 执行原有检测逻辑
+    # ...
+```
+
+**防护机制**:
+- 防止同一配对短期内重复触发同一规则
+- 不同配对独立检查 (per-pair cooldown)
+- 排他性触发: 同一配对多规则触发时,只执行最高优先级
+
+---
+
+#### 3. RiskManager.activate_cooldown_for_pairs()重构
+
+**从全局cooldown改为per-pair cooldown**:
+
+**修改前** (v7.1.0):
+```python
+def activate_cooldown_for_pairs(self, executed_pair_ids: List[Tuple]):
+    activated_rules = set()  # 去重Rule
+    for pair_id in executed_pair_ids:
+        rule = self._pair_intent_to_rule_map[pair_id]
+        if rule not in activated_rules:
+            rule.activate_cooldown()  # 全局cooldown
+            activated_rules.add(rule)
+```
+
+**修改后** (v7.1.2):
+```python
+def activate_cooldown_for_pairs(self, executed_pair_ids: List[Tuple]):
+    activated_rules = {}  # {rule: [pair_ids]} 批量日志
+    for pair_id in executed_pair_ids:
+        rule = self._pair_intent_to_rule_map[pair_id]
+        rule.activate_cooldown(pair_id=pair_id)  # per-pair cooldown
+        activated_rules[rule].append(pair_id)
+
+    # 批量日志
+    for rule, pair_ids in activated_rules.items():
+        Debug(f"{rule.__class__.__name__} 激活{len(pair_ids)}个配对的冷却期 ({cooldown_days}天): {pair_ids}")
+```
+
+**关键变更**:
+- ❌ 移除Rule去重逻辑 (同一Rule可对多个配对激活cooldown)
+- ✅ 调用`activate_cooldown(pair_id=pair_id)` (per-pair模式)
+- ✅ 批量日志: 按Rule汇总显示哪些配对被激活了cooldown
+
+---
+
+#### 4. RiskManager.check_pair_risks()注释优化
+
+**明确排他性和cooldown作用域**:
+
+**新增注释**:
+```python
+"""
+排他性设计 (v7.1.2):
+- 同一配对多规则触发: 只执行最高优先级规则
+- 不同配对独立检查: (AAPL,MSFT)和(GOOGL,META)可触发不同规则
+- Cooldown作用域: per-pair (只影响触发的配对,不影响其他配对)
+
+示例:
+- (AAPL,MSFT)同时满足Anomaly+Timeout → 只触发Anomaly (priority=100)
+- (AAPL,MSFT)触发Drawdown → 该配对30天内不再触发Drawdown
+- (GOOGL,META)仍可触发Drawdown (不受影响)
+"""
+```
+
+**Rule.check()内部已检查cooldown**:
+- 外部无需额外检查 (Rule内部自动跳过冷却期内的配对)
+- 保持调度逻辑简洁
+
+---
+
+#### 5. config.py配置更新
+
+**新增3个cooldown_days配置**:
+```python
+'pair_rules': {
+    'holding_timeout': {
+        'enabled': True,
+        'priority': 60,
+        'max_days': 30,
+        'cooldown_days': 30,  # v7.1.2: per-pair冷却期(30天)
+        'action': 'pair_close'  # Deprecated,保留向后兼容
+    },
+    'pair_anomaly': {
+        'enabled': True,
+        'priority': 100,
+        'cooldown_days': 30,  # v7.1.2: per-pair冷却期(30天)
+        'action': 'pair_close'
+    },
+    'pair_drawdown': {
+        'enabled': True,
+        'priority': 50,
+        'threshold': 0.15,
+        'cooldown_days': 30,  # v7.1.2: per-pair冷却期(30天)
+        'action': 'pair_close'
+    }
+}
+```
+
+**统一配置**:
+- 与Portfolio规则保持对称 (cooldown_days统一30天)
+- action字段已废弃但保留 (向后兼容)
+
+---
+
+#### 6. ExecutionManager废弃代码清理
+
+**删除3个废弃方法** (共107行):
+
+1. `handle_portfolio_risk_action(action, triggered_rules)` (40行)
+   - 已被 `handle_portfolio_risk_intents()` 替代
+   - main.py完全未调用
+
+2. `handle_pair_risk_actions(pair_risk_actions)` (24行)
+   - 标记为Deprecated in v7.1.0
+   - 已被 `handle_pair_risk_intents()` 替代
+   - main.py完全未调用
+
+3. `liquidate_all_positions()` (43行)
+   - 已被 `cleanup_remaining_positions()` 替代
+   - main.py调用新方法
+
+**影响**:
+- 无功能影响 (所有调用方已迁移到新API)
+- 代码更简洁,减少维护负担
+
+---
+
+### 技术亮点
+
+`✶ Insight ─────────────────────────────────────`
+**Per-Pair Cooldown的架构优雅性**:
+- **统一抽象**: 通过可选参数pair_id,一个方法同时支持Portfolio和Pair两种模式
+- **职责分离**: Rule负责存储cooldown状态,RiskManager负责激活逻辑
+- **完全对称**: Portfolio和Pair风控架构镜像对称,降低理解成本
+- **细粒度控制**: 配对级cooldown避免"一刀切",提高策略灵活性
+- **排他性 + Cooldown**: 同一配对多规则触发时只执行最高优先级,执行后激活该规则对该配对的cooldown
+`─────────────────────────────────────────────────`
+
+---
+
+### 文件清单
+
+**修改文件** (7个):
+- `src/risk/PortfolioBaseRule.py`: 新增pair_cooldowns属性,升级is_in_cooldown()和activate_cooldown()
+- `src/risk/PairHoldingTimeout.py`: check()新增per-pair cooldown检查
+- `src/risk/PairAnomaly.py`: check()新增per-pair cooldown检查
+- `src/risk/PairDrawdown.py`: check()新增per-pair cooldown检查
+- `src/risk/RiskManager.py`: activate_cooldown_for_pairs()重构,check_pair_risks()注释优化
+- `src/execution/ExecutionManager.py`: 删除3个废弃方法
+- `src/config.py`: 新增3个cooldown_days配置
+
+**Commit历史**:
+1. `69f7c81` - refactor: 删除 ExecutionManager 3个废弃方法
+2. `2847a01` - feat: RiskRule基类支持Per-Pair Cooldown机制
+3. `b4cadd7` - feat: 3个Pair规则新增per-pair cooldown检查
+4. `081fddb` - feat: RiskManager支持Per-Pair Cooldown机制
+5. `96c58cd` - config: 为3个Pair规则添加cooldown_days配置
+
+---
+
+### 功能验证要点
+
+1. **(AAPL, MSFT)触发PairDrawdownRule** → 30天内该配对不再触发PairDrawdownRule
+2. **(GOOGL, META)仍可触发PairDrawdownRule** → 不受(AAPL, MSFT)影响
+3. **(AAPL, MSFT)同时满足Anomaly+Timeout** → 只执行Anomaly (priority=100)
+4. **Portfolio规则仍正常工作** → 全局cooldown机制不受影响
+
+---
+
 ## [v7.1.2_包重命名优化@20251024]
 
 ### 版本定义
