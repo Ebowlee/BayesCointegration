@@ -215,18 +215,21 @@ class StrategyConfig:
                     'enabled': True,
                     'priority': 60,
                     'max_days': 30,                      # 最大持仓天数
-                    'action': 'pair_close'               # 订单锁机制已防止重复,无需冷却期
+                    'cooldown_days': 30,                 # v7.1.2: per-pair冷却期(30天)
+                    'action': 'pair_close'               # Deprecated,保留向后兼容
                 },
                 'pair_anomaly': {
                     'enabled': True,                     # Step 2已实现
                     'priority': 100,                     # 最高优先级：异常必须立即处理
-                    'action': 'pair_close'               # 统一使用pair_close
+                    'cooldown_days': 30,                 # v7.1.2: per-pair冷却期(30天)
+                    'action': 'pair_close'               # Deprecated,保留向后兼容
                 },
                 'pair_drawdown': {
                     'enabled': True,                     # Step 3已实现
                     'priority': 50,
                     'threshold': 0.15,                   # 配对回撤阈值：15%
-                    'action': 'pair_close'
+                    'cooldown_days': 30,                 # v7.1.2: per-pair冷却期(30天)
+                    'action': 'pair_close'               # Deprecated,保留向后兼容
                 }
             }
         }
