@@ -1,6 +1,7 @@
 # region imports
 from AlgorithmImports import *
 from .OrderIntent import OpenIntent, CloseIntent
+from src.Pairs import OrderAction
 # endregion
 
 
@@ -79,7 +80,6 @@ class OrderExecutor:
         ticket2 = self.algorithm.MarketOrder(intent.symbol2, intent.qty2, tag=intent.tag)
 
         # 自动注册到TicketsManager
-        from src.Pairs import OrderAction
         tickets = [ticket1, ticket2]
         self.tickets_manager.register_tickets(intent.pair_id, tickets, OrderAction.OPEN)
 
@@ -128,5 +128,4 @@ class OrderExecutor:
 
         # 如果有订单提交,自动注册到TicketsManager
         if tickets:
-            from src.Pairs import OrderAction
             self.tickets_manager.register_tickets(intent.pair_id, tickets, OrderAction.CLOSE)
