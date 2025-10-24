@@ -214,12 +214,10 @@ class TicketsManager:
         # 获取实时状态
         current_status = self.get_pair_status(pair_id)
 
-        # 详细日志(level=2)
         self.algorithm.Debug(
             f"[OOE] {pair_id} OrderId={order_id} "
             f"Status={event.Status} → 配对状态:{current_status}")
 
-        # 关键状态变化(level=1)
         if current_status == "COMPLETED":
             # 获取动作类型和Pairs对象
             action = self.pair_actions.get(pair_id)
