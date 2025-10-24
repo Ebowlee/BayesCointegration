@@ -3,12 +3,12 @@ MarginAllocator - Level 1 全局资金分配器
 
 职责:
 - 计算可用保证金(MarginRemaining - fixed_buffer)
-- 为同批次entry_candidates公平分配保证金
-- 通过动态缩放维持planned_pct的相对公平性
+- 为同批次entry_candidates按质量分数分配保证金
+- 基于初始资金基准和当前可用资金的约束进行分配
 
 设计原则:
 - Fixed Buffer: 整个回测周期固定不变(初始资金×5%)
-- 同批次公平: scale_factor确保同批次candidates按统一基准分配
+- 基准约束分配: min(当前可用, 初始基金×计划比例)
 - 无状态: 每次allocate_margin()独立计算,使用调用时的快照
 
 不负责:
@@ -28,10 +28,10 @@ class MarginAllocator:
     核心算法:
     1. Fixed Buffer: 初始资金×5%(整个回测周期固定)
     2. Available Margin: MarginRemaining - fixed_buffer
-    3. 同批次公平分配:
-       - 批次开始时快照available作为initial_margin
-       - 随着资金消耗,通过scale_factor维持公平性
-       - scale_factor = initial_margin / current_available
+    3. 分配约束:
+       - 计划分配 = min(当前可用, 初始基金 × 计划比例)
+       - 过滤门槛 = 最小投资额(初始资金 × min_investment_ratio)
+       - 顺序分配直到资金不足或候选耗尽
 
     使用示例:
     ```python
@@ -59,16 +59,14 @@ class MarginAllocator:
         pairs_config = config.pairs_trading
         self.margin_usage_ratio = pairs_config['margin_usage_ratio']  # 0.95
 
-        # 记录初始保证金(只在初始化时记录一次)
+        # 记录初始保证金(分配基准,整个回测周期固定)
         self.initial_available_fund = algorithm.Portfolio.MarginRemaining
 
         # 计算固定buffer(整个回测周期不变)
         self.fixed_buffer = self.initial_available_fund * (1 - self.margin_usage_ratio)
 
         # 最小投资额(从config直接计算: initial_cash × min_investment_ratio)
-        self.min_investment_amount = (
-            config.main['cash'] * config.pairs_trading['min_investment_ratio']
-        )
+        self.min_investment_amount = (config.main['cash'] * config.pairs_trading['min_investment_ratio'])
 
         self.algorithm.Debug(
             f"[MarginAllocator] 初始化完成: "
@@ -127,12 +125,12 @@ class MarginAllocator:
             }
 
         核心算法:
-        1. 批次开始时快照: initial_margin = get_available_margin()
-        2. 遍历candidates:
-           a. 当前可用: current_available = get_available_margin()
-           b. 动态缩放: scale_factor = initial_margin / current_available
-           c. 分配额: allocated = current_available × planned_pct × scale_factor
-        3. 过滤: 只返回 allocated >= min_investment 的配对
+        1. 获取当前可用保证金
+        2. 遍历candidates（按质量分数降序）:
+           a. 计算分配额: min(当前可用, 初始基金 × 计划比例)
+           b. 如果 >= 最小投资额: 执行分配并扣减可用资金
+           c. 如果 < 最小投资额: 跳过该配对
+        3. 返回所有成功分配的配对及其金额
         """
         allocations = {}
 
@@ -174,13 +172,6 @@ class MarginAllocator:
                     f"${actual_allocated:,.0f} "
                     f"(计划={planned_pct:.1%}, 质量={quality_score:.2f})"
                 )
-
-                # 资金耗尽检查
-                if current_available <= 0:
-                    self.algorithm.Debug(
-                        f"[MarginAllocator] 资金耗尽,停止分配 (剩余{len(entry_candidates)-idx}个候选)"
-                    )
-                    break
             else:
                 # 不满足条件: 跳过此配对,继续尝试下一个
                 self.algorithm.Debug(
