@@ -56,7 +56,7 @@ class TicketsManager:
         # === 核心数据结构 ===
         # OrderId → pair_id 映射(O(1)查找,供OnOrderEvent使用)
         # 例: {123: "(AAPL, MSFT)", 124: "(AAPL, MSFT)", 125: "(GOOGL, AMZN)"}
-        self.order_id_to_pair_id: Dict[int, str] = {}
+        self.order_to_pair: Dict[int, str] = {}
 
         # pair_id → [OrderTicket] 映射(存储当前订单引用)
         # 例: {"(AAPL, MSFT)": [<OrderTicket#123>, <OrderTicket#124>]}
@@ -101,7 +101,7 @@ class TicketsManager:
         # 建立OrderId→pair_id映射
         for ticket in tickets:
             if ticket is not None:
-                self.order_id_to_pair_id[ticket.OrderId] = pair_id
+                self.order_to_pair[ticket.OrderId] = pair_id
 
         # 简化日志
         self.algorithm.Debug(
@@ -154,7 +154,7 @@ class TicketsManager:
         order_id = event.OrderId
 
         # 查找所属配对
-        pair_id = self.order_id_to_pair_id.get(order_id)
+        pair_id = self.order_to_pair.get(order_id)
         if pair_id is None:
             # 不是配对订单,忽略
             return
@@ -187,7 +187,7 @@ class TicketsManager:
                     self.algorithm.risk_manager.cleanup_pair_hwm(pair_id)
 
             # 清理已完成订单的映射（防止内存泄漏）
-            self._cleanup_order_mappings(pair_id)
+            self._cleanup_order_to_pair(pair_id)
 
             self.algorithm.Debug(
                 f"[OOE] {pair_id} 订单全部成交,配对解锁")
@@ -197,7 +197,7 @@ class TicketsManager:
             )
 
             # 异常订单也需要清理映射
-            self._cleanup_order_mappings(pair_id)
+            self._cleanup_order_to_pair(pair_id)
 
 
     def get_anomaly_pairs(self) -> Set[str]:
@@ -273,12 +273,12 @@ class TicketsManager:
             return "PENDING"
 
 
-    def _cleanup_order_mappings(self, pair_id: str):
+    def _cleanup_order_to_pair(self, pair_id: str):
         """
-        清理已完成配对的订单ID映射
+        清理已完成配对的order_to_pair映射
 
         目的: 防止内存泄漏
-        - 当订单状态变为COMPLETED/ANOMALY后,清理order_id_to_pair_id映射
+        - 当订单状态变为COMPLETED/ANOMALY后,清理order_to_pair映射
         - 保留pair_tickets和pair_actions,供后续查询使用
 
         清理时机:
@@ -286,7 +286,7 @@ class TicketsManager:
         - ANOMALY: 订单异常,已标记需要风控处理,不再需要追踪
 
         设计原则:
-        - 只清理order_id_to_pair_id映射(用于OnOrderEvent查找)
+        - 只清理order_to_pair映射(用于OnOrderEvent查找)
         - 不清理pair_tickets(可能需要查询订单详情)
         - 不清理pair_actions(可能需要查询动作类型)
 
@@ -300,8 +300,8 @@ class TicketsManager:
         cleaned_count = 0
 
         for ticket in tickets:
-            if ticket is not None and ticket.OrderId in self.order_id_to_pair_id:
-                del self.order_id_to_pair_id[ticket.OrderId]
+            if ticket is not None and ticket.OrderId in self.order_to_pair:
+                del self.order_to_pair[ticket.OrderId]
                 cleaned_count += 1
 
         self.algorithm.Debug(f"[TM清理] {pair_id} 清理{cleaned_count}个订单映射")
