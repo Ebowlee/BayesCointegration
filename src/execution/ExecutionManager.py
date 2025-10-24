@@ -36,19 +36,21 @@ class ExecutionManager:
     - 完全统一的执行接口
     """
 
-    def __init__(self, algorithm, pairs_manager, tickets_manager, order_executor, margin_allocator):
+    def __init__(self, algorithm, pairs_manager, risk_manager, tickets_manager, order_executor, margin_allocator):
         """
-        初始化统一执行器 (v7.0.0: 新增order_executor依赖; v7.1.1: 新增margin_allocator依赖)
+        初始化统一执行器 (v7.0.0: order_executor; v7.1.1: margin_allocator; v7.1.3: risk_manager)
 
         Args:
             algorithm: QuantConnect算法实例
             pairs_manager: 配对管理器
+            risk_manager: 风控管理器(v7.1.3新增 - 用于cooldown检查)
             tickets_manager: 订单追踪管理器
             order_executor: 订单执行器(v7.0.0新增)
             margin_allocator: 资金分配器(v7.1.1新增)
         """
         self.algorithm = algorithm
         self.pairs_manager = pairs_manager
+        self.risk_manager = risk_manager
         self.tickets_manager = tickets_manager
         self.order_executor = order_executor
         self.margin_allocator = margin_allocator
@@ -56,6 +58,73 @@ class ExecutionManager:
         # 从margin_allocator获取min_investment_amount（避免重复计算）
         self.min_investment_amount = margin_allocator.min_investment_amount
 
+
+    # ===== Cooldown检查方法 (v7.1.3新增) =====
+
+    def is_pair_in_risk_cooldown(self, pair_id: tuple) -> bool:
+        """
+        检查配对是否在风险冷却期 (v7.1.3)
+
+        风险冷却期由风险规则激活(30天):
+        - PairDrawdownRule: 配对回撤触发
+        - PairHoldingTimeoutRule: 持仓超时触发
+        - PairAnomalyRule: 仓位异常触发
+
+        实现原理:
+        - 遍历RiskManager的所有Pair规则
+        - 调用每个规则的is_in_cooldown(pair_id)检查
+        - 任一规则返回True,则该配对不可开仓
+
+        Args:
+            pair_id: 配对标识符
+
+        Returns:
+            True: 在冷却期
+            False: 不在冷却期
+
+        设计特点:
+        - 依赖注入: 通过self.risk_manager访问规则列表
+        - 统一接口: 与is_portfolio_in_risk_cooldown()对称
+        - 决策集中: cooldown判断逻辑集中在ExecutionManager
+        """
+        for rule in self.risk_manager.pair_rules:
+            if rule.is_in_cooldown(pair_id=pair_id):
+                return True
+        return False
+
+
+    def is_pair_in_normal_cooldown(self, pair) -> bool:
+        """
+        检查配对是否在普通交易冷却期 (v7.1.3)
+
+        普通冷却期由正常平仓激活(10天):
+        - 信号回归平仓 (CLOSE)
+        - 止损平仓 (STOP_LOSS)
+
+        实现原理:
+        - Pairs对象存储 pair_closed_time 和 cooldown_days
+        - 通过 get_pair_frozen_days() 查询已冷却天数
+        - 如果 frozen_days < cooldown_days, 则仍在冷却期
+
+        Args:
+            pair: Pairs对象
+
+        Returns:
+            True: 在冷却期
+            False: 不在冷却期或无冷却期数据
+
+        设计特点:
+        - 数据所有权: Pairs拥有pair_closed_time数据
+        - 决策职责: ExecutionManager负责判断逻辑
+        - 分离关注: 数据查询(Pairs) vs 决策(ExecutionManager)
+        """
+        frozen_days = pair.get_pair_frozen_days()
+        if frozen_days is None:
+            return False  # 无冷却期数据,允许开仓
+        return frozen_days < pair.cooldown_days
+
+
+    # ===== 风控执行方法 =====
 
     def handle_portfolio_risk_intents(self, intents: List[CloseIntent], triggered_rule, risk_manager) -> None:
         """
@@ -342,74 +411,53 @@ class ExecutionManager:
 
     def handle_position_openings(self, pairs_without_position, data):
         """
-        处理正常开仓逻辑
+        处理正常开仓逻辑 (v7.1.3: 使用MarginAllocator)
 
-        职责: 资金管理和开仓执行
+        职责: 开仓协调和执行
 
         Args:
             pairs_without_position: 无持仓配对字典 {pair_id: Pairs}
             data: 数据切片
 
-        执行流程:
-        1. 获取开仓候选(get_entry_candidates) - v6.9.3更新
-        2. 计算可用保证金(MarginRemaining * 0.95)
-        3. 动态分配保证金给各配对(质量分数驱动)
-        4. 逐个执行开仓(三重检查: 订单锁/最小投资/保证金充足)
-        5. 注册订单到tickets_manager
+        执行流程 (v7.1.3更新):
+        1. 获取开仓候选(get_entry_candidates)
+        2. 使用MarginAllocator分配资金 (替代旧的内联逻辑)
+        3. 逐个执行开仓(检查: 订单锁 + 风险冷却 + 普通冷却)
+        4. 注册订单到tickets_manager
 
-        设计特点:
-        - 完整的资金管理逻辑
-        - 动态缩放保证金分配(公平性)
+        设计特点 (v7.1.3):
+        - 委托MarginAllocator进行资金分配
+        - 双重cooldown检查: 风险冷却(30天) + 普通冷却(10天)
         - 质量分数驱动的分配比例
+        - 简洁的开仓循环
         """
-        # 获取开仓候选(已按质量降序) - v6.9.3: 改为调用自己的方法
+        # Step 1: 获取开仓候选(已按质量降序)
         entry_candidates = self.get_entry_candidates(pairs_without_position, data)
         if not entry_candidates:
             return
 
-        # 使用95%的MarginRemaining,保留5%作为动态缓冲
-        config = self.algorithm.config.pairs_trading
-        initial_margin = self.algorithm.Portfolio.MarginRemaining * config['margin_usage_ratio']
-        buffer = self.algorithm.Portfolio.MarginRemaining * (1 - config['margin_usage_ratio'])
+        # Step 2: 使用MarginAllocator分配资金 (v7.1.3)
+        allocations = self.margin_allocator.allocate_margin(entry_candidates)
+        if not allocations:
+            return  # 无可分配资金或候选配对
 
-        # 检查是否低于最小阈值
-        if initial_margin < self.min_investment_amount:
-            return
-
-        # 提取计划分配
-        planned_allocations = {}  # {pair_id: pct}
-        opening_signals = {}      # {pair_id: signal}
-
-        for pair, signal, _, pct in entry_candidates:
-            planned_allocations[pair.pair_id] = pct
-            opening_signals[pair.pair_id] = signal
-
-        # === 逐个开仓(动态缩放保持公平) ===
+        # Step 3: 逐个开仓
         actual_opened = 0
-        for pair_id, pct in planned_allocations.items():
+        for pair_id, amount_allocated in allocations.items():
             pair = self.pairs_manager.get_pair_by_id(pair_id)
-            signal = opening_signals[pair_id]
-
-            # 动态缩放计算
-            current_margin = (self.algorithm.Portfolio.MarginRemaining - buffer) * pct
-            if current_margin <= 0:
-                break
-
-            scale_factor = initial_margin / (self.algorithm.Portfolio.MarginRemaining - buffer)
-            amount_allocated = current_margin * scale_factor
 
             # 检查1: 订单锁定检查
             if self.tickets_manager.is_pair_locked(pair_id):
                 continue
 
-            # 检查2: 最小投资额
-            if amount_allocated < self.min_investment_amount:
+            # 检查2: 风险冷却期检查 (v7.1.3新增)
+            if self.is_pair_in_risk_cooldown(pair_id):
+                self.algorithm.Debug(f"[开仓跳过] {pair_id} 在风险冷却期", 2)
                 continue
 
-            # 检查3: 资金是否仍足够
-            available_for_check = self.algorithm.Portfolio.MarginRemaining - buffer
-            if amount_allocated > available_for_check:
-                self.algorithm.Debug(f"[开仓失败] {pair_id} 资金不足: 需要${amount_allocated:,.0f}, 可用${available_for_check:,.0f}")
+            # 检查3: 普通交易冷却期检查 (v7.1.3新增)
+            if self.is_pair_in_normal_cooldown(pair):
+                self.algorithm.Debug(f"[开仓跳过] {pair_id} 在交易冷却期", 2)
                 continue
 
             # 执行开仓并注册订单追踪 (v7.0.0: Intent模式, v7.1.0: 自动注册简化为2行)
@@ -418,6 +466,6 @@ class ExecutionManager:
                 self.order_executor.execute_open(intent)  # 自动注册,无返回值
                 actual_opened += 1
 
-        # 执行结果
+        # Step 4: 执行结果
         if actual_opened > 0:
             self.algorithm.Debug(f"[开仓] 成功开仓{actual_opened}/{len(entry_candidates)}个配对")

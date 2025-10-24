@@ -1,5 +1,5 @@
 # region imports
-from .PortfolioBaseRule import RiskRule
+from .RiskBaseRule import RiskRule
 from typing import Tuple
 # endregion
 

@@ -9,7 +9,7 @@
 - 统一的冷却期机制
 """
 
-from .PortfolioBaseRule import RiskRule
+from .RiskBaseRule import RiskRule
 from .PortfolioAccountBlowup import AccountBlowupRule
 from .PortfolioDrawdown import PortfolioDrawdownRule
 from .MarketCondition import MarketCondition

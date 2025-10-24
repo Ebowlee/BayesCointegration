@@ -7,7 +7,7 @@ PortfolioDrawdownRule - 组合回撤风控规则 (v7.1.0 Intent Pattern重构)
 """
 
 from AlgorithmImports import *
-from .PortfolioBaseRule import RiskRule
+from .RiskBaseRule import RiskRule
 from typing import Tuple
 
 

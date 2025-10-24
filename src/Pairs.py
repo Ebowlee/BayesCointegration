@@ -547,22 +547,6 @@ class Pairs:
         return info['value1'] + info['value2']
 
 
-    def is_in_cooldown(self) -> bool:
-        """
-        检查是否在冷却期内
-
-        内部调用 get_pair_frozen_days() 避免重复逻辑
-
-        Returns:
-            True(在冷却期) / False(可以交易)
-        """
-        frozen_days = self.get_pair_frozen_days()
-        if frozen_days is None:
-            return False  # 从未平仓,不在冷却期
-
-        return frozen_days < self.cooldown_days
-
-
     # ===== 4. 交易信号生成(依赖第2/3层) =====
 
     def get_zscore(self, data) -> Optional[float]:
@@ -592,13 +576,9 @@ class Pairs:
 
     def get_signal(self, data):
         """
-        获取交易信号
+        获取交易信号 (v7.1.3: cooldown检查移至ExecutionManager)
         一步到位的接口,内部自动计算所需信息
         """
-        # 先检查冷却期(仅在无持仓时检查)
-        if not self.has_position() and self.is_in_cooldown():
-            return TradingSignal.COOLDOWN
-
         # 内部计算zscore
         zscore = self.get_zscore(data)
         if zscore is None:

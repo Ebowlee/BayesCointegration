@@ -4,6 +4,183 @@
 
 ---
 
+## [v7.1.3_architecture-cleanup@20250124]
+
+### 版本定义
+**架构清理版本**: MarginAllocator集成 + Cooldown统一检查 + 命名/代码优化
+
+### 核心改动
+
+#### 1. MarginAllocator集成 - 消除资金分配逻辑重复
+
+**问题**: ExecutionManager.handle_position_openings()仍在使用旧的内联资金分配逻辑(~35行),未使用MarginAllocator
+
+**解决方案**:
+```python
+# 修改前: 内联分配逻辑
+initial_margin = Portfolio.MarginRemaining * 0.95
+buffer = Portfolio.MarginRemaining * 0.05
+for pair_id, pct in planned_allocations.items():
+    current_margin = (Portfolio.MarginRemaining - buffer) * pct
+    scale_factor = initial_margin / (Portfolio.MarginRemaining - buffer)
+    amount_allocated = current_margin * scale_factor
+    # ... 检查和开仓
+
+# 修改后: 委托MarginAllocator
+allocations = self.margin_allocator.allocate_margin(entry_candidates)
+for pair_id, amount_allocated in allocations.items():
+    # ... 检查和开仓
+```
+
+**效果**:
+- 代码从81行减少到52行
+- 消除职责重复,DRY原则
+- 为cooldown检查腾出空间
+
+#### 2. 文件重命名 - 更准确反映职责
+
+**变更**: `PortfolioBaseRule.py` → `RiskBaseRule.py`
+
+**原因**: 该文件是**所有**风控规则的基类(Portfolio + Pair),当前名称具有误导性
+
+**影响**: 更新7处导入语句
+
+#### 3. 方法重命名 - 更明确的语义
+
+**变更**: `has_any_rule_in_cooldown()` → `is_portfolio_in_risk_cooldown()`
+
+**原因**:
+- 旧名称暗示检查所有规则,但实际只检查Portfolio规则
+- 新名称与Pair规则检查方法对称: `is_pair_in_risk_cooldown()`
+
+**影响**: 更新RiskManager定义和main.py调用
+
+#### 4. 删除未使用代码
+
+**删除项**:
+- `RiskManager.get_sector_concentration()` (79行) - main.py中未调用
+- `RiskManager.check_all_pair_risks()` (35行) - 无意义包装方法
+
+**main.py改为直接循环**:
+```python
+# 修改前
+pair_intents = self.risk_manager.check_all_pair_risks(pairs_with_position)
+
+# 修改后 (更清晰)
+pair_intents = []
+for pair in pairs_with_position.values():
+    intent = self.risk_manager.check_pair_risks(pair)
+    if intent:
+        pair_intents.append(intent)
+```
+
+**效果**: 删除114行未使用/无意义代码,main.py增加4行但更清晰
+
+#### 5. Cooldown统一检查 - 双重冷却机制
+
+**目标**: 统一在ExecutionManager检查两种冷却期,移除Pairs中的检查逻辑
+
+**两种冷却期**:
+1. **风险冷却期** (30天): 由风险规则触发(PairDrawdownRule等)
+2. **普通冷却期** (10天): 正常平仓后触发(CLOSE/STOP_LOSS)
+
+**Pairs.py修改**:
+```python
+# 删除方法 (14行)
+def is_in_cooldown(self) -> bool:
+    frozen_days = self.get_pair_frozen_days()
+    if frozen_days is None:
+        return False
+    return frozen_days < self.cooldown_days
+
+# 删除检查 (get_signal中)
+if not self.has_position() and self.is_in_cooldown():
+    return TradingSignal.COOLDOWN
+
+# 保留数据 (数据所有权原则)
+self.pair_closed_time = None  # 平仓时间
+self.cooldown_days = config['pair_cooldown_days']  # 配置参数
+def get_pair_frozen_days(self) -> Optional[int]:  # 数据查询方法
+    ...
+```
+
+**ExecutionManager新增方法**:
+```python
+def is_pair_in_risk_cooldown(self, pair_id: tuple) -> bool:
+    """检查配对是否在风险冷却期 (30天)"""
+    for rule in self.risk_manager.pair_rules:
+        if rule.is_in_cooldown(pair_id=pair_id):
+            return True
+    return False
+
+def is_pair_in_normal_cooldown(self, pair) -> bool:
+    """检查配对是否在普通交易冷却期 (10天)"""
+    frozen_days = pair.get_pair_frozen_days()
+    if frozen_days is None:
+        return False
+    return frozen_days < pair.cooldown_days
+```
+
+**handle_position_openings()三重检查**:
+```python
+for pair_id, amount_allocated in allocations.items():
+    pair = self.pairs_manager.get_pair_by_id(pair_id)
+
+    # 检查1: 订单锁定检查
+    if self.tickets_manager.is_pair_locked(pair_id):
+        continue
+
+    # 检查2: 风险冷却期检查 (v7.1.3新增)
+    if self.is_pair_in_risk_cooldown(pair_id):
+        continue
+
+    # 检查3: 普通交易冷却期检查 (v7.1.3新增)
+    if self.is_pair_in_normal_cooldown(pair):
+        continue
+
+    # 执行开仓
+    ...
+```
+
+**main.py更新**: ExecutionManager初始化新增risk_manager参数
+
+**设计特点**:
+- **数据所有权**: Pairs保留pair_closed_time和cooldown_days(数据属于创建者)
+- **职责分离**: ExecutionManager负责决策逻辑(是否在冷却期)
+- **双重保护**: 风险冷却(防止风险配对重开) + 普通冷却(防止频繁交易)
+- **统一检查**: 开仓前集中检查,不在信号生成阶段检查
+
+### 架构改进
+
+#### 代码统计
+- **删除**: ~130行 (重复资金分配35行 + 未使用代码114行 + Pairs冷却15行)
+- **新增**: ~90行 (ExecutionManager冷却方法70行 + main.py循环4行 + 注释更新)
+- **净减少**: ~40行
+
+#### 职责清晰化
+- **MarginAllocator**: 专注资金分配算法
+- **ExecutionManager**: 专注开仓协调和决策(含cooldown检查)
+- **Pairs**: 专注数据提供(持仓信息、冷却天数查询)
+- **RiskManager**: 专注风险检测(不再有包装方法)
+
+#### 命名改进
+- **文件名**: RiskBaseRule.py更准确(Portfolio+Pair基类)
+- **方法名**: is_portfolio_in_risk_cooldown()更明确
+- **删除误导**: check_all_pair_risks()无意义包装
+
+### 兼容性
+- **破坏性变更**:
+  - ExecutionManager.__init__()新增risk_manager参数(第3位)
+  - Pairs.is_in_cooldown()方法删除(外部不应依赖)
+- **向后兼容**: 所有公共API保持不变(除上述两项)
+
+### 测试建议
+- **资金分配**: 验证MarginAllocator.allocate_margin()正确调用
+- **Cooldown检查**: 验证双重冷却正确拦截开仓
+- **信号生成**: 验证Pairs.get_signal()不再检查cooldown(由ExecutionManager检查)
+
+---
+
 ## [v7.1.2_Per-Pair-Cooldown机制@20251024]
 
 ### 版本定义

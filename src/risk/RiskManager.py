@@ -11,7 +11,7 @@ v7.1.0核心变更:
 """
 
 from AlgorithmImports import *
-from .PortfolioBaseRule import RiskRule
+from .RiskBaseRule import RiskRule
 from .PortfolioAccountBlowup import AccountBlowupRule
 from .PortfolioDrawdown import PortfolioDrawdownRule
 from .MarketCondition import MarketCondition
@@ -384,22 +384,22 @@ class RiskManager:
         )
 
 
-    def has_any_rule_in_cooldown(self) -> bool:
+    def is_portfolio_in_risk_cooldown(self) -> bool:
         """
-        检查是否有任何Portfolio规则在冷却期
+        检查Portfolio是否在风险冷却期 (v7.1.3重命名)
 
         用途:
         在OnData中检查，确保冷却期内不执行任何交易逻辑。
         这是防止风控触发后继续交易的关键机制。
 
         Returns:
-            True: 有规则在冷却期，应阻止所有交易
-            False: 没有规则在冷却期，可以继续交易
+            True: Portfolio在风险冷却期，应阻止所有交易
+            False: Portfolio不在冷却期，可以继续交易
 
         示例:
         ```python
         # 在main.py的OnData()中
-        if self.risk_manager.has_any_rule_in_cooldown():
+        if self.risk_manager.is_portfolio_in_risk_cooldown():
             return  # 冷却期内阻止所有交易
         ```
         """
@@ -474,86 +474,6 @@ class RiskManager:
                 rule.on_pair_closed(pair_id)
                 break
 
-
-    def get_sector_concentration(self) -> dict:
-        """
-        获取子行业集中度分析
-
-        从 PairsManager.get_sector_concentration() 迁移而来 (v6.9.3)
-
-        职责:
-        - RiskManager 负责风控分析（集中度计算）
-        - 通过 PairsManager 查询配对列表（职责分离）
-        - 不直接访问 PairsManager 内部状态
-
-        Returns:
-            Dict[str, Dict]: 集中度分析结果
-            {
-                'IndustryGroup名称': {
-                    'concentration': float,  # 占总资产比例
-                    'value': float,          # 该行业持仓总值
-                    'pairs': List[Pairs],    # 该行业的配对列表
-                    'pair_count': int        # 配对数量
-                }
-            }
-
-        设计理念:
-        - 依赖注入: 通过 self.pairs_manager 获取数据
-        - 接口复用: 调用 get_tradeable_pairs() 而非直接访问 pairs 字典
-        - 单一职责: 只负责分析计算，不负责存储管理
-
-        示例:
-        ```python
-        # 在 main.py 中调用
-        concentrations = self.risk_manager.get_sector_concentration()
-        for industry, data in concentrations.items():
-            if data['concentration'] > 0.4:  # 超过40%集中度
-                self.Debug(f"[风控] {industry} 集中度过高: {data['concentration']:.1%}")
-        ```
-        """
-        portfolio = self.algorithm.Portfolio
-        total_value = portfolio.TotalPortfolioValue
-
-        if total_value <= 0:
-            return {}
-
-        # 防御性检查: pairs_manager 未注入
-        if self.pairs_manager is None:
-            return {}
-
-        industry_group_data = {}
-
-        # 从 PairsManager 获取配对列表（依赖注入 + 接口调用）
-        tradeable_pairs = self.pairs_manager.get_tradeable_pairs()
-
-        for pair in tradeable_pairs.values():
-            if not pair.has_position():
-                continue
-
-            info = pair.get_position_info()
-
-            industry_group = pair.industry_group
-            if industry_group not in industry_group_data:
-                industry_group_data[industry_group] = {
-                    'value': 0,
-                    'pairs': []
-                }
-
-            industry_group_data[industry_group]['value'] += info['value1'] + info['value2']
-            industry_group_data[industry_group]['pairs'].append(pair)
-
-        # 计算集中度并格式化返回
-        result = {}
-        for industry_group, data in industry_group_data.items():
-            concentration = data['value'] / total_value
-            result[industry_group] = {
-                'concentration': concentration,
-                'value': data['value'],
-                'pairs': data['pairs'],
-                'pair_count': len(data['pairs'])
-            }
-
-        return result
 
 
     def check_pair_risks(self, pair) -> Optional[CloseIntent]:
@@ -648,55 +568,6 @@ class RiskManager:
         # 没有规则触发,返回None
         return None
 
-
-    def check_all_pair_risks(self, pairs_with_position) -> List[CloseIntent]:
-        """
-        批量检测所有配对的风险,返回CloseIntent列表 (v7.1.0重构)
-
-        设计目标:
-        - 与check_portfolio_risks()完全对称
-        - 实现"检测与执行分离"原则
-        - ExecutionManager只负责执行Intent
-
-        Args:
-            pairs_with_position: 有持仓的配对字典 {pair_id: Pairs}
-
-        Returns:
-            List[CloseIntent]: 需要平仓的Intent列表,空列表表示未触发
-
-        v7.1.0变更:
-        - 返回类型从 Dict[pair_id, (action, triggered_rules)] 改为 List[CloseIntent]
-        - 调用check_pair_risks()返回Optional[CloseIntent]
-        - 自动记录Intent→Rule映射(在check_pair_risks()中完成)
-
-        示例:
-        ```python
-        # ExecutionManager中:
-        intents = risk_manager.check_all_pair_risks(pairs_with_position)
-        if intents:
-            executed_pair_ids = []
-            for intent in intents:
-                tickets = order_executor.execute_close(intent)
-                if tickets:
-                    executed_pair_ids.append(intent.pair_id)
-                    tickets_manager.register_tickets(intent.pair_id, tickets, OrderAction.CLOSE)
-            # 激活cooldown
-            risk_manager.activate_cooldown_for_pairs(executed_pair_ids)
-        ```
-
-        注意:
-        - 只返回触发风控的配对,未触发的不在列表中
-        - 与check_pair_risks()内部调用相同逻辑,只是包装为批量接口
-        - 实现Portfolio和Pair风控完全对称的架构
-        """
-        intents = []
-
-        for pair in pairs_with_position.values():
-            intent = self.check_pair_risks(pair)
-            if intent:
-                intents.append(intent)
-
-        return intents
 
 
     def activate_cooldown_for_pairs(self, executed_pair_ids: List[Tuple]) -> None:
