@@ -16,7 +16,7 @@ ExecutionManager - 统一执行器 (v7.0.0: Intent模式重构)
 
 from AlgorithmImports import *
 from src.Pairs import OrderAction, TradingSignal
-from src.execution.OrderIntent import CloseIntent  # v7.1.0: Intent Pattern
+from src.execution.OrderIntent import CloseIntent  
 from typing import List
 
 
@@ -57,48 +57,6 @@ class ExecutionManager:
         self.min_investment_amount = margin_allocator.min_investment_amount
 
 
-    def handle_portfolio_risk_action(self, action: str, triggered_rules: list):
-        """
-        处理Portfolio层面风控动作
-
-        Args:
-            action: 风控动作 ('portfolio_liquidate_all'等)
-            triggered_rules: 触发的规则列表 [(rule, description), ...]
-
-        执行流程:
-        1. 记录所有触发规则的详细日志
-        2. 根据action字符串分发到具体处理方法
-        3. 激活所有触发规则的冷却期
-
-        注意:
-        - 当前只实现'portfolio_liquidate_all'(全部清仓)
-        - 其他action作为占位,未来实现
-        """
-        # 记录所有触发的规则
-        for rule, description in triggered_rules:
-            self.algorithm.Debug(f"[风控触发] {rule.__class__.__name__}: {description}")
-
-        # 根据action执行相应操作
-        if action == 'portfolio_liquidate_all':
-            self.liquidate_all_positions()
-
-        elif action == 'portfolio_reduce_exposure_50':
-            # 未来实现: 减仓50%
-            self.algorithm.Debug(f"[风控] 减仓50%模式(暂未实现)")
-
-        elif action == 'portfolio_rebalance_sectors':
-            # 未来实现: 行业再平衡
-            self.algorithm.Debug(f"[风控] 行业再平衡模式(暂未实现)")
-
-        else:
-            self.algorithm.Debug(f"[风控] 未知动作: {action}")
-
-        # 激活所有触发规则的冷却期
-        for rule, _ in triggered_rules:
-            rule.activate_cooldown()
-            self.algorithm.Debug(f"[风控] {rule.__class__.__name__} 冷却至 {rule.cooldown_until}")
-
-
     def handle_portfolio_risk_intents(self, intents: List[CloseIntent], triggered_rule, risk_manager) -> None:
         """
         处理Portfolio层面风控Intent列表 (v7.1.1 API更新)
@@ -116,20 +74,10 @@ class ExecutionManager:
         5. 记录成功执行的配对数量
         6. 无论成功与否，调用risk_manager激活cooldown（防止继续交易）
 
-        v7.1.0设计原则:
-        - Intent统一执行：Portfolio和Pair使用相同的Intent执行逻辑
-        - cooldown延迟激活：由RiskManager在Intent执行后激活
-        - 订单追踪完整：所有订单都通过tickets_manager追踪
-
         v7.1.1变更:
         - 新增参数 triggered_rule: RiskRule
         - cooldown无条件激活（不再依赖执行成功与否）
         - 传递规则实例而非pair_id列表
-
-        注意:
-        - 替代旧的handle_portfolio_risk_action(action, triggered_rules)
-        - 不再需要action字符串分发逻辑
-        - cooldown激活由RiskManager统一管理
         """
         self.algorithm.Debug(f"[Portfolio风控] 触发Intent执行: 共{len(intents)}个配对需要平仓")
 
@@ -193,11 +141,6 @@ class ExecutionManager:
         - HWM自动清理：平仓后立即清理PairDrawdownRule的HWM状态
         - 订单追踪完整：所有订单都通过tickets_manager追踪
         - 失败容错：部分订单失败不影响其他订单
-
-        注意:
-        - 替代旧的handle_pair_risk_actions(pair_risk_actions: dict)
-        - 不再需要action字符串判断逻辑
-        - cooldown和HWM管理统一由RiskManager负责
         """
         if not intents:
             return
@@ -244,77 +187,6 @@ class ExecutionManager:
             )
         else:
             self.algorithm.Debug(f"[Pair风控] 所有配对平仓失败或被跳过")
-
-
-    def handle_pair_risk_actions(self, pair_risk_actions: dict):
-        """
-        处理Pair层面风控动作 (Deprecated - 保留向后兼容)
-
-        ⚠️ Deprecated in v7.1.0: 请使用handle_pair_risk_intents()
-
-        Args:
-            pair_risk_actions: {pair_id: (action, triggered_rules), ...}
-        """
-        self.algorithm.Debug("[Deprecated] handle_pair_risk_actions() 已废弃,请使用 handle_pair_risk_intents()")
-
-        # 为向后兼容，保留基本功能
-        for pair_id, (action, triggered_rules) in pair_risk_actions.items():
-            pair = self.pairs_manager.get_pair_by_id(pair_id)
-            if self.tickets_manager.is_pair_locked(pair_id):
-                continue
-
-            if action == 'pair_close':
-                self.algorithm.Debug(f"[Pair风控] {pair_id} 触发平仓风控")
-                intent = pair.get_close_intent(reason='RISK_TRIGGER')
-                if intent:
-                    self.order_executor.execute_close(intent)
-                    for _, desc in triggered_rules:
-                        self.algorithm.Debug(f"  └─ {desc}")
-
-
-    def liquidate_all_positions(self):
-        """
-        清空所有持仓(仅通过pairs_manager,不使用Liquidate)
-
-        执行流程:
-        1. 获取所有有持仓的配对
-        2. 检查订单锁定状态(is_pair_locked)
-        3. 通过pair.get_close_intent()生成意图,order_executor执行(保持订单追踪)
-        4. 注册订单到tickets_manager
-        5. 记录详细日志
-
-        设计决策:
-        - 不使用QC的Liquidate()方法,原因:
-          1. 绕过Intent模式和订单追踪
-          2. 破坏tickets_manager订单追踪体系
-          3. 可能导致重复下单
-        - 只通过pairs_manager管理的配对进行平仓
-        - 保持TicketsManager的订单追踪完整性
-        """
-        self.algorithm.Debug(f"[风控清仓] 开始清空所有持仓...")
-
-        # 获取所有有持仓的配对
-        pairs_with_position = self.pairs_manager.get_pairs_with_position()
-
-        if not pairs_with_position:
-            self.algorithm.Debug(f"[风控清仓] 无持仓,跳过")
-            return
-
-        closed_count = 0
-        for pair in pairs_with_position.values():
-            # 订单锁定检查(防止重复下单)
-            if self.tickets_manager.is_pair_locked(pair.pair_id):
-                self.algorithm.Debug(f"[风控清仓] {pair.pair_id} 订单处理中,跳过")
-                continue
-
-            # 通过pair平仓(保持订单追踪) - v7.0.0: Intent模式, v7.1.0: 自动注册简化
-            intent = pair.get_close_intent(reason='RISK_TRIGGER')
-            if intent:
-                self.order_executor.execute_close(intent)  # 自动注册,无返回值
-                closed_count += 1
-                self.algorithm.Debug(f"[风控清仓] {pair.pair_id} 已提交平仓订单")
-
-        self.algorithm.Debug(f"[风控清仓] 完成: 平仓{closed_count}/{len(pairs_with_position)}个配对")
 
 
     def cleanup_remaining_positions(self):
