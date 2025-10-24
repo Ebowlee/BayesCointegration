@@ -65,14 +65,16 @@ class MarginAllocator:
         # 计算固定buffer(整个回测周期不变)
         self.fixed_buffer = self.initial_available_fund * (1 - self.margin_usage_ratio)
 
-        # 最小投资额(初始资金的10%)
-        self.min_investment = algorithm.min_investment
+        # 最小投资额(从config直接计算: initial_cash × min_investment_ratio)
+        self.min_investment_amount = (
+            config.main['cash'] * config.pairs_trading['min_investment_ratio']
+        )
 
         self.algorithm.Debug(
             f"[MarginAllocator] 初始化完成: "
             f"初始保证金=${self.initial_available_fund:,.0f}, "
             f"固定Buffer=${self.fixed_buffer:,.0f} ({(1-self.margin_usage_ratio)*100:.0f}%), "
-            f"最小投资=${self.min_investment:,.0f}"
+            f"最小投资=${self.min_investment_amount:,.0f}"
         )
 
 
@@ -138,10 +140,10 @@ class MarginAllocator:
         current_available = self.get_available_margin()
 
         # 检查是否低于最小阈值
-        if current_available < self.min_investment:
+        if current_available < self.min_investment_amount:
             self.algorithm.Debug(
                 f"[MarginAllocator] 可用保证金不足: "
-                f"${current_available:,.0f} < 最小投资${self.min_investment:,.0f}"
+                f"${current_available:,.0f} < 最小投资${self.min_investment_amount:,.0f}"
             )
             return {}
 
@@ -156,7 +158,7 @@ class MarginAllocator:
             planned_allocated = min(current_available, self.initial_available_fund * planned_pct)
 
             # 判断是否满足最小投资门槛
-            if planned_allocated >= self.min_investment:
+            if planned_allocated >= self.min_investment_amount:
                 # 满足条件: 执行分配流程
                 actual_allocated = planned_allocated
 
@@ -183,7 +185,7 @@ class MarginAllocator:
                 # 不满足条件: 跳过此配对,继续尝试下一个
                 self.algorithm.Debug(
                     f"[MarginAllocator] {pair.pair_id} 分配额不足: "
-                    f"${planned_allocated:,.0f} < ${self.min_investment:,.0f}, 跳过"
+                    f"${planned_allocated:,.0f} < ${self.min_investment_amount:,.0f}, 跳过"
                 )
                 continue  # 继续尝试剩余配对
 

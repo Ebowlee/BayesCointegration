@@ -4,7 +4,7 @@ from typing import Tuple
 # endregion
 
 
-class HoldingTimeoutRule(RiskRule):
+class PairHoldingTimeoutRule(RiskRule):
     """
     持仓超时风控规则 (v7.1.0 Intent Pattern重构)
 
@@ -22,7 +22,7 @@ class HoldingTimeoutRule(RiskRule):
     设计特点:
     - 无需冷却期: 订单锁机制(tickets_manager.is_pair_locked)已防止重复提交
     - 简单高效: 只需检查时间差,不涉及PnL计算
-    - 优先级中等: priority=60,介于PositionAnomaly(100)和PairDrawdown(50)之间
+    - 优先级中等: priority=60,介于PairAnomaly(100)和PairDrawdown(50)之间
 
     配置示例:
     {
@@ -49,7 +49,7 @@ class HoldingTimeoutRule(RiskRule):
             config: 规则配置字典,必须包含'max_days'字段
         """
         super().__init__(algorithm, config)
-        self.max_days = config.get('max_days', 30)
+        self.max_days = config['max_days']
 
 
     def check(self, pair) -> Tuple[bool, str]:
@@ -95,11 +95,7 @@ class HoldingTimeoutRule(RiskRule):
             entry_time = getattr(pair, 'pair_opened_time', None)
             entry_time_str = entry_time.strftime('%Y-%m-%d') if entry_time else "未知"
 
-            description = (
-                f"持仓超时: 已持仓{holding_days}天 > "
-                f"上限{self.max_days}天 "
-                f"(开仓时间: {entry_time_str})"
-            )
+            description = (f"持仓超时: 已持仓{holding_days}天 > " f"上限{self.max_days}天 " f"(开仓时间: {entry_time_str})")
             return True, description
 
         return False, ""

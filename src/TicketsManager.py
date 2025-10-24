@@ -267,7 +267,7 @@ class TicketsManager:
             anomaly_pairs = self.tickets_manager.get_anomaly_pairs()
             for pair_id in anomaly_pairs:
                 self.Debug(f"[订单异常] {pair_id} 检测到单腿失败")
-                # 风控模块会通过check_position_anomaly()处理
+                # 风控模块会通过check_pair_anomaly()处理
         """
         return {
             pair_id for pair_id in self.pair_tickets.keys()

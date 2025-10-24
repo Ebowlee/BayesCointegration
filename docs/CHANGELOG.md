@@ -4,6 +4,428 @@
 
 ---
 
+## [v7.1.1_Portfolio风控与参数配置优化@20250125]
+
+### 版本定义
+**架构优化版本**: Portfolio风控API重构 + 参数配置化与依赖注入优化
+
+### 核心改动
+
+#### 第一部分: Portfolio层面风控优化
+
+##### 1. RiskManager API重构 - 移除硬编码默认值
+
+**问题**: RiskManager 使用 `.get()` 提供默认值,违反 Fail-Fast 原则
+```python
+# 改前 (Line 167, 226)
+portfolio_rule_configs = self.config.risk_management.get('portfolio_rules', {})
+pair_rule_configs = self.config.risk_management.get('pair_rules', {})
+```
+
+**修改**:
+```python
+# 改后 - 直接访问,配置缺失时立即失败
+portfolio_rule_configs = self.config.risk_management['portfolio_rules']
+pair_rule_configs = self.config.risk_management['pair_rules']
+```
+
+**收益**:
+- ✅ 配置错误在启动时暴露,而非运行时静默失败
+- ✅ 消除隐式默认值,配置更透明
+- ✅ 符合"显式优于隐式"原则
+
+---
+
+##### 2. 简化 Portfolio Cooldown 激活机制
+
+**问题**: 原设计通过 `_portfolio_intent_to_rule_map` 映射 pair_id → rule,过度复杂
+
+**修改前** (Line 112-113, 339-384):
+```python
+# 实例变量
+self._portfolio_intent_to_rule_map = {}  # {pair_id: RiskRule}
+
+# 激活方法 - 需要遍历 executed_pair_ids 映射回 rule
+def activate_cooldown_for_portfolio(self, executed_pair_ids: List[Tuple]) -> None:
+    activated_rules = set()
+    for pair_id in executed_pair_ids:
+        if pair_id in self._portfolio_intent_to_rule_map:
+            rule = self._portfolio_intent_to_rule_map[pair_id]
+            # ... 复杂映射逻辑
+```
+
+**修改后** - 直接传递 triggered_rule:
+```python
+# 删除实例变量 _portfolio_intent_to_rule_map
+
+# 简化激活方法 - 直接接收 triggered_rule
+def activate_cooldown_for_portfolio(self, triggered_rule: RiskRule) -> None:
+    if triggered_rule is None:
+        return
+    triggered_rule.activate_cooldown()
+    self.algorithm.Debug(
+        f"[Portfolio风控] {triggered_rule.__class__.__name__} "
+        f"冷却期激活至 {triggered_rule.cooldown_until}"
+    )
+```
+
+**API变更**:
+```python
+# check_portfolio_risks() 返回值变更
+# 改前
+def check_portfolio_risks(self) -> List[CloseIntent]:
+
+# 改后
+def check_portfolio_risks(self) -> Tuple[List[CloseIntent], Optional[RiskRule]]:
+```
+
+**收益**:
+- ✅ 消除约40行映射代码
+- ✅ Portfolio规则是全局的,无需per-pair追踪
+- ✅ API更直接,调用方无需传递执行结果
+
+---
+
+##### 3. 修复 reason 映射 fallback 逻辑
+
+**问题**: fallback 值应该是字符串,而非其他类型
+
+**修改** (Line 310-312):
+```python
+# 改前
+reason = self._portfolio_rule_to_reason_map.get(
+    rule.__class__.__name__,
+    'RISK_TRIGGER'  # 通用值,不知道具体规则
+)
+
+# 改后 - fallback 到类名字符串
+reason = self._portfolio_rule_to_reason_map.get(
+    rule.__class__.__name__,
+    rule.__class__.__name__  # 例如: 'AccountBlowupRule'
+)
+```
+
+**收益**:
+- ✅ fallback 值类型一致(都是字符串)
+- ✅ 保留规则身份信息(即使映射缺失)
+
+---
+
+##### 4. ExecutionManager - 新增 cooldown 期间清理机制
+
+**问题**: Portfolio风控触发后,部分配对可能因订单失败未能平仓,在cooldown期间成为残留持仓
+
+**解决方案**: 新增 `cleanup_remaining_positions()` 方法
+
+**新增** (ExecutionManager.py Line 315-380):
+```python
+def cleanup_remaining_positions(self):
+    """
+    清理cooldown期间的残留持仓 (v7.1.1新增)
+
+    触发时机:
+    - Portfolio风控触发后,进入cooldown期间
+    - 每次OnData检查到cooldown状态时调用
+    """
+    pairs_with_position = self.pairs_manager.get_pairs_with_position()
+    if not pairs_with_position:
+        return
+
+    self.algorithm.Debug(
+        f"[Cooldown清理] 检测到{len(pairs_with_position)}个残留持仓,开始清理"
+    )
+
+    cleanup_count = 0
+    for pair in pairs_with_position.values():
+        if self.tickets_manager.is_pair_locked(pair.pair_id):
+            continue
+
+        intent = pair.get_close_intent(reason='COOLDOWN_CLEANUP')
+        if intent:
+            tickets = self.order_executor.execute_close(intent)
+            if tickets:
+                self.tickets_manager.register_tickets(
+                    pair.pair_id, tickets, OrderAction.CLOSE
+                )
+                cleanup_count += 1
+
+    if cleanup_count > 0:
+        self.algorithm.Debug(
+            f"[Cooldown清理] 本轮提交{cleanup_count}个平仓订单"
+        )
+```
+
+**main.py 集成** (Line 185-198):
+```python
+# 改前
+if self.risk_manager.has_any_rule_in_cooldown():
+    return
+
+portfolio_intents = self.risk_manager.check_portfolio_risks()
+if portfolio_intents:
+    self.execution_manager.handle_portfolio_risk_intents(
+        portfolio_intents, self.risk_manager
+    )
+    return
+
+# 改后 - 在cooldown期间执行清理
+if self.risk_manager.has_any_rule_in_cooldown():
+    # 检查并清理残留持仓
+    self.execution_manager.cleanup_remaining_positions()
+    return
+
+portfolio_intents, triggered_rule = self.risk_manager.check_portfolio_risks()
+if portfolio_intents and triggered_rule:
+    self.execution_manager.handle_portfolio_risk_intents(
+        portfolio_intents, triggered_rule, self.risk_manager
+    )
+    return
+```
+
+**收益**:
+- ✅ 防止残留持仓在cooldown期间继续产生风险
+- ✅ 使用Intent模式,所有平仓都被记录到TradeJournal
+- ✅ 通过 `COOLDOWN_CLEANUP` reason 区分清理动作和原始触发
+
+---
+
+##### 5. ExecutionManager - cooldown 激活策略调整
+
+**用户纠正**: 只要规则触发,就应该激活cooldown,无论平仓是否成功
+
+**修改** (ExecutionManager.py Line 159-160):
+```python
+# 改前 - 仅当至少一个配对成功平仓时激活
+if executed_count > 0:
+    risk_manager.activate_cooldown_for_portfolio(triggered_rule)
+
+# 改后 - 无条件激活(防止继续交易)
+# 无论成功与否,都激活cooldown（防止继续交易）
+risk_manager.activate_cooldown_for_portfolio(triggered_rule)
+```
+
+**设计意图**:
+- 风控包含两个动作: **执行 + cooldown**
+- cooldown在执行之后,不考虑是否成功
+- 失败的持仓由 `cleanup_remaining_positions()` 在后续周期处理
+
+---
+
+#### 第二部分: 参数配置化与 MarginAllocator 集成
+
+##### 1. VIX 参数配置化
+
+**问题**: VIX 指数代码和分辨率硬编码在 main.py
+
+**修改前** (main.py Line 62):
+```python
+self.vix_symbol = self.AddIndex("VIX", Resolution.Daily).Symbol
+```
+
+**修改后**:
+
+**config.py** (Line 178-185) - 新增配置项:
+```python
+'market_condition': {
+    'enabled': True,
+    'vix_symbol': 'VIX',                 # VIX指数代码
+    'vix_resolution': Resolution.Daily,  # VIX数据分辨率
+    'vix_threshold': 30,
+    'spy_volatility_threshold': 0.25,
+    'spy_volatility_window': 20
+}
+```
+
+**main.py** (Line 61-66) - 从配置读取:
+```python
+vix_config = self.config.risk_management['market_condition']
+self.vix_symbol = self.AddIndex(
+    vix_config['vix_symbol'],
+    vix_config['vix_resolution']
+).Symbol
+```
+
+**收益**:
+- ✅ 配置集中管理,修改无需改代码
+- ✅ 遵循Single Source of Truth原则
+
+---
+
+##### 2. 删除 main.py 冗余变量
+
+**问题**: `initial_cash` 和 `min_investment` 在 main.py 计算但未使用
+
+**删除** (main.py Line 65-68):
+```python
+# 删除以下冗余代码
+self.initial_cash = self.config.main['cash']
+# 注意：cash_buffer现在是动态的，将在OnData中计算
+# 最小投资额是固定的
+self.min_investment = self.initial_cash * self.config.pairs_trading['min_investment_ratio']
+```
+
+**理由**:
+- `initial_cash` 直接用 `self.config.main['cash']` 即可
+- `min_investment` 应该由使用它的模块计算(MarginAllocator)
+- main.py 不应该承担业务逻辑计算
+
+---
+
+##### 3. MarginAllocator 重命名与计算重构
+
+**命名优化**: `min_investment` → `min_investment_amount` (对应 `min_investment_ratio`)
+
+**修改** (MarginAllocator.py Line 69-71, 75, 141, 144, 159, 186):
+```python
+# 改前 - 依赖 algorithm.min_investment (已删除)
+self.min_investment = algorithm.min_investment
+
+# 改后 - 从config直接计算
+self.min_investment_amount = (
+    config.main['cash'] * config.pairs_trading['min_investment_ratio']
+)
+```
+
+**收益**:
+- ✅ 命名清晰: `ratio`(比例配置) vs `amount`(派生金额)
+- ✅ 自包含: MarginAllocator不依赖外部计算
+- ✅ 职责明确: 被依赖方负责计算
+
+---
+
+##### 4. ExecutionManager 依赖注入 MarginAllocator
+
+**架构优化**: ExecutionManager 通过构造函数接收 MarginAllocator
+
+**修改** (ExecutionManager.py Line 39-57):
+```python
+# 改前
+def __init__(self, algorithm, pairs_manager, tickets_manager, order_executor):
+    # ... 无 margin_allocator
+
+# 改后 - 新增 margin_allocator 参数
+def __init__(self, algorithm, pairs_manager, tickets_manager,
+             order_executor, margin_allocator):
+    """
+    初始化统一执行器 (v7.0.0: 新增order_executor依赖;
+                      v7.1.1: 新增margin_allocator依赖)
+    """
+    self.algorithm = algorithm
+    self.pairs_manager = pairs_manager
+    self.tickets_manager = tickets_manager
+    self.order_executor = order_executor
+    self.margin_allocator = margin_allocator  # 新增
+
+    # 从margin_allocator获取min_investment_amount（避免重复计算）
+    self.min_investment_amount = margin_allocator.min_investment_amount
+```
+
+**使用修改** (ExecutionManager.py Line 504, 534):
+```python
+# 改前
+if initial_margin < self.algorithm.min_investment:
+if amount_allocated < self.algorithm.min_investment:
+
+# 改后
+if initial_margin < self.min_investment_amount:
+if amount_allocated < self.min_investment_amount:
+```
+
+**main.py 初始化** (Line 78-90):
+```python
+# === 初始化资金分配器 ===
+# MarginAllocator 负责计算资金分配，包括 min_investment_amount
+self.margin_allocator = MarginAllocator(self, self.config)
+
+# === 初始化统一执行器 ===
+# 依赖注入 order_executor 和 margin_allocator
+self.execution_manager = ExecutionManager(
+    self,
+    self.pairs_manager,
+    self.tickets_manager,
+    self.order_executor,
+    self.margin_allocator  # 新增参数
+)
+```
+
+**收益**:
+- ✅ 依赖关系清晰: MarginAllocator(计算) → ExecutionManager(使用)
+- ✅ 避免重复计算: min_investment_amount只计算一次
+- ✅ 可测试性提升: 可以注入mock MarginAllocator
+
+---
+
+##### 5. 导出 MarginAllocator
+
+**修改** (execution/__init__.py):
+```python
+# 新增导入
+from .MarginAllocator import MarginAllocator
+
+# 新增导出
+__all__ = [
+    'OpenIntent',
+    'CloseIntent',
+    'OrderExecutor',
+    'MarginAllocator',  # 新增
+    'ExecutionManager'
+]
+```
+
+---
+
+### 影响范围
+
+**第一部分 - Portfolio风控优化**:
+- 修改: `src/RiskManagement/RiskManager.py` (API重构,cooldown简化)
+- 修改: `src/execution/ExecutionManager.py` (新增cleanup方法,cooldown激活调整)
+- 修改: `main.py` (集成cleanup机制,适配新API)
+
+**第二部分 - 参数配置与依赖注入**:
+- 修改: `src/config.py` (新增VIX配置)
+- 修改: `main.py` (VIX从配置读取,删除冗余变量,MarginAllocator初始化)
+- 修改: `src/execution/MarginAllocator.py` (重命名,计算重构)
+- 修改: `src/execution/ExecutionManager.py` (依赖注入,使用优化)
+- 修改: `src/execution/__init__.py` (导出MarginAllocator)
+
+**其他修改** (重命名与清理):
+- 重命名: `HoldingTimeoutRule.py` → `PairHoldingTimeout.py`
+- 重命名: `PositionAnomalyRule.py` → `PairAnomaly.py`
+- 重命名: `PairDrawdownRule.py` → `PairDrawdown.py`
+- 修改: `src/RiskManagement/__init__.py` (更新导出)
+- 修改: `src/TicketsManager.py`, `src/RiskManagement/MarketCondition.py` (适配重命名)
+- 修改: `CLAUDE.md` (文档更新)
+- 删除: `tests/test_position_anomaly_rule.py` (重命名后的新测试文件为 `test_pair_anomaly_rule.py`)
+
+---
+
+### 架构优化效果
+
+**优化前**:
+- Portfolio cooldown 激活需要复杂的 pair_id → rule 映射
+- VIX 参数硬编码
+- `min_investment` 在 main.py 计算但未使用
+- MarginAllocator 和 ExecutionManager 各自依赖 `algorithm.min_investment`
+
+**优化后**:
+- Portfolio cooldown 直接传递 triggered_rule,消除映射
+- VIX 参数集中在 config.py
+- `min_investment_amount` 由 MarginAllocator 计算(被依赖方)
+- ExecutionManager 通过依赖注入获取 MarginAllocator
+- cooldown 期间自动清理残留持仓
+
+---
+
+### 设计原则体现
+- **Fail-Fast 原则**: 配置缺失时立即失败,而非静默使用默认值
+- **依赖注入**: MarginAllocator → ExecutionManager,职责清晰
+- **单一职责**: MarginAllocator负责计算,ExecutionManager负责协调
+- **配置集中化**: 参数集中在config.py,遵循Single Source of Truth
+- **命名一致性**: `ratio`(配置) vs `amount`(派生),语义清晰
+- **防御性编程**: cooldown期间自动清理残留持仓,防止风险扩大
+
+---
+
 ## [v7.0.8_RiskManagement模块优化@20250123]
 
 ### 版本定义

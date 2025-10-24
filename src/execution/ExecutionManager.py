@@ -36,20 +36,25 @@ class ExecutionManager:
     - 完全统一的执行接口
     """
 
-    def __init__(self, algorithm, pairs_manager, tickets_manager, order_executor):
+    def __init__(self, algorithm, pairs_manager, tickets_manager, order_executor, margin_allocator):
         """
-        初始化统一执行器 (v7.0.0: 新增order_executor依赖)
+        初始化统一执行器 (v7.0.0: 新增order_executor依赖; v7.1.1: 新增margin_allocator依赖)
 
         Args:
             algorithm: QuantConnect算法实例
             pairs_manager: 配对管理器
             tickets_manager: 订单追踪管理器
             order_executor: 订单执行器(v7.0.0新增)
+            margin_allocator: 资金分配器(v7.1.1新增)
         """
         self.algorithm = algorithm
         self.pairs_manager = pairs_manager
         self.tickets_manager = tickets_manager
         self.order_executor = order_executor
+        self.margin_allocator = margin_allocator
+
+        # 从margin_allocator获取min_investment_amount（避免重复计算）
+        self.min_investment_amount = margin_allocator.min_investment_amount
 
 
     def handle_portfolio_risk_action(self, action: str, triggered_rules: list):
@@ -94,12 +99,13 @@ class ExecutionManager:
             self.algorithm.Debug(f"[风控] {rule.__class__.__name__} 冷却至 {rule.cooldown_until}")
 
 
-    def handle_portfolio_risk_intents(self, intents: List[CloseIntent], risk_manager) -> None:
+    def handle_portfolio_risk_intents(self, intents: List[CloseIntent], triggered_rule, risk_manager) -> None:
         """
-        处理Portfolio层面风控Intent列表 (v7.1.0 Intent Pattern)
+        处理Portfolio层面风控Intent列表 (v7.1.1 API更新)
 
         Args:
             intents: CloseIntent列表（所有持仓配对的平仓Intent）
+            triggered_rule: 触发的规则实例 (v7.1.1新增参数)
             risk_manager: RiskManager实例（用于激活cooldown）
 
         执行流程:
@@ -107,14 +113,18 @@ class ExecutionManager:
         2. 遍历所有Intent，检查订单锁状态
         3. 通过order_executor执行平仓Intent
         4. 注册订单到tickets_manager
-        5. 记录成功执行的pair_id列表
-        6. 调用risk_manager激活触发规则的cooldown
+        5. 记录成功执行的配对数量
+        6. 无论成功与否，调用risk_manager激活cooldown（防止继续交易）
 
         v7.1.0设计原则:
         - Intent统一执行：Portfolio和Pair使用相同的Intent执行逻辑
-        - cooldown延迟激活：由RiskManager在Intent执行成功后激活
+        - cooldown延迟激活：由RiskManager在Intent执行后激活
         - 订单追踪完整：所有订单都通过tickets_manager追踪
-        - 失败容错：部分订单失败不影响其他订单，只为成功的激活cooldown
+
+        v7.1.1变更:
+        - 新增参数 triggered_rule: RiskRule
+        - cooldown无条件激活（不再依赖执行成功与否）
+        - 传递规则实例而非pair_id列表
 
         注意:
         - 替代旧的handle_portfolio_risk_action(action, triggered_rules)
@@ -123,7 +133,7 @@ class ExecutionManager:
         """
         self.algorithm.Debug(f"[Portfolio风控] 触发Intent执行: 共{len(intents)}个配对需要平仓")
 
-        executed_pair_ids = []  # 记录成功执行的pair_id
+        executed_count = 0  # 记录成功执行的配对数量
 
         for intent in intents:
             # 订单锁定检查（防止重复下单）
@@ -142,7 +152,7 @@ class ExecutionManager:
                     tickets,
                     OrderAction.CLOSE
                 )
-                executed_pair_ids.append(intent.pair_id)
+                executed_count += 1
                 self.algorithm.Debug(
                     f"[Portfolio风控] {intent.pair_id} 平仓订单已提交 (reason={intent.reason})"
                 )
@@ -151,14 +161,13 @@ class ExecutionManager:
                     f"[Portfolio风控] {intent.pair_id} 平仓失败"
                 )
 
-        # 激活触发规则的cooldown（只为成功执行的Intent激活）
-        if executed_pair_ids:
-            risk_manager.activate_cooldown_for_portfolio(executed_pair_ids)
-            self.algorithm.Debug(
-                f"[Portfolio风控] 完成: 成功平仓{len(executed_pair_ids)}/{len(intents)}个配对"
-            )
-        else:
-            self.algorithm.Debug(f"[Portfolio风控] 所有配对平仓失败或被跳过")
+        # 无论成功与否,都激活cooldown（防止继续交易）
+        risk_manager.activate_cooldown_for_portfolio(triggered_rule)
+
+        # 执行结果汇报
+        self.algorithm.Debug(
+            f"[Portfolio风控] 完成: 成功平仓{executed_count}/{len(intents)}个配对"
+        )
 
 
     def handle_pair_risk_intents(self, intents: List[CloseIntent], risk_manager) -> None:
@@ -308,6 +317,74 @@ class ExecutionManager:
         self.algorithm.Debug(f"[风控清仓] 完成: 平仓{closed_count}/{len(pairs_with_position)}个配对")
 
 
+    def cleanup_remaining_positions(self):
+        """
+        清理cooldown期间的残留持仓 (v7.1.1新增)
+
+        触发时机:
+        - Portfolio风控触发后,进入cooldown期间
+        - 每次OnData检查到cooldown状态时调用
+
+        清理逻辑:
+        1. 检查是否有残留持仓(get_pairs_with_position)
+        2. 遍历所有残留持仓,检查订单锁
+        3. 通过Intent模式尝试平仓(保持订单追踪)
+        4. 统计并报告清理数量
+
+        设计原则:
+        - 遵循Intent模式: 通过pair.get_close_intent()生成意图
+        - 保持订单追踪: 注册到tickets_manager
+        - 尊重订单锁: 跳过处理中的订单
+        - 持续重试: 每个OnData周期都会尝试清理
+
+        典型场景:
+        - Portfolio风控触发,10个配对中8个平仓成功,2个失败
+        - 进入cooldown后,每个bar都会尝试清理这2个残留持仓
+        - 直到全部清理完成或cooldown到期
+
+        reason标记:
+        - 使用'COOLDOWN_CLEANUP'标记,区别于原始风控触发
+        - 便于TradeJournal追踪重试记录
+        """
+        pairs_with_position = self.pairs_manager.get_pairs_with_position()
+        if not pairs_with_position:
+            return  # 没有残留持仓,无需清理
+
+        self.algorithm.Debug(
+            f"[Cooldown清理] 检测到{len(pairs_with_position)}个残留持仓,开始清理"
+        )
+
+        cleanup_count = 0
+        for pair in pairs_with_position.values():
+            # 订单锁定检查(跳过处理中的订单)
+            if self.tickets_manager.is_pair_locked(pair.pair_id):
+                continue
+
+            # 通过Intent模式平仓(保持追踪)
+            intent = pair.get_close_intent(reason='COOLDOWN_CLEANUP')
+            if intent:
+                tickets = self.order_executor.execute_close(intent)
+                if tickets:
+                    self.tickets_manager.register_tickets(
+                        pair.pair_id,
+                        tickets,
+                        OrderAction.CLOSE
+                    )
+                    cleanup_count += 1
+                    self.algorithm.Debug(
+                        f"[Cooldown清理] {pair.pair_id} 已提交平仓订单"
+                    )
+
+        if cleanup_count > 0:
+            self.algorithm.Debug(
+                f"[Cooldown清理] 本轮提交{cleanup_count}个平仓订单"
+            )
+        else:
+            self.algorithm.Debug(
+                f"[Cooldown清理] 所有残留持仓订单处理中,等待下一轮"
+            )
+
+
     # ===== 正常交易执行方法 =====
 
     def handle_signal_closings(self, pairs_with_position, data):
@@ -424,7 +501,7 @@ class ExecutionManager:
         buffer = self.algorithm.Portfolio.MarginRemaining * (1 - config['margin_usage_ratio'])
 
         # 检查是否低于最小阈值
-        if initial_margin < self.algorithm.min_investment:
+        if initial_margin < self.min_investment_amount:
             return
 
         # 提取计划分配
@@ -454,7 +531,7 @@ class ExecutionManager:
                 continue
 
             # 检查2: 最小投资额
-            if amount_allocated < self.algorithm.min_investment:
+            if amount_allocated < self.min_investment_amount:
                 continue
 
             # 检查3: 资金是否仍足够

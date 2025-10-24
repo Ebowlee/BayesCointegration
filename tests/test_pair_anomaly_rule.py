@@ -1,15 +1,15 @@
 """
-PositionAnomalyRule 单元测试
+PairAnomalyRule 单元测试
 
 测试目标:
-验证仓位异常风控规则在各种持仓状态下的检测能力
+验证配对异常风控规则在各种持仓状态下的检测能力
 
 测试覆盖:
 1. 单腿持仓LEG1: 只有第一腿有仓位
 2. 单腿持仓LEG2: 只有第二腿有仓位
 3. 同向持仓: 双腿方向相同(都多或都空)
 4. 正常持仓: 一多一空,不应触发
-5. 优先级验证: PositionAnomalyRule(100) > HoldingTimeoutRule(60)
+5. 优先级验证: PairAnomalyRule(100) > PairHoldingTimeoutRule(60)
 
 设计原则:
 - 完全隔离,不影响生产代码
@@ -31,7 +31,7 @@ sys.modules['AlgorithmImports'] = AlgorithmImports
 from tests.mocks.mock_qc_objects import MockAlgorithm, MockSymbol
 
 # 导入生产代码
-from src.RiskManagement.PositionAnomalyRule import PositionAnomalyRule
+from src.RiskManagement.PairAnomalyRule import PairAnomalyRule
 from src.Pairs import PositionMode
 
 
@@ -39,7 +39,7 @@ from src.Pairs import PositionMode
 
 class MockPairsForAnomalyTest:
     """
-    为PositionAnomalyRule测试专门设计的Mock Pairs对象
+    为PairAnomalyRule测试专门设计的Mock Pairs对象
 
     关键特性:
     - 可手动设置tracked_qty1和tracked_qty2
@@ -118,7 +118,7 @@ def test_partial_leg1_detection():
 
     # 创建规则实例
     config = {'enabled': True, 'priority': 100, 'action': 'pair_close'}
-    rule = PositionAnomalyRule(mock_algo, config)
+    rule = PairAnomalyRule(mock_algo, config)
 
     # 执行检查
     triggered, description = rule.check(pair=mock_pair)
@@ -160,7 +160,7 @@ def test_partial_leg2_detection():
     mock_pair.tracked_qty2 = -50
 
     config = {'enabled': True, 'priority': 100, 'action': 'pair_close'}
-    rule = PositionAnomalyRule(mock_algo, config)
+    rule = PairAnomalyRule(mock_algo, config)
 
     triggered, description = rule.check(pair=mock_pair)
 
@@ -200,7 +200,7 @@ def test_anomaly_same_direction():
     mock_pair.tracked_qty2 = 80
 
     config = {'enabled': True, 'priority': 100, 'action': 'pair_close'}
-    rule = PositionAnomalyRule(mock_algo, config)
+    rule = PairAnomalyRule(mock_algo, config)
 
     triggered, description = rule.check(pair=mock_pair)
 
@@ -239,7 +239,7 @@ def test_normal_position_no_trigger():
     mock_pair.tracked_qty2 = -80
 
     config = {'enabled': True, 'priority': 100, 'action': 'pair_close'}
-    rule = PositionAnomalyRule(mock_algo, config)
+    rule = PairAnomalyRule(mock_algo, config)
 
     triggered, description = rule.check(pair=mock_pair)
 
@@ -275,7 +275,7 @@ def test_no_position_no_trigger():
     mock_pair.tracked_qty2 = 0
 
     config = {'enabled': True, 'priority': 100, 'action': 'pair_close'}
-    rule = PositionAnomalyRule(mock_algo, config)
+    rule = PairAnomalyRule(mock_algo, config)
 
     triggered, description = rule.check(pair=mock_pair)
 
@@ -311,7 +311,7 @@ def test_disabled_rule_no_trigger():
 
     # 禁用规则
     config = {'enabled': False, 'priority': 100, 'action': 'pair_close'}
-    rule = PositionAnomalyRule(mock_algo, config)
+    rule = PairAnomalyRule(mock_algo, config)
 
     triggered, description = rule.check(pair=mock_pair)
 
@@ -327,9 +327,9 @@ def test_disabled_rule_no_trigger():
 
 def test_priority_over_holding_timeout():
     """
-    测试场景: 同时触发PositionAnomalyRule和HoldingTimeoutRule
+    测试场景: 同时触发PairAnomalyRule和PairHoldingTimeoutRule
 
-    验证: RiskManager应返回PositionAnomalyRule(priority=100)的动作
+    验证: RiskManager应返回PairAnomalyRule(priority=100)的动作
 
     注: 这个测试需要RiskManager,暂时简化为验证优先级属性
     """
@@ -339,12 +339,12 @@ def test_priority_over_holding_timeout():
 
     mock_algo = MockAlgorithm()
 
-    # 创建PositionAnomalyRule
+    # 创建PairAnomalyRule
     config_anomaly = {'enabled': True, 'priority': 100, 'action': 'pair_close'}
-    rule_anomaly = PositionAnomalyRule(mock_algo, config_anomaly)
+    rule_anomaly = PairAnomalyRule(mock_algo, config_anomaly)
 
     # 验证优先级
-    print(f"[OK] PositionAnomalyRule 优先级: {rule_anomaly.priority}")
+    print(f"[OK] PairAnomalyRule 优先级: {rule_anomaly.priority}")
     assert rule_anomaly.priority == 100, "优先级应为100"
 
     # 验证动作
@@ -361,7 +361,7 @@ def run_all_tests():
     """运行所有测试用例"""
     print("\n" + "="*60)
     print("=" + " "*58 + "=")
-    print("=" + "  PositionAnomalyRule单元测试套件".center(56) + "=")
+    print("=" + "  PairAnomalyRule单元测试套件".center(56) + "=")
     print("=" + " "*58 + "=")
     print("="*60 + "\n")
 

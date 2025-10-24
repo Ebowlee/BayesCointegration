@@ -53,11 +53,11 @@ class MarketCondition:
         self.config = config
 
         # 从config.risk_management['market_condition']读取配置
-        mc_config = config.risk_management.get('market_condition', {})
-        self.enabled = mc_config.get('enabled', True)
-        self.vix_threshold = mc_config.get('vix_threshold', 30)
-        self.hist_vol_threshold = mc_config.get('spy_volatility_threshold', 0.25)
-        self.window_size = mc_config.get('spy_volatility_window', 20)
+        mc_config = config.risk_management['market_condition']
+        self.enabled = mc_config['enabled']
+        self.vix_threshold = mc_config['vix_threshold']
+        self.hist_vol_threshold = mc_config['spy_volatility_threshold']
+        self.window_size = mc_config['spy_volatility_window']
 
         self.algorithm.Debug(
             f"[MarketCondition] 初始化: "
@@ -116,8 +116,6 @@ class MarketCondition:
             self.algorithm.Debug(
                 f"[MarketCondition] VIX={vix_str}, HistVol={vol_str}"
             )
-
-        # === OR逻辑判断 ===
 
         # 判断1：VIX恐慌触发
         if vix is not None and vix >= self.vix_threshold:

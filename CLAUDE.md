@@ -118,7 +118,7 @@ git commit -m "v2.4.8_strategy-optimize@20250720"
   - `get_position_info()`: Query position status (with @property position_mode - v6.9.3)
   - `get_pair_pnl()`: Calculate PnL in two modes: real-time (持仓中) or final (已平仓) - v7.0.0
   - `get_pair_cost()`: Calculate total margin required for the pair
-  - `get_pair_holding_days()`: Calculate holding days (data query for HoldingTimeoutRule)
+  - `get_pair_holding_days()`: Calculate holding days (data query for PairHoldingTimeoutRule)
   - `is_in_cooldown()`: Check cooldown period (part of signal generation logic)
 - **Features**: Cooldown management, beta hedging, position tracking, intent generation
 
@@ -177,12 +177,12 @@ git commit -m "v2.4.8_strategy-optimize@20250720"
 - **Dependency Injection** (v6.9.3): Receives `pairs_manager` to query pair data for concentration analysis
 - **PortfolioLevelRiskManager**:
   - `is_account_blowup()`: Detects loss > 30% of initial capital
-  - `is_excessive_drawdown()`: Detects drawdown > 15% from high water mark
+  - `is_portfolio_drawdown()`: Detects drawdown > 15% from high water mark
   - `is_high_market_volatility()`: Detects SPY 20-day annualized volatility > 30%
   - `get_sector_concentration()`: Calculate industry exposure (v6.9.3: migrated from PairsManager)
 - **PairLevelRiskManager**:
   - `check_holding_timeout()`: Detects positions held > 30 days
-  - `check_position_anomaly()`: Detects partial or same-direction positions
+  - `check_pair_anomaly()`: Detects partial or same-direction positions
   - `check_pair_drawdown()`: Detects pair drawdown > 20% from pair HWM
 
 ### 7. ExecutionManager.py - Unified Execution Coordinator (v7.0.0)
@@ -593,7 +593,7 @@ if pair_level_risk_manager.check_holding_timeout(pair):
 # In OnOrderEvent callback
 anomaly_pairs = tickets_manager.get_anomaly_pairs()
 for pair_id in anomaly_pairs:
-    # Risk management will handle single-leg positions via check_position_anomaly()
+    # Risk management will handle single-leg positions via check_pair_anomaly()
     self.Debug(f"[订单异常] {pair_id} 检测到单腿失败", 1)
 ```
 

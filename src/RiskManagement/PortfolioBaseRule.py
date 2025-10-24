@@ -47,8 +47,8 @@ class RiskRule(ABC):
         """
         self.algorithm = algorithm
         self.config = config
-        self.enabled = config.get('enabled', True)
-        self.priority = config.get('priority', 50)
+        self.enabled = config['enabled']
+        self.priority = config['priority']
         self.cooldown_until = None
 
 

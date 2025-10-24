@@ -1,5 +1,5 @@
 """
-ExcessiveDrawdownRule - 过度回撤风控规则 (v7.1.0 Intent Pattern重构)
+PortfolioDrawdownRule - 组合回撤风控规则 (v7.1.0 Intent Pattern重构)
 
 检测账户净值从最高水位的回撤比例,如果超过阈值则由RiskManager生成所有持仓的CloseIntent。
 这是Portfolio层面的关键风控规则,优先级仅次于AccountBlowupRule。
@@ -11,9 +11,9 @@ from .PortfolioBaseRule import RiskRule
 from typing import Tuple
 
 
-class ExcessiveDrawdownRule(RiskRule):
+class PortfolioDrawdownRule(RiskRule):
     """
-    过度回撤风控规则 (v7.1.0 Intent Pattern重构)
+    组合回撤风控规则 (v7.1.0 Intent Pattern重构)
 
     功能:
     - 追踪账户净值的历史最高水位(high water mark)
@@ -38,16 +38,11 @@ class ExcessiveDrawdownRule(RiskRule):
     3. ExecutionManager执行Intent后激活30天冷却期
     4. 30天后,如果净值未继续下跌,不会再次触发
 
-    v7.1.0变更:
-    - 移除get_action()方法
-    - Rule只负责检测,RiskManager负责生成Intent
-    - Cooldown由RiskManager在Intent执行后激活
-
     使用示例:
     ```python
     # 在RiskManager中
-    config = self.config.risk_management['portfolio_rules']['excessive_drawdown']
-    rule = ExcessiveDrawdownRule(algorithm, config)
+    config = self.config.risk_management['portfolio_rules']['portfolio_drawdown']
+    rule = PortfolioDrawdownRule(algorithm, config)
 
     triggered, description = rule.check()
     if triggered:
@@ -75,7 +70,7 @@ class ExcessiveDrawdownRule(RiskRule):
         # Debug日志
         if algorithm.config.main.get('debug_mode', False):
             self.algorithm.Debug(
-                f"[ExcessiveDrawdown] 初始化: HWM=${self.high_water_mark:,.0f}"
+                f"[PortfolioDrawdown] 初始化: HWM=${self.high_water_mark:,.0f}"
             )
 
 
@@ -100,7 +95,7 @@ class ExcessiveDrawdownRule(RiskRule):
         if self.is_in_cooldown():
             if self.algorithm.config.main.get('debug_mode', False):
                 self.algorithm.Debug(
-                    f"[ExcessiveDrawdown] 跳过: 冷却期至{self.cooldown_until}"
+                    f"[PortfolioDrawdown] 跳过: 冷却期至{self.cooldown_until}"
                 )
             return False, ""
 
@@ -111,7 +106,7 @@ class ExcessiveDrawdownRule(RiskRule):
         if portfolio_value > self.high_water_mark:
             if self.algorithm.config.main.get('debug_mode', False):
                 self.algorithm.Debug(
-                    f"[ExcessiveDrawdown] 更新HWM: "
+                    f"[PortfolioDrawdown] 更新HWM: "
                     f"${self.high_water_mark:,.0f} -> ${portfolio_value:,.0f}"
                 )
             self.high_water_mark = portfolio_value
@@ -125,7 +120,7 @@ class ExcessiveDrawdownRule(RiskRule):
         # 添加诊断日志(debug模式下输出)
         if self.algorithm.config.main.get('debug_mode', False):
             self.algorithm.Debug(
-                f"[ExcessiveDrawdown] 检查: HWM=${self.high_water_mark:,.0f}, "
+                f"[PortfolioDrawdown] 检查: HWM=${self.high_water_mark:,.0f}, "
                 f"当前=${portfolio_value:,.0f}, 回撤={drawdown*100:.2f}%, "
                 f"阈值={threshold*100:.0f}%"
             )
@@ -133,17 +128,17 @@ class ExcessiveDrawdownRule(RiskRule):
         # 判断是否触发(大于等于阈值)
         if drawdown >= threshold:
             description = (
-                f"过度回撤: 回撤{drawdown*100:.1f}% >= 阈值{threshold*100:.1f}% "
+                f"组合回撤: 回撤{drawdown*100:.1f}% >= 阈值{threshold*100:.1f}% "
                 f"(当前价值: ${portfolio_value:,.0f}, 最高水位: ${self.high_water_mark:,.0f})"
             )
-            self.algorithm.Debug(f"[ExcessiveDrawdown] 触发! {description}")
+            self.algorithm.Debug(f"[PortfolioDrawdown] 触发! {description}")
 
             # 重置HWM为当前净值,避免冷却期后重复触发
             # 逻辑: 触发清仓后,从当前净值重新开始追踪,相当于"重新归零"
             old_hwm = self.high_water_mark
             self.high_water_mark = portfolio_value
             self.algorithm.Debug(
-                f"[ExcessiveDrawdown] 重置HWM: ${old_hwm:,.0f} -> ${self.high_water_mark:,.0f}"
+                f"[PortfolioDrawdown] 重置HWM: ${old_hwm:,.0f} -> ${self.high_water_mark:,.0f}"
             )
 
             return True, description

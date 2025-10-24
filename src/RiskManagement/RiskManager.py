@@ -13,12 +13,12 @@ v7.1.0核心变更:
 from AlgorithmImports import *
 from .PortfolioBaseRule import RiskRule
 from .PortfolioAccountBlowup import AccountBlowupRule
-from .PortfolioDrawdown import ExcessiveDrawdownRule
+from .PortfolioDrawdown import PortfolioDrawdownRule
 from .MarketCondition import MarketCondition
-from .HoldingTimeoutRule import HoldingTimeoutRule
-from .PositionAnomalyRule import PositionAnomalyRule
-from .PairDrawdownRule import PairDrawdownRule
-from src.execution.OrderIntent import CloseIntent  # v7.1.0: Intent Pattern
+from .PairHoldingTimeout import PairHoldingTimeoutRule
+from .PairAnomaly import PairAnomalyRule
+from .PairDrawdown import PairDrawdownRule
+from src.execution.OrderIntent import CloseIntent  
 from typing import List, Tuple, Optional
 
 
@@ -90,7 +90,7 @@ class RiskManager:
         """
         self.algorithm = algorithm
         self.config = config
-        self.pairs_manager = pairs_manager  # v6.9.3: 用于 get_sector_concentration()
+        self.pairs_manager = pairs_manager  
 
         # 全局开关
         self.enabled = config.risk_management.get('enabled', True)
@@ -104,21 +104,18 @@ class RiskManager:
         # 初始化市场条件检查器（独立于风控规则）
         self.market_condition = MarketCondition(algorithm, config)
 
-        # v7.1.0 新增: Portfolio层映射机制(Intent Pattern)
         # Rule类名 → CloseIntent的reason字符串
         self._portfolio_rule_to_reason_map = {
-            'AccountBlowupRule': 'RISK_TRIGGER',
-            'ExcessiveDrawdownRule': 'RISK_TRIGGER',
+            'AccountBlowupRule': 'PORTFOLIO BLOW UP',
+            'PortfolioDrawdownRule': 'PORTFOLIO DRAWDOWN',
         }
-        # pair_id → Rule实例的映射(用于Intent执行后激活cooldown)
-        self._portfolio_intent_to_rule_map = {}
 
         # v7.1.0 新增: Pair层映射机制(Intent Pattern)
         # Rule类名 → CloseIntent的reason字符串
         self._pair_rule_to_reason_map = {
-            'HoldingTimeoutRule': 'TIMEOUT',
-            'PositionAnomalyRule': 'ANOMALY',
-            'PairDrawdownRule': 'DRAWDOWN',
+            'PairHoldingTimeoutRule': 'PAIR TIMEOUT',
+            'PairAnomalyRule': 'PAIR ANOMALY',
+            'PairDrawdownRule': 'PAIR DRAWDOWN',
         }
         # pair_id → Rule实例的映射(用于Intent执行后激活cooldown)
         self._pair_intent_to_rule_map = {}
@@ -161,14 +158,11 @@ class RiskManager:
         # 规则名称 -> 规则类的映射
         rule_map = {
             'account_blowup': AccountBlowupRule,
-            'excessive_drawdown': ExcessiveDrawdownRule,
-            # 未来添加更多Portfolio规则:
-            # 'market_volatility': MarketVolatilityRule,
-            # 'sector_concentration': SectorConcentrationRule,
+            'portfolio_drawdown': PortfolioDrawdownRule,
         }
 
         # 从config读取规则配置
-        portfolio_rule_configs = self.config.risk_management.get('portfolio_rules', {})
+        portfolio_rule_configs = self.config.risk_management['portfolio_rules']
 
         # 遍历rule_map，动态注册
         for rule_name, rule_class in rule_map.items():
@@ -206,8 +200,8 @@ class RiskManager:
         4. 返回规则实例列表
 
         当前支持的规则:
-        - HoldingTimeoutRule: 持仓超时检测
-        - (PositionAnomalyRule: Step 2实现)
+        - PairHoldingTimeoutRule: 持仓超时检测
+        - (PairAnomalyRule: Step 2实现)
         - (PairDrawdownRule: Step 3实现)
 
         Returns:
@@ -221,13 +215,13 @@ class RiskManager:
 
         # 规则名称 -> 规则类的映射
         rule_map = {
-            'holding_timeout': HoldingTimeoutRule,
-            'position_anomaly': PositionAnomalyRule,  # Step 2已实现
-            'pair_drawdown': PairDrawdownRule,        # Step 3已实现
+            'holding_timeout': PairHoldingTimeoutRule,
+            'pair_anomaly': PairAnomalyRule,
+            'pair_drawdown': PairDrawdownRule,
         }
 
         # 从config读取规则配置
-        pair_rule_configs = self.config.risk_management.get('pair_rules', {})
+        pair_rule_configs = self.config.risk_management['pair_rules']
 
         # 遍历rule_map，动态注册
         for rule_name, rule_class in rule_map.items():
@@ -254,47 +248,49 @@ class RiskManager:
         return rules
 
 
-    def check_portfolio_risks(self) -> List[CloseIntent]:
+    def check_portfolio_risks(self) -> Tuple[List[CloseIntent], Optional[RiskRule]]:
         """
-        检查Portfolio层面风控,返回需要平仓的CloseIntent列表 (v7.1.0重构)
+        检查Portfolio层面风控,返回需要平仓的CloseIntent列表和触发的规则 (v7.1.1重构)
 
         调度逻辑:
         1. 检查全局enabled开关
-        2. 清空Intent→Rule映射(新OnData周期开始)
-        3. 遍历所有Portfolio规则(已按priority降序排序)
-        4. 跳过disabled和冷却中的规则
-        5. 调用rule.check()检测是否触发
-        6. 如果触发,生成所有持仓的CloseIntent并记录映射
-        7. 返回CloseIntent列表(ExecutionManager执行后激活cooldown)
+        2. 遍历所有Portfolio规则(已按priority降序排序)
+        3. 跳过disabled规则
+        4. 调用rule.check()检测是否触发
+        5. 如果触发,生成所有持仓的CloseIntent
+        6. **立即返回Intent列表和触发的规则**(排他性:只执行最高优先级规则)
+        7. 如果所有规则都未触发,返回空列表和None
+
+        排他性设计:
+        - Portfolio规则按priority降序排序(优先级高的先检查)
+        - 第一个触发的规则生成Intent后**立即返回**
+        - 不会继续检查优先级更低的规则
+        - 例如:AccountBlowup(priority=100)触发后,不会再检查PortfolioDrawdown(priority=90)
+        - 理由:Portfolio规则都是全局性的(清仓/停止交易),执行一个就足够
 
         Returns:
-            List[CloseIntent]: 需要平仓的Intent列表,空列表表示未触发
+            Tuple[List[CloseIntent], Optional[RiskRule]]:
+            - List[CloseIntent]: 需要平仓的Intent列表,空列表表示未触发
+            - Optional[RiskRule]: 触发的规则实例,None表示未触发
 
         v7.1.0变更:
         - 返回值从(action, triggered_rules)改为List[CloseIntent]
         - RiskManager负责生成Intent(不再依赖Rule.get_action())
-        - 记录Intent→Rule映射(用于后续激活cooldown)
-        - Portfolio规则触发后立即返回(最高优先级)
+
+        v7.1.1变更 (本次优化):
+        - 返回值改为Tuple[List[CloseIntent], Optional[RiskRule]]
+        - 移除Intent→Rule映射机制(不再需要)
+        - 移除重复的cooldown检查(main.py已前置检查)
+        - 简化cooldown激活逻辑(直接传递触发的规则)
 
         使用示例:
-            intents = self.risk_manager.check_portfolio_risks()
-            if intents:
-                self.execution_manager.handle_portfolio_risk_intents(intents, self.risk_manager)
+            intents, triggered_rule = self.risk_manager.check_portfolio_risks()
+            if intents and triggered_rule:
+                self.execution_manager.handle_portfolio_risk_intents(intents, triggered_rule, self.risk_manager)
         """
         # 全局禁用时直接返回
         if not self.enabled:
-            return []
-
-        # 清空Intent→Rule映射(每次OnData重新生成)
-        self._portfolio_intent_to_rule_map.clear()
-
-        # v7.1.0修复: Portfolio规则排他性检查
-        # 任何一个Portfolio规则在cooldown，阻止所有风控检查（全局冻结）
-        for rule in self.portfolio_rules:
-            if rule.is_in_cooldown():
-                # 发现cooldown规则，直接返回空列表
-                # 原因: Portfolio规则影响全局，一个规则触发cooldown应阻止所有交易
-                return []
+            return [], None
 
         # 遍历所有Portfolio规则(已按priority降序排序)
         for rule in self.portfolio_rules:
@@ -302,13 +298,9 @@ class RiskManager:
             if not rule.enabled:
                 continue
 
-            # 注意: 无需再检查cooldown（已在上方统一检查）
-
-            # 检查规则
             try:
                 triggered, description = rule.check()
                 if triggered:
-                    # 日志记录触发信息
                     self.algorithm.Debug(
                         f"[Portfolio风控] {rule.__class__.__name__} "
                         f"(priority={rule.priority}): {description}"
@@ -317,7 +309,7 @@ class RiskManager:
                     # 获取reason字符串
                     reason = self._portfolio_rule_to_reason_map.get(
                         rule.__class__.__name__,
-                        'RISK_TRIGGER'  # 默认reason
+                        rule.__class__.__name__
                     )
 
                     # 生成所有持仓的CloseIntent
@@ -327,78 +319,69 @@ class RiskManager:
                         intent = pair.get_close_intent(reason=reason)
                         if intent:
                             intents.append(intent)
-                            # 记录映射: pair_id → rule (用于后续激活cooldown)
-                            self._portfolio_intent_to_rule_map[intent.pair_id] = rule
 
-                    # Portfolio规则触发后立即返回(最高优先级,不检查其他规则)
+                    # Portfolio规则触发后立即返回(排他性:最高优先级)
                     if intents:
                         self.algorithm.Debug(
                             f"[Portfolio风控] 生成{len(intents)}个CloseIntent"
                         )
-                        return intents
+                        return intents, rule
 
             except Exception as e:
                 self.algorithm.Debug(
                     f"[RiskManager] Portfolio规则检查异常 {rule.__class__.__name__}: {str(e)}"
                 )
 
-        # 没有规则触发,返回空列表
-        return []
+        # 没有规则触发,返回空列表和None
+        return [], None
 
 
-    def activate_cooldown_for_portfolio(self, executed_pair_ids: List[Tuple]) -> None:
+    def activate_cooldown_for_portfolio(self, triggered_rule: RiskRule) -> None:
         """
-        为已执行的Portfolio层Intent激活对应Rule的cooldown (v7.1.0新增)
+        为触发的Portfolio规则激活cooldown (v7.1.1简化)
 
         触发时机:
         - ExecutionManager执行完Portfolio风控的CloseIntent后调用
-        - 传入所有成功执行的pair_id列表
-        - 根据_portfolio_intent_to_rule_map查找对应的Rule并激活cooldown
+        - 直接传入触发的规则实例
 
-        设计原则:
-        - 去重: 同一个Rule只激活一次cooldown(即使生成了多个Intent)
-        - 容错: 如果pair_id不在映射中(理论上不应该),跳过不报错
-        - 日志: 每个激活的Rule都记录日志,方便追踪
+        设计原则 (v7.1.1更新):
+        - 简化参数: 直接传入规则实例,不再通过pair_id映射查找
+        - 语义清晰: Portfolio规则是全局性的,与具体pair_id无关
+        - 职责单一: 只负责激活cooldown,不负责映射管理
+        - 无条件激活: 无论订单执行成功与否,都激活cooldown(防止继续交易)
 
         Args:
-            executed_pair_ids: 已成功执行的pair_id列表
-                              (ExecutionManager根据OrderTicket执行结果传入)
+            triggered_rule: 触发的规则实例
 
         示例:
         ```python
         # ExecutionManager中:
-        intents = self.risk_manager.check_portfolio_risks()
-        if intents:
-            executed_pair_ids = self.executor.execute_intents(intents)
-            # 激活cooldown
-            self.risk_manager.activate_cooldown_for_portfolio(executed_pair_ids)
+        intents, triggered_rule = self.risk_manager.check_portfolio_risks()
+        if intents and triggered_rule:
+            # 执行平仓Intent(尝试清空所有持仓)
+            self.executor.execute_intents(intents)
+            # 无论成功与否,都激活cooldown
+            self.risk_manager.activate_cooldown_for_portfolio(triggered_rule)
         ```
 
-        v7.1.0变更:
-        - 新增方法,替代原check_portfolio_risks()中的cooldown激活逻辑
-        - cooldown激活延后到Intent执行成功后,而非检测时
-        - 支持部分执行场景(只为成功执行的Intent激活cooldown)
+        v7.1.1变更:
+        - 参数从 List[Tuple] 改为 RiskRule
+        - 移除 pair_id→rule 映射查找逻辑
+        - 移除去重逻辑(单个规则实例,无需去重)
+        - 移除映射清理逻辑(不再维护映射)
+        - 无条件激活(不再依赖执行成功与否)
         """
-        activated_rules = set()  # 用于去重,防止同一Rule被多次激活
+        if triggered_rule is None:
+            return  # 防御性检查
 
-        for pair_id in executed_pair_ids:
-            # 查找该pair_id对应的Rule
-            if pair_id in self._portfolio_intent_to_rule_map:
-                rule = self._portfolio_intent_to_rule_map[pair_id]
+        # 直接激活规则的cooldown
+        triggered_rule.activate_cooldown()
 
-                # 检查是否已激活过(去重)
-                if rule not in activated_rules:
-                    rule.activate_cooldown()
-                    activated_rules.add(rule)
-
-                    # 记录日志
-                    self.algorithm.Debug(
-                        f"[Portfolio风控] {rule.__class__.__name__} "
-                        f"冷却期激活至 {rule.cooldown_until}"
-                    )
-
-        # 清空映射(防止下次OnData误用旧映射)
-        self._portfolio_intent_to_rule_map.clear()
+        # 记录日志
+        self.algorithm.Debug(
+            f"[Portfolio风控] {triggered_rule.__class__.__name__} "
+            f"冷却期激活至 {triggered_rule.cooldown_until}"
+        )
 
 
     def has_any_rule_in_cooldown(self) -> bool:
@@ -603,8 +586,8 @@ class RiskManager:
         - Intent执行后由ExecutionManager调用activate_cooldown_for_pairs()
 
         当前支持的规则:
-        - PositionAnomalyRule: 仓位异常检测 (priority=100)
-        - HoldingTimeoutRule: 持仓超时检测 (priority=60)
+        - PairAnomalyRule: 配对异常检测 (priority=100)
+        - PairHoldingTimeoutRule: 持仓超时检测 (priority=60)
         - PairDrawdownRule: 配对回撤检测 (priority=50)
         """
         # 全局禁用时直接返回

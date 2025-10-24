@@ -5,9 +5,9 @@ from src.Pairs import PositionMode
 # endregion
 
 
-class PositionAnomalyRule(RiskRule):
+class PairAnomalyRule(RiskRule):
     """
-    仓位异常风控规则 (v7.1.0 Intent Pattern重构)
+    配对异常风控规则 (v7.1.0 Intent Pattern重构)
 
     检测配对持仓的异常状态,包括单边持仓和同向持仓。
     这些异常通常由订单部分成交、取消或拒绝导致。
@@ -36,13 +36,13 @@ class PositionAnomalyRule(RiskRule):
 
     使用场景:
     1. OnOrderEvent检测到订单异常(Canceled/Invalid) → TicketsManager标记
-    2. OnData循环检查pairs → PositionAnomalyRule检测 → RiskManager生成Intent
+    2. OnData循环检查pairs → PairAnomalyRule检测 → RiskManager生成Intent
     3. ExecutionManager执行平仓 → 清理异常持仓
     """
 
     def __init__(self, algorithm, config: dict):
         """
-        初始化仓位异常规则
+        初始化配对异常规则
 
         Args:
             algorithm: QCAlgorithm实例
@@ -94,26 +94,15 @@ class PositionAnomalyRule(RiskRule):
 
         # 4. 根据异常类型生成描述
         if mode == PositionMode.PARTIAL_LEG1:
-            description = (
-                f"单边持仓LEG1: {pair.symbol1}={qty1:+.0f}, "
-                f"{pair.symbol2}=0"
-            )
+            description = (f"单边持仓LEG1: {pair.symbol1}={qty1:+.0f}, " f"{pair.symbol2}=0")
         elif mode == PositionMode.PARTIAL_LEG2:
-            description = (
-                f"单边持仓LEG2: {pair.symbol1}=0, "
-                f"{pair.symbol2}={qty2:+.0f}"
-            )
+            description = (f"单边持仓LEG2: {pair.symbol1}=0, " f"{pair.symbol2}={qty2:+.0f}")
         elif mode == PositionMode.ANOMALY_SAME:
-            description = (
-                f"同向持仓: {pair.symbol1}={qty1:+.0f}, "
-                f"{pair.symbol2}={qty2:+.0f}"
-            )
+            description = (f"同向持仓: {pair.symbol1}={qty1:+.0f}, " f"{pair.symbol2}={qty2:+.0f}")
         else:
             # 防御性编程: 理论上不应该到达这里
             # 如果has_anomaly()返回True,mode必然是上述三种之一
             description = f"未知异常: mode={mode}, qty1={qty1:+.0f}, qty2={qty2:+.0f}"
-            self.algorithm.Error(
-                f"[PositionAnomalyRule] 检测到未预期的异常模式: {mode}"
-            )
+            self.algorithm.Error(f"[PairAnomalyRule] 检测到未预期的异常模式: {mode}")
 
         return True, description

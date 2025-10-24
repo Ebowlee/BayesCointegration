@@ -12,7 +12,7 @@ from src.Pairs import Pairs
 from src.PairsManager import PairsManager
 from src.TicketsManager import TicketsManager
 from src.RiskManagement import RiskManager
-from src.execution import ExecutionManager, OrderExecutor
+from src.execution import ExecutionManager, OrderExecutor, MarginAllocator
 from src.TradeHistory import TradeJournal, TradeAnalyzer
 
 # endregion
@@ -59,13 +59,11 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         self.last_analysis_time = None  # 上次分析时间
 
         # === 添加VIX指数（用于市场条件检查）===
-        self.vix_symbol = self.AddIndex("VIX", Resolution.Daily).Symbol
-
-        # === 资金管理参数 ===
-        self.initial_cash = self.config.main['cash']
-        # 注意：cash_buffer现在是动态的，将在OnData中计算
-        # 最小投资额是固定的
-        self.min_investment = self.initial_cash * self.config.pairs_trading['min_investment_ratio']
+        vix_config = self.config.risk_management['market_condition']
+        self.vix_symbol = self.AddIndex(
+            vix_config['vix_symbol'],
+            vix_config['vix_resolution']
+        ).Symbol
 
         # === 订单追踪管理器(替代旧的去重机制) ===
         self.tickets_manager = TicketsManager(self, self.pairs_manager)
@@ -77,9 +75,19 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # === 初始化订单执行器 ===
         self.order_executor = OrderExecutor(self, self.tickets_manager)
 
+        # === 初始化资金分配器 ===
+        # MarginAllocator 负责计算资金分配，包括 min_investment_amount
+        self.margin_allocator = MarginAllocator(self, self.config)
+
         # === 初始化统一执行器 ===
-        # 依赖注入 order_executor
-        self.execution_manager = ExecutionManager(self, self.pairs_manager, self.tickets_manager, self.order_executor)
+        # 依赖注入 order_executor 和 margin_allocator
+        self.execution_manager = ExecutionManager(
+            self,
+            self.pairs_manager,
+            self.tickets_manager,
+            self.order_executor,
+            self.margin_allocator
+        )
 
         # === 初始化交易历史追踪 ===
         self.trade_journal = TradeJournal(self)
@@ -183,14 +191,18 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # === Portfolio规则cooldown检查（第一道防线） ===
         # Portfolio规则排他性 - 任何规则在cooldown，阻止所有交易
         if self.risk_manager.has_any_rule_in_cooldown():
+            # 检查并清理残留持仓(Portfolio风控触发后可能有部分配对平仓失败)
+            self.execution_manager.cleanup_remaining_positions()
             return  # 冷却期内完全停止所有交易
 
         # === Portfolio层面风控检查（最优先） ===
-        # Intent Pattern - 返回List[CloseIntent]
-        portfolio_intents = self.risk_manager.check_portfolio_risks()
-        if portfolio_intents:
-            # 传递risk_manager用于激活cooldown
-            self.execution_manager.handle_portfolio_risk_intents(portfolio_intents, self.risk_manager)
+        # Intent Pattern - 返回List[CloseIntent]和触发的规则 (v7.1.1更新)
+        portfolio_intents, triggered_rule = self.risk_manager.check_portfolio_risks()
+        if portfolio_intents and triggered_rule:
+            # 传递triggered_rule用于激活cooldown
+            self.execution_manager.handle_portfolio_risk_intents(
+                portfolio_intents, triggered_rule, self.risk_manager
+            )
             return  # 触发任何风控后，完全停止所有交易
 
         # 如果没有可交易配对，跳过

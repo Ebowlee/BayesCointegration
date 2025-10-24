@@ -26,7 +26,7 @@ class PairDrawdownRule(RiskRule):
     - 无需冷却期: 订单锁机制(tickets_manager.is_pair_locked)已防止重复提交
     - 最低优先级: priority=50,在PositionAnomaly(100)和HoldingTimeout(60)之后
 
-    与ExcessiveDrawdownRule的对比:
+    与PortfolioDrawdownRule的对比:
     - 层面: Pair vs Portfolio
     - HWM存储: Rule.pair_hwm_dict vs Rule.high_water_mark
     - HWM初始值: pair_cost(开仓时) vs initial_capital

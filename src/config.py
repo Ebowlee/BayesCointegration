@@ -177,6 +177,8 @@ class StrategyConfig:
             # ========== 市场条件检查 ==========
             'market_condition': {
                 'enabled': True,                     # 是否启用市场条件检查
+                'vix_symbol': 'VIX',                 # VIX指数代码
+                'vix_resolution': Resolution.Daily,  # VIX数据分辨率
                 'vix_threshold': 30,                 # VIX恐慌阈值（前瞻性指标）
                 'spy_volatility_threshold': 0.25,    # SPY年化波动率阈值（25%）
                 'spy_volatility_window': 20          # 滚动窗口天数（行业标准）
@@ -191,7 +193,7 @@ class StrategyConfig:
                     'cooldown_days': 36500,              # 永久冷却(100年)
                     'action': 'portfolio_liquidate_all'
                 },
-                'excessive_drawdown': {
+                'portfolio_drawdown': {
                     'enabled': True,                     # 重新启用
                     'priority': 90,
                     'threshold': 0.15,                   # 回撤阈值：15% (生产环境)
@@ -215,7 +217,7 @@ class StrategyConfig:
                     'max_days': 30,                      # 最大持仓天数
                     'action': 'pair_close'               # 订单锁机制已防止重复,无需冷却期
                 },
-                'position_anomaly': {
+                'pair_anomaly': {
                     'enabled': True,                     # Step 2已实现
                     'priority': 100,                     # 最高优先级：异常必须立即处理
                     'action': 'pair_close'               # 统一使用pair_close
