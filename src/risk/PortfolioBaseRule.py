@@ -49,7 +49,10 @@ class RiskRule(ABC):
         self.config = config
         self.enabled = config['enabled']
         self.priority = config['priority']
-        self.cooldown_until = None
+
+        # v7.1.2: 支持Portfolio和Pair两种cooldown模式
+        self.cooldown_until = None    # Portfolio规则: 全局cooldown
+        self.pair_cooldowns = {}      # Pair规则: per-pair cooldown {pair_id: cooldown_until}
 
 
     def __repr__(self):
@@ -93,9 +96,9 @@ class RiskRule(ABC):
         pass
 
 
-    def is_in_cooldown(self) -> bool:
+    def is_in_cooldown(self, pair_id=None) -> bool:
         """
-        检查是否在冷却期
+        检查是否在冷却期 (v7.1.2: 支持Portfolio和Pair两种模式)
 
         冷却期机制:
         - 当规则触发后，会设置cooldown_until时间
@@ -103,26 +106,39 @@ class RiskRule(ABC):
         - 避免频繁触发同一规则，减少无意义的重复操作
 
         应用场景:
-        - 爆仓规则触发后，永久冷却（cooldown_days=36500）
-        - 回撤规则触发后，冷却30天，等待市场恢复
-        - 配对回撤触发后，冷却15-30天，避免立即重开仓
+        - Portfolio规则: 爆仓(永久)、回撤(30天)、市场波动(14天)
+        - Pair规则: 持仓超时(30天)、配对回撤(30天)、仓位异常(30天)
+
+        Args:
+            pair_id: 配对ID (仅Pair规则需要传入,Portfolio规则传None)
 
         Returns:
             True: 在冷却期，不应检测
             False: 不在冷却期，可以检测
 
+        设计特点:
+        - Portfolio规则 (pair_id=None): 检查全局cooldown_until
+        - Pair规则 (pair_id不为None): 检查该配对的pair_cooldowns[pair_id]
+        - 向后兼容: 默认pair_id=None,Portfolio规则无需修改
+
         注意:
         使用 <= 而非 < 确保冷却期到期当天仍保持冷却状态
         """
-        if self.cooldown_until is None:
-            return False
+        if pair_id is None:
+            # Portfolio规则: 检查全局cooldown
+            if self.cooldown_until is None:
+                return False
+            return self.algorithm.Time <= self.cooldown_until
+        else:
+            # Pair规则: 检查per-pair cooldown
+            if pair_id not in self.pair_cooldowns:
+                return False
+            return self.algorithm.Time <= self.pair_cooldowns[pair_id]
 
-        return self.algorithm.Time <= self.cooldown_until
 
-
-    def activate_cooldown(self):
+    def activate_cooldown(self, pair_id=None):
         """
-        激活冷却期
+        激活冷却期 (v7.1.2: 支持Portfolio和Pair两种模式)
 
         调用时机(v7.1.0):
         - Intent执行成功后，由RiskManager调用
@@ -136,15 +152,34 @@ class RiskRule(ABC):
         - 市场波动: 14天 (观察市场稳定性)
 
         Pair层面:
-        - 持仓超时: 15-30天 (避免立即重开仓)
+        - 持仓超时: 30天 (避免该配对立即重开仓)
         - 配对回撤: 30天 (止损后充分冷却)
-        - 仓位异常: 1天 (快速重试)
+        - 仓位异常: 30天 (异常配对暂时冻结)
+
+        Args:
+            pair_id: 配对ID (仅Pair规则需要传入,Portfolio规则传None)
+
+        设计特点:
+        - Portfolio规则 (pair_id=None): 设置全局cooldown_until
+        - Pair规则 (pair_id不为None): 设置该配对的pair_cooldowns[pair_id]
+        - 向后兼容: 默认pair_id=None,Portfolio规则无需修改
 
         特殊情况:
         - 如果配置中没有'cooldown_days'字段，不设置冷却期
         - 如果cooldown_days=0或None，不设置冷却期
         """
-        if 'cooldown_days' in self.config:
-            days = self.config['cooldown_days']
-            if days is not None and days > 0:
-                self.cooldown_until = self.algorithm.Time + timedelta(days=days)
+        if 'cooldown_days' not in self.config:
+            return
+
+        days = self.config['cooldown_days']
+        if days is None or days <= 0:
+            return
+
+        cooldown_end = self.algorithm.Time + timedelta(days=days)
+
+        if pair_id is None:
+            # Portfolio规则: 设置全局cooldown
+            self.cooldown_until = cooldown_end
+        else:
+            # Pair规则: 设置per-pair cooldown
+            self.pair_cooldowns[pair_id] = cooldown_end
