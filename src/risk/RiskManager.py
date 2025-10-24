@@ -50,7 +50,7 @@ class RiskManager:
     使用示例 (v7.1.0):
     ```python
     # 在main.py的Initialize()中
-    from src.RiskManagement import RiskManager
+    from src.risk import RiskManager
     self.risk_manager = RiskManager(self, self.config, self.pairs_manager)
 
     # 在OnData()中检查Portfolio风控

@@ -16,7 +16,7 @@ The strategy uses **OnData-driven architecture** with **Intent Pattern** (migrat
 - **OrderExecutor**: Unified order execution engine (separates intent from execution)
 - **OrderIntent**: Intent value objects (OpenIntent, CloseIntent) for trade intentions
 - **PairsManager**: Lifecycle manager for all pairs (active, legacy, dormant states)
-- **RiskManagement**: Two-tier risk control system with separation of concerns (detection vs execution)
+- **risk**: Two-tier risk control system with separation of concerns (detection vs execution)
 - **Analysis modules**: DataProcessor, CointegrationAnalyzer, BayesianModeler, PairSelector
 
 Key architectural principles (v7.0.0):
@@ -171,7 +171,7 @@ git commit -m "v2.4.8_strategy-optimize@20250720"
   - `has_tradeable_pairs()`: Check if any tradeable pairs exist (O(1) performance)
   - `reclassify_pairs()`: Reclassify pairs using PairState.classify()
 
-### 6. RiskManagement.py - Two-Tier Risk Control
+### 6. risk/RiskManager.py - Two-Tier Risk Control
 - **Purpose**: Risk detection and analysis (execution handled by main.py)
 - **Design Principle**: Separation of concerns - risk managers detect, main.py executes
 - **Dependency Injection** (v6.9.3): Receives `pairs_manager` to query pair data for concentration analysis
@@ -438,7 +438,7 @@ required_margin = long_value * 0.5 + short_value * 1.5
 - **Pair States**: Active (tradeable), Legacy (position only), Dormant (inactive)
 - **Order States**: NONE (no orders) / PENDING (executing) / COMPLETED (filled) / ANOMALY (canceled/invalid)
 - **Position Tracking**: Direct Portfolio queries via Pairs.get_position_info()
-- **Risk State**: High water marks tracked in RiskManagement classes
+- **Risk State**: High water marks tracked in risk module classes
 - **Cooldown Tracking**: Per-pair cooldown managed in Pairs objects
 - **Margin Constraints**: Dynamic margin buffer (5% of MarginRemaining) and allocation tracked in main.py
 
@@ -677,7 +677,7 @@ for pair in tradeable_pairs.values():
   - **OrderIntent.py**: Intent value objects (OpenIntent, CloseIntent - v7.0.0)
   - **PairsManager.py**: Lifecycle management for all pairs
   - **ExecutionManager.py**: Execution coordinator (orchestrates intent generation and execution - v7.0.0)
-  - **RiskManagement.py**: Two-tier risk detection system
+  - **risk/RiskManager.py**: Two-tier risk detection system
   - **TicketsManager.py**: Order lifecycle tracking and duplicate order prevention (v6.4.4)
   - **TradeHistory.py**: Trade snapshot and journal for post-trade analysis
 - **docs/**: Documentation and version history

@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from src.RiskManagement.RiskManager import RiskManager
+from src.risk.RiskManager import RiskManager
 
 
 # ========== Mock对象 ==========
@@ -201,7 +201,7 @@ def test_triggered_rules_list():
         print(f"  描述: {description}")
 
         # 验证元组结构
-        from src.RiskManagement.base import RiskRule
+        from src.risk.base import RiskRule
         if isinstance(rule, RiskRule) and isinstance(description, str) and len(description) > 0:
             print("  [PASS]")
             return True

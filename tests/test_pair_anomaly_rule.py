@@ -31,7 +31,7 @@ sys.modules['AlgorithmImports'] = AlgorithmImports
 from tests.mocks.mock_qc_objects import MockAlgorithm, MockSymbol
 
 # 导入生产代码
-from src.RiskManagement.PairAnomalyRule import PairAnomalyRule
+from src.risk.PairAnomaly import PairAnomalyRule
 from src.Pairs import PositionMode
 
 

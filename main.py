@@ -11,7 +11,7 @@ from src.analysis.PairSelector import PairSelector
 from src.Pairs import Pairs
 from src.PairsManager import PairsManager
 from src.TicketsManager import TicketsManager
-from src.RiskManagement import RiskManager
+from src.risk import RiskManager
 from src.execution import ExecutionManager, OrderExecutor, MarginAllocator
 from src.TradeHistory import TradeJournal, TradeAnalyzer
 

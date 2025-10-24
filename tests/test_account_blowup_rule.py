@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from src.RiskManagement.AccountBlowupRule import AccountBlowupRule
+from src.risk.PortfolioAccountBlowup import AccountBlowupRule
 
 
 # ========== Mock对象 ==========
