@@ -80,7 +80,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         self.margin_allocator = MarginAllocator(self, self.config)
 
         # === 初始化统一执行器 ===
-        # 依赖注入 risk_manager, order_executor 和 margin_allocator (v7.1.3: 新增risk_manager)
+        # 依赖注入 risk_manager, order_executor 和 margin_allocator
         self.execution_manager = ExecutionManager(
             self,
             self.pairs_manager,
@@ -197,7 +197,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
             return  # 冷却期内完全停止所有交易
 
         # === Portfolio层面风控检查（最优先） ===
-        # Intent Pattern - 返回List[CloseIntent]和触发的规则 (v7.1.1更新)
+        # Intent Pattern - 返回List[CloseIntent]和触发的规则
         portfolio_intents, triggered_rule = self.risk_manager.check_portfolio_risks()
         if portfolio_intents and triggered_rule:
             # 传递triggered_rule用于激活cooldown
@@ -215,7 +215,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         pairs_without_position = self.pairs_manager.get_pairs_without_position()
 
         # === Pair层面风控检查 ===
-        # 直接循环检查每个配对 (v7.1.3简化: 移除check_all_pair_risks包装)
+        # 直接循环检查每个配对
         pair_intents = []
         for pair in pairs_with_position.values():
             intent = self.risk_manager.check_pair_risks(pair)

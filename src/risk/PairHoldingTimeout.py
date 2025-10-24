@@ -6,15 +6,13 @@ from typing import Tuple
 
 class PairHoldingTimeoutRule(RiskRule):
     """
-    持仓超时风控规则 (v7.1.0 Intent Pattern重构)
+    持仓超时风控规则 
 
     检测配对持仓时间是否超过阈值。配对交易是短期均值回归策略,
     如果持仓超过max_days仍未回归,说明协整关系可能失效,应止损退出。
 
     触发条件:
     - 持仓天数 > max_days (从pair.pair_opened_time到当前时间)
-
-    v7.1.0变更:
     - 移除get_action()方法
     - Rule只负责检测,RiskManager负责生成CloseIntent(reason='TIMEOUT')
     - cooldown由RiskManager在Intent执行后激活
@@ -54,11 +52,11 @@ class PairHoldingTimeoutRule(RiskRule):
 
     def check(self, pair) -> Tuple[bool, str]:
         """
-        检查配对是否触发持仓超时 (v7.1.2: 新增per-pair cooldown检查)
+        检查配对是否触发持仓超时
 
         检查流程:
         1. 检查规则是否启用
-        2. 检查该配对是否在冷却期 (v7.1.2新增)
+        2. 检查该配对是否在冷却期
         3. 调用pair.get_pair_holding_days()获取持仓天数
         4. 判断是否超过max_days阈值
 
@@ -84,7 +82,7 @@ class PairHoldingTimeoutRule(RiskRule):
         if not self.enabled:
             return False, ""
 
-        # 2. 检查该配对是否在冷却期 (v7.1.2新增)
+        # 2. 检查该配对是否在冷却期
         if self.is_in_cooldown(pair_id=pair.pair_id):
             return False, ""
 

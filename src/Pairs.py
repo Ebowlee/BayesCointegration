@@ -576,7 +576,7 @@ class Pairs:
 
     def get_signal(self, data):
         """
-        获取交易信号 (v7.1.3: cooldown检查移至ExecutionManager)
+        获取交易信号 (cooldown检查在ExecutionManager中进行)
         一步到位的接口,内部自动计算所需信息
         """
         # 内部计算zscore

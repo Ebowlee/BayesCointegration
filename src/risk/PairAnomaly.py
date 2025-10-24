@@ -7,7 +7,7 @@ from src.Pairs import PositionMode
 
 class PairAnomalyRule(RiskRule):
     """
-    配对异常风控规则 (v7.1.0 Intent Pattern重构)
+    配对异常风控规则 
 
     检测配对持仓的异常状态,包括单边持仓和同向持仓。
     这些异常通常由订单部分成交、取消或拒绝导致。
@@ -16,8 +16,6 @@ class PairAnomalyRule(RiskRule):
     - PARTIAL_LEG1: 只有第一腿有持仓,第二腿无持仓
     - PARTIAL_LEG2: 只有第二腿有持仓,第一腿无持仓
     - ANOMALY_SAME: 两腿持仓方向相同(都是多头或都是空头)
-
-    v7.1.0变更:
     - 移除get_action()方法
     - Rule只负责检测,RiskManager负责生成CloseIntent(reason='ANOMALY')
     - cooldown由RiskManager在Intent执行后激活
@@ -53,11 +51,11 @@ class PairAnomalyRule(RiskRule):
 
     def check(self, pair) -> Tuple[bool, str]:
         """
-        检查配对是否有异常持仓 (v7.1.2: 新增per-pair cooldown检查)
+        检查配对是否有异常持仓
 
         检查流程:
         1. 检查规则是否启用
-        2. 检查该配对是否在冷却期 (v7.1.2新增)
+        2. 检查该配对是否在冷却期
         3. 调用pair.has_anomaly()判断是否有异常
         4. 如果有异常,获取position_info详情
         5. 根据异常类型生成描述信息
@@ -84,7 +82,7 @@ class PairAnomalyRule(RiskRule):
         if not self.enabled:
             return False, ""
 
-        # 2. 检查该配对是否在冷却期 (v7.1.2新增)
+        # 2. 检查该配对是否在冷却期
         if self.is_in_cooldown(pair_id=pair.pair_id):
             return False, ""
 

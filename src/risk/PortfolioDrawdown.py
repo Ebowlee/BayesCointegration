@@ -1,5 +1,5 @@
 """
-PortfolioDrawdownRule - 组合回撤风控规则 (v7.1.0 Intent Pattern重构)
+PortfolioDrawdownRule - 组合回撤风控规则 
 
 检测账户净值从最高水位的回撤比例,如果超过阈值则由RiskManager生成所有持仓的CloseIntent。
 这是Portfolio层面的关键风控规则,优先级仅次于AccountBlowupRule。
@@ -13,7 +13,7 @@ from typing import Tuple
 
 class PortfolioDrawdownRule(RiskRule):
     """
-    组合回撤风控规则 (v7.1.0 Intent Pattern重构)
+    组合回撤风控规则 
 
     功能:
     - 追踪账户净值的历史最高水位(high water mark)

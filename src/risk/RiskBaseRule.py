@@ -7,7 +7,7 @@ from datetime import timedelta
 
 class RiskRule(ABC):
     """
-    风控规则抽象基类 (v7.1.0 Intent Pattern重构)
+    风控规则抽象基类 
 
     所有具体风控规则都必须继承此类并实现check()方法
 
@@ -22,8 +22,6 @@ class RiskRule(ABC):
     适用范围:
     - Portfolio层面风控 (爆仓、回撤、市场波动等)
     - Pair层面风控 (持仓超时、仓位异常、配对回撤等)
-
-    v7.1.0变更:
     - 移除get_action()抽象方法
     - Rule只负责检测(check),不生成Intent
     - Cooldown由RiskManager在Intent执行后激活
@@ -98,7 +96,7 @@ class RiskRule(ABC):
 
     def is_in_cooldown(self, pair_id=None) -> bool:
         """
-        检查是否在冷却期 (v7.1.2: 支持Portfolio和Pair两种模式)
+        检查是否在冷却期
 
         冷却期机制:
         - 当规则触发后，会设置cooldown_until时间
@@ -138,7 +136,7 @@ class RiskRule(ABC):
 
     def activate_cooldown(self, pair_id=None):
         """
-        激活冷却期 (v7.1.2: 支持Portfolio和Pair两种模式)
+        激活冷却期
 
         调用时机(v7.1.0):
         - Intent执行成功后，由RiskManager调用

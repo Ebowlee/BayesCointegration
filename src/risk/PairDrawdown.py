@@ -6,7 +6,7 @@ from typing import Tuple
 
 class PairDrawdownRule(RiskRule):
     """
-    配对回撤风控规则 (v7.1.0 Intent Pattern重构)
+    配对回撤风控规则 
 
     检测配对级别的回撤,如果浮亏超过阈值则触发平仓。
 
@@ -14,8 +14,6 @@ class PairDrawdownRule(RiskRule):
     - 配对回撤 >= 阈值(默认15%)
     - 回撤定义: (HWM - current_pair_value) / HWM
     - pair_value = pnl + pair_cost (配对总价值 = 浮盈 + 保证金成本)
-
-    v7.1.0变更:
     - 移除get_action()方法
     - Rule只负责检测,RiskManager负责生成CloseIntent(reason='DRAWDOWN')
     - cooldown由RiskManager在Intent执行后激活
@@ -65,11 +63,11 @@ class PairDrawdownRule(RiskRule):
 
     def check(self, pair) -> Tuple[bool, str]:
         """
-        检查配对是否触发回撤风控 (v7.1.2: 新增per-pair cooldown检查)
+        检查配对是否触发回撤风控
 
         检查流程:
         1. 检查规则是否启用
-        2. 检查该配对是否在冷却期 (v7.1.2新增)
+        2. 检查该配对是否在冷却期
         3. 获取配对当前 PnL 和保证金成本 (调用 pair.get_pair_pnl() 和 pair.get_pair_cost())
         4. 计算配对总价值: pair_value = pnl + pair_cost
         5. 更新该配对的 HWM (追踪 pair_value 峰值)
@@ -94,8 +92,6 @@ class PairDrawdownRule(RiskRule):
             - Portfolio: (HWM_portfolio - TotalPortfolioValue) / HWM_portfolio
             - Pair: (HWM_pair_value - current_pair_value) / HWM_pair_value
             - 公式结构完全一致,只是追踪对象不同
-
-        v7.1.2变更:
             - 新增per-pair cooldown检查,防止同一配对短期内重复触发
 
         示例:
@@ -106,7 +102,7 @@ class PairDrawdownRule(RiskRule):
         if not self.enabled:
             return False, ""
 
-        # 2. 检查该配对是否在冷却期 (v7.1.2新增)
+        # 2. 检查该配对是否在冷却期
         if self.is_in_cooldown(pair_id=pair.pair_id):
             return False, ""
 
@@ -152,7 +148,7 @@ class PairDrawdownRule(RiskRule):
 
     def on_pair_closed(self, pair_id: tuple):
         """
-        配对平仓后的清理回调 (v6.9.4 新增)
+        配对平仓后的清理回调 
 
         职责:
         - 清理该配对的 HWM 状态
@@ -166,7 +162,7 @@ class PairDrawdownRule(RiskRule):
             pair_id: 配对标识符元组 (symbol1, symbol2)
 
         示例:
-            # main.py 中 (v7.0.0: Intent模式)
+            # main.py 中
             intent = pair.get_close_intent(reason='STOP_LOSS')
             if intent:
                 tickets = order_executor.execute_close(intent)

@@ -1,5 +1,5 @@
 """
-ExecutionManager - 统一执行器 (v7.0.0: Intent模式重构)
+ExecutionManager - 统一执行器 (Intent模式)
 
 职责:
 - 执行风控响应(Portfolio和Pair层面)
@@ -22,13 +22,13 @@ from typing import List
 
 class ExecutionManager:
     """
-    统一执行器 (v7.0.0: Intent模式重构)
+    统一执行器 (Intent模式)
 
     负责协调所有交易动作,包括:
     - 风控执行: Portfolio层面(全部清仓、减仓等) + Pair层面(配对平仓)
     - 正常交易: 信号驱动的开仓和平仓
 
-    设计特点(v7.0.0):
+    设计特点:
     - 与RiskManager配合使用(检测与执行分离)
     - 与Pairs配合使用(信号生成与执行分离)
     - 与OrderExecutor配合使用(意图与执行分离)
@@ -38,15 +38,15 @@ class ExecutionManager:
 
     def __init__(self, algorithm, pairs_manager, risk_manager, tickets_manager, order_executor, margin_allocator):
         """
-        初始化统一执行器 (v7.0.0: order_executor; v7.1.1: margin_allocator; v7.1.3: risk_manager)
+        初始化统一执行器
 
         Args:
             algorithm: QuantConnect算法实例
             pairs_manager: 配对管理器
-            risk_manager: 风控管理器(v7.1.3新增 - 用于cooldown检查)
+            risk_manager: 风控管理器(用于cooldown检查)
             tickets_manager: 订单追踪管理器
-            order_executor: 订单执行器(v7.0.0新增)
-            margin_allocator: 资金分配器(v7.1.1新增)
+            order_executor: 订单执行器
+            margin_allocator: 资金分配器
         """
         self.algorithm = algorithm
         self.pairs_manager = pairs_manager
@@ -59,11 +59,11 @@ class ExecutionManager:
         self.min_investment_amount = margin_allocator.min_investment_amount
 
 
-    # ===== Cooldown检查方法 (v7.1.3新增) =====
+    # ===== Cooldown检查方法 =====
 
     def is_pair_in_risk_cooldown(self, pair_id: tuple) -> bool:
         """
-        检查配对是否在风险冷却期 (v7.1.3)
+        检查配对是否在风险冷却期
 
         风险冷却期由风险规则激活(30天):
         - PairDrawdownRule: 配对回撤触发
@@ -95,7 +95,7 @@ class ExecutionManager:
 
     def is_pair_in_normal_cooldown(self, pair) -> bool:
         """
-        检查配对是否在普通交易冷却期 (v7.1.3)
+        检查配对是否在普通交易冷却期
 
         普通冷却期由正常平仓激活(10天):
         - 信号回归平仓 (CLOSE)
@@ -128,11 +128,11 @@ class ExecutionManager:
 
     def handle_portfolio_risk_intents(self, intents: List[CloseIntent], triggered_rule, risk_manager) -> None:
         """
-        处理Portfolio层面风控Intent列表 (v7.1.1 API更新)
+        处理Portfolio层面风控Intent列表
 
         Args:
             intents: CloseIntent列表（所有持仓配对的平仓Intent）
-            triggered_rule: 触发的规则实例 (v7.1.1新增参数)
+            triggered_rule: 触发的规则实例
             risk_manager: RiskManager实例（用于激活cooldown）
 
         执行流程:
@@ -142,11 +142,6 @@ class ExecutionManager:
         4. 注册订单到tickets_manager
         5. 记录成功执行的配对数量
         6. 无论成功与否，调用risk_manager激活cooldown（防止继续交易）
-
-        v7.1.1变更:
-        - 新增参数 triggered_rule: RiskRule
-        - cooldown无条件激活（不再依赖执行成功与否）
-        - 传递规则实例而非pair_id列表
         """
         self.algorithm.Debug(f"[Portfolio风控] 触发Intent执行: 共{len(intents)}个配对需要平仓")
 
@@ -189,7 +184,7 @@ class ExecutionManager:
 
     def handle_pair_risk_intents(self, intents: List[CloseIntent], risk_manager) -> None:
         """
-        处理Pair层面风控Intent列表 (v7.1.0 Intent Pattern重构)
+        处理Pair层面风控Intent列表
 
         Args:
             intents: CloseIntent列表（触发风控的配对）
@@ -204,7 +199,7 @@ class ExecutionManager:
         6. 调用risk_manager激活触发规则的cooldown
         7. 调用risk_manager清理平仓配对的HWM
 
-        v7.1.0设计原则:
+        设计原则:
         - 与Portfolio风控完全对称的Intent执行逻辑
         - cooldown延迟激活：由RiskManager在Intent执行成功后激活
         - HWM自动清理：平仓后立即清理PairDrawdownRule的HWM状态
@@ -260,7 +255,7 @@ class ExecutionManager:
 
     def cleanup_remaining_positions(self):
         """
-        清理cooldown期间的残留持仓 (v7.1.1新增)
+        清理cooldown期间的残留持仓
 
         触发时机:
         - Portfolio风控触发后,进入cooldown期间
@@ -358,7 +353,7 @@ class ExecutionManager:
             # 获取交易信号
             signal = pair.get_signal(data)
 
-            # 处理平仓信号 (v7.0.0: Intent模式, v7.1.0: 自动注册简化)
+            # 处理平仓信号
             if signal == TradingSignal.CLOSE:
                 self.algorithm.Debug(f"[平仓] {pair.pair_id} Z-score回归")
                 intent = pair.get_close_intent(reason='CLOSE')
@@ -375,8 +370,6 @@ class ExecutionManager:
     def get_entry_candidates(self, pairs_without_position: dict, data) -> list:
         """
         获取所有有开仓信号的配对，按质量分数降序排序
-
-        从 PairsManager.get_sequenced_entry_candidates() 迁移而来 (v6.9.3)
 
         职责: ExecutionManager 负责"执行准备"逻辑
         - 遍历配对获取信号（调用 Pairs.get_signal()）
@@ -411,7 +404,7 @@ class ExecutionManager:
 
     def handle_position_openings(self, pairs_without_position, data):
         """
-        处理正常开仓逻辑 (v7.1.3: 使用MarginAllocator)
+        处理正常开仓逻辑
 
         职责: 开仓协调和执行
 
@@ -419,13 +412,13 @@ class ExecutionManager:
             pairs_without_position: 无持仓配对字典 {pair_id: Pairs}
             data: 数据切片
 
-        执行流程 (v7.1.3更新):
+        执行流程:
         1. 获取开仓候选(get_entry_candidates)
-        2. 使用MarginAllocator分配资金 (替代旧的内联逻辑)
+        2. 使用MarginAllocator分配资金
         3. 逐个执行开仓(检查: 订单锁 + 风险冷却 + 普通冷却)
         4. 注册订单到tickets_manager
 
-        设计特点 (v7.1.3):
+        设计特点:
         - 委托MarginAllocator进行资金分配
         - 双重cooldown检查: 风险冷却(30天) + 普通冷却(10天)
         - 质量分数驱动的分配比例
@@ -436,7 +429,7 @@ class ExecutionManager:
         if not entry_candidates:
             return
 
-        # Step 2: 使用MarginAllocator分配资金 (v7.1.3)
+        # Step 2: 使用MarginAllocator分配资金
         allocations = self.margin_allocator.allocate_margin(entry_candidates)
         if not allocations:
             return  # 无可分配资金或候选配对
@@ -450,17 +443,17 @@ class ExecutionManager:
             if self.tickets_manager.is_pair_locked(pair_id):
                 continue
 
-            # 检查2: 风险冷却期检查 (v7.1.3新增)
+            # 检查2: 风险冷却期检查
             if self.is_pair_in_risk_cooldown(pair_id):
                 self.algorithm.Debug(f"[开仓跳过] {pair_id} 在风险冷却期", 2)
                 continue
 
-            # 检查3: 普通交易冷却期检查 (v7.1.3新增)
+            # 检查3: 普通交易冷却期检查
             if self.is_pair_in_normal_cooldown(pair):
                 self.algorithm.Debug(f"[开仓跳过] {pair_id} 在交易冷却期", 2)
                 continue
 
-            # 执行开仓并注册订单追踪 (v7.0.0: Intent模式, v7.1.0: 自动注册简化为2行)
+            # 执行开仓并注册订单追踪
             intent = pair.get_open_intent(amount_allocated, data)
             if intent:
                 self.order_executor.execute_open(intent)  # 自动注册,无返回值

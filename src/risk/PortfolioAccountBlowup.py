@@ -1,5 +1,5 @@
 """
-AccountBlowupRule - 账户爆仓线风控规则 (v7.1.0 Intent Pattern重构)
+AccountBlowupRule - 账户爆仓线风控规则 
 
 检测账户总价值的亏损比例，如果超过阈值则由RiskManager生成所有持仓的CloseIntent。
 这是最高优先级的Portfolio层面风控规则。
@@ -12,7 +12,7 @@ from typing import Tuple
 
 class AccountBlowupRule(RiskRule):
     """
-    账户爆仓线风控规则 (v7.1.0 Intent Pattern重构)
+    账户爆仓线风控规则 
 
     功能:
     - 检测账户亏损是否超过阈值（默认25%）
@@ -24,8 +24,6 @@ class AccountBlowupRule(RiskRule):
     - priority: 优先级（默认100，最高优先级）
     - threshold: 亏损阈值（默认0.25，即25%）
     - cooldown_days: 冷却期天数（默认36500，约100年，相当于永久）
-
-    v7.1.0变更:
     - 移除get_action()方法
     - Rule只负责检测,RiskManager负责生成Intent
     - Cooldown由RiskManager在Intent执行后激活
