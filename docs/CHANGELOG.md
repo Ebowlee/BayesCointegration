@@ -4,6 +4,147 @@
 
 ---
 
+## [v7.1.2_包重命名优化@20251024]
+
+### 版本定义
+**重构版本**: 包命名规范化 - RiskManagement → risk
+
+### 核心改动
+
+#### 1. 包文件夹重命名
+
+**目标**: 统一包命名风格，符合 PEP 8 规范
+
+**修改**:
+```bash
+# 文件夹重命名 (两步法解决 Windows 大小写问题)
+src/RiskManagement/ → src/temp_risk/ → src/risk/
+```
+
+**包含文件** (9个):
+- `MarketCondition.py`
+- `PairAnomaly.py`
+- `PairDrawdown.py`
+- `PairHoldingTimeout.py`
+- `PortfolioAccountBlowup.py`
+- `PortfolioBaseRule.py`
+- `PortfolioDrawdown.py`
+- `RiskManager.py`
+- `__init__.py`
+
+**Git 识别**: 100% 相似度，保留完整文件历史
+
+---
+
+#### 2. 导入语句更新
+
+**修改前**:
+```python
+from src.RiskManagement import RiskManager
+from src.RiskManagement.RiskManager import RiskManager
+from src.RiskManagement.base import RiskRule
+```
+
+**修改后**:
+```python
+from src.risk import RiskManager
+from src.risk.RiskManager import RiskManager
+from src.risk.base import RiskRule
+```
+
+**影响文件** (7处):
+1. `main.py` (Line 14)
+2. `src/risk/RiskManager.py` (Line 53 - 文档示例)
+3. `tests/test_risk_manager.py` (Line 15, 204)
+4. `tests/test_risk_base.py` (Line 14)
+5. `tests/test_pair_anomaly_rule.py` (Line 34)
+6. `tests/test_account_blowup_rule.py` (Line 15)
+
+---
+
+#### 3. 项目文档同步更新
+
+**CLAUDE.md** (4处):
+- Line 19: 架构概览中的模块列表
+- Line 174: 模块说明标题
+- Line 441: 状态管理说明
+- Line 680: 文件组织说明
+
+**修改示例**:
+```markdown
+# 改前
+- **RiskManagement**: Two-tier risk control system...
+
+# 改后
+- **risk**: Two-tier risk control system...
+```
+
+---
+
+### 优化效果
+
+**包结构统一**:
+```
+src/
+  ├── analysis/      ✅ 简洁小写 (分析模块)
+  ├── execution/     ✅ 简洁小写 (执行模块)
+  └── risk/          ✅ 简洁小写 (风控模块) ← 新命名
+```
+
+**对比效果**:
+```python
+# 改前 - 违反 PEP 8，不一致
+from src.analysis import DataProcessor
+from src.execution import OrderExecutor
+from src.RiskManagement import RiskManager  # ← 驼峰命名
+
+# 改后 - 符合规范，完全一致
+from src.analysis import DataProcessor
+from src.execution import OrderExecutor
+from src.risk import RiskManager  # ← 小写命名 ✅
+```
+
+---
+
+### 影响范围
+
+**代码文件**:
+- 文件夹: `src/RiskManagement/` → `src/risk/` (9个文件)
+- 导入语句: 7处更新
+- 单元测试: 4个测试文件更新
+
+**文档文件**:
+- `CLAUDE.md`: 4处引用更新
+- `.claude/settings.local.json`: 自动更新
+
+---
+
+### 技术细节
+
+**Windows 大小写处理**:
+```bash
+# 必须使用两步重命名 (Windows 文件系统大小写不敏感)
+git mv src/RiskManagement src/temp_risk
+git mv src/temp_risk src/risk
+```
+
+**Git 重命名识别**:
+- 所有9个文件: 100% 相似度
+- 文件历史: 完整保留
+- 类型: `rename` (非 `delete + add`)
+
+---
+
+### 设计原则体现
+
+- **PEP 8 规范**: 包名使用小写字母，避免驼峰命名
+- **一致性原则**: 与 `analysis`、`execution` 保持统一风格
+- **简洁性原则**: 移除冗余的 "Management" 后缀
+- **可读性优先**: `from src.risk` 比 `from src.RiskManagement` 更简洁清晰
+- **标准化**: 遵循 Python 社区广泛采用的包命名约定
+
+---
+
 ## [v7.1.1_Portfolio风控与参数配置优化@20250125]
 
 ### 版本定义
