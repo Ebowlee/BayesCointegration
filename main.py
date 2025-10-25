@@ -79,8 +79,13 @@ class BayesianCointegrationStrategy(QCAlgorithm):
 
 
     def Debug(self, message: str):
-        """统一的Debug输出方法"""
+        """统一的Debug输出方法（自动过滤SecurityChanges噪音）"""
         if self.debug_mode:
+            # 过滤QC框架自动生成的SecurityChanges日志
+            # 特征: "SecurityChanges: Added:" 或 "SecurityChanges: Removed:"
+            if "SecurityChanges:" in message:
+                return  # 完全过滤，不打印
+
             QCAlgorithm.Debug(self, message)
 
 
@@ -261,34 +266,35 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # 执行多维度分析
         stats = TradeAnalyzer.analyze_global(all_trades, spy_prices=spy_prices)
 
-        # 输出报告
-        self.Debug("="*60)
-        self.Debug("[回测报告] 交易历史统计分析")
-        self.Debug("="*60)
+        # 构建完整报告文本（保存到ObjectStore）
+        report_lines = []
+        report_lines.append("="*60)
+        report_lines.append("[回测报告] 交易历史统计分析")
+        report_lines.append("="*60)
 
         # 基础摘要
         summary = stats['summary']
-        self.Debug(f"\n【基础摘要】")
-        self.Debug(f"  总交易次数: {summary['total_trades']}")
-        self.Debug(f"  总盈亏: ${summary['total_pnl']:,.2f}")
-        self.Debug(f"  平均持仓天数: {summary['avg_holding_days']:.1f}天")
+        report_lines.append("\n【基础摘要】")
+        report_lines.append(f"  总交易次数: {summary['total_trades']}")
+        report_lines.append(f"  总盈亏: ${summary['total_pnl']:,.2f}")
+        report_lines.append(f"  平均持仓天数: {summary['avg_holding_days']:.1f}天")
 
         # 最佳/最差配对
-        self.Debug(f"\n【Top 5 最佳配对】")
+        report_lines.append("\n【Top 5 最佳配对】")
         for i, (pair_id, pnl) in enumerate(stats['top_pairs'][:5], 1):
             pair_stats = stats['by_pair'][pair_id]
-            self.Debug(f"  {i}. {pair_id}: ${pnl:,.2f} (胜率={pair_stats['win_rate']:.1%}, 交易={pair_stats['total_trades']}次)")
+            report_lines.append(f"  {i}. {pair_id}: ${pnl:,.2f} (胜率={pair_stats['win_rate']:.1%}, 交易={pair_stats['total_trades']}次)")
 
-        self.Debug(f"\n【Top 5 最差配对】")
+        report_lines.append("\n【Top 5 最差配对】")
         for i, (pair_id, pnl) in enumerate(reversed(stats['worst_pairs'][-5:]), 1):
             pair_stats = stats['by_pair'][pair_id]
-            self.Debug(f"  {i}. {pair_id}: ${pnl:,.2f} (胜率={pair_stats['win_rate']:.1%}, 交易={pair_stats['total_trades']}次)")
+            report_lines.append(f"  {i}. {pair_id}: ${pnl:,.2f} (胜率={pair_stats['win_rate']:.1%}, 交易={pair_stats['total_trades']}次)")
 
         # 行业维度
-        self.Debug(f"\n【行业表现】")
+        report_lines.append("\n【行业表现】")
         for industry, industry_stats in sorted(stats['by_industry'].items(),
                                                key=lambda x: x[1]['total_pnl'], reverse=True):
-            self.Debug(
+            report_lines.append(
                 f"  {industry}: ${industry_stats['total_pnl']:,.2f} "
                 f"(胜率={industry_stats['win_rate']:.1%}, "
                 f"交易={industry_stats['total_trades']}次, "
@@ -296,7 +302,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
             )
 
         # 平仓原因维度
-        self.Debug(f"\n【平仓原因分析】")
+        report_lines.append("\n【平仓原因分析】")
         for reason, reason_stats in stats['by_close_reason'].items():
             line = (f"  {reason}: {reason_stats['total_trades']}次 "
                    f"(胜率={reason_stats['win_rate']:.1%}, "
@@ -306,14 +312,39 @@ class BayesianCointegrationStrategy(QCAlgorithm):
             if 'beat_spy_rate' in reason_stats:
                 line += f" [跑赢SPY={reason_stats['beat_spy_rate']:.1%}, Alpha={reason_stats['avg_alpha']:.2f}%]"
 
-            self.Debug(line)
+            report_lines.append(line)
 
         # SPY基准对比（整体）
         if stats['benchmark_comparison']:
             bench = stats['benchmark_comparison']
-            self.Debug(f"\n【SPY基准对比】")
-            self.Debug(f"  跑赢SPY比例: {bench['beat_spy_rate']:.1%} ({bench['beat_spy_count']}/{summary['total_trades']})")
-            self.Debug(f"  平均超额收益: {bench['avg_alpha']:.2f}%")
-            self.Debug(f"  超额收益标准差: {bench['alpha_std']:.2f}%")
+            report_lines.append("\n【SPY基准对比】")
+            report_lines.append(f"  跑赢SPY比例: {bench['beat_spy_rate']:.1%} ({bench['beat_spy_count']}/{summary['total_trades']})")
+            report_lines.append(f"  平均超额收益: {bench['avg_alpha']:.2f}%")
+            report_lines.append(f"  超额收益标准差: {bench['alpha_std']:.2f}%")
 
+        report_lines.append("="*60)
+
+        # 保存完整报告到ObjectStore
+        full_report = "\n".join(report_lines)
+        self.ObjectStore.Save("backtest_report.txt", full_report)
+
+        # Debug只输出精简摘要
+        self.Debug("="*60)
+        self.Debug("[回测报告] 交易历史统计分析")
+        self.Debug("="*60)
+        self.Debug(f"总交易次数: {summary['total_trades']}, 总盈亏: ${summary['total_pnl']:,.2f}")
+
+        # 最佳配对 Top 1
+        if stats['top_pairs']:
+            top_pair_id, top_pnl = stats['top_pairs'][0]
+            top_stats = stats['by_pair'][top_pair_id]
+            self.Debug(f"最佳配对: {top_pair_id} (${top_pnl:,.2f}, 胜率={top_stats['win_rate']:.1%})")
+
+        # 最差配对 Top 1
+        if stats['worst_pairs']:
+            worst_pair_id, worst_pnl = stats['worst_pairs'][-1]
+            worst_stats = stats['by_pair'][worst_pair_id]
+            self.Debug(f"最差配对: {worst_pair_id} (${worst_pnl:,.2f}, 胜率={worst_stats['win_rate']:.1%})")
+
+        self.Debug("[回测报告] 完整报告已保存到 ObjectStore: backtest_report.txt")
         self.Debug("="*60)
