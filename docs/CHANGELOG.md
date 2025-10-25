@@ -4,6 +4,160 @@
 
 ---
 
+## [v7.2.0_trade-module-refactor@20250125]
+
+### 版本定义
+**重大架构重构**: TradeHistory → TradeAnalyzer模块化拆分,实时统计替代历史存储
+
+### 核心改动
+
+#### 模块架构重构
+**TradeHistory.py (818行) → trade/ 模块 (4文件)**:
+
+**新架构** (轻量级拆分):
+```
+src/trade/
+├── TradeAnalyzer.py      (160行) - 主协调器 (Facade + Delegation Pattern)
+├── StatsCollectors.py    (280行) - 6个独立Collector类
+├── TradeSnapshot.py      (58行)  - Value Object (保留未用)
+└── __init__.py          (11行)  - 模块导出
+```
+
+**设计原则**:
+- ✅ Delegation Pattern (vs RiskManager的Strategy Pattern)
+- ✅ 无继承层级 (6个Collector独立,统一接口: update() + log_summary())
+- ✅ 单一职责 (每个Collector一种统计)
+- ✅ 内聚性高 (统计逻辑+日志输出在同一类)
+
+#### TradeAnalyzer.py - 主协调器
+**核心方法**:
+- `analyze_trade(pair, reason)`: 实时分析单笔交易
+  - 委托6个Collector更新统计
+  - 输出单笔交易日志 (JSON Lines)
+- `log_summary()`: OnEndOfAlgorithm输出汇总统计
+
+**依赖注入**:
+- ExecutionManager接收trade_analyzer参数
+- 所有平仓点调用`analyze_trade()`
+
+**全局统计**:
+- total_trades, profitable_trades, total_pnl
+
+#### StatsCollectors.py - 6个独立Collector
+1. **ReasonStatsCollector**: 平仓原因分组 (CLOSE, STOP_LOSS, TIMEOUT, etc.)
+2. **SignalStatsCollector**: 开仓信号分组 (LONG_SPREAD, SHORT_SPREAD)
+3. **HoldingBucketCollector**: 持仓时长分桶 (0-7天, 8-14天, 15-30天, 30天+)
+4. **PairStatsCollector**: "坏配对"识别 (≥3笔交易且累计亏损)
+5. **ConsecutiveStatsCollector**: 连续盈亏追踪 (max_consecutive_wins/losses)
+6. **MonthlyStatsCollector**: 月度分组 (YYYY-MM)
+
+**统一接口**:
+```python
+def update(...):  # 更新统计
+def log_summary(algorithm):  # JSON Lines输出
+```
+
+#### ExecutionManager集成
+**构造函数更新**:
+- 新增`trade_analyzer`参数
+
+**平仓点插入** (5处):
+- `handle_portfolio_risk_intents()`: Portfolio风控平仓后
+- `handle_pair_risk_intents()`: Pair风控平仓后
+- `cleanup_remaining_positions()`: Cooldown清理平仓后
+- `handle_normal_close_intents()`: 正常信号平仓后 (CLOSE + STOP_LOSS)
+
+**调用模式**:
+```python
+success = self.order_executor.execute_close(intent)
+if success:
+    pair = self.pairs_manager.get_pair_by_id(intent.pair_id)
+    if pair:
+        self.trade_analyzer.analyze_trade(pair, intent.reason)
+```
+
+#### main.py简化
+**删除复杂逻辑** (110行 → 3行):
+- ❌ `trade_journal.get_all()` + SPY对比 + 多维度分析
+- ❌ ObjectStore报告生成 + 精简摘要输出
+- ✅ 简单调用: `self.trade_analyzer.log_summary()`
+
+**Initialize()顺序调整**:
+- trade_analyzer在execution_manager之前初始化
+- execution_manager接收trade_analyzer参数
+
+**删除导入**:
+- 删除`import pandas as pd` (不再使用)
+
+#### 输出格式
+**JSON Lines格式** (AI友好):
+```json
+{"type": "trade_close", "pair_id": "('AAPL', 'MSFT')", "pnl_pct": 2.35, ...}
+{"type": "reason_stats", "reason": "CLOSE", "count": 25, "win_rate": 0.68, ...}
+{"type": "bad_pair", "pair_id": "('GOOG', 'GOOGL')", "total_pnl": -5.2, ...}
+{"type": "global_summary", "total_trades": 352, "win_rate": 0.46, ...}
+```
+
+### 架构对比
+
+#### 旧架构 (TradeHistory.py)
+**问题**:
+- 存储功能冗余 (trades.csv已有)
+- 静态分析器 (analyze_global) 在OnEndOfAlgorithm执行
+- to_csv()方法无法在QC平台执行
+- 复杂的SPY对比逻辑 (insights.json已提供)
+
+#### 新架构 (trade/ 模块)
+**优势**:
+- ✅ 实时统计 (每笔交易立即分析)
+- ✅ 零存储开销 (无历史快照)
+- ✅ JSON Lines输出 (AI友好)
+- ✅ 补充insights.json盲点 (坏配对识别、平仓原因分组)
+- ✅ 轻量级设计 (4文件,无继承)
+
+### 为什么不用Strategy Pattern?
+**与RiskManager对比**:
+- RiskManager需要动态开关规则 → 需要Strategy Pattern
+- TradeAnalyzer无需动态开关统计 → Delegation Pattern足够
+- 6个Collector始终启用,无优先级排序
+- 简单直接,避免过度设计
+
+### 设计决策
+**方案选择**: 轻量级拆分 (4文件)
+- ❌ Option A: 单文件 (300-400行) - 可维护性差
+- ❌ Option B: 完全拆分 (8文件+基类) - 过度设计
+- ✅ Option C: 轻量级拆分 (4文件) - **选择此方案**
+
+**核心价值**:
+- 补充insights.json的统计盲点
+- 提供细粒度分组统计
+- 识别"坏配对"和连续亏损模式
+- JSON Lines格式便于AI分析
+
+### 影响文件
+**新增**:
+- src/trade/TradeAnalyzer.py
+- src/trade/StatsCollectors.py
+- src/trade/TradeSnapshot.py
+- src/trade/__init__.py
+
+**修改**:
+- src/execution/ExecutionManager.py (构造函数+5处平仓点)
+- main.py (Initialize顺序+OnEndOfAlgorithm简化+删除pandas导入)
+- CLAUDE.md (添加trade模块架构说明)
+
+**删除**:
+- src/TradeHistory.py (旧实现)
+
+### 测试要点
+1. ✅ 所有平仓操作后统计正确更新
+2. ✅ JSON Lines格式正确输出
+3. ✅ OnEndOfAlgorithm汇总统计完整
+4. ✅ 无内存泄漏 (无历史存储)
+5. ✅ 坏配对识别逻辑正确 (≥3笔且累计亏损)
+
+---
+
 ## [v7.1.7_execution-naming-consistency@20250125]
 
 ### 版本定义

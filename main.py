@@ -1,6 +1,5 @@
 # region imports
 from AlgorithmImports import *
-import pandas as pd
 from System import Action
 from src.config import StrategyConfig
 from src.UniverseSelection import SectorBasedUniverseSelection
@@ -13,7 +12,7 @@ from src.PairsManager import PairsManager
 from src.TicketsManager import TicketsManager
 from src.risk import RiskManager
 from src.execution import ExecutionManager, OrderExecutor, MarginAllocator
-from src.TradeHistory import TradeJournal, TradeAnalyzer
+from src.trade import TradeAnalyzer
 
 # endregion
 
@@ -72,8 +71,8 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         self.risk_manager = RiskManager(self, self.config, self.pairs_manager)
         self.order_executor = OrderExecutor(self, self.tickets_manager)
         self.margin_allocator = MarginAllocator(self, self.config)
-        self.execution_manager = ExecutionManager(self, self.pairs_manager, self.risk_manager, self.tickets_manager, self.order_executor, self.margin_allocator)
-        self.trade_journal = TradeJournal(self)
+        self.trade_analyzer = TradeAnalyzer(self)
+        self.execution_manager = ExecutionManager(self, self.pairs_manager, self.risk_manager, self.tickets_manager, self.order_executor, self.margin_allocator, self.trade_analyzer)
 
         self.Debug("[Initialize] 策略初始化完成")
 
@@ -238,113 +237,6 @@ class BayesianCointegrationStrategy(QCAlgorithm):
 
 
     def OnEndOfAlgorithm(self):
-        """回测结束时的分析报告"""
-        # 获取所有交易记录
-        all_trades = self.trade_journal.get_all()
-
-        if not all_trades:
-            self.Debug("[回测报告] 无交易记录")
-            return
-
-        # 预加载 SPY 价格（用于交易级对比）
-        try:
-            spy_history = self.History(self.market_benchmark, self.StartDate, self.EndDate, Resolution.Daily)
-            if not spy_history.empty:
-                # 处理可能的MultiIndex结构 (Symbol, Time)
-                if isinstance(spy_history.index, pd.MultiIndex):
-                    spy_history = spy_history.droplevel(0)  # 删除Symbol层,保留Time层
-
-                # 现在保证是单层DatetimeIndex,可以安全调用.date()
-                spy_prices = {index.date(): row['close'] for index, row in spy_history.iterrows()}
-            else:
-                spy_prices = None
-                self.Debug("[回测报告] 无法获取SPY历史数据,跳过基准对比")
-        except Exception as e:
-            self.Debug(f"[回测报告] SPY数据加载失败: {str(e)}")
-            spy_prices = None
-
-        # 执行多维度分析
-        stats = TradeAnalyzer.analyze_global(all_trades, spy_prices=spy_prices)
-
-        # 构建完整报告文本（保存到ObjectStore）
-        report_lines = []
-        report_lines.append("="*60)
-        report_lines.append("[回测报告] 交易历史统计分析")
-        report_lines.append("="*60)
-
-        # 基础摘要
-        summary = stats['summary']
-        report_lines.append("\n【基础摘要】")
-        report_lines.append(f"  总交易次数: {summary['total_trades']}")
-        report_lines.append(f"  总盈亏: ${summary['total_pnl']:,.2f}")
-        report_lines.append(f"  平均持仓天数: {summary['avg_holding_days']:.1f}天")
-
-        # 最佳/最差配对
-        report_lines.append("\n【Top 5 最佳配对】")
-        for i, (pair_id, pnl) in enumerate(stats['top_pairs'][:5], 1):
-            pair_stats = stats['by_pair'][pair_id]
-            report_lines.append(f"  {i}. {pair_id}: ${pnl:,.2f} (胜率={pair_stats['win_rate']:.1%}, 交易={pair_stats['total_trades']}次)")
-
-        report_lines.append("\n【Top 5 最差配对】")
-        for i, (pair_id, pnl) in enumerate(reversed(stats['worst_pairs'][-5:]), 1):
-            pair_stats = stats['by_pair'][pair_id]
-            report_lines.append(f"  {i}. {pair_id}: ${pnl:,.2f} (胜率={pair_stats['win_rate']:.1%}, 交易={pair_stats['total_trades']}次)")
-
-        # 行业维度
-        report_lines.append("\n【行业表现】")
-        for industry, industry_stats in sorted(stats['by_industry'].items(),
-                                               key=lambda x: x[1]['total_pnl'], reverse=True):
-            report_lines.append(
-                f"  {industry}: ${industry_stats['total_pnl']:,.2f} "
-                f"(胜率={industry_stats['win_rate']:.1%}, "
-                f"交易={industry_stats['total_trades']}次, "
-                f"持仓={industry_stats['avg_holding_days']:.1f}天)"
-            )
-
-        # 平仓原因维度
-        report_lines.append("\n【平仓原因分析】")
-        for reason, reason_stats in stats['by_close_reason'].items():
-            line = (f"  {reason}: {reason_stats['total_trades']}次 "
-                   f"(胜率={reason_stats['win_rate']:.1%}, "
-                   f"平均收益={reason_stats['avg_return_pct']:.2f}%)")
-
-            # 如果有SPY对比数据
-            if 'beat_spy_rate' in reason_stats:
-                line += f" [跑赢SPY={reason_stats['beat_spy_rate']:.1%}, Alpha={reason_stats['avg_alpha']:.2f}%]"
-
-            report_lines.append(line)
-
-        # SPY基准对比（整体）
-        if stats['benchmark_comparison']:
-            bench = stats['benchmark_comparison']
-            report_lines.append("\n【SPY基准对比】")
-            report_lines.append(f"  跑赢SPY比例: {bench['beat_spy_rate']:.1%} ({bench['beat_spy_count']}/{summary['total_trades']})")
-            report_lines.append(f"  平均超额收益: {bench['avg_alpha']:.2f}%")
-            report_lines.append(f"  超额收益标准差: {bench['alpha_std']:.2f}%")
-
-        report_lines.append("="*60)
-
-        # 保存完整报告到ObjectStore
-        full_report = "\n".join(report_lines)
-        self.ObjectStore.Save("backtest_report.txt", full_report)
-
-        # Debug只输出精简摘要
-        self.Debug("="*60)
-        self.Debug("[回测报告] 交易历史统计分析")
-        self.Debug("="*60)
-        self.Debug(f"总交易次数: {summary['total_trades']}, 总盈亏: ${summary['total_pnl']:,.2f}")
-
-        # 最佳配对 Top 1
-        if stats['top_pairs']:
-            top_pair_id, top_pnl = stats['top_pairs'][0]
-            top_stats = stats['by_pair'][top_pair_id]
-            self.Debug(f"最佳配对: {top_pair_id} (${top_pnl:,.2f}, 胜率={top_stats['win_rate']:.1%})")
-
-        # 最差配对 Top 1
-        if stats['worst_pairs']:
-            worst_pair_id, worst_pnl = stats['worst_pairs'][-1]
-            worst_stats = stats['by_pair'][worst_pair_id]
-            self.Debug(f"最差配对: {worst_pair_id} (${worst_pnl:,.2f}, 胜率={worst_stats['win_rate']:.1%})")
-
-        self.Debug("[回测报告] 完整报告已保存到 ObjectStore: backtest_report.txt")
-        self.Debug("="*60)
+        """回测结束时的统计汇总"""
+        # 输出所有统计维度的汇总信息（JSON Lines格式）
+        self.trade_analyzer.log_summary()

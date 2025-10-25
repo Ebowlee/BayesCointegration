@@ -36,7 +36,7 @@ class ExecutionManager:
     - 完全统一的执行接口
     """
 
-    def __init__(self, algorithm, pairs_manager, risk_manager, tickets_manager, order_executor, margin_allocator):
+    def __init__(self, algorithm, pairs_manager, risk_manager, tickets_manager, order_executor, margin_allocator, trade_analyzer):
         """
         初始化统一执行器
 
@@ -47,6 +47,7 @@ class ExecutionManager:
             tickets_manager: 订单追踪管理器
             order_executor: 订单执行器
             margin_allocator: 资金分配器
+            trade_analyzer: 交易分析器
         """
         self.algorithm = algorithm
         self.pairs_manager = pairs_manager
@@ -54,6 +55,7 @@ class ExecutionManager:
         self.tickets_manager = tickets_manager
         self.order_executor = order_executor
         self.margin_allocator = margin_allocator
+        self.trade_analyzer = trade_analyzer
 
         # 从margin_allocator获取min_investment_amount（避免重复计算）
         self.min_investment_amount = margin_allocator.min_investment_amount
@@ -162,6 +164,11 @@ class ExecutionManager:
                 self.algorithm.Debug(
                     f"[Portfolio风控] {intent.pair_id} 平仓订单已提交 (reason={intent.reason})"
                 )
+
+                # 记录交易统计
+                pair = self.pairs_manager.get_pair_by_id(intent.pair_id)
+                if pair:
+                    self.trade_analyzer.analyze_trade(pair, intent.reason)
             else:
                 self.algorithm.Error(
                     f"[Portfolio风控] {intent.pair_id} 平仓失败 (无持仓)"
@@ -222,6 +229,11 @@ class ExecutionManager:
                 self.algorithm.Debug(
                     f"[Pair风控] {intent.pair_id} 平仓订单已提交 (reason={intent.reason})"
                 )
+
+                # 记录交易统计
+                pair = self.pairs_manager.get_pair_by_id(intent.pair_id)
+                if pair:
+                    self.trade_analyzer.analyze_trade(pair, intent.reason)
 
                 # 清理该配对的HWM状态（PairDrawdownRule）
                 risk_manager.cleanup_pair_hwm(intent.pair_id)
@@ -294,6 +306,9 @@ class ExecutionManager:
                         f"[Cooldown清理] {pair.pair_id} 已提交平仓订单"
                     )
 
+                    # 记录交易统计
+                    self.trade_analyzer.analyze_trade(pair, intent.reason)
+
         if cleanup_count > 0:
             self.algorithm.Debug(
                 f"[Cooldown清理] 本轮提交{cleanup_count}个平仓订单"
@@ -342,13 +357,19 @@ class ExecutionManager:
                 self.algorithm.Debug(f"[平仓] {pair.pair_id} Z-score回归")
                 intent = pair.get_close_intent(reason='CLOSE')
                 if intent:
-                    self.order_executor.execute_close(intent)  # 自动注册到TicketsManager
+                    success = self.order_executor.execute_close(intent)  # 自动注册到TicketsManager
+                    if success:
+                        # 记录交易统计
+                        self.trade_analyzer.analyze_trade(pair, intent.reason)
 
             elif signal == TradingSignal.STOP_LOSS:
                 self.algorithm.Debug(f"[止损] {pair.pair_id} Z-score超限")
                 intent = pair.get_close_intent(reason='STOP_LOSS')
                 if intent:
-                    self.order_executor.execute_close(intent)  # 自动注册到TicketsManager
+                    success = self.order_executor.execute_close(intent)  # 自动注册到TicketsManager
+                    if success:
+                        # 记录交易统计
+                        self.trade_analyzer.analyze_trade(pair, intent.reason)
 
 
     def get_entry_candidates(self, pairs_without_position: dict, data) -> list:

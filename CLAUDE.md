@@ -243,6 +243,32 @@ git commit -m "v2.4.8_strategy-optimize@20250720"
   - **volatility_ratio** (20%): Spread stability (spread_vol/stock_vol)
   - **liquidity** (20%): Trading volume (dollar volume based)
 
+### 11. trade/ - Trade Statistics Module (v7.2.0)
+- **Purpose**: Real-time trade statistics collection and analysis (replaces TradeHistory)
+- **Design Principle**: Delegation Pattern - TradeAnalyzer delegates to 6 independent collectors
+- **Architecture**: Lightweight splitting (4 files) - no base classes, simple delegation
+- **Key Components**:
+  - **TradeAnalyzer.py**: Main coordinator
+    - `analyze_trade(pair, reason)`: Called after every closing trade
+    - `log_summary()`: Called in OnEndOfAlgorithm
+    - Delegates to 6 collectors for statistics updates
+  - **StatsCollectors.py**: 6 independent collector classes
+    - **ReasonStatsCollector**: Group by close reason (CLOSE, STOP_LOSS, TIMEOUT, etc.)
+    - **SignalStatsCollector**: Group by entry signal (LONG_SPREAD, SHORT_SPREAD)
+    - **HoldingBucketCollector**: Group by holding period (0-7天, 8-14天, 15-30天, 30天+)
+    - **PairStatsCollector**: Identify "bad pairs" (≥3 trades with cumulative loss)
+    - **ConsecutiveStatsCollector**: Track max consecutive wins/losses
+    - **MonthlyStatsCollector**: Group by month (YYYY-MM)
+  - **TradeSnapshot.py**: Immutable value object (reserved for future use)
+- **Output Format**: JSON Lines format for AI-friendly parsing
+- **Integration**: ExecutionManager calls `trade_analyzer.analyze_trade()` after all closing operations
+- **Benefits**:
+  - Complements insights.json blind spots
+  - Fine-grained grouping statistics
+  - Identifies bad pairs and consecutive patterns
+  - No memory overhead (no historical storage)
+  - Real-time statistics updates
+
 ## Trading Execution Flow (OnData)
 
 ### Execution Priority
@@ -689,7 +715,10 @@ for pair in tradeable_pairs.values():
   - **ExecutionManager.py**: Execution coordinator (orchestrates intent generation and execution - v7.0.0)
   - **risk/RiskManager.py**: Two-tier risk detection system
   - **TicketsManager.py**: Order lifecycle tracking and duplicate order prevention (v6.4.4)
-  - **TradeHistory.py**: Trade snapshot and journal for post-trade analysis
+  - **trade/**: Trade statistics and analysis module (v7.2.0)
+    - **TradeAnalyzer.py**: Main coordinator using Delegation Pattern
+    - **StatsCollectors.py**: 6 independent collector classes (reason, signal, holding, pair, consecutive, monthly)
+    - **TradeSnapshot.py**: Immutable value object (reserved for future use)
 - **docs/**: Documentation and version history
   - **CHANGELOG.md**: Complete version history with detailed change tracking
 - **research/**: Jupyter notebooks for strategy research and analysis
