@@ -1,7 +1,7 @@
 # region imports
 from .RiskBaseRule import RiskRule
 from typing import Tuple
-from src.Pairs import PositionMode
+from src.constants import PositionMode
 # endregion
 
 

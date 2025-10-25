@@ -60,37 +60,14 @@ class BayesianCointegrationStrategy(QCAlgorithm):
 
         # === 添加VIX指数（用于市场条件检查）===
         vix_config = self.config.risk_management['market_condition']
-        self.vix_symbol = self.AddIndex(
-            vix_config['vix_symbol'],
-            vix_config['vix_resolution']
-        ).Symbol
+        self.vix_symbol = self.AddIndex(vix_config['vix_symbol'], vix_config['vix_resolution']).Symbol
 
-        # === 订单追踪管理器(替代旧的去重机制) ===
+        # === 初始化辅助工具 ===
         self.tickets_manager = TicketsManager(self, self.pairs_manager)
-
-        # === 初始化风控管理器 ===
-        # 传递 pairs_manager 用于集中度分析
         self.risk_manager = RiskManager(self, self.config, self.pairs_manager)
-
-        # === 初始化订单执行器 ===
         self.order_executor = OrderExecutor(self, self.tickets_manager)
-
-        # === 初始化资金分配器 ===
-        # MarginAllocator 负责计算资金分配，包括 min_investment_amount
         self.margin_allocator = MarginAllocator(self, self.config)
-
-        # === 初始化统一执行器 ===
-        # 依赖注入 risk_manager, order_executor 和 margin_allocator
-        self.execution_manager = ExecutionManager(
-            self,
-            self.pairs_manager,
-            self.risk_manager,
-            self.tickets_manager,
-            self.order_executor,
-            self.margin_allocator
-        )
-
-        # === 初始化交易历史追踪 ===
+        self.execution_manager = ExecutionManager(self, self.pairs_manager, self.risk_manager, self.tickets_manager, self.order_executor, self.margin_allocator)
         self.trade_journal = TradeJournal(self)
 
         self.Debug("[Initialize] 策略初始化完成")

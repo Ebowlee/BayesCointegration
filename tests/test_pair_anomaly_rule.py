@@ -32,7 +32,7 @@ from tests.mocks.mock_qc_objects import MockAlgorithm, MockSymbol
 
 # 导入生产代码
 from src.risk.PairAnomaly import PairAnomalyRule
-from src.Pairs import PositionMode
+from src.constants import PositionMode
 
 
 # ========== Mock Pairs对象(简化版) ==========

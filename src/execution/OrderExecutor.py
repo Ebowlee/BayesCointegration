@@ -1,7 +1,7 @@
 # region imports
 from AlgorithmImports import *
 from .OrderIntent import OpenIntent, CloseIntent
-from src.Pairs import OrderAction
+from src.constants import OrderAction
 # endregion
 
 

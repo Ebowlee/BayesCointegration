@@ -1,6 +1,6 @@
 # region imports
 from AlgorithmImports import *
-from src.Pairs import PositionMode
+from src.constants import PositionMode
 from typing import Dict, Set
 # endregion
 

@@ -4,34 +4,8 @@ import numpy as np
 from typing import Dict, Optional, Tuple
 from src.TradeHistory import TradeSnapshot
 from src.execution import OpenIntent, CloseIntent
+from src.constants import TradingSignal, PositionMode, OrderAction
 # endregion
-
-
-# ===== 常量定义 =====
-class TradingSignal:
-    """交易信号常量"""
-    LONG_SPREAD = 'LONG_SPREAD'     # 做多价差(买入symbol1,卖出symbol2)
-    SHORT_SPREAD = 'SHORT_SPREAD'   # 做空价差(卖出symbol1,买入symbol2)
-    CLOSE = 'CLOSE'                 # 平仓信号
-    STOP_LOSS = 'STOP_LOSS'         # 止损信号
-    HOLD = 'HOLD'                   # 持有信号
-    WAIT = 'WAIT'                   # 等待信号
-    COOLDOWN = 'COOLDOWN'           # 冷却期
-    NO_DATA = 'NO_DATA'             # 无数据
-
-class PositionMode:
-    """持仓模式常量(整合状态+方向)"""
-    NONE = 'NONE'                    # 无持仓
-    LONG_SPREAD = 'LONG_SPREAD'      # 正常做多价差 (qty1>0, qty2<0)
-    SHORT_SPREAD = 'SHORT_SPREAD'    # 正常做空价差 (qty1<0, qty2>0)
-    PARTIAL_LEG1 = 'PARTIAL_LEG1'    # 只有第一腿
-    PARTIAL_LEG2 = 'PARTIAL_LEG2'    # 只有第二腿
-    ANOMALY_SAME = 'ANOMALY_SAME'    # 异常:同向持仓
-
-class OrderAction:
-    """订单动作常量"""
-    OPEN = 'OPEN'
-    CLOSE = 'CLOSE'
 
 
 class Pairs:
