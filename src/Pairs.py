@@ -2,7 +2,6 @@
 from AlgorithmImports import *
 import numpy as np
 from typing import Dict, Optional, Tuple
-from src.TradeHistory import TradeSnapshot
 from src.execution import OpenIntent, CloseIntent
 from src.constants import TradingSignal, PositionMode, OrderAction
 # endregion
@@ -108,7 +107,7 @@ class Pairs:
         """
         工厂方法：从贝叶斯建模结果创建 Pairs 对象
 
-        设计理念（与 PairData.from_clean_data() 和 TradeSnapshot.from_pair() 保持一致）：
+        设计理念（与 PairData.from_clean_data() 保持一致）：
         - 封装创建逻辑：调用者无需了解构造函数参数细节
         - 语义清晰：明确表达"从建模结果创建"的意图
         - 扩展性：未来可添加其他工厂方法（from_dict, from_historical_data）
@@ -188,9 +187,7 @@ class Pairs:
         elif action == OrderAction.CLOSE:
             self.pair_closed_time = fill_time
 
-            # === 在清零之前捕获交易快照（传给TradeJournal） ===
-            # trade_journal 已在 Initialize() 中创建,无需 hasattr 检查
-            # OrderStatus 来自 AlgorithmImports (QuantConnect SDK)
+            # 记录平仓价格（用于后续PnL计算）
             for ticket in tickets:
                 if ticket is not None and ticket.Status == OrderStatus.Filled:
                     if ticket.Symbol == self.symbol1:
@@ -198,55 +195,15 @@ class Pairs:
                     elif ticket.Symbol == self.symbol2:
                         self.exit_price2 = ticket.AverageFillPrice
 
-            # 从订单Tag中解析平仓原因
-            close_reason = 'CLOSE'  # 默认值
-            if tickets and tickets[0] is not None:
-                tag = tickets[0].Tag
-                parts = tag.split('_')
-                if len(parts) >= 4 and parts[2] == 'CLOSE':
-                    # parts[0-1]: pair_id, parts[2]: 'CLOSE', parts[3]: reason, parts[4-5]: timestamp
-                    potential_reason = parts[3]
-                    # 验证是否为有效的平仓原因
-                    valid_reasons = ['CLOSE', 'STOP_LOSS', 'TIMEOUT', 'RISK_TRIGGER']
-                    if potential_reason in valid_reasons:
-                        close_reason = potential_reason
-
-            # 创建快照并记录
-            if self.exit_price1 is not None and self.exit_price2 is not None:
-                # 计算保证金成本（Regulation T margin rates）
-                pair_cost = self.get_pair_cost()
-                # 计算盈亏（get_pair_pnl会自动判断使用exit_price还是实时价格）
-                pair_pnl = self.get_pair_pnl()
-                # 防御性检查：确保两个计算都成功
-                if pair_cost is None or pair_pnl is None:
-                    self.algorithm.Debug(
-                        f"[平仓警告] {self.pair_id} 计算失败 "
-                        f"(pair_cost={'None' if pair_cost is None else 'OK'}, "
-                        f"pair_pnl={'None' if pair_pnl is None else 'OK'}), 跳过交易记录"
-                    )
-                else:
-                    snapshot = TradeSnapshot.from_pair(
-                        pair=self,
-                        close_reason=close_reason,
-                        entry_price1=self.entry_price1,
-                        entry_price2=self.entry_price2,
-                        exit_price1=self.exit_price1,  # 使用实例变量
-                        exit_price2=self.exit_price2,  # 使用实例变量
-                        qty1=self.tracked_qty1,        # 保持原始符号
-                        qty2=self.tracked_qty2,        # 保持原始符号
-                        open_time=self.pair_opened_time,
-                        close_time=self.pair_closed_time,
-                        pair_cost=pair_cost,
-                        pair_pnl=pair_pnl
-                    )
-                    self.algorithm.trade_journal.record(snapshot)
+            # 注意: 交易统计由 ExecutionManager 在平仓时调用 trade_analyzer.analyze_trade() 完成
+            # on_position_filled() 只负责记录成交时间和价格（数据提供者职责）
 
             # 清零所有追踪变量
             self.tracked_qty1 = 0
             self.tracked_qty2 = 0
             self.entry_price1 = None
             self.entry_price2 = None
-            self.exit_price1 = None  
+            self.exit_price1 = None
             self.exit_price2 = None 
 
 
@@ -397,7 +354,7 @@ class Pairs:
         设计说明:
         - HWM追踪逻辑已迁移到 PairDrawdownRule
         - 纯函数设计（无状态修改），遵循函数式编程原则
-        - 调用方: PairDrawdownRule, TradeSnapshot
+        - 调用方: PairDrawdownRule, TradeAnalyzer
 
         返回:
             浮动盈亏(美元) 或 None(无持仓或数据不完整)
@@ -454,7 +411,7 @@ class Pairs:
 
         调用方：
         - PairDrawdownRule.check()：计算回撤率
-        - Pairs.on_position_filled(CLOSE)：创建 TradeSnapshot
+        - TradeAnalyzer.analyze_trade()：计算交易成本
 
         Returns:
             配对总保证金（美元）或 None（无持仓/数据不完整）
@@ -691,7 +648,7 @@ class Pairs:
             优势: Pairs不再依赖algorithm.MarketOrder(),职责更清晰
 
         设计说明:
-            - reason参数会编码到tag中(便于TradeSnapshot解析)
+            - reason参数会编码到tag中(便于日志追踪和统计分析)
             - 支持单边持仓(qty1或qty2为0时,executor会自动跳过)
         """
         # 获取当前持仓

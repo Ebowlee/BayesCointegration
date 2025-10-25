@@ -4,6 +4,128 @@
 
 ---
 
+## [v7.2.1_fix-trade-imports@20250125]
+
+### 版本定义
+**紧急修复**: 清理 v7.2.0 遗留的 TradeHistory 引用
+
+### 问题诊断
+**根本原因**: v7.2.0 重构时删除了 `src/TradeHistory.py`，但遗漏了以下引用清理：
+1. **Pairs.py Line 5**: `from src.TradeHistory import TradeSnapshot` (导致导入错误)
+2. **Pairs.py Line 214-242**: `on_position_filled()` 方法中使用 `TradeSnapshot.from_pair()` 和 `trade_journal.record()`
+3. **Pairs.py 多处注释**: 提到 TradeSnapshot 和 TradeJournal 的过时引用
+
+**错误信息**:
+```
+No module named 'src.TradeHistory'
+  at from src.TradeHistory import TradeSnapshot
+ in Pairs.py: line 5
+```
+
+### 核心改动
+
+#### 1. 导入语句清理
+**src/Pairs.py Line 5**:
+```python
+# 删除
+from src.TradeHistory import TradeSnapshot
+
+# 原因: TradeSnapshot 已不再使用，且 TradeHistory 模块已删除
+```
+
+#### 2. on_position_filled() 方法简化
+**src/Pairs.py Line 187-207**:
+
+**删除逻辑** (Line 214-242):
+- ❌ `TradeSnapshot.from_pair()` 创建快照
+- ❌ `self.algorithm.trade_journal.record(snapshot)` 记录快照
+- ❌ 平仓原因解析逻辑
+- ❌ pair_cost/pair_pnl 计算和防御性检查
+
+**保留逻辑**:
+- ✅ 记录平仓价格（exit_price1, exit_price2）
+- ✅ 清零追踪变量（tracked_qty, entry_price, exit_price）
+
+**新增注释**:
+```python
+# 注意: 交易统计由 ExecutionManager 在平仓时调用 trade_analyzer.analyze_trade() 完成
+# on_position_filled() 只负责记录成交时间和价格（数据提供者职责）
+```
+
+#### 3. 注释引用更新
+**3处过时引用清理**:
+
+**Line 110**:
+```python
+# 修改前
+设计理念（与 PairData.from_clean_data() 和 TradeSnapshot.from_pair() 保持一致）
+
+# 修改后
+设计理念（与 PairData.from_clean_data() 保持一致）
+```
+
+**Line 357**:
+```python
+# 修改前
+- 调用方: PairDrawdownRule, TradeSnapshot
+
+# 修改后
+- 调用方: PairDrawdownRule, TradeAnalyzer
+```
+
+**Line 414**:
+```python
+# 修改前
+- Pairs.on_position_filled(CLOSE)：创建 TradeSnapshot
+
+# 修改后
+- TradeAnalyzer.analyze_trade()：计算交易成本
+```
+
+**Line 651**:
+```python
+# 修改前
+- reason参数会编码到tag中(便于TradeSnapshot解析)
+
+# 修改后
+- reason参数会编码到tag中(便于日志追踪和统计分析)
+```
+
+### 架构澄清
+
+#### Pairs 职责（数据提供者）
+- ✅ 记录成交时间/价格/数量（on_position_filled 回调）
+- ✅ 提供 PnL 查询（get_pair_pnl）
+- ✅ 提供持仓天数查询（get_pair_holding_days）
+- ✅ 提供 Z-score 查询（get_zscore）
+- ❌ **不负责**: 交易统计记录
+
+#### ExecutionManager 职责（交易统计触发）
+- ✅ 在 5 处平仓点调用 `trade_analyzer.analyze_trade(pair, reason)`
+  1. Portfolio风控平仓
+  2. Pair风控平仓
+  3. Cooldown清理平仓
+  4. 正常CLOSE平仓
+  5. 正常STOP_LOSS平仓
+
+#### TradeAnalyzer 职责（统计收集）
+- ✅ 实时统计分析（6个Collector）
+- ✅ JSON Lines输出
+- ✅ OnEndOfAlgorithm汇总
+
+### 影响文件
+**修改**:
+- src/Pairs.py (导入+删除废弃逻辑+注释清理)
+- docs/CHANGELOG.md (新增v7.2.1版本记录)
+
+### 测试要点
+1. ✅ 导入错误消失: `No module named 'src.TradeHistory'` 不再出现
+2. ✅ 回测可以正常启动
+3. ✅ 交易统计正常工作: ExecutionManager 在平仓时调用 `trade_analyzer.analyze_trade()`
+4. ✅ on_position_filled() 只记录成交数据，不再做统计
+
+---
+
 ## [v7.2.0_trade-module-refactor@20250125]
 
 ### 版本定义
