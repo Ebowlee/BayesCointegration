@@ -445,12 +445,12 @@ class ExecutionManager:
 
             # 检查2: 风险冷却期检查
             if self.is_pair_in_risk_cooldown(pair_id):
-                self.algorithm.Debug(f"[开仓跳过] {pair_id} 在风险冷却期", 2)
+                self.algorithm.Debug(f"[开仓跳过] {pair_id} 在风险冷却期")
                 continue
 
             # 检查3: 普通交易冷却期检查
             if self.is_pair_in_normal_cooldown(pair):
-                self.algorithm.Debug(f"[开仓跳过] {pair_id} 在交易冷却期", 2)
+                self.algorithm.Debug(f"[开仓跳过] {pair_id} 在交易冷却期")
                 continue
 
             # 执行开仓并注册订单追踪
