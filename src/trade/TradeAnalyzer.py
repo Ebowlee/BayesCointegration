@@ -70,7 +70,7 @@ class TradeAnalyzer:
             reason: 平仓原因 ('CLOSE', 'STOP_LOSS', 'TIMEOUT', etc.)
         """
         # 1. 提取交易数据
-        pnl_pct = pair.get_pair_pnl(mode='final')
+        pnl_pct = pair.get_pair_pnl()
         holding_days = pair.get_pair_holding_days()
         signal = pair.signal
         pair_id = pair.pair_id

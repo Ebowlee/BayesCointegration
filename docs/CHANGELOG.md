@@ -4,6 +4,141 @@
 
 ---
 
+## [v7.2.2_fix-pnl-signature@20250125]
+
+### 版本定义
+**紧急修复**: TradeAnalyzer 错误的 get_pair_pnl() 方法调用
+
+### 问题诊断
+
+**错误信息**:
+```
+Runtime Error: Pairs.get_pair_pnl() got an unexpected keyword argument 'mode'
+  at analyze_trade
+    pnl_pct = pair.get_pair_pnl(mode='final')
+ in TradeAnalyzer.py: line 76
+```
+
+**根本原因**: v7.2.0 创建 TradeAnalyzer 时，错误地使用了 `mode='final'` 参数，但 `Pairs.get_pair_pnl()` 从未支持过此参数。
+
+**实际设计** (v7.0.0 Intent Pattern 引入):
+- `get_pair_pnl()` 采用**自动双模式**设计：
+  - 持仓中 (`exit_price=None`): 使用实时价格计算浮动PnL
+  - 已平仓 (`exit_price≠None`): 使用退出价格计算最终PnL
+- **无需** `mode` 参数，内部自动判断
+
+**为什么会出错**:
+1. TradeAnalyzer 在平仓后调用 `analyze_trade()`
+2. 此时 `on_position_filled()` 已记录 `exit_price1/2`
+3. `get_pair_pnl()` 检查到 `exit_price≠None`，自动使用退出价格
+4. v7.2.0 创建时错误地假设需要 `mode='final'` 参数
+
+### 核心改动
+
+#### 1. TradeAnalyzer.py 修复
+**Line 73**:
+```python
+# 修改前
+pnl_pct = pair.get_pair_pnl(mode='final')
+
+# 修改后
+pnl_pct = pair.get_pair_pnl()
+```
+
+**理由**: `get_pair_pnl()` 自动判断模式，平仓后自动返回最终PnL
+
+#### 2. TradeSnapshot.py 修复
+**Line 59-60**:
+```python
+# 修改前
+pnl=pair.get_pair_pnl(mode='final') * pair.algorithm.Portfolio.TotalPortfolioValue / 100,
+pnl_pct=pair.get_pair_pnl(mode='final'),
+
+# 修改后
+pnl=pair.get_pair_pnl() * pair.algorithm.Portfolio.TotalPortfolioValue / 100,
+pnl_pct=pair.get_pair_pnl(),
+```
+
+**理由**: 同上，无需显式指定模式
+
+### get_pair_pnl() 方法签名确认
+
+**Pairs.py Line 339** (实际实现):
+```python
+def get_pair_pnl(self) -> Optional[float]:
+    """计算配对当前浮动盈亏（纯数据计算，无副作用）"""
+
+    # 自动双模式判断
+    if self.exit_price1 is None or self.exit_price2 is None:
+        # 持仓中: 使用实时价格(浮动PnL)
+        price1 = portfolio[self.symbol1].Price
+        price2 = portfolio[self.symbol2].Price
+    else:
+        # 已平仓: 使用退出价格(最终PnL)
+        price1 = self.exit_price1
+        price2 = self.exit_price2
+
+    # 计算PnL
+    current_value = (self.tracked_qty1 * price1 + self.tracked_qty2 * price2)
+    entry_value = (self.tracked_qty1 * self.entry_price1 + self.tracked_qty2 * self.entry_price2)
+    return current_value - entry_value
+```
+
+### 为什么不需要 mode 参数？
+
+**设计优势**:
+1. **自动判断**: 通过检查 `exit_price` 状态自动选择模式
+2. **调用简洁**: 调用方无需关心内部实现细节
+3. **防御性编程**: 单一数据源（exit_price）避免状态不一致
+4. **DRY原则**: 判断逻辑集中在方法内部，无需在调用方重复
+
+**调用场景**:
+| 场景 | 调用方 | exit_price 状态 | 自动模式 |
+|------|--------|----------------|----------|
+| 持仓中查询 | PairDrawdownRule | None | 实时价格（浮动PnL） |
+| 平仓后统计 | TradeAnalyzer | 已设置 | 退出价格（最终PnL） |
+
+### 历史演变
+
+**v7.0.0** (Intent Pattern 引入):
+- 优化 `get_pair_pnl()` 支持自动双模式
+- `exit_price1/2` 统一清零管理
+- 无需 `mode` 参数
+
+**v7.2.0** (TradeAnalyzer 创建):
+- ❌ 错误地假设需要 `mode='final'`
+- 原因: 对现有代码逻辑理解不足
+
+**v7.2.2** (本次修复):
+- ✅ 删除错误的 `mode` 参数
+- ✅ 恢复正确的方法调用
+
+### 影响文件
+
+**修改**:
+- src/trade/TradeAnalyzer.py (Line 73: 删除 `mode='final'`)
+- src/trade/TradeSnapshot.py (Line 59-60: 删除 `mode='final'`)
+- docs/CHANGELOG.md (新增 v7.2.2 版本记录)
+
+### 测试要点
+
+1. ✅ 错误消失: `got an unexpected keyword argument 'mode'`
+2. ✅ TradeAnalyzer 正常工作: 平仓后统计正常记录
+3. ✅ JSON Lines 输出正确: `{"type": "trade_close", "pnl_pct": ...}`
+4. ✅ 自动模式判断: 持仓中和平仓后都返回正确PnL
+
+### 教训总结
+
+**根本原因**: 创建新模块前未充分理解依赖方法的设计意图
+
+**改进措施**:
+1. ✅ 查阅 CHANGELOG 了解方法历史演变
+2. ✅ 检查方法实际签名和实现逻辑
+3. ✅ 运行测试验证接口正确性
+4. ✅ 避免假设方法需要额外参数
+
+---
+
 ## [v7.2.1_fix-trade-imports@20250125]
 
 ### 版本定义
