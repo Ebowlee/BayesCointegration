@@ -4,6 +4,171 @@
 
 ---
 
+## [v7.1.7_execution-naming-consistency@20250125]
+
+### 版本定义
+**命名一致性优化**: ExecutionManager方法重命名,统一Intent Pattern命名风格
+
+### 核心改动
+
+#### ExecutionManager方法重命名
+重命名两个正常交易方法,与风控方法保持命名一致性:
+
+**变更明细**:
+- `handle_signal_closings()` → `handle_normal_close_intents()`
+- `handle_position_openings()` → `handle_normal_open_intents()`
+
+**命名一致性** (完美的三维分类):
+```python
+# Portfolio + Risk + Intents
+handle_portfolio_risk_intents()
+
+# Pair + Risk + Intents
+handle_pair_risk_intents()
+
+# Normal + Close + Intents
+handle_normal_close_intents()
+
+# Normal + Open + Intents
+handle_normal_open_intents()
+```
+
+**影响文件**:
+- src/execution/ExecutionManager.py (方法定义 + docstring)
+- main.py (Line 217, 225: 方法调用)
+- CLAUDE.md (架构文档)
+- src/risk/PairDrawdown.py (注释引用)
+
+**设计优势**:
+- 统一Intent Pattern命名风格
+- normal vs risk语义清晰区分
+- close vs open动作对称
+- 完整体现Intent Pattern架构思想
+
+---
+
+## [v7.1.6_log-optimization@20250125]
+
+### 版本定义
+**日志优化第三阶段**: OnEndOfAlgorithm报告重定向 + SecurityChanges过滤 + 选股标记改进
+
+### 核心改动
+
+#### 1. OnEndOfAlgorithm报告重定向
+**问题**: 100KB日志限制导致回测结束报告被截断
+
+**解决方案**:
+```python
+def OnEndOfAlgorithm(self):
+    """回测结束: 输出策略汇总 (重定向到backtests/)"""
+
+    # 尝试写入backtests/目录 (本地回测可用)
+    try:
+        summary = self._generate_summary_report()
+        with open('backtests/strategy_summary.txt', 'w', encoding='utf-8') as f:
+            f.write(summary)
+        self.Debug("[回测完成] 策略汇总已保存到 backtests/strategy_summary.txt")
+    except:
+        # 云端回测失败 → 使用Debug输出
+        self.Debug("[回测完成] 策略汇总")
+        self.Debug(summary)
+```
+
+**效果**: 本地回测可查看完整报告,云端回测降级到Debug输出
+
+#### 2. SecurityChanges日志过滤
+**问题**: SecurityChanges日志占用大量空间(每次添加/移除股票都打印)
+
+**解决方案**:
+```python
+def OnSecuritiesChanged(self, changes):
+    """仅处理业务逻辑,不打印SecurityChanges日志"""
+    # 删除: self.Debug(f"SecurityChanges: Added: {added}, Removed: {removed}")
+
+    # 仅处理业务逻辑
+    if changes.AddedSecurities:
+        self.TriggerSelection()
+```
+
+**效果**: 减少~15%日志占用
+
+#### 3. 选股标记改进
+**优化**: 明确标注"第X次选股",便于AI分析
+
+```python
+# 修改前
+self.Debug("==================== 月度选股 ====================")
+
+# 修改后
+self.selection_count += 1
+self.Debug(f"==================== 第{self.selection_count}次选股 ({self.Time.date()}) ====================")
+```
+
+**效果**:
+- 清晰标识选股轮次(第1次、第2次...)
+- 便于AI分析选股频率和效果
+
+---
+
+## [v7.1.5_log-optimization-part2@20250125]
+
+### 版本定义
+**日志优化第二阶段**: 行业名称可读性优化 + 日志格式统一
+
+### 核心改动
+
+#### 1. 行业名称可读性优化
+**问题**: Morningstar子行业代码(如30910)不可读
+
+**解决方案**:
+```python
+# 添加行业代码映射字典
+MORNINGSTAR_INDUSTRY_NAMES = {
+    30910: "石油天然气",
+    20720: "医疗器械",
+    31120: "软件基础设施",
+    # ... 更多映射
+}
+
+# 日志输出
+industry_name = MORNINGSTAR_INDUSTRY_NAMES.get(industry_code, f"行业{industry_code}")
+self.Debug(f"[协整分析] {industry_name}({industry_code}): 候选{n}只 → 选中{m}只")
+```
+
+**效果**: 日志可读性大幅提升,AI分析更友好
+
+#### 2. 日志格式统一调整
+- 统一使用中文标点符号
+- 统一日志前缀格式 `[模块名]`
+- 统一数值格式(保留2位小数)
+
+---
+
+## [v7.1.4_log-optimization@20250125]
+
+### 版本定义
+**日志优化第一阶段**: 初步日志精简和格式调整
+
+### 核心改动
+
+#### 日志分级控制探索
+- 探索通过debug_mode控制日志输出级别
+- 识别冗余日志模块(MarginAllocator, 协整分析)
+- 为后续日志优化奠定基础
+
+**发现问题**:
+- MarginAllocator日志占用24.2%空间
+- 协整分析日志占用15.1%空间
+- 订单相关日志占用22.3%空间
+- 100KB限制下,OnEndOfAlgorithm报告被截断
+
+**后续优化方向**:
+- v7.1.5: 行业名称可读性
+- v7.1.6: OnEndOfAlgorithm重定向 + SecurityChanges过滤
+- v7.1.7: 命名一致性优化
+
+---
+
 ## [v7.1.3_architecture-cleanup@20250124]
 
 ### 版本定义
