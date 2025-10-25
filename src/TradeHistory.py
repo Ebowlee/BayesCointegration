@@ -45,6 +45,7 @@ class TradeSnapshot:
     close_time: datetime            # 平仓时间
 
     close_reason: str               # 平仓原因（'CLOSE', 'STOP_LOSS', 'TIMEOUT', 'RISK_TRIGGER'）
+    direction: str                  # 交易方向（'LONG_SPREAD' 或 'SHORT_SPREAD'）
 
     pair_cost: float                # 配对保证金成本 (Regulation T margin: 0.5 for long, 1.5 for short)
     pair_pnl: float                 # 配对盈亏 (使用 exit 价格计算)
@@ -142,8 +143,9 @@ class TradeSnapshot:
             beta=pair.beta_mean,
             quality_score=pair.quality_score,
 
-            # 显式传入的交易数据（11个字段：9个原始 + 2个计算）
+            # 显式传入的交易数据（12个字段：9个原始 + 3个计算）
             close_reason=close_reason,
+            direction=direction,  # 交易方向（从qty1推导）
             entry_price1=entry_price1,
             entry_price2=entry_price2,
             exit_price1=exit_price1,
