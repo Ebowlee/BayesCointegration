@@ -156,7 +156,7 @@ class PairDrawdownRule(RiskRule):
 
         调用时机:
         - main.py 在执行平仓后立即调用
-        - ExecutionManager.handle_signal_closings() / handle_pair_risk_actions()
+        - ExecutionManager.handle_normal_close_intents() / handle_pair_risk_intents()
 
         Args:
             pair_id: 配对标识符元组 (symbol1, symbol2)

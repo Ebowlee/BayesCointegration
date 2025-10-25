@@ -214,7 +214,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
             self.execution_manager.handle_pair_risk_intents(pair_intents, self.risk_manager)
 
         # === 处理正常平仓 ===
-        self.execution_manager.handle_signal_closings(pairs_with_position, data)
+        self.execution_manager.handle_normal_close_intents(pairs_with_position, data)
 
         # === 处理正常开仓 ===
         if pairs_without_position:
@@ -222,7 +222,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
             if not self.risk_manager.is_safe_to_open_positions():
                 return  # 市场高波动，跳过开仓逻辑
 
-            self.execution_manager.handle_position_openings(pairs_without_position, data)
+            self.execution_manager.handle_normal_open_intents(pairs_without_position, data)
 
 
     def OnOrderEvent(self, event):

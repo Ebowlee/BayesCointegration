@@ -55,7 +55,8 @@
       "Bash(else echo \".ipynb_checkpoints目录不存在\")",
       "Bash(git mv src/RiskManagement src/temp_risk)",
       "Bash(git mv src/temp_risk src/risk)",
-      "Bash(git mv src/risk/PortfolioBaseRule.py src/risk/RiskBaseRule.py)"
+      "Bash(git mv src/risk/PortfolioBaseRule.py src/risk/RiskBaseRule.py)",
+      "Bash(git mv:*)"
     ],
     "deny": []
   },

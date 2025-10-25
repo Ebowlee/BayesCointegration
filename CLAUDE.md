@@ -193,12 +193,12 @@ git commit -m "v2.4.8_strategy-optimize@20250720"
 ### 7. ExecutionManager.py - Unified Execution Coordinator (v7.0.0)
 - **Purpose**: Coordinate all trading actions through Intent Pattern
 - **Design Principle**: "Coordinator, Not Executor" - orchestrates intent generation and execution
-- **Key Methods** (v7.1.2 updated):
+- **Key Methods** (v7.1.7 updated):
   - `handle_portfolio_risk_intents()`: Coordinate portfolio-level risk actions (e.g., liquidate all)
   - `handle_pair_risk_intents()`: Coordinate pair-level risk actions (e.g., close specific pairs)
   - `cleanup_remaining_positions()`: Clean up residual positions during cooldown period
-  - `handle_signal_closings()`: Coordinate normal closing signals from pairs
-  - `handle_position_openings()`: Coordinate opening logic with dynamic margin allocation
+  - `handle_normal_close_intents()`: Coordinate normal closing intents from pairs (renamed from handle_signal_closings)
+  - `handle_normal_open_intents()`: Coordinate normal opening intents with dynamic margin allocation (renamed from handle_position_openings)
   - `get_entry_candidates()`: Aggregate opening signals sorted by quality (v6.9.3: migrated from PairsManager)
 - **Responsibilities** (v7.0.0 updated):
   - Signal aggregation for opening candidates

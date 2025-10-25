@@ -306,9 +306,9 @@ class ExecutionManager:
 
     # ===== 正常交易执行方法 =====
 
-    def handle_signal_closings(self, pairs_with_position, data):
+    def handle_normal_close_intents(self, pairs_with_position, data):
         """
-        处理信号驱动的正常平仓
+        处理正常交易的平仓Intent
 
         职责: 主动交易管理(非风控)
 
@@ -327,6 +327,7 @@ class ExecutionManager:
         - 完全独立于风控平仓
         - 自动跳过风控已处理的配对(通过订单锁)
         - 只负责执行,信号生成由Pairs负责
+        - 命名与handle_*_risk_intents()保持一致(Intent Pattern)
         """
         for pair in pairs_with_position.values():
             # 订单锁定检查(跳过已被风控处理或订单执行中的配对)
@@ -385,9 +386,9 @@ class ExecutionManager:
         return candidates
 
 
-    def handle_position_openings(self, pairs_without_position, data):
+    def handle_normal_open_intents(self, pairs_without_position, data):
         """
-        处理正常开仓逻辑
+        处理正常交易的开仓Intent
 
         职责: 开仓协调和执行
 
@@ -399,13 +400,14 @@ class ExecutionManager:
         1. 获取开仓候选(get_entry_candidates)
         2. 使用MarginAllocator分配资金
         3. 逐个执行开仓(检查: 订单锁 + 风险冷却 + 普通冷却)
-        4. 注册订单到tickets_manager
+        4. 生成Intent并通过order_executor执行,注册订单
 
         设计特点:
         - 委托MarginAllocator进行资金分配
         - 双重cooldown检查: 风险冷却(30天) + 普通冷却(10天)
         - 质量分数驱动的分配比例
         - 简洁的开仓循环
+        - 命名与handle_*_risk_intents()保持一致(Intent Pattern)
         """
         # Step 1: 获取开仓候选(已按质量降序)
         entry_candidates = self.get_entry_candidates(pairs_without_position, data)
