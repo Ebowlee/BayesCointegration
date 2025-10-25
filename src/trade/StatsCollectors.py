@@ -59,40 +59,6 @@ class ReasonStatsCollector:
             algorithm.Debug(json.dumps(log_data, ensure_ascii=False))
 
 
-class SignalStatsCollector:
-    """信号类型统计收集器"""
-
-    def __init__(self):
-        self.stats: Dict[str, Dict] = {}
-
-    def update(self, signal: str, pnl_pct: float):
-        """更新统计"""
-        if signal not in self.stats:
-            self.stats[signal] = {'count': 0, 'wins': 0, 'total_pnl': 0.0}
-
-        stat = self.stats[signal]
-        stat['count'] += 1
-        if pnl_pct > 0:
-            stat['wins'] += 1
-        stat['total_pnl'] += pnl_pct
-
-    def log_summary(self, algorithm):
-        """输出汇总统计 (JSON Lines)"""
-        for signal, stat in self.stats.items():
-            win_rate = stat['wins'] / stat['count'] if stat['count'] > 0 else 0
-            avg_pnl = stat['total_pnl'] / stat['count'] if stat['count'] > 0 else 0
-
-            log_data = {
-                'type': 'signal_stats',
-                'signal': signal,
-                'count': stat['count'],
-                'win_rate': round(win_rate, 4),
-                'avg_pnl': round(avg_pnl, 4),
-            }
-
-            algorithm.Debug(json.dumps(log_data, ensure_ascii=False))
-
-
 class HoldingBucketCollector:
     """持仓时长分桶统计收集器"""
 

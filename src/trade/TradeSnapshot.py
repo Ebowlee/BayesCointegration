@@ -28,19 +28,17 @@ class TradeSnapshot:
     """
     交易快照 (不可变Value Object)
 
-    当前版本 (v7.2.0): 预留未来使用
+    当前版本 (v7.2.3): 预留未来使用
     - TradeAnalyzer通过JSON Lines输出到logs.txt
     - 如需导出自定义格式,可使用此类
     """
     pair_id: Tuple[str, str]
-    signal: str
     entry_time: datetime
     exit_time: Optional[datetime]
     pnl: float
     pnl_pct: float
     reason: str
     holding_days: int
-    entry_zscore: float
     exit_zscore: float
 
     @classmethod
@@ -48,18 +46,16 @@ class TradeSnapshot:
         """
         工厂方法: 从Pairs对象创建快照
 
-        当前版本 (v7.2.0): 未使用
+        当前版本 (v7.2.3): 未使用
         保留以便未来扩展(例如: 导出到自定义格式)
         """
         return cls(
             pair_id=pair.pair_id,
-            signal=pair.signal,
             entry_time=pair.entry_time,
             exit_time=pair.algorithm.Time,
             pnl=pair.get_pair_pnl() * pair.algorithm.Portfolio.TotalPortfolioValue / 100,
             pnl_pct=pair.get_pair_pnl(),
             reason=reason,
             holding_days=pair.get_pair_holding_days(),
-            entry_zscore=pair.entry_zscore,
             exit_zscore=pair.get_zscore(),
         )

@@ -16,7 +16,6 @@ import json
 from typing import TYPE_CHECKING
 from .StatsCollectors import (
     ReasonStatsCollector,
-    SignalStatsCollector,
     HoldingBucketCollector,
     PairStatsCollector,
     ConsecutiveStatsCollector,
@@ -53,7 +52,6 @@ class TradeAnalyzer:
 
         # 统计收集器 (委托模式)
         self.reason_collector = ReasonStatsCollector()
-        self.signal_collector = SignalStatsCollector()
         self.holding_collector = HoldingBucketCollector()
         self.pair_collector = PairStatsCollector()
         self.consecutive_collector = ConsecutiveStatsCollector()
@@ -72,9 +70,7 @@ class TradeAnalyzer:
         # 1. 提取交易数据
         pnl_pct = pair.get_pair_pnl()
         holding_days = pair.get_pair_holding_days()
-        signal = pair.signal
         pair_id = pair.pair_id
-        entry_zscore = pair.entry_zscore
         exit_zscore = pair.get_zscore()
 
         # 2. 更新全局统计
@@ -85,14 +81,13 @@ class TradeAnalyzer:
 
         # 3. 委托给各Collector更新统计
         self.reason_collector.update(reason, pnl_pct, holding_days)
-        self.signal_collector.update(signal, pnl_pct)
         self.holding_collector.update(holding_days, pnl_pct)
         self.pair_collector.update(pair_id, pnl_pct)
         self.consecutive_collector.update(pnl_pct)
         self.monthly_collector.update(self.algorithm.Time, pnl_pct)
 
         # 4. 输出单笔交易日志 (JSON Lines)
-        self._log_trade_close(pair, reason, pnl_pct, holding_days, entry_zscore, exit_zscore)
+        self._log_trade_close(pair, reason, pnl_pct, holding_days, exit_zscore)
 
     def log_summary(self):
         """
@@ -101,18 +96,16 @@ class TradeAnalyzer:
         输出内容:
         1. 全局汇总
         2. 平仓原因统计 (按reason分组)
-        3. 信号类型统计 (按signal分组)
-        4. 持仓时长统计 (按holding_days分桶)
-        5. "坏配对"识别 (交易次数>=3且累计亏损)
-        6. 连续盈亏统计
-        7. 月度表现分解
+        3. 持仓时长统计 (按holding_days分桶)
+        4. "坏配对"识别 (交易次数>=3且累计亏损)
+        5. 连续盈亏统计
+        6. 月度表现分解
         """
         # 输出全局汇总
         self._log_global_summary()
 
         # 委托给各Collector输出汇总
         self.reason_collector.log_summary(self.algorithm)
-        self.signal_collector.log_summary(self.algorithm)
         self.holding_collector.log_summary(self.algorithm)
         self.pair_collector.log_summary(self.algorithm)
         self.consecutive_collector.log_summary(self.algorithm)
@@ -120,16 +113,14 @@ class TradeAnalyzer:
 
     # ========== 内部方法 (日志输出) ==========
 
-    def _log_trade_close(self, pair, reason, pnl_pct, holding_days, entry_zscore, exit_zscore):
+    def _log_trade_close(self, pair, reason, pnl_pct, holding_days, exit_zscore):
         """输出单笔交易日志 (JSON Lines)"""
         log_data = {
             'type': 'trade_close',
             'pair_id': str(pair.pair_id),
-            'signal': pair.signal,
             'reason': reason,
             'pnl_pct': round(pnl_pct, 4),
             'holding_days': holding_days,
-            'entry_zscore': round(entry_zscore, 2),
             'exit_zscore': round(exit_zscore, 2),
         }
 

@@ -4,6 +4,279 @@
 
 ---
 
+## [v7.2.3_remove-useless-stats@20250125]
+
+### 版本定义
+**功能优化**: 删除无意义的 signal 和 entry_zscore 统计
+
+### 问题诊断
+
+**错误信息**:
+```
+Runtime Error: 'Pairs' object has no attribute 'signal'
+  at analyze_trade
+    signal = pair.signal
+ in TradeAnalyzer.py: line 78
+```
+
+**根本原因分析**:
+
+1. **架构问题**:
+   - v7.0.0 Intent Pattern: `signal` 存储在临时的 `OpenIntent` 对象中
+   - `OpenIntent` 在 `execute_open()` 后被丢弃，信号信息丢失
+   - `Pairs` 对象从未保存这些信息 (没有 `signal` 和 `entry_zscore` 属性)
+   - TradeAnalyzer 错误地假设 Pairs 对象存储这些属性
+
+2. **统计价值质疑**:
+
+   **entry_zscore**: **完全无意义**
+   - 开仓阈值固定为 `±1.0σ`
+   - 所有交易的 entry_zscore 都集中在 `±1.0` 附近
+   - 示例数据: `[1.02, -1.01, 1.03, -1.00, 1.01, -1.02]`
+   - **无区分度，无分析价值**
+
+   **signal** (LONG_SPREAD vs SHORT_SPREAD): **价值有限**
+   - 策略采用对称的 beta 对冲设计
+   - 理论上 LONG 和 SHORT 表现应相近
+   - 其他 5 个 Collectors 已提供足够洞察 (reason, holding, pair, consecutive, monthly)
+
+3. **方案选择**: 删除无用统计 (优于添加属性)
+   - ❌ 方案B: 添加 `entry_signal` 和 `entry_zscore` 属性到 Pairs → **增加复杂度，维护无用数据**
+   - ✅ 方案A: 删除这两项统计 → **简洁、准确、降低维护成本**
+
+### 核心改动
+
+#### 1. src/trade/TradeAnalyzer.py (7处修改)
+
+**修改1**: 删除 SignalStatsCollector 导入 (Line 19)
+```python
+# 删除
+from .StatsCollectors import (
+    ReasonStatsCollector,
+    SignalStatsCollector,  # ← 删除此行
+    ...
+)
+```
+
+**修改2**: 删除 signal_collector 初始化 (Line 56)
+```python
+# 删除
+self.signal_collector = SignalStatsCollector()
+```
+
+**修改3**: 删除 signal 和 entry_zscore 提取 (Line 75-77)
+```python
+# 删除前
+signal = pair.signal
+pair_id = pair.pair_id
+entry_zscore = pair.entry_zscore
+
+# 删除后
+pair_id = pair.pair_id  # 只保留 pair_id
+```
+
+**修改4**: 删除 signal_collector.update() 调用 (Line 88)
+```python
+# 删除
+self.signal_collector.update(signal, pnl_pct)
+```
+
+**修改5**: 删除 signal_collector.log_summary() 调用 (Line 115)
+```python
+# 删除
+self.signal_collector.log_summary(self.algorithm)
+```
+
+**修改6**: 简化 `_log_trade_close()` 方法 (Line 116-127)
+```python
+# 修改前
+def _log_trade_close(self, pair, reason, pnl_pct, holding_days, entry_zscore, exit_zscore):
+    log_data = {
+        'type': 'trade_close',
+        'pair_id': str(pair.pair_id),
+        'signal': pair.signal,  # ← 删除
+        'reason': reason,
+        'pnl_pct': round(pnl_pct, 4),
+        'holding_days': holding_days,
+        'entry_zscore': round(entry_zscore, 2),  # ← 删除
+        'exit_zscore': round(exit_zscore, 2),
+    }
+
+# 修改后
+def _log_trade_close(self, pair, reason, pnl_pct, holding_days, exit_zscore):
+    log_data = {
+        'type': 'trade_close',
+        'pair_id': str(pair.pair_id),
+        'reason': reason,
+        'pnl_pct': round(pnl_pct, 4),
+        'holding_days': holding_days,
+        'exit_zscore': round(exit_zscore, 2),
+    }
+```
+
+**修改7**: 更新 analyze_trade() 中的调用 (Line 90)
+```python
+# 修改前
+self._log_trade_close(pair, reason, pnl_pct, holding_days, entry_zscore, exit_zscore)
+
+# 修改后
+self._log_trade_close(pair, reason, pnl_pct, holding_days, exit_zscore)
+```
+
+#### 2. src/trade/StatsCollectors.py
+
+**删除**: 整个 `SignalStatsCollector` 类 (Line 62-94, 共33行)
+```python
+# 删除整个类
+class SignalStatsCollector:
+    """信号类型统计收集器"""
+
+    def __init__(self):
+        self.stats: Dict[str, Dict] = {}
+
+    def update(self, signal: str, pnl_pct: float):
+        ...
+
+    def log_summary(self, algorithm):
+        ...
+```
+
+#### 3. src/trade/TradeSnapshot.py (2处修改)
+
+**修改1**: dataclass 字段定义 (Line 35-42)
+```python
+# 修改前
+@dataclass(frozen=True)
+class TradeSnapshot:
+    pair_id: Tuple[str, str]
+    signal: str  # ← 删除
+    entry_time: datetime
+    exit_time: Optional[datetime]
+    pnl: float
+    pnl_pct: float
+    reason: str
+    holding_days: int
+    entry_zscore: float  # ← 删除
+    exit_zscore: float
+
+# 修改后
+@dataclass(frozen=True)
+class TradeSnapshot:
+    pair_id: Tuple[str, str]
+    entry_time: datetime
+    exit_time: Optional[datetime]
+    pnl: float
+    pnl_pct: float
+    reason: str
+    holding_days: int
+    exit_zscore: float
+```
+
+**修改2**: from_pair() 工厂方法 (Line 52-61)
+```python
+# 修改前
+return cls(
+    pair_id=pair.pair_id,
+    signal=pair.signal,  # ← 删除
+    entry_time=pair.entry_time,
+    exit_time=pair.algorithm.Time,
+    pnl=pair.get_pair_pnl() * pair.algorithm.Portfolio.TotalPortfolioValue / 100,
+    pnl_pct=pair.get_pair_pnl(),
+    reason=reason,
+    holding_days=pair.get_pair_holding_days(),
+    entry_zscore=pair.entry_zscore,  # ← 删除
+    exit_zscore=pair.get_zscore(),
+)
+
+# 修改后
+return cls(
+    pair_id=pair.pair_id,
+    entry_time=pair.entry_time,
+    exit_time=pair.algorithm.Time,
+    pnl=pair.get_pair_pnl() * pair.algorithm.Portfolio.TotalPortfolioValue / 100,
+    pnl_pct=pair.get_pair_pnl(),
+    reason=reason,
+    holding_days=pair.get_pair_holding_days(),
+    exit_zscore=pair.get_zscore(),
+)
+```
+
+### 影响范围
+
+#### 保留的5个Collectors (核心统计不受影响)
+- ✅ **ReasonStatsCollector**: 平仓原因统计 (CLOSE/STOP_LOSS/TIMEOUT 的胜率、平均PnL、持仓时长)
+- ✅ **HoldingBucketCollector**: 持仓时长分桶 (0-7天, 8-14天, 15-21天, 22-30天, 30天+)
+- ✅ **PairStatsCollector**: "坏配对"识别 (交易次数≥3且累计亏损的配对)
+- ✅ **ConsecutiveStatsCollector**: 连续盈亏统计 (当前连胜/连亏, 最大连胜/连亏)
+- ✅ **MonthlyStatsCollector**: 月度表现分解 (按月统计交易次数/胜率/总PnL)
+
+#### 删除的统计 (无价值)
+- ❌ **SignalStatsCollector**: 信号类型统计 (LONG_SPREAD vs SHORT_SPREAD 胜率对比)
+  - 删除原因: 策略对称设计，LONG/SHORT 理论上表现相近
+- ❌ **entry_zscore 字段**: 开仓时的 Z-score 记录
+  - 删除原因: 固定 ±1.0σ 阈值，所有值集中在 ±1.0 附近，无区分度
+
+#### JSON Lines 输出变化
+**修改前**:
+```json
+{
+  "type": "trade_close",
+  "pair_id": "('AAPL', 'MSFT')",
+  "signal": "LONG_SPREAD",
+  "reason": "CLOSE",
+  "pnl_pct": 2.34,
+  "holding_days": 12,
+  "entry_zscore": 1.02,
+  "exit_zscore": 0.28
+}
+```
+
+**修改后**:
+```json
+{
+  "type": "trade_close",
+  "pair_id": "('AAPL', 'MSFT')",
+  "reason": "CLOSE",
+  "pnl_pct": 2.34,
+  "holding_days": 12,
+  "exit_zscore": 0.28
+}
+```
+
+### 设计优势
+
+1. **简洁性**: 删除无用功能，降低维护成本
+   - 减少 33 行代码 (SignalStatsCollector)
+   - 减少 2 个 dataclass 字段 (TradeSnapshot)
+   - 减少 2 个方法调用 (TradeAnalyzer)
+
+2. **一致性**: TradeSnapshot 和 TradeAnalyzer 字段对齐
+   - 两者都只记录有价值的数据
+   - 避免"代码有但不用"的混乱状态
+
+3. **准确性**: 只保留有价值的统计，避免误导性数据
+   - entry_zscore 集中在 ±1.0，容易误导"看起来有数据"
+   - signal 统计在对称策略中意义不大
+
+4. **可扩展性**: 未来如需 signal 统计，可在 Intent Pattern 中增强
+   - 当前无此需求，先保持简洁
+   - 如需要，可考虑在 TicketsManager 中保存 Intent 引用
+
+### 架构说明
+
+**trade/ 模块的设计哲学** (v7.2.3 更新):
+- **只统计有价值的信息** - 删除 entry_zscore (无区分度) 和 signal (对称策略)
+- **轻量级设计** - 5 个 Collectors 提供核心洞察，避免过度统计
+- **JSON Lines 输出** - 结构化日志，AI 解析友好
+- **Value Object 预留** - TradeSnapshot 保留但未使用，为未来自定义导出预留
+
+**与 v7.2.0 的区别**:
+- v7.2.0: 创建 trade/ 模块 (6 个 Collectors)
+- v7.2.3: 删除 SignalStatsCollector (5 个 Collectors)
+- **核心价值不变**: 补充 insights.json 的信息盲区
+
+---
+
 ## [v7.2.2_fix-pnl-signature@20250125]
 
 ### 版本定义
