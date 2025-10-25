@@ -42,12 +42,17 @@ class TradeSnapshot:
     exit_zscore: float
 
     @classmethod
-    def from_pair(cls, pair: 'Pairs', reason: str) -> 'TradeSnapshot':
+    def from_pair(cls, pair: 'Pairs', reason: str, data=None) -> 'TradeSnapshot':
         """
         工厂方法: 从Pairs对象创建快照
 
-        当前版本 (v7.2.3): 未使用
+        当前版本 (v7.2.4): 未使用
         保留以便未来扩展(例如: 导出到自定义格式)
+
+        Args:
+            pair: Pairs对象
+            reason: 平仓原因
+            data: 数据切片 (可选, 用于计算 exit_zscore)
         """
         return cls(
             pair_id=pair.pair_id,
@@ -57,5 +62,5 @@ class TradeSnapshot:
             pnl_pct=pair.get_pair_pnl(),
             reason=reason,
             holding_days=pair.get_pair_holding_days(),
-            exit_zscore=pair.get_zscore(),
+            exit_zscore=pair.get_zscore(data) if data else None,
         )

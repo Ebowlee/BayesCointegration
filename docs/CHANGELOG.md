@@ -4,6 +4,256 @@
 
 ---
 
+## [v7.2.4_fix-zscore-data@20250125]
+
+### 版本定义
+**紧急修复**: 补全 get_zscore(data) 缺失的 data 参数
+
+### 问题诊断
+
+**错误信息**:
+```
+Runtime Error: Pairs.get_zscore() missing 1 required positional argument: 'data'
+  at exit_zscore = pair.get_zscore()
+ in TradeAnalyzer.py: line 74
+```
+
+**根本原因**: v7.2.3 删除 signal 和 entry_zscore 时,忘记给 `pair.get_zscore()` 传递 `data` 参数
+
+**方法签名** (src/Pairs.py:483):
+```python
+def get_zscore(self, data) -> Optional[float]:
+    """计算Z-score,需要传入data来获取最新价格"""
+```
+
+**受影响范围**:
+- src/trade/TradeAnalyzer.py Line 74: `exit_zscore = pair.get_zscore()` ❌
+- src/trade/TradeSnapshot.py Line 60: `exit_zscore=pair.get_zscore()` ❌
+- ExecutionManager.py 中5处调用 `analyze_trade()` 缺少 data 参数
+
+### 核心改动
+
+#### 1. src/trade/TradeAnalyzer.py (3处修改)
+
+**修改1**: 方法签名添加 data 参数 (Line 60)
+```python
+# 修改前
+def analyze_trade(self, pair: 'Pairs', reason: str):
+
+# 修改后
+def analyze_trade(self, pair: 'Pairs', reason: str, data=None):
+    """
+    Args:
+        data: 数据切片 (可选, 用于计算 exit_zscore)
+              - 正常平仓 (CLOSE/STOP_LOSS): data 可用, exit_zscore 有效
+              - 风控平仓 (TIMEOUT/RISK_TRIGGER): data=None, exit_zscore=None
+    """
+```
+
+**修改2**: 传递 data 给 get_zscore() (Line 77)
+```python
+# 修改前
+exit_zscore = pair.get_zscore()
+
+# 修改后
+exit_zscore = pair.get_zscore(data) if data else None
+```
+
+**修改3**: _log_trade_close() 处理 None 情况 (Line 119-133)
+```python
+# 修改前
+log_data = {
+    'type': 'trade_close',
+    'pair_id': str(pair.pair_id),
+    'reason': reason,
+    'pnl_pct': round(pnl_pct, 4),
+    'holding_days': holding_days,
+    'exit_zscore': round(exit_zscore, 2),  # 总是输出
+}
+
+# 修改后
+log_data = {
+    'type': 'trade_close',
+    'pair_id': str(pair.pair_id),
+    'reason': reason,
+    'pnl_pct': round(pnl_pct, 4),
+    'holding_days': holding_days,
+}
+
+# 只有 exit_zscore 不为 None 时才添加 (正常平仓时有效, 风控平仓时为 None)
+if exit_zscore is not None:
+    log_data['exit_zscore'] = round(exit_zscore, 2)
+```
+
+#### 2. src/execution/ExecutionManager.py (5处修改)
+
+**修改1**: Line 171 (Portfolio风控)
+```python
+# 修改前
+self.trade_analyzer.analyze_trade(pair, intent.reason)
+
+# 修改后
+self.trade_analyzer.analyze_trade(pair, intent.reason, data=None)
+# Portfolio风控无data, exit_zscore=None
+```
+
+**修改2**: Line 236 (Pair风控)
+```python
+# 修改前
+self.trade_analyzer.analyze_trade(pair, intent.reason)
+
+# 修改后
+self.trade_analyzer.analyze_trade(pair, intent.reason, data=None)
+# Pair风控无data, exit_zscore=None
+```
+
+**修改3**: Line 310 (Cooldown清理)
+```python
+# 修改前
+self.trade_analyzer.analyze_trade(pair, intent.reason)
+
+# 修改后
+self.trade_analyzer.analyze_trade(pair, intent.reason, data=None)
+# Cooldown清理无data, exit_zscore=None
+```
+
+**修改4**: Line 363 (正常CLOSE)
+```python
+# 修改前
+self.trade_analyzer.analyze_trade(pair, intent.reason)
+
+# 修改后
+self.trade_analyzer.analyze_trade(pair, intent.reason, data)
+# 正常平仓有data, exit_zscore有效
+```
+
+**修改5**: Line 372 (正常STOP_LOSS)
+```python
+# 修改前
+self.trade_analyzer.analyze_trade(pair, intent.reason)
+
+# 修改后
+self.trade_analyzer.analyze_trade(pair, intent.reason, data)
+# 正常止损有data, exit_zscore有效
+```
+
+#### 3. src/trade/TradeSnapshot.py (2处修改)
+
+**修改1**: 方法签名添加 data 参数 (Line 45)
+```python
+# 修改前
+def from_pair(cls, pair: 'Pairs', reason: str) -> 'TradeSnapshot':
+
+# 修改后
+def from_pair(cls, pair: 'Pairs', reason: str, data=None) -> 'TradeSnapshot':
+```
+
+**修改2**: 传递 data 给 get_zscore() (Line 65)
+```python
+# 修改前
+exit_zscore=pair.get_zscore(),
+
+# 修改后
+exit_zscore=pair.get_zscore(data) if data else None,
+```
+
+### 设计说明
+
+#### 为什么 exit_zscore 有价值?
+
+**与 entry_zscore 的本质区别**:
+- **entry_zscore**: 固定阈值 ±1.0σ,所有值集中在 ±1.0 附近 → **无区分度**
+- **exit_zscore**: 动态值,反映平仓时的市场状态 → **有统计价值**
+
+**统计洞察**:
+1. **正常平仓 (CLOSE)**:
+   - 预期: exit_zscore ≈ ±0.3 (接近均值)
+   - 验证: 策略是否真的在回归时退出
+
+2. **止损平仓 (STOP_LOSS)**:
+   - 预期: exit_zscore ≈ ±3.0 (远离均值)
+   - 验证: 止损阈值是否合理
+
+3. **超时平仓 (TIMEOUT)**:
+   - 预期: exit_zscore 分布广泛
+   - 洞察: 如果大多超时平仓的 Z-score 仍远离均值 → 配对质量差
+
+4. **风控平仓 (RISK_TRIGGER/COOLDOWN)**:
+   - exit_zscore = None (无 data 可用)
+   - 标记为不可用,不影响其他统计
+
+#### 为什么风控平仓时 data=None?
+
+**Portfolio风控** (handle_portfolio_risk_intents):
+- 触发时机: Portfolio层面异常 (如总资金回撤 > 15%)
+- 执行环境: 可能在 OnData 之外触发
+- **没有 data 可用**
+
+**Pair风控** (handle_pair_risk_intents):
+- 触发时机: 配对异常 (如持仓超时 > 30天)
+- 执行环境: OnData 中触发,但风控检查时未传递 data
+- **没有 data 可用** (架构设计决定)
+
+**Cooldown清理** (cleanup_remaining_positions):
+- 触发时机: Portfolio风控后的残留持仓清理
+- 执行环境: Cooldown 期间每次 OnData
+- **没有 data 可用** (清理模式,非正常交易)
+
+**正常交易** (handle_normal_close_intents):
+- 触发时机: Z-score 回归或超限
+- 执行环境: OnData 中,data 可用
+- **data 可用** ✅
+
+### JSON Lines 输出变化
+
+**风控平仓** (data=None):
+```json
+{
+  "type": "trade_close",
+  "pair_id": "('AAPL', 'MSFT')",
+  "reason": "TIMEOUT",
+  "pnl_pct": -1.23,
+  "holding_days": 31
+}
+```
+**注意**: 无 `exit_zscore` 字段 (data=None 时动态省略)
+
+**正常平仓** (data 可用):
+```json
+{
+  "type": "trade_close",
+  "pair_id": "('AAPL', 'MSFT')",
+  "reason": "CLOSE",
+  "pnl_pct": 2.34,
+  "holding_days": 12,
+  "exit_zscore": 0.28
+}
+```
+**注意**: 包含 `exit_zscore` 字段 (data 可用时添加)
+
+### 影响范围
+
+- ✅ **TradeAnalyzer**: 方法签名更新,支持可选 data 参数
+- ✅ **ExecutionManager**: 5处调用点更新 (3处 data=None, 2处传递 data)
+- ✅ **TradeSnapshot**: 方法签名更新 (虽然当前未使用,保持一致性)
+- ✅ **JSON Lines 输出**: exit_zscore 字段根据可用性动态调整
+
+### 设计优势
+
+1. **向后兼容**: data 参数默认 None,不破坏未来可能的调用点
+2. **清晰区分**: 正常平仓 (有 exit_zscore) vs 风控平仓 (无 exit_zscore)
+3. **统计准确**: 只记录有意义的 exit_zscore,避免 None 值污染统计
+4. **日志简洁**: 动态字段输出,风控平仓时不显示无效的 exit_zscore
+
+### 测试要点
+
+1. ✅ 正常平仓 (CLOSE): JSON Lines 包含 `exit_zscore` 字段
+2. ✅ 正常止损 (STOP_LOSS): JSON Lines 包含 `exit_zscore` 字段
+3. ✅ 风控平仓 (TIMEOUT/RISK_TRIGGER/COOLDOWN): JSON Lines **无** `exit_zscore` 字段
+4. ✅ TradeSnapshot.from_pair() 接口一致 (虽然当前未使用)
+
+---
+
 ## [v7.2.3_remove-useless-stats@20250125]
 
 ### 版本定义

@@ -165,10 +165,10 @@ class ExecutionManager:
                     f"[Portfolio风控] {intent.pair_id} 平仓订单已提交 (reason={intent.reason})"
                 )
 
-                # 记录交易统计
+                # 记录交易统计 (Portfolio风控无data, exit_zscore=None)
                 pair = self.pairs_manager.get_pair_by_id(intent.pair_id)
                 if pair:
-                    self.trade_analyzer.analyze_trade(pair, intent.reason)
+                    self.trade_analyzer.analyze_trade(pair, intent.reason, data=None)
             else:
                 self.algorithm.Error(
                     f"[Portfolio风控] {intent.pair_id} 平仓失败 (无持仓)"
@@ -230,10 +230,10 @@ class ExecutionManager:
                     f"[Pair风控] {intent.pair_id} 平仓订单已提交 (reason={intent.reason})"
                 )
 
-                # 记录交易统计
+                # 记录交易统计 (Pair风控无data, exit_zscore=None)
                 pair = self.pairs_manager.get_pair_by_id(intent.pair_id)
                 if pair:
-                    self.trade_analyzer.analyze_trade(pair, intent.reason)
+                    self.trade_analyzer.analyze_trade(pair, intent.reason, data=None)
 
                 # 清理该配对的HWM状态（PairDrawdownRule）
                 risk_manager.cleanup_pair_hwm(intent.pair_id)
@@ -306,8 +306,8 @@ class ExecutionManager:
                         f"[Cooldown清理] {pair.pair_id} 已提交平仓订单"
                     )
 
-                    # 记录交易统计
-                    self.trade_analyzer.analyze_trade(pair, intent.reason)
+                    # 记录交易统计 (Cooldown清理无data, exit_zscore=None)
+                    self.trade_analyzer.analyze_trade(pair, intent.reason, data=None)
 
         if cleanup_count > 0:
             self.algorithm.Debug(
@@ -359,8 +359,8 @@ class ExecutionManager:
                 if intent:
                     success = self.order_executor.execute_close(intent)  # 自动注册到TicketsManager
                     if success:
-                        # 记录交易统计
-                        self.trade_analyzer.analyze_trade(pair, intent.reason)
+                        # 记录交易统计 (正常平仓有data, exit_zscore有效)
+                        self.trade_analyzer.analyze_trade(pair, intent.reason, data)
 
             elif signal == TradingSignal.STOP_LOSS:
                 self.algorithm.Debug(f"[止损] {pair.pair_id} Z-score超限")
@@ -368,8 +368,8 @@ class ExecutionManager:
                 if intent:
                     success = self.order_executor.execute_close(intent)  # 自动注册到TicketsManager
                     if success:
-                        # 记录交易统计
-                        self.trade_analyzer.analyze_trade(pair, intent.reason)
+                        # 记录交易统计 (正常止损有data, exit_zscore有效)
+                        self.trade_analyzer.analyze_trade(pair, intent.reason, data)
 
 
     def get_entry_candidates(self, pairs_without_position: dict, data) -> list:

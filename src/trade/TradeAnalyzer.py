@@ -57,7 +57,7 @@ class TradeAnalyzer:
         self.consecutive_collector = ConsecutiveStatsCollector()
         self.monthly_collector = MonthlyStatsCollector()
 
-    def analyze_trade(self, pair: 'Pairs', reason: str):
+    def analyze_trade(self, pair: 'Pairs', reason: str, data=None):
         """
         分析单笔交易 (委托给各Collector)
 
@@ -66,12 +66,15 @@ class TradeAnalyzer:
         Args:
             pair: Pairs对象
             reason: 平仓原因 ('CLOSE', 'STOP_LOSS', 'TIMEOUT', etc.)
+            data: 数据切片 (可选, 用于计算 exit_zscore)
+                  - 正常平仓 (CLOSE/STOP_LOSS): data 可用, exit_zscore 有效
+                  - 风控平仓 (TIMEOUT/RISK_TRIGGER): data=None, exit_zscore=None
         """
         # 1. 提取交易数据
         pnl_pct = pair.get_pair_pnl()
         holding_days = pair.get_pair_holding_days()
         pair_id = pair.pair_id
-        exit_zscore = pair.get_zscore()
+        exit_zscore = pair.get_zscore(data) if data else None
 
         # 2. 更新全局统计
         self.total_trades += 1
@@ -121,8 +124,11 @@ class TradeAnalyzer:
             'reason': reason,
             'pnl_pct': round(pnl_pct, 4),
             'holding_days': holding_days,
-            'exit_zscore': round(exit_zscore, 2),
         }
+
+        # 只有 exit_zscore 不为 None 时才添加 (正常平仓时有效, 风控平仓时为 None)
+        if exit_zscore is not None:
+            log_data['exit_zscore'] = round(exit_zscore, 2)
 
         self.algorithm.Debug(json.dumps(log_data, ensure_ascii=False))
 
