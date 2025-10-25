@@ -109,14 +109,6 @@ class MarketCondition:
             )
             return False
 
-        # Debug模式下输出详细指标值
-        if self.config.main.get('debug_mode', False):
-            vix_str = f"{vix:.1f}" if vix is not None else "N/A"
-            vol_str = f"{hist_vol*100:.1f}%" if hist_vol is not None else "N/A"
-            self.algorithm.Debug(
-                f"[MarketCondition] VIX={vix_str}, HistVol={vol_str}"
-            )
-
         # 判断1：VIX恐慌触发
         if vix is not None and vix >= self.vix_threshold:
             self.algorithm.Debug(

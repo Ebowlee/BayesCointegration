@@ -117,13 +117,8 @@ class PortfolioDrawdownRule(RiskRule):
         # 获取阈值
         threshold = self.config['threshold']
 
-        # 添加诊断日志(debug模式下输出)
-        if self.algorithm.config.main.get('debug_mode', False):
-            self.algorithm.Debug(
-                f"[PortfolioDrawdown] 检查: HWM=${self.high_water_mark:,.0f}, "
-                f"当前=${portfolio_value:,.0f}, 回撤={drawdown*100:.2f}%, "
-                f"阈值={threshold*100:.0f}%"
-            )
+        # 智能日志: 只在触发或接近阈值时打印(减少噪音)
+        warning_threshold = threshold * 0.8  # 警告线: 阈值的80%
 
         # 判断是否触发(大于等于阈值)
         if drawdown >= threshold:
@@ -143,4 +138,12 @@ class PortfolioDrawdownRule(RiskRule):
 
             return True, description
 
+        # 接近阈值时打印警告(警告线到阈值之间)
+        elif drawdown >= warning_threshold:
+            self.algorithm.Debug(
+                f"[PortfolioDrawdown] 警告: 回撤={drawdown*100:.2f}% (接近阈值{threshold*100:.0f}%, "
+                f"HWM=${self.high_water_mark:,.0f}, 当前=${portfolio_value:,.0f})"
+            )
+
+        # 正常情况: 静默(不打印,减少日志噪音)
         return False, ""

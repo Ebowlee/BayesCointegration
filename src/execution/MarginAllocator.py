@@ -165,19 +165,8 @@ class MarginAllocator:
 
                 # 扣减剩余资金
                 current_available = current_available - actual_allocated
-
-                # 记录日志
-                self.algorithm.Debug(
-                    f"[MarginAllocator] [{idx}/{len(entry_candidates)}] {pair.pair_id}: "
-                    f"${actual_allocated:,.0f} "
-                    f"(计划={planned_pct:.1%}, 质量={quality_score:.2f})"
-                )
             else:
                 # 不满足条件: 跳过此配对,继续尝试下一个
-                self.algorithm.Debug(
-                    f"[MarginAllocator] {pair.pair_id} 分配额不足: "
-                    f"${planned_allocated:,.0f} < ${self.min_investment_amount:,.0f}, 跳过"
-                )
                 continue  # 继续尝试剩余配对
 
         # === Step 3: 汇总日志 ===
