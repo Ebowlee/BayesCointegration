@@ -31,12 +31,16 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         self.SetCash(self.config.main['cash'])
         self.UniverseSettings.Resolution = self.config.main['resolution']
         self.SetBrokerageModel(self.config.main['brokerage_name'], self.config.main['account_type'])
+
+        # === Benchmark symbols列表(需过滤，不参与选股) ===
+        self.benchmark_symbols = []
         self.market_benchmark = self.AddEquity("SPY", self.config.main['resolution']).Symbol
+        self.benchmark_symbols.append(self.market_benchmark)
         self.SetBenchmark(self.market_benchmark)
 
 
         # === 初始化选股模块 ===
-        # 选股模块
+        # 选股模块（按26个子行业分组）
         self.universe_selector = SectorBasedUniverseSelection(self)             # 在此处做插拔替换
         self.SetUniverseSelection(self.universe_selector)
         self.symbols = []
@@ -61,6 +65,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # === 添加VIX指数（用于市场条件检查）===
         vix_config = self.config.risk_management['market_condition']
         self.vix_symbol = self.AddIndex(vix_config['vix_symbol'], vix_config['vix_resolution']).Symbol
+        self.benchmark_symbols.append(self.vix_symbol)  # VIX也需过滤
 
         # === 初始化辅助工具 ===
         self.tickets_manager = TicketsManager(self, self.pairs_manager)
@@ -82,17 +87,17 @@ class BayesianCointegrationStrategy(QCAlgorithm):
     def OnSecuritiesChanged(self, changes: SecurityChanges):
         """处理证券变更事件 - 触发配对分析"""
 
-        # 添加新股票（过滤掉市场基准）
+        # 添加新股票（过滤掉所有benchmark: SPY, VIX等）
         for security in changes.AddedSecurities:
-            # 过滤掉SPY
-            if security.Symbol == self.market_benchmark:
+            # 过滤掉benchmark symbols
+            if security.Symbol in self.benchmark_symbols:
                 continue
             if security.Symbol not in self.symbols:
                 self.symbols.append(security.Symbol)
 
-        # 移除旧股票（过滤掉市场基准）
+        # 移除旧股票（过滤掉所有benchmark）
         removed_symbols = [s.Symbol for s in changes.RemovedSecurities
-                          if s.Symbol != self.market_benchmark]
+                          if s.Symbol not in self.benchmark_symbols]
         self.symbols = [s for s in self.symbols if s not in removed_symbols]
 
         # === 触发配对分析 ===

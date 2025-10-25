@@ -199,13 +199,6 @@ class StrategyConfig:
                     'threshold': 0.15,                   # 回撤阈值：15% (生产环境)
                     'cooldown_days': 30,                 # 30天冷却期(可恢复)
                     'action': 'portfolio_liquidate_all'  # 全仓清算(与AccountBlowup相同)
-                },
-                'sector_concentration': {
-                    'enabled': False,                    # 暂不启用
-                    'priority': 70,
-                    'threshold': 0.35,                   # 行业集中度触发线：35%
-                    'target_exposure': 0.25,             # 目标集中度：25%
-                    'action': 'portfolio_rebalance_sectors'
                 }
             },
 

@@ -27,7 +27,7 @@ Key architectural principles (v7.0.0):
 - **Smart lifecycle management** - PairsManager tracks pairs through active/legacy/dormant states
 - **Order lifecycle tracking** - TicketsManager prevents duplicate orders via order locking mechanism
 - **Margin-based allocation** - Position sizing uses margin requirements (50% long, 150% short)
-- **Intra-industry pairing** - Securities paired within same Morningstar sector
+- **Intra-industry pairing** - Securities paired within same Morningstar industry group (26 groups)
 - **Natural fund constraints** - Position limits determined by available capital, not hard caps
 
 ## Development Commands
@@ -217,7 +217,7 @@ git commit -m "v2.4.8_strategy-optimize@20250720"
 - **Two-stage filtering**:
   - Coarse: Price > $20, Volume > $5M, IPO > 3 years
   - Fine: PE < 100, ROE > 0%, Debt/Assets < 80%
-- **Sector-based selection**: Top stocks per Morningstar sector
+- **Industry-group-based selection**: Top stocks per Morningstar industry group (26 groups)
 - **Triggers**: Monthly via `Schedule.On()` → `TriggerSelection()`
 
 ### 9. TicketsManager.py - Order Lifecycle Tracking (v6.4.4)
@@ -428,7 +428,7 @@ required_margin = long_value * 0.5 + short_value * 1.5
 
 ### Universe Selection Logic
 1. **Coarse filtering**: Price > $20, Volume > $5M, IPO > 3 years
-2. **Sector grouping**: 8 major sectors with 15 stocks each by market cap (updated in v6.4.0)
+2. **Industry grouping**: 26 Morningstar industry groups with top stocks per group by market cap
 3. **Fundamental filters**: PE < 100, ROE > 0%, Debt-to-Assets < 70%, Leverage < 5x
 4. **Volatility filter**: Annual volatility < 50%
 

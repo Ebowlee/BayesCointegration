@@ -162,11 +162,15 @@ class TicketsManager:
         # 获取实时状态
         current_status = self.get_pair_status(pair_id)
 
-        self.algorithm.Debug(
-            f"[OOE] {pair_id} OrderId={order_id} "
-            f"Status={event.Status} → 配对状态:{current_status}")
+        # 只在异常时打印日志（减少噪音）
+        if current_status == "ANOMALY":
+            self.algorithm.Debug(
+                f"[OOE异常] {pair_id} OrderId={order_id} "
+                f"Status={event.Status} 需风控介入")
+            # 异常订单也需要清理映射
+            self._cleanup_order_to_pair(pair_id)
 
-        if current_status == "COMPLETED":
+        elif current_status == "COMPLETED":
             # 获取动作类型和Pairs对象
             action = self.pair_actions.get(pair_id)
             pairs_obj = self.pairs_manager.get_pair_by_id(pair_id)
@@ -187,16 +191,6 @@ class TicketsManager:
                     self.algorithm.risk_manager.cleanup_pair_hwm(pair_id)
 
             # 清理已完成订单的映射（防止内存泄漏）
-            self._cleanup_order_to_pair(pair_id)
-
-            self.algorithm.Debug(
-                f"[OOE] {pair_id} 订单全部成交,配对解锁")
-        elif current_status == "ANOMALY":
-            self.algorithm.Debug(
-                f"[OOE] {pair_id} 订单异常({event.Status}),需风控介入"
-            )
-
-            # 异常订单也需要清理映射
             self._cleanup_order_to_pair(pair_id)
 
 
@@ -304,4 +298,4 @@ class TicketsManager:
                 del self.order_to_pair[ticket.OrderId]
                 cleaned_count += 1
 
-        self.algorithm.Debug(f"[TM清理] {pair_id} 清理{cleaned_count}个订单映射")
+        # 删除日志输出（减少噪音）

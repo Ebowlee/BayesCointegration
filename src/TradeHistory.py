@@ -27,7 +27,7 @@ class TradeSnapshot:
 
     # ===== 配对身份（隐式提取，不变的）=====
     pair_id: tuple                  # 配对ID (symbol1, symbol2)
-    industry_group: str             # 行业分组（Morningstar sector）
+    industry_group: str             # 子行业分组（IndustryGroupCode）
     beta: float                     # Beta系数（协整系数）
     quality_score: float            # 配对质量分数
 

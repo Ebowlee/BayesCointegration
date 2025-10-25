@@ -6,6 +6,7 @@ from typing import Dict, List
 from collections import defaultdict
 import itertools
 from statsmodels.tsa.stattools import coint
+from src.industry_mapping import get_industry_display
 # endregion
 
 
@@ -223,14 +224,15 @@ class CointegrationAnalyzer:
             # 提取symbols
             valid_groups[str(ig_code)] = [s['symbol'] for s in top_stocks]
 
-            # 日志
+            # 日志（使用可读行业名称）
+            industry_display = get_industry_display(int(ig_code), show_code=True)
             self.algorithm.Debug(
-                f"[协整分析] 子行业{ig_code}: 候选{len(stocks_list)}只 → 选中{len(top_stocks)}只"
+                f"[协整分析] {industry_display}: 候选{len(stocks_list)}只 → 选中{len(top_stocks)}只"
             )
 
-        # 日志：跳过的子行业
+        # 日志：跳过的子行业（使用可读行业名称）
         if skipped_groups:
-            skipped_info = [f"{ig}({count}只)" for ig, count in skipped_groups]
+            skipped_info = [f"{get_industry_display(int(ig), show_code=False)}({count}只)" for ig, count in skipped_groups]
             self.algorithm.Debug(
                 f"[协整分析] 跳过{len(skipped_groups)}个子行业(股票数<{self.min_stocks_per_group}): {', '.join(skipped_info)}"
             )

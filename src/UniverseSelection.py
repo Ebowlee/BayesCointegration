@@ -5,6 +5,7 @@ from typing import List, Dict, Tuple, Optional
 from collections import defaultdict
 from datetime import timedelta
 import numpy as np
+from src.industry_mapping import get_industry_display
 # endregion
 
 
@@ -127,9 +128,13 @@ class SelectionLogger:
         if not self.algorithm.debug_mode:
             return
 
+        # 选股分隔符标记（便于长周期回测定位）
+        date_str = self.algorithm.Time.strftime('%Y-%m-%d')
+        self.algorithm.Debug(f"\n{'='*20} 第{round_num}次选股 ({date_str}) {'='*20}")
+
         # 主要流程统计
         self.algorithm.Debug(
-            f"第【{round_num}】次选股: 粗选{initial_count}只 -> 最终{final_count}只"
+            f"粗选{initial_count}只 -> 最终{final_count}只"
         )
 
         # 财务淘汰原因
@@ -208,7 +213,8 @@ class SelectionLogger:
                 ig_dist[ig_code] += 1
 
             sorted_groups = sorted(ig_dist.items(), key=lambda x: x[1], reverse=True)
-            group_info = [f"{ig_code}({count}只)" for ig_code, count in sorted_groups[:10]]  # 只显示TOP 10
+            # 使用可读行业名称
+            group_info = [f"{get_industry_display(int(ig_code), show_code=False)}({count}只)" for ig_code, count in sorted_groups[:10]]  # 只显示TOP 10
             self.algorithm.Debug(f"[选股] 子行业分布TOP10: {', '.join(group_info)}")
 
 
