@@ -52,7 +52,7 @@ class OrderExecutor:
         self.tickets_manager = tickets_manager
 
 
-    def execute_open(self, intent: OpenIntent) -> None:
+    def execute_open(self, intent: OpenIntent) -> bool:
         """
         执行开仓意图
 
@@ -62,29 +62,34 @@ class OrderExecutor:
             intent: OpenIntent对象,包含配对ID、Symbol、数量、信号和标签
 
         Returns:
-            None (订单成功与否由TicketsManager通过OnOrderEvent异步判断)
+            bool: True=订单已提交并注册, False=订单提交失败
 
         设计说明:
             - 使用intent.tag统一标记两条腿(便于追踪和分析)
             - 数量由Intent预先计算(正数=做多,负数=做空)
             - 自动注册到TicketsManager进行订单追踪
-            - 无返回值(订单成功与否通过OnOrderEvent异步回调确定)
+            - 返回bool表示是否成功提交订单(最终成交由OnOrderEvent异步确定)
 
         执行流程:
             1. 提交symbol1订单 → ticket1
             2. 提交symbol2订单 → ticket2
-            3. 自动注册到TicketsManager
+            3. 检查两条腿是否都成功 → 自动注册到TicketsManager并返回True
         """
         # 提交两条腿的市价订单
         ticket1 = self.algorithm.MarketOrder(intent.symbol1, intent.qty1, tag=intent.tag)
         ticket2 = self.algorithm.MarketOrder(intent.symbol2, intent.qty2, tag=intent.tag)
 
-        # 自动注册到TicketsManager
-        tickets = [ticket1, ticket2]
-        self.tickets_manager.register_tickets(intent.pair_id, tickets, OrderAction.OPEN)
+        # 检查订单是否成功提交
+        if ticket1 and ticket2:
+            # 自动注册到TicketsManager
+            tickets = [ticket1, ticket2]
+            self.tickets_manager.register_tickets(intent.pair_id, tickets, OrderAction.OPEN)
+            return True
+
+        return False
 
 
-    def execute_close(self, intent: CloseIntent) -> None:
+    def execute_close(self, intent: CloseIntent) -> bool:
         """
         执行平仓意图
 
@@ -94,22 +99,22 @@ class OrderExecutor:
             intent: CloseIntent对象,包含配对ID、Symbol、当前持仓数量、原因和标签
 
         Returns:
-            None (订单成功与否由TicketsManager通过OnOrderEvent异步判断)
+            bool: True=订单已提交并注册, False=无订单提交(无持仓)
 
         设计说明:
             - 只平掉有持仓的腿(qty != 0)
             - 平仓数量 = -当前持仓数量(反向操作)
             - 使用intent.tag标记(包含reason信息)
             - 自动注册到TicketsManager进行订单追踪
-            - 无返回值(订单成功与否通过OnOrderEvent异步回调确定)
+            - 返回bool表示是否成功提交订单(最终成交由OnOrderEvent异步确定)
 
         执行流程:
             1. 检查qty1是否非0 → 提交平仓订单
             2. 检查qty2是否非0 → 提交平仓订单
-            3. 如果有订单提交,自动注册到TicketsManager
+            3. 如果有订单提交,自动注册到TicketsManager并返回True
 
         容错处理:
-            - 如果两条腿都是0(无持仓),不执行任何操作
+            - 如果两条腿都是0(无持仓),返回False
             - 单边持仓也能正常处理(只平掉有持仓的腿)
         """
         tickets = []
@@ -129,3 +134,6 @@ class OrderExecutor:
         # 如果有订单提交,自动注册到TicketsManager
         if tickets:
             self.tickets_manager.register_tickets(intent.pair_id, tickets, OrderAction.CLOSE)
+            return True
+
+        return False

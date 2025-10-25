@@ -155,22 +155,16 @@ class ExecutionManager:
                 )
                 continue
 
-            # 通过order_executor执行平仓Intent
-            tickets = self.order_executor.execute_close(intent)
-            if tickets:
-                # 注册订单到tickets_manager
-                self.tickets_manager.register_tickets(
-                    intent.pair_id,
-                    tickets,
-                    OrderAction.CLOSE
-                )
+            # 通过order_executor执行平仓Intent (自动注册到TicketsManager)
+            success = self.order_executor.execute_close(intent)
+            if success:
                 executed_count += 1
                 self.algorithm.Debug(
                     f"[Portfolio风控] {intent.pair_id} 平仓订单已提交 (reason={intent.reason})"
                 )
             else:
                 self.algorithm.Error(
-                    f"[Portfolio风控] {intent.pair_id} 平仓失败"
+                    f"[Portfolio风控] {intent.pair_id} 平仓失败 (无持仓)"
                 )
 
         # 无论成功与否,都激活cooldown（防止继续交易）
@@ -221,15 +215,9 @@ class ExecutionManager:
                 )
                 continue
 
-            # 通过order_executor执行平仓Intent
-            tickets = self.order_executor.execute_close(intent)
-            if tickets:
-                # 注册订单到tickets_manager
-                self.tickets_manager.register_tickets(
-                    intent.pair_id,
-                    tickets,
-                    OrderAction.CLOSE
-                )
+            # 通过order_executor执行平仓Intent (自动注册到TicketsManager)
+            success = self.order_executor.execute_close(intent)
+            if success:
                 executed_pair_ids.append(intent.pair_id)
                 self.algorithm.Debug(
                     f"[Pair风控] {intent.pair_id} 平仓订单已提交 (reason={intent.reason})"
@@ -240,7 +228,7 @@ class ExecutionManager:
 
             else:
                 self.algorithm.Error(
-                    f"[Pair风控] {intent.pair_id} 平仓失败"
+                    f"[Pair风控] {intent.pair_id} 平仓失败 (无持仓)"
                 )
 
         # 激活触发规则的cooldown（只为成功执行的Intent激活）
@@ -296,16 +284,11 @@ class ExecutionManager:
             if self.tickets_manager.is_pair_locked(pair.pair_id):
                 continue
 
-            # 通过Intent模式平仓(保持追踪)
+            # 通过Intent模式平仓(保持追踪,自动注册到TicketsManager)
             intent = pair.get_close_intent(reason='COOLDOWN_CLEANUP')
             if intent:
-                tickets = self.order_executor.execute_close(intent)
-                if tickets:
-                    self.tickets_manager.register_tickets(
-                        pair.pair_id,
-                        tickets,
-                        OrderAction.CLOSE
-                    )
+                success = self.order_executor.execute_close(intent)
+                if success:
                     cleanup_count += 1
                     self.algorithm.Debug(
                         f"[Cooldown清理] {pair.pair_id} 已提交平仓订单"
@@ -358,13 +341,13 @@ class ExecutionManager:
                 self.algorithm.Debug(f"[平仓] {pair.pair_id} Z-score回归")
                 intent = pair.get_close_intent(reason='CLOSE')
                 if intent:
-                    self.order_executor.execute_close(intent)  # 自动注册,无返回值
+                    self.order_executor.execute_close(intent)  # 自动注册到TicketsManager
 
             elif signal == TradingSignal.STOP_LOSS:
                 self.algorithm.Debug(f"[止损] {pair.pair_id} Z-score超限")
                 intent = pair.get_close_intent(reason='STOP_LOSS')
                 if intent:
-                    self.order_executor.execute_close(intent)  # 自动注册,无返回值
+                    self.order_executor.execute_close(intent)  # 自动注册到TicketsManager
 
 
     def get_entry_candidates(self, pairs_without_position: dict, data) -> list:
@@ -456,8 +439,9 @@ class ExecutionManager:
             # 执行开仓并注册订单追踪
             intent = pair.get_open_intent(amount_allocated, data)
             if intent:
-                self.order_executor.execute_open(intent)  # 自动注册,无返回值
-                actual_opened += 1
+                success = self.order_executor.execute_open(intent)  # 自动注册到TicketsManager
+                if success:
+                    actual_opened += 1
 
         # Step 4: 执行结果
         if actual_opened > 0:
