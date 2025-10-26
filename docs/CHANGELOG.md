@@ -4,6 +4,113 @@
 
 ---
 
+## [v7.2.5_config-optimization@20251026]
+
+### 版本定义
+**配置优化**: 统一投资比例参数，优化风控阈值，重排规则优先级
+
+### 核心改动
+
+#### 1. 投资比例参数统一 (src/config.py)
+
+**问题**:
+- `min_position_pct` (10%) > `min_investment_ratio` (2%)，导致2%阈值永远不会触发
+- 命名不直观，难以理解两者关系
+
+**解决方案**:
+```python
+# 删除旧参数
+'min_investment_ratio': 0.02,    # 绝对最小投资门槛
+'min_position_pct': 0.10,        # 质量最低配对分配比例
+'max_position_pct': 0.30,        # 质量最高配对分配比例
+
+# 统一为新参数
+'min_investment_ratio': 0.05,    # 质量0.0分→5%，同时作为绝对门槛
+'max_investment_ratio': 0.20,    # 质量1.0分→20%
+```
+
+**影响范围**:
+- src/Pairs.py: `get_planned_allocation_pct()` 方法变量引用更新
+- src/execution/MarginAllocator.py: 注释更新
+
+**质量分配公式**:
+```
+planned_pct = 0.05 + quality_score × 0.15
+```
+
+#### 2. 风控规则优先级排序 (src/config.py)
+
+**调整前顺序**:
+1. holding_timeout (Priority: 60)
+2. pair_anomaly (Priority: 100)
+3. pair_drawdown (Priority: 80)
+
+**调整后顺序** (降序排列):
+1. pair_anomaly (Priority: 100) - 异常必须立即处理
+2. pair_drawdown (Priority: 80) - 回撤保护
+3. holding_timeout (Priority: 60) - 时间限制
+
+**优势**: 配置物理顺序与逻辑优先级一致，提高可读性
+
+#### 3. Deprecated字段清理 (src/config.py)
+
+删除3个自v7.0.0起废弃的`'action': 'pair_close'`字段:
+- holding_timeout规则
+- pair_anomaly规则
+- pair_drawdown规则
+
+**原因**: v7.0.0引入Intent Pattern后，action字段不再使用
+
+#### 4. 其他配置优化
+
+**交易参数调整**:
+- `stop_threshold`: 3.0 → 2.5 (止损更敏感)
+- `pair_cooldown_days`: 10 → 20 (冷却期延长)
+- `optimal_half_life`: 15 → 20天 (最优半衰期调整)
+- `margin_usage_ratio`: 0.95 → 0.98 (保证金使用率提升)
+
+**风控阈值调整**:
+- `account_blowup.threshold`: 0.25 → 0.20 (爆仓阈值降低)
+- `portfolio_drawdown.threshold`: 0.15 → 0.05 (组合回撤阈值降低)
+- `pair_drawdown.threshold`: 0.15 → 0.10 (配对回撤阈值降低)
+
+#### 5. 文档优化 (CLAUDE.md)
+
+**精简内容** (788行 → 681行，减少13.6%):
+- Trading Execution Flow: 70行 → 20行 (保留流程描述，删除详细代码)
+- Recent Optimization History: 28行 → 10行 (仅保留3个最近版本)
+- AI Agents: 27行 → 1行 (压缩为简单列表)
+- Backtest Analysis: 15行 → 0行 (完全删除)
+
+**增强内容**:
+- Git工作流详细说明（正确日期格式，强制CHANGELOG更新步骤）
+- 分支策略建议
+
+### 测试建议
+
+**回测验证点**:
+1. 投资比例5%-20%是否符合预期（检查实际配对分配）
+2. 止损阈值2.5是否过于敏感（检查止损频率）
+3. 风控阈值降低后策略鲁棒性（检查触发频率）
+4. 冷却期20天对策略收益的影响
+
+**代码检查**:
+- 确认所有引用`min_position_pct`的地方已更新
+- 验证风控规则优先级执行正确性
+
+### 影响评估
+
+**预期影响**:
+- ✅ 逻辑更清晰：投资比例参数统一，消除2%死代码
+- ✅ 风控更严格：止损和回撤阈值降低，保护资金
+- ✅ 代码更简洁：删除deprecated字段，减少技术债务
+- ⚠️ 收益可能降低：更严格的风控可能减少盈利机会
+- ⚠️ 冷却期延长：从10天到20天，减少交易频率
+
+**向后兼容性**: ✅ 完全兼容（仅参数优化，无API变更）
+
+---
+
 ## [v7.2.4_fix-zscore-data@20250125]
 
 ### 版本定义
