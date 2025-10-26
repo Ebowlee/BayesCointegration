@@ -89,7 +89,12 @@ class BayesianCointegrationStrategy(QCAlgorithm):
 
 
     def OnSecuritiesChanged(self, changes: SecurityChanges):
-        """处理证券变更事件 - 触发配对分析"""
+        """处理证券变更事件 - 触发配对分析
+
+        重要: 不调用 base.OnSecuritiesChanged(changes)
+        原因: QCAlgorithm的base实现仅打印冗长的SecurityChanges日志(列出所有Symbol+ID)
+              我们已有简洁的自定义日志(仅打印数量),无需框架级日志污染
+        """
 
         # 添加新股票（过滤掉所有benchmark: SPY, VIX等）
         added_count = 0
