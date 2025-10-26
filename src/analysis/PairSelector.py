@@ -231,8 +231,8 @@ class PairSelector:
                 half_life = -np.log(2) / np.log(rho)
                 # 使用配置的阈值进行插值
                 optimal_days = self.scoring_thresholds['half_life']['optimal_days']
-                max_days = self.scoring_thresholds['half_life']['max_acceptable_days']
-                return self._linear_interpolate(half_life, optimal_days, max_days, 0.0, 1.0)
+                zero_score_days = self.scoring_thresholds['half_life']['zero_score_threshold']
+                return self._linear_interpolate(half_life, optimal_days, zero_score_days, 0.0, 1.0)
             else:
                 # rho <= 0 或 rho >= 1: 无均值回归
                 return 0

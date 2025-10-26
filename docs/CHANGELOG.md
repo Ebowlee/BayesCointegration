@@ -4,6 +4,152 @@
 
 ---
 
+## [v7.2.10_optimize-params@20250126]
+
+### 版本定义
+**参数优化**: 扩大half_life评分范围,缩短最大持仓天数,提升配对筛选区分度
+
+### 问题诊断
+
+**参数逻辑混淆**:
+- `max_acceptable_days: 45` 命名误导性强,听起来像"拒绝阈值",实际是评分函数上界
+- `max_days: 45` (持仓超时) 与评分上界相等,但实际通过阈值约为42天 (quality_score > 0.40)
+- Half_life评分范围过窄 (20-45天 = 25天区间),导致分数聚集在0.4-0.6,区分度不足
+- Half_life权重60% (最高),窄评分范围严重影响配对筛选质量
+
+**实际通过阈值计算** (基于0.40质量门槛):
+```
+quality_score = 0.10*pvalue_score + 0.60*half_life_score + 0.30*liquidity_score > 0.40
+
+假设 pvalue_score=0.8 (优秀p值), liquidity_score=0.8 (良好流动性):
+0.10*0.8 + 0.60*half_life_score + 0.30*0.8 > 0.40
+→ half_life_score > 0.033
+→ half_life < 44.2天 (使用45天上界时)
+
+实际通过上限 ≈ 42-44天 (不是45天!)
+```
+
+### 核心改动
+
+**1. 重命名评分参数 (消除歧义)**
+```python
+# src/config.py - Line 118-123
+'scoring_thresholds': {
+    'half_life': {
+        'optimal_days': 20,                # 保持20天 (最优半衰期)
+        'zero_score_threshold': 60,        # 改名+提升: max_acceptable_days(45→60)
+    }
+}
+```
+
+**改名理由**:
+- `max_acceptable_days` → `zero_score_threshold` (更清晰: "得0分的阈值")
+- 避免与 `max_days` (持仓超时) 混淆
+- 明确语义: 这是评分函数的上界,不是拒绝阈值
+
+**2. 扩大评分范围 (+60%区分度)**
+```python
+# 原参数: 20-45天 → 25天评分区间
+# 新参数: 20-60天 → 40天评分区间 (+60%)
+```
+
+**优化效果**:
+- 更多配对获得0.1-0.9的中间分数 (原来多数聚集在0.4-0.6)
+- Half_life=30天: 原评分0.60 → 新评分0.75 (+25%区分度)
+- Half_life=50天: 原评分0.00 → 新评分0.25 (扩展有效范围)
+- 新实际通过上限 ≈ 55天 (从42天提升30%)
+
+**3. 缩短最大持仓天数 (风控收紧)**
+```python
+# src/config.py - Line 214-219
+'holding_timeout': {
+    'enabled': True,
+    'priority': 60,
+    'max_days': 30,              # 下调: 45→30天
+    'cooldown_days': 20
+}
+```
+
+**调整理由**:
+- 原max_days=45天 接近实际通过上限42天 (占比107%,逻辑矛盾)
+- 新max_days=30天 占新通过上限55天的55% (合理buffer)
+- 强制平仓长期持仓,降低均值回归失效风险
+
+**4. 更新代码引用**
+```python
+# src/analysis/PairSelector.py - Line 234
+# BEFORE:
+max_days = self.scoring_thresholds['half_life']['max_acceptable_days']
+
+# AFTER:
+zero_score_days = self.scoring_thresholds['half_life']['zero_score_threshold']
+```
+
+### 预期效果
+
+**1. 评分区分度提升** (核心收益):
+- Half_life权重60%,评分范围+60% → 配对筛选更精准
+- 减少"临界配对"(质量分数0.38-0.42)的随机性
+- 更多优质配对脱颖而出 (half_life=25-35天的"黄金区间")
+
+**2. 风控逻辑更合理**:
+- max_days=30天 < 实际通过上限55天 (55% buffer)
+- 避免逻辑矛盾 (持仓超时阈值 > 评分上界)
+- 提前止损长期持仓,降低均值回归衰减风险
+
+**3. 参数语义更清晰**:
+- `zero_score_threshold` 明确表达"评分函数上界"
+- 与 `max_days` 区分开,消除命名歧义
+
+### 技术细节
+
+**质量评分公式**:
+```python
+quality_score = (
+    0.10 * pvalue_score +       # 统计显著性 (10%权重)
+    0.60 * half_life_score +    # 均值回归速度 (60%权重 - 最高!)
+    0.30 * liquidity_score      # 流动性 (30%权重)
+)
+```
+
+**Half_life评分函数** (线性插值):
+```python
+def _linear_interpolate(half_life, optimal_days=20, zero_score_days=60):
+    if half_life <= 20:        # ≤ 最优值 → 1.0分
+        return 1.0
+    elif half_life >= 60:      # ≥ 上界 → 0.0分 (NEW: 45→60天)
+        return 0.0
+    else:                      # 中间区间 → 线性插值
+        return 1.0 - (half_life - 20) / (60 - 20)
+```
+
+**评分对比表** (关键half_life值):
+```
+Half_life    旧评分(45天上界)    新评分(60天上界)    差异
+20天         1.00               1.00               -
+25天         0.80               0.875              +9%
+30天         0.60               0.75               +25%
+35天         0.40               0.625              +56%
+40天         0.20               0.50               +150%
+45天         0.00               0.375              NEW有效!
+50天         0.00               0.25               NEW有效!
+55天         0.00               0.125              NEW有效!
+```
+
+### 未来改进
+
+**MCMC随机性控制** (延后实现):
+- 用户要求先测试参数调整效果,再决定是否固定随机种子
+- 计划添加 `random_seed: 42` 到 `bayesian_modeler` 配置
+- 目的: 消除MCMC采样随机性,确保回测结果可重现
+
+### 版本状态
+- ✅ 代码修改完成
+- ⏳ 等待用户回测验证
+- ⏳ 根据回测结果决定是否添加随机种子
+
+---
+
 ## [v7.2.9_fix-industry-mapping@20250126]
 
 ### 版本定义

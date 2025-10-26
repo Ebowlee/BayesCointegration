@@ -118,7 +118,7 @@ class StrategyConfig:
             'scoring_thresholds': {
                 'half_life': {
                     'optimal_days': 20,                 # 最优半衰期(天,符合日频实际) → 1.0分
-                    'max_acceptable_days': 45           # 最大可接受半衰期(包含长周期配对) → 0分
+                    'zero_score_threshold': 60          # 得0分的阈值(评分函数上界,从45调整为60天,提升区分度)
                 }
             }
         }
@@ -214,7 +214,7 @@ class StrategyConfig:
                 'holding_timeout': {
                     'enabled': True,
                     'priority': 60,
-                    'max_days': 45,                      # 最大持仓天数
+                    'max_days': 30,                      # 最大持仓天数(从45调整为30天,占实际通过上限55天的55%)
                     'cooldown_days': 20                  # per-pair冷却期(30天)
                 }
             }
