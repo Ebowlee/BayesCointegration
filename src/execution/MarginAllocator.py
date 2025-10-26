@@ -30,7 +30,7 @@ class MarginAllocator:
     2. Available Margin: MarginRemaining - fixed_buffer
     3. 分配约束:
        - 计划分配 = min(当前可用, 初始基金 × 计划比例)
-       - 过滤门槛 = 最小投资额(初始资金 × min_investment_ratio)
+       - 过滤门槛 = 最小投资额(初始资金 × min_investment_ratio = 5% = $5,000)
        - 顺序分配直到资金不足或候选耗尽
 
     使用示例:

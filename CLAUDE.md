@@ -79,13 +79,30 @@ lean cloud status
 
 ### Version Control
 ```bash
-# Commit format: v<major>.<minor>.<patch>[_description][@date]
-git commit -m "v2.4.8_strategy-optimize@20250720"
+# Commit format: v<major>.<minor>.<patch>[_description][@YYYYMMDD]
+git commit -m "v7.2.5_optimize-mcmc-sampling@20251026"  # 示例:今天日期
 
-# Update docs/CHANGELOG.md after each commit with format:
-## [v2.4.8_strategy-optimize@20250720]
+# After each commit (MANDATORY步骤):
+# 1. Update docs/CHANGELOG.md with version entry
+## [v7.2.5_optimize-mcmc-sampling@20251026]
 - Description of changes
+- Breaking changes (if any)
+- Code examples for significant changes
+
+# 2. Stage and commit CHANGELOG.md
+git add docs/CHANGELOG.md
+git commit -m "docs: update CHANGELOG for v7.2.5"
+
+# Branching Strategy (if using):
+# - main: Production-ready code
+# - feature/*: New features under development
+# - hotfix/*: Emergency bug fixes
 ```
+
+**Why This Matters**:
+- Ensures CHANGELOG.md stays synchronized with git history
+- Prevents forgotten documentation updates
+- Clarifies mandatory workflow steps
 
 ## Core Module Architecture
 
@@ -280,75 +297,27 @@ git commit -m "v2.4.8_strategy-optimize@20250720"
    - Close positions for pairs with exit/stop signals or risk triggers
    - Open new positions using intelligent fund allocation
 
-### Closing Logic (Pairs with Positions) - v7.0.0 Intent Pattern
-```python
-# Process pairs with positions
-pairs_with_position = pairs_manager.get_pairs_with_position()
-for pair in pairs_with_position.values():
-    # CRITICAL: Check order lock status to prevent duplicate submissions
-    if tickets_manager.is_pair_locked(pair.pair_id):
-        continue  # Skip if orders are still pending
+### Closing Logic (Pairs with Positions)
+**Flow**: `pairs_manager.get_pairs_with_position()` → Order lock check → Risk check → Signal check → Intent Pattern (3 steps)
 
-    # Check pair-level risks (main.py coordinates execution)
-    if pair_level_risk_manager.check_holding_timeout(pair):
-        # v7.0.0: Intent Pattern (3-step coordination)
-        intent = pair.get_close_intent(reason='TIMEOUT')
-        if intent:
-            tickets = order_executor.execute_close(intent)
-            if tickets:
-                tickets_manager.register_tickets(pair.pair_id, tickets, OrderAction.CLOSE)
-        continue
+**Key Steps**:
+1. Check `tickets_manager.is_pair_locked()` to prevent duplicate orders
+2. Check pair-level risks (timeout/anomaly/drawdown) via `risk_manager.check_pair_risks()`
+3. Get trading signal via `pair.get_signal(data)`
+4. Execute Intent Pattern: `get_close_intent() → execute_close() → register_tickets()`
 
-    # Check for trading signals
-    signal = pair.get_signal(data)
-    if signal == TradingSignal.CLOSE:
-        intent = pair.get_close_intent(reason='CLOSE')
-        if intent:
-            tickets = order_executor.execute_close(intent)
-            if tickets:
-                tickets_manager.register_tickets(pair.pair_id, tickets, OrderAction.CLOSE)
-    elif signal == TradingSignal.STOP_LOSS:
-        intent = pair.get_close_intent(reason='STOP_LOSS')
-        if intent:
-            tickets = order_executor.execute_close(intent)
-            if tickets:
-                tickets_manager.register_tickets(pair.pair_id, tickets, OrderAction.CLOSE)
-```
+**Implementation**: See [main.py](main.py#L200-L216) OnData method
 
-### Opening Logic (Pairs without Positions) - v7.0.0 Intent Pattern
-```python
-# Get pairs without positions
-pairs_without_position = pairs_manager.get_pairs_without_position()
+### Opening Logic (Pairs without Positions)
+**Flow**: `pairs_manager.get_pairs_without_position()` → `get_entry_candidates()` → Dynamic margin allocation → Intent Pattern
 
-# Get entry candidates sorted by quality (descending) - v6.9.3: migrated to ExecutionManager
-entry_candidates = execution_manager.get_entry_candidates(pairs_without_position, data)
+**Key Steps**:
+1. Get entry candidates sorted by quality score (via `ExecutionManager.get_entry_candidates()`)
+2. Calculate available margin (95% of MarginRemaining, keep 5% buffer)
+3. Dynamic allocation with quality-based scaling: `planned_pct × scale_factor`
+4. Execute Intent Pattern: `get_open_intent() → execute_open() → register_tickets()`
 
-# Calculate available margin (95% of MarginRemaining, keep 5% buffer)
-initial_margin = Portfolio.MarginRemaining * 0.95
-buffer = Portfolio.MarginRemaining * 0.05
-
-# Dynamic allocation with quality-based scaling
-for pair, signal, quality_score, planned_pct in entry_candidates:
-    # Check order lock status
-    if tickets_manager.is_pair_locked(pair.pair_id):
-        continue  # Skip if orders are still pending
-
-    # Calculate scaled amount allocation
-    current_margin = (Portfolio.MarginRemaining - buffer) * planned_pct
-    scale_factor = initial_margin / (Portfolio.MarginRemaining - buffer)
-    amount_allocated = current_margin * scale_factor
-
-    # Check minimum investment threshold
-    if amount_allocated < min_investment:
-        continue
-
-    # v7.0.0: Intent Pattern (3-step coordination)
-    intent = pair.get_open_intent(amount_allocated, data)
-    if intent:
-        tickets = order_executor.execute_open(intent)
-        if tickets:
-            tickets_manager.register_tickets(pair.pair_id, tickets, OrderAction.OPEN)
-```
+**Implementation**: See [main.py](main.py#L218-L224) OnData method
 
 ### Position Sizing (v6.4.4 Margin-Based Model)
 - **Margin-Based Allocation**: Position sizing uses margin requirements instead of cash
@@ -668,32 +637,16 @@ for pair in tradeable_pairs.values():
 - **Production**: QuantConnect cloud with InteractiveBrokers live trading
 - **Debugging**: Configurable debug levels (0-3) in `src/config.py:main['debug_level']`
 
-## Recent Optimization History
+## Version History
 
-- **v7.0.0** (Jan 2025): Intent Pattern refactor - separated intent generation (Pairs) from order execution (OrderExecutor), introduced OrderExecutor and OrderIntent modules, Pairs new methods: get_open_intent/get_close_intent, get_pair_pnl supports two modes (real-time for positions, final for closed trades), exit_price1/2 unified cleanup management
-- **v6.9.4** (Jan 2025): Pairs responsibility clarification - removed risk checking methods (check_position_integrity, get_pair_drawdown), migrated HWM tracking to PairDrawdownRule, eliminated side effects in get_pair_pnl(), added automatic HWM cleanup in TicketsManager
-- **v6.9.3** (Jan 2025): Module responsibility refactor - separated storage/business logic in PairsManager, migrated signal aggregation to ExecutionManager, migrated concentration analysis to RiskManager, added @property position_mode to Pairs for DRY principle
-- **v6.9.2** (Jan 2025): Classmethod factory pattern for Pairs creation (consistency with PairData and TradeSnapshot)
-- **v6.9.1** (Jan 2025): PairData architecture optimization - eliminated duplicate np.log() calls (67% performance improvement)
-- **v6.9.0** (Jan 2025): PairData value object introduction - pre-computed log prices for analysis modules
-- **v6.4.4** (Jan 2025): Order lifecycle tracking system (TicketsManager) replaces deduplication mechanism, prevents duplicate orders via order locking
-- **v6.4.0** (Jan 2025): Risk management refactor with separation of concerns, removed hard pair limits, margin-based allocation model
-- **v6.3.1** (Jan 2025): Quality scoring system overhaul - replaced correlation with half_life and volatility_ratio, optimized risk parameters
-- **v6.2.0**: Complete two-tier risk management system with Portfolio and Pair level controls
-- **v6.1.0**: PairsManager architecture optimization - merged PairsFactory functionality
-- **v6.0.0**: Major architecture migration from Algorithm Framework to OnData-driven design
+**Current Version**: v7.2.4 (2025-01-25)
 
-### Key Architecture Evolution
-- **v6.0**: Algorithm Framework → OnData-driven architecture
-- **v6.1**: Unified pairs management (PairsFactory merged into PairsManager)
-- **v6.2**: Two-tier risk system (Portfolio-level + Pair-level)
-- **v6.3**: Quality-based pair selection (4-metric scoring system)
-- **v6.4.0**: Margin-based allocation (removed hard pair limits)
-- **v6.4.4**: Order lifecycle tracking (duplicate order prevention)
-- **v6.9.0-v6.9.2**: PairData optimization + classmethod factory pattern (performance + consistency)
-- **v6.9.3**: Module responsibility clarification (storage vs business logic separation)
-- **v6.9.4**: Pairs responsibility clarification (data provider vs risk checker separation)
-- **v7.0.0**: Intent Pattern (intent generation separated from order execution, testability + extensibility)
+**Recent Major Updates**:
+- **v7.0.0** (Jan 2025): Intent Pattern refactor - separated intent generation from order execution
+- **v6.4.4** (Jan 2025): Order lifecycle tracking - duplicate order prevention via locking mechanism
+- **v6.0.0** (Jan 2025): OnData-driven architecture - migrated from Algorithm Framework
+
+**Complete History**: See [docs/CHANGELOG.md](docs/CHANGELOG.md) for detailed version history and breaking changes
 
 ## Files to Avoid Modifying
 
@@ -725,48 +678,5 @@ for pair in tradeable_pairs.values():
 - **backtests/**: Local backtest results (gitignored, for reference only)
 - **main.py**: Strategy entry point and OnData orchestrator
 
-## AI Agents for Development Support
-
-The project includes specialized AI agents in `.claude/agents/` to assist with development:
-
-### Available Agents
-
-1. **backtest-analyst**: Forensic analysis of backtest results
-   - Analyzes trade logs, performance metrics, and execution patterns
-   - Detects anomalies like over-trading specific symbols or orphaned positions
-   - Provides comparative analysis across multiple backtests
-   - Use when: Analyzing backtest results, investigating unexpected behavior, comparing strategy versions
-
-2. **code-architect**: Architecture design and optimization
-   - Designs new modules and refactors existing code
-   - Optimizes performance bottlenecks (especially MCMC sampling)
-   - Implements design patterns and manages technical debt
-   - Use when: Adding new features, optimizing performance, refactoring code
-
-3. **quantconnect-test-engineer**: Test suite development
-   - Creates unit and integration tests
-   - Designs mock objects for QuantConnect components
-   - Generates test data for market scenarios
-   - Use when: Writing tests, ensuring code reliability, creating regression tests
-
-### Agent Usage
-These agents are automatically available in Claude Code and can be invoked through the Task tool when their expertise is needed.
-
-## Backtest Analysis
-
-### Local Backtest Analysis
-```bash
-# After running a backtest, results are saved in:
-# - backtest_results.json (main results)
-# - backtest_logs.txt (debug logs)
-# - backtest_trades.csv (trade details)
-
-# For comprehensive analysis, use the backtest-analyst agent
-# It will automatically locate and analyze all relevant files
-```
-
-### Key Metrics to Monitor
-- **Symbol concentration**: Check if any symbol appears in too many trades
-- **Pair lifecycle**: Verify proper entry/exit patterns
-- **Signal effectiveness**: Analyze entry/exit timing quality
-- **Risk triggers**: Monitor stop-loss and holding period violations
+## AI Agents
+Specialized agents available in `.claude/agents/`: **backtest-analyst**, **code-architect**, **quantconnect-test-engineer**

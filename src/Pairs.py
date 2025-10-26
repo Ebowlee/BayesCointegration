@@ -781,9 +781,9 @@ class Pairs:
         纯计算方法,不进行任何业务逻辑判断
 
         Returns:
-            计划分配比例 (min_position_pct 到 max_position_pct)
+            计划分配比例 (min_investment_ratio 到 max_investment_ratio)
         """
         # 基于质量分数的线性插值计算
-        min_pct = self.config['min_position_pct']
-        max_pct = self.config['max_position_pct']
+        min_pct = self.config['min_investment_ratio']
+        max_pct = self.config['max_investment_ratio']
         return min_pct + self.quality_score * (max_pct - min_pct)

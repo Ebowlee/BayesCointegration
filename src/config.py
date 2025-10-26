@@ -105,19 +105,19 @@ class StrategyConfig:
             'min_quality_threshold': 0.40,              # 最低质量分数阈值(严格大于,异常beta配对理论上限=0.40)
 
             # 流动性基准
-            'liquidity_benchmark': 5e8,                 # 流动性评分基准(5亿美元)
+            'liquidity_benchmark': 5e8,                 # 流动性评分基准(5亿美元, 每日成交金额)
 
             # 质量评分权重
             'quality_weights': {
-                'statistical': 0.10,                    # 协整强度(基于p值) - 仅作参考
-                'half_life': 0.60,                      # 均值回归速度 - 核心指标(大幅提升)
-                'liquidity': 0.30                       # 流动性(成交量) - 实战必需(提升)
+                'statistical': 0.10,                    
+                'half_life': 0.60,                   
+                'liquidity': 0.30                      
             },
 
             # 评分阈值
             'scoring_thresholds': {
                 'half_life': {
-                    'optimal_days': 15,                 # 最优半衰期(天,符合日频实际) → 1.0分
+                    'optimal_days': 20,                 # 最优半衰期(天,符合日频实际) → 1.0分
                     'max_acceptable_days': 60           # 最大可接受半衰期(包含长周期配对) → 0分
                 }
             }
@@ -150,21 +150,17 @@ class StrategyConfig:
             # 交易阈值
             'entry_threshold': 1.0,              # 建仓Z-score阈值
             'exit_threshold': 0.3,               # 平仓Z-score阈值
-            'stop_threshold': 3.0,               # 止损Z-score阈值
-            'pair_cooldown_days': 10,            # 配对冷却期（天）
-
-            # 控制参数
-            'max_holding_days': 30,              # 最大持仓天数
+            'stop_threshold': 2.5,               # 止损Z-score阈值
+            'pair_cooldown_days': 20,            # 正常清仓后配对的冷却期（天）
 
             # 仓位管理参数
-            'min_investment_ratio': 0.02,        # 绝对最小投资门槛: 初始资金的2%
-            'min_position_pct': 0.10,            # 质量最低配对的分配比例: 初始资金的10%
-            'max_position_pct': 0.30,            # 质量最高配对的分配比例: 初始资金的30%
+            'min_investment_ratio': 0.05,        # 质量最低(0.0分)配对投资比例: 5%,同时作为绝对门槛
+            'max_investment_ratio': 0.20,        # 质量最高(1.0分)配对投资比例: 20%
 
             # 保证金管理 (美股规则)
             'margin_requirement_long': 0.5,      # 多头保证金率: 50%
             'margin_requirement_short': 1.5,     # 空头保证金率: 150% (100%借券+50%保证金)
-            'margin_usage_ratio': 0.95           # 保证金使用率: 95% (保留5%动态缓冲)
+            'margin_usage_ratio': 0.98           # 保证金使用率: 95% (保留5%动态缓冲)
         }
 
 
@@ -189,40 +185,37 @@ class StrategyConfig:
                 'account_blowup': {
                     'enabled': True,                     # 重新启用
                     'priority': 100,
-                    'threshold': 0.25,                   # 爆仓阈值：亏损25%
+                    'threshold': 0.20,                   # 爆仓阈值
                     'cooldown_days': 36500,              # 永久冷却(100年)
                     'action': 'portfolio_liquidate_all'
                 },
                 'portfolio_drawdown': {
                     'enabled': True,                     # 重新启用
                     'priority': 90,
-                    'threshold': 0.15,                   # 回撤阈值：15% (生产环境)
+                    'threshold': 0.05,                   # 回撤阈值
                     'cooldown_days': 30,                 # 30天冷却期(可恢复)
-                    'action': 'portfolio_liquidate_all'  # 全仓清算(与AccountBlowup相同)
+                    'action': 'portfolio_liquidate_all'  # 全仓清算
                 }
             },
 
             # ========== Pair层面规则 ==========
             'pair_rules': {
-                'holding_timeout': {
-                    'enabled': True,
-                    'priority': 60,
-                    'max_days': 30,                      # 最大持仓天数
-                    'cooldown_days': 30,                 # v7.1.2: per-pair冷却期(30天)
-                    'action': 'pair_close'               # Deprecated,保留向后兼容
-                },
                 'pair_anomaly': {
                     'enabled': True,                     # Step 2已实现
                     'priority': 100,                     # 最高优先级：异常必须立即处理
-                    'cooldown_days': 30,                 # v7.1.2: per-pair冷却期(30天)
-                    'action': 'pair_close'               # Deprecated,保留向后兼容
+                    'cooldown_days': 30                  # per-pair冷却期(30天)
                 },
                 'pair_drawdown': {
                     'enabled': True,                     # Step 3已实现
-                    'priority': 50,
-                    'threshold': 0.15,                   # 配对回撤阈值：15%
-                    'cooldown_days': 30,                 # v7.1.2: per-pair冷却期(30天)
-                    'action': 'pair_close'               # Deprecated,保留向后兼容
+                    'priority': 80,
+                    'threshold': 0.10,                   # 配对回撤阈值
+                    'cooldown_days': 30                  # per-pair冷却期(30天)
+                },
+                'holding_timeout': {
+                    'enabled': True,
+                    'priority': 60,
+                    'max_days': 60,                      # 最大持仓天数
+                    'cooldown_days': 20                  # per-pair冷却期(30天)
                 }
             }
         }
