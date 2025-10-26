@@ -4,6 +4,167 @@
 
 ---
 
+## [v7.2.9_fix-industry-mapping@20250126]
+
+### 版本定义
+**关键修复**: 修正industry_mapping中的严重错误,补全55个标准IndustryGroupCode映射
+
+### 问题诊断
+
+**严重问题发现**:
+- industry_mapping.py中的中文名称是手动添加的,与QuantConnect官方源码不符
+- 例如10150实际是"金属矿业"(MetalsAndMining),却被错误标记为"房地产开发"
+- 10130(化工/Chemicals)在回测中已出现,但mapping表中缺失,显示为"行业10130"
+- 原mapping表只有18个,缺失37个标准Industry Group
+
+**错误映射列表**(对比QuantConnect官方源码AssetClassificationHelper.cs):
+```
+代码    错误映射           正确映射(官方)
+10150   房地产开发        → 金属矿业 (MetalsAndMining)
+10200   房地产服务        → 汽车及零部件 (VehiclesAndParts)
+10280   REIT-工业         → 周期零售 (RetailCyclical)
+10310   REIT-零售         → 资产管理 (AssetManagement)
+10420   REIT-住宅         → REITs
+20520   包装食品          → 非酒精饮料 (BeveragesNonAlcoholic)
+20525   农产品            → 消费品 (ConsumerPackagedGoods)
+20650   生物科技          → 医疗器械仪器 (MedicalDevicesAndInstruments)
+20720   医疗器械          → 公用事业 (UtilitiesRegulated)
+30830   媒体娱乐          → 互动媒体 (InteractiveMedia)
+30910   石油天然气        → 油气 (OilAndGas)
+31080   半导体            → 运输 (Transportation)
+31110   软件应用          → 软件 (Software)
+31120   软件基础设施      → 硬件 (Hardware)
+31130   信息技术服务      → 半导体 (Semiconductors)
+```
+
+**根本原因**:
+- 初始mapping表基于"回测实际出现的26个子行业"创建
+- 但"26个"本身就是错误理解,实际策略是动态分组(不限制数量)
+- QuantConnect使用Morningstar标准的55个Industry Groups
+- 中文名称是手动推测的,未与官方源码对照验证
+
+### 核心改动
+
+**1. 完全重建industry_mapping.py (基于官方源码)**
+
+**修正方法**:
+- 使用WebFetch从QuantConnect LEAN官方仓库获取AssetClassificationHelper.cs
+- 提取完整的55个MorningstarIndustryGroupCode→EnglishName映射
+- 基于官方英文名称翻译中文名称(而非手动推测)
+
+**新增37个缺失映射**:
+```python
+# 基础材料(新增6个)
+10110: '农业',          # Agriculture
+10120: '建材',          # BuildingMaterials
+10130: '化工',          # Chemicals (实际回测中已出现!)
+10140: '林产品',        # ForestProducts
+10160: '钢铁',          # Steel
+
+# 消费周期(新增6个)
+10220: '家具装置',      # Furnishings
+10230: '房建',          # HomebuildingAndConstruction
+10240: '服装制造',      # ManufacturingApparelAndAccessories
+10250: '包装容器',      # PackagingAndContainers
+10260: '个人服务',      # PersonalServices
+10270: '餐厅',          # Restaurants
+10290: '旅游休闲',      # TravelAndLeisure
+
+# 金融(新增5个)
+10320: '银行',          # Banks
+10330: '资本市场',      # CapitalMarkets
+10340: '保险',          # Insurance
+10350: '多元金融',      # DiversifiedFinancialServices
+10360: '信贷服务',      # CreditServices
+
+# 房地产(新增1个)
+10410: '房地产',        # RealEstate
+
+# 消费防御(新增4个)
+20510: '酒精饮料',      # BeveragesAlcoholic
+20540: '教育',          # Education
+20550: '防御零售',      # RetailDefensive
+20560: '烟草',          # TobaccoProducts
+
+# 医疗(新增5个)
+20610: '生物科技',      # Biotechnology
+20630: '医疗计划',      # HealthcarePlans
+20645: '医疗服务',      # HealthcareProvidersAndServices
+20660: '医疗诊断研究',  # MedicalDiagnosticsAndResearch
+20670: '医疗分销',      # MedicalDistribution
+20710: '独立电力',      # UtilitiesIndependentPowerProducers
+
+# 通信(新增1个)
+30820: '多元媒体',      # MediaDiversified
+
+# 能源(新增1个)
+30920: '其他能源',      # OtherEnergySources
+
+# 工业(新增9个)
+31010: '航空国防',      # AerospaceAndDefense
+31020: '商业服务',      # BusinessServices
+31030: '企业集团',      # Conglomerates
+31040: '建筑',          # Construction
+31050: '重型机械',      # FarmAndHeavyConstructionMachinery
+31060: '工业分销',      # IndustrialDistribution
+31070: '工业产品',      # IndustrialProducts
+31090: '废物管理',      # WasteManagement
+```
+
+**2. 删除未使用导入 ([PairsManager.py:3](src/PairsManager.py#L3))**
+
+```python
+# 删除前
+from src.constants import PositionMode
+
+# 删除后
+# (完全移除此行)
+```
+
+**原因**: Grep验证显示PairsManager全文未使用PositionMode(仅注释中提及)
+
+**3. 修正CLAUDE.md文档(3处)**
+
+修正"26个子行业"的误导性表述:
+- [Line 30](CLAUDE.md#L30): "26 groups" → "动态分组,实际约18-20个"
+- [Line 258](CLAUDE.md#L258): "26 groups" → "动态分组,实际出现18-20个"
+- [Line 447](CLAUDE.md#L447): "26 Morningstar industry groups" → "MorningstarIndustryGroupCode动态分组(55个标准分组,实际出现18-20个)"
+
+**澄清**: 策略不限制子行业数量,按MorningstarIndustryGroupCode动态分组
+
+### 影响范围
+
+**修改文件**:
+- `src/industry_mapping.py`: 完全重建(18个→55个,修正15个错误映射)
+- `src/PairsManager.py`: 删除Line 3未使用导入
+- `CLAUDE.md`: 修正3处"26个子行业"表述
+- `docs/CHANGELOG.md`: 新增v7.2.9版本记录
+
+**不影响逻辑**:
+- PairState常量保持在PairsManager中(不移动到constants.py,避免循环依赖)
+- 所有业务逻辑代码零改动(仅映射表和文档修正)
+
+### 预期效果
+
+**立即效果**:
+- 消除"行业10130"的未映射显示 → 正确显示"化工"
+- 修正所有回测日志中的子行业名称(例如10150从"房地产开发"→"金属矿业")
+- 支持未来可能出现的其他37个子行业
+
+**长期价值**:
+- 基于官方源码,确保100%准确性
+- 消除文档误导(26个→动态分组)
+- 为未来回测提供正确的行业分类理解
+
+### 验证步骤
+
+运行新回测后验证:
+1. "行业10130"显示为"化工"
+2. 已验证的子行业名称正确(例如10150显示"金属矿业")
+3. 日志输出更准确反映实际行业分类
+
+---
+
 ## [v7.2.8_log-optimization-and-cointegration-review@20250126]
 
 ### 版本定义
