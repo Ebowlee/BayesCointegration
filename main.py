@@ -92,12 +92,18 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         """处理证券变更事件 - 触发配对分析"""
 
         # 添加新股票（过滤掉所有benchmark: SPY, VIX等）
+        added_count = 0
         for security in changes.AddedSecurities:
             # 过滤掉benchmark symbols
             if security.Symbol in self.benchmark_symbols:
                 continue
             if security.Symbol not in self.symbols:
                 self.symbols.append(security.Symbol)
+                added_count += 1
+
+        # 简化日志: 只打印数量,不打印ticker列表
+        if added_count > 0:
+            self.Debug(f"[证券变更] 新增{added_count}只股票,触发配对分析")
 
         # 移除旧股票（过滤掉所有benchmark）
         removed_symbols = [s.Symbol for s in changes.RemovedSecurities
