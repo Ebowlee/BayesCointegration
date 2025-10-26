@@ -4,6 +4,149 @@
 
 ---
 
+## [v7.2.13_parameter-optimization@20250125]
+
+### 版本定义
+**参数协同优化**: 调整风控和筛选参数,平衡快速回归与止损容忍度
+
+### 核心改动
+
+**参数调整**:
+```python
+# src/config.py
+optimal_days: 20 → 15        # Line 120 - 提高半衰期评分门槛
+stop_threshold: 2.0 → 2.5    # Line 153 - 放宽止损阈值
+max_days: 30 → 45            # Line 217 - 延长最大持仓天数
+```
+
+**优化理念**:
+1. **快速回归筛选** (optimal_days降至15天): 筛选更快速回归的配对,提升资金周转效率
+2. **止损容忍度提升** (stop_threshold放宽至2.5σ): 给予配对更大波动空间,减少误止损
+3. **持仓期限延长** (max_days延至45天): 与放宽止损配合,允许配对有足够回归时间
+
+**协同效果**: 三个参数协同工作,在保持快速回归特性的同时,避免"过早止损优质配对"问题
+
+### 实测效果 (Logical Orange Fish回测)
+
+**成功指标**:
+- ✅ 止损频率: 60%+ → 46.5% (降低14%)
+- ✅ 持仓周期: 10.5%配对超过45天,最长48天
+- ✅ 盈亏比: 1.55 (相对稳定)
+
+**需要关注**:
+- ⚠️ 回撤增加: 4.5% → 5.9% (+1.4%)
+- ⚠️ 超时比例: 7.0% (optimal_days可能过严)
+- ⚠️ 年化收益: 9.89% (不及Smooth Brown Pig的15.22%)
+
+### 后续建议
+
+**微调方案**:
+- optimal_days: 15 → 17-18 (在快速回归和配对质量间平衡)
+- stop_threshold: 保持2.5 (效果良好)
+- max_days: 保持45天或延至50-60天
+
+---
+
+## [v7.2.12_suppress-security-changes-noise@20250125]
+
+### 版本定义
+**日志噪音抑制**: 移除QuantConnect框架的冗长SecurityChanges日志
+
+### 问题诊断
+
+**用户反馈** (已多次提及):
+- 每次Universe变更时,框架自动打印76个symbol及其内部ID
+- 单条日志占用1-2KB,严重污染回测日志
+- 示例: `SecurityChanges: Added: AAPL R735QTJ8XC9X,AEP R735QTJ8XC9X,...(76个)`
+
+**根本原因**:
+- `QCAlgorithm.OnSecuritiesChanged()` base方法仅打印日志,无业务逻辑
+- 我们的自定义Debug()过滤器无法拦截框架级日志
+- 需要从源头阻止: 不调用base.OnSecuritiesChanged(changes)
+
+### 核心改动
+
+**main.py - Line 91-111**:
+```python
+def OnSecuritiesChanged(self, changes: SecurityChanges):
+    """处理证券变更事件 - 触发配对分析
+
+    重要: 不调用 base.OnSecuritiesChanged(changes)
+    原因: QCAlgorithm的base实现仅打印冗长的SecurityChanges日志(列出所有Symbol+ID)
+          我们已有简洁的自定义日志(仅打印数量),无需框架级日志污染
+    """
+
+    # 业务逻辑保持不变
+    # ...
+
+    # 简洁日志: 只打印数量,不打印ticker列表
+    if added_count > 0:
+        self.Debug(f"[证券变更] 新增{added_count}只股票,触发配对分析")
+```
+
+**技术细节**:
+- Python方法覆盖时,不调用`base.method()`即可阻止父类逻辑
+- Base实现仅有日志打印,无状态更新或业务逻辑
+- 我们的自定义日志已提供足够信息
+
+### 预期效果
+
+- ✅ 完全消除 `SecurityChanges: Added:` 类型日志
+- ✅ 日志文件大小预期减少30-40%
+- ✅ 保留有用的精简日志: `[证券变更] 新增76只股票,触发配对分析`
+
+### 验证方法
+
+```bash
+# 检查新回测日志中是否还有SecurityChanges关键字
+grep "SecurityChanges:" backtests/Latest_Backtest_logs.txt
+# 预期: 空结果或仅benchmark相关日志
+```
+
+### 实测结果
+
+- ✅ **日志优化完全成功** - 所有回测中SecurityChanges冗长日志已完全移除
+- 日志文件大小未显著减少 (可能因其他调试日志填补)
+
+---
+
+## [v7.2.11_organize-analysis-tools@20250125]
+
+### 版本定义
+**分析工具整理**: 将回测分析脚本规范化组织到tools/目录
+
+### 核心改动
+
+**目录结构调整**:
+```
+tools/
+└── backtest_analysis/
+    ├── __init__.py
+    ├── compare_backtests.py      # 回测对比工具
+    ├── analyze_trades_detail.py  # 交易明细分析
+    ├── extract_stats.py          # 统计数据提取
+    └── README.md                 # 工具使用文档
+```
+
+**移动的脚本**:
+- 将之前散落在根目录或backtests/的分析脚本集中管理
+- 添加README.md说明各工具的用途和使用方法
+
+**组织原则**:
+- 分析工具放在 `tools/` 目录,不与策略代码混淆
+- 禁止在 `backtests/` 目录创建.py脚本 (通过.gitignore规则)
+- 保持代码库结构清晰
+
+### 工具说明
+
+1. **compare_backtests.py**: 对比多个回测的关键指标
+2. **analyze_trades_detail.py**: 深度分析交易明细,识别模式
+3. **extract_stats.py**: 从JSON提取和格式化统计数据
+
+**使用方法**: 参见 `tools/backtest_analysis/README.md`
+
+---
+
 ## [v7.2.10_optimize-params@20250126]
 
 ### 版本定义
