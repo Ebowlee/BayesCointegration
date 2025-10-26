@@ -41,7 +41,6 @@ class Pairs:
 
         # === 控制设置 ===
         self.cooldown_days = config['pair_cooldown_days']
-        self.max_holding_days = config['max_holding_days']
 
         # === 保证金参数 ===
         self.margin_long = config['margin_requirement_long']
