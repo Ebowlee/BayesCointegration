@@ -4,6 +4,64 @@
 
 ---
 
+## [v7.2.6_fix-max-holding-days@20251026]
+
+### 版本定义
+**紧急修复**: 删除Pairs.py中对已删除参数max_holding_days的引用
+
+### 问题诊断
+
+**错误信息**:
+```
+Runtime Error: KeyError: 'max_holding_days'
+  at Pairs.py: line 44
+    self.max_holding_days = config['max_holding_days']
+```
+
+**根本原因**:
+v7.2.5删除了`pairs_trading['max_holding_days']`配置项（因为与risk_management中重复），但忘记删除Pairs.py:44中的引用。
+
+**代码分析**:
+- `Pairs.max_holding_days`属性从未被使用（死代码）
+- 实际的持仓超时检查由`PairHoldingTimeoutRule`负责
+- `PairHoldingTimeoutRule`读取`risk_management['pair_rules']['holding_timeout']['max_days']`
+
+### 核心改动
+
+#### 删除死代码 (src/Pairs.py)
+
+**删除Line 44**:
+```python
+# 删除（未使用的属性）
+self.max_holding_days = config['max_holding_days']
+```
+
+**理由**:
+- 符合v6.9.4"Pairs职责分离"原则（Pairs不负责风控）
+- 持仓超时完全由PairHoldingTimeoutRule管理
+- 消除重复配置，单一数据源
+
+### 影响评估
+
+**向后兼容性**: ✅ 完全兼容
+- 删除的是未使用的属性
+- 无功能变更
+- 仅修复v7.2.5引入的运行时错误
+
+**测试验证**: 运行回测确认策略正常执行
+
+### 经验教训
+
+**预防措施**: 删除配置参数时的检查清单
+1. 使用Grep工具搜索参数名的所有引用
+2. 检查所有匹配文件中的使用场景
+3. 确认是否为死代码（未被使用）
+4. 删除所有相关引用后再删除配置项
+
+**未来改进**: 考虑添加单元测试验证config完整性
+
+---
+
 ## [v7.2.5_config-optimization@20251026]
 
 ### 版本定义
