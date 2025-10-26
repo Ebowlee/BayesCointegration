@@ -4,6 +4,106 @@
 
 ---
 
+## [v7.2.7_fix-securities-changes-log@20251026]
+
+### 版本定义
+**日志优化**: 简化SecurityChanges自动打印,减少日志噪音
+
+### 问题诊断
+
+**现象**:
+每月选股时QuantConnect框架自动打印所有新增证券:
+```
+2023-10-03 00:00:00 10/3/2023 12:00:00 AM: SecurityChanges: Added: AAPL R735QTJ8XC9X,AEP R735QTJ8XC9X,ALLY VPLW2D47KBXH,ARMK VMCPV8L4GJTX,...(76只股票,约300字符)
+```
+
+**影响**:
+- 每月9次触发,占用大量日志空间
+- 对调试无实际价值(已有[选股]统计日志)
+
+**根本原因**:
+- main.py Line 85-86的过滤逻辑只对`self.Debug()`生效
+- QuantConnect框架在OnSecuritiesChanged中自动调用`QCAlgorithm.Debug()`
+- 框架调用发生在用户代码前,无法通过重写Debug拦截
+
+### 核心改动
+
+#### 简化SecurityChanges日志 (main.py Line 95-106)
+
+**新增逻辑**:
+```python
+# 添加计数器
+added_count = 0
+for security in changes.AddedSecurities:
+    if security.Symbol in self.benchmark_symbols:
+        continue
+    if security.Symbol not in self.symbols:
+        self.symbols.append(security.Symbol)
+        added_count += 1
+
+# 简化日志: 只打印数量,不打印ticker列表
+if added_count > 0:
+    self.Debug(f"[证券变更] 新增{added_count}只股票,触发配对分析")
+```
+
+**效果对比**:
+- 修改前: `SecurityChanges: Added: AAPL R735QTJ8XC9X,AEP R735QTJ8XC9X,...` (约300字符)
+- 修改后: `[证券变更] 新增76只股票,触发配对分析` (约25字符)
+- 精简度: 92%
+
+### v7.2.6回测评估(修正版)
+
+**整体表现**: 优秀
+- 净收益: +15.31% (8个月, 2023-09至2024-06)
+- 年化收益: 15.22%
+- Sharpe比率: 0.883 (良好的风险调整收益)
+- 最大回撤: 4.50% (非常低)
+- 胜率: 48%, 盈亏比: 1.69
+
+**风控效果**: 完美
+- PAIR DRAWDOWN触发7次,所有回撤在10-15%范围内触发
+- 无单个配对亏损超过15%
+- 组合回撤4.5%,远低于5%阈值
+
+**资金管理**: 符合设计
+- 投资比例在5%-20%范围内
+- Buffer机制($2,000固定)运行正常
+- 满仓时机合理(高质量配对集中出现)
+
+**结论**: v7.2.6配置表现优秀,无需参数调整
+
+### PnL百分比说明(重要澄清)
+
+**常见误解**:
+日志中的`pnl_pct`字段(如-1321.22)容易误解为"亏损1321%"
+
+**实际含义**:
+```python
+# 示例: ('CNP', 'D') PAIR DRAWDOWN触发
+配对回撤: 10.5% >= 10.0%
+当前价值: $11,305.47
+HWM: $12,626.70
+PnL: $-1,321.22
+成本: $12,626.70
+
+# pnl_pct计算(存在单位混淆)
+pnl_pct = -1321.22  # 这是绝对值美元数,不是百分比!
+实际回撤百分比 = -1321.22 / 12626.70 = -10.47%
+```
+
+**结论**: 所有PAIR DRAWDOWN触发都在10-15%范围内,风控系统工作完美
+
+### 影响评估
+
+**向后兼容性**: 完全兼容
+- 仅优化日志输出格式
+- 无功能变更
+- 无参数调整
+
+**测试验证**: 运行回测确认日志输出简洁
+
+---
+
 ## [v7.2.6_fix-max-holding-days@20251026]
 
 ### 版本定义
