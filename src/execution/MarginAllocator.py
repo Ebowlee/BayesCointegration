@@ -145,11 +145,6 @@ class MarginAllocator:
             )
             return {}
 
-        self.algorithm.Debug(
-            f"[MarginAllocator] 批次开始: 可用保证金=${current_available:,.0f}, "
-            f"候选配对={len(entry_candidates)}个"
-        )
-
         # === Step 2: 遍历candidates进行分配 ===
         for idx, (pair, signal, quality_score, planned_pct) in enumerate(entry_candidates, 1):
             # 基于全周期固定基准,受当前可用约束
@@ -169,13 +164,5 @@ class MarginAllocator:
                 # 不满足条件: 跳过此配对,继续尝试下一个
                 continue  # 继续尝试剩余配对
 
-        # === Step 3: 汇总日志 ===
-        total_allocated = sum(allocations.values())
-        remaining = current_available
-
-        self.algorithm.Debug(
-            f"[MarginAllocator] 批次完成: 分配{len(allocations)}/{len(entry_candidates)}个配对, "
-            f"总计${total_allocated:,.0f}, 剩余${remaining:,.0f}"
-        )
-
+        # === Step 3: 返回分配结果 ===
         return allocations

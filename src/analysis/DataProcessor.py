@@ -152,12 +152,5 @@ class DataProcessor:
         """
         输出数据处理统计信息到Debug日志
         """
-        failure_reasons = [
-            f"{reason}({count})"
-            for reason, count in stats.items()
-            if reason not in ['total', 'final_valid'] and count > 0
-        ]
-
-        self.algorithm.Debug(
-            f"[DataProcessor] 数据处理: {stats['total']}→{stats['final_valid']}只 ({', '.join(failure_reasons)})"
-        )
+        # 数据处理统计信息（日志已优化：从orders.csv可推断数据质量）
+        # 统计信息保留用于内部逻辑，但不输出日志

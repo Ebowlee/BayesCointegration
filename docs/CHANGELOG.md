@@ -4,6 +4,124 @@
 
 ---
 
+## [v7.2.8_log-optimization-and-cointegration-review@20250126]
+
+### 版本定义
+**日志优化 + 协整复查预警**: 减少日志量25-30%，支持完整1年回测；增强AI分析能力；添加协整复查预警机制
+
+### 核心改动
+
+**1. 日志优化（减少25-30%输出，突破100KB限制）**:
+
+删除冗余日志（可从orders.csv推断）:
+- **MarginAllocator** (Line 148-150, 176-179): 删除"批次开始/完成"日志
+  - 原因: orders.csv已包含每笔订单的分配金额
+  - 影响: 减少约542行日志（271批次 × 2行）
+- **DataProcessor** (Line 161-163): 删除"数据处理: X→Y只"日志
+  - 原因: 数据预处理结果对AI分析交易表现无价值
+  - 影响: 减少约9行日志（每月1次）
+- **ExecutionManager** (Line 471): 删除"成功开仓X/Y个配对"总结日志
+  - 原因: TM注册日志已提供每个配对的执行状态
+  - 影响: 减少约75行日志
+
+保留关键日志（提供orders.csv无法捕获的信息）:
+- **TicketsManager** (Line 108): 保留"TM注册"日志
+  - 原因: 提供订单锁定状态（PENDING/COMPLETED/ANOMALY），orders.csv无此实时状态
+
+**2. 日志增强（提升AI分析能力）**:
+
+**Pairs.py**:
+- Line 58: 新增`self.entry_zscore`属性（存储开仓时Z-score）
+- Line 613-616: 在`get_open_intent()`中存储开仓Z-score
+  ```python
+  current_zscore = self.get_zscore(data)
+  if current_zscore is not None:
+      self.entry_zscore = current_zscore
+  ```
+
+**TradeAnalyzer.py**:
+- Line 127: trade_close JSON新增`quality_score`字段
+- Line 134-136: trade_close JSON新增`entry_zscore`字段（如果有记录）
+- 目的: 支持AI分析配对质量与交易结果的相关性，评估入场时机质量
+
+示例输出:
+```json
+{"type": "trade_close", "pair_id": "('CRM', 'FIS')", "reason": "PAIR DRAWDOWN",
+ "pnl_pct": -1932.75, "holding_days": 19, "quality_score": 0.783, "entry_zscore": -1.15}
+```
+
+**3. 协整复查预警（方案A - 监控而非强制平仓）**:
+
+**PairsManager.py**:
+- Line 137-146: 在`update_pairs()`中添加协整复查逻辑
+  ```python
+  for pair_id in self.cointegrated_ids:  # 上一轮是cointegrated
+      if pair_id not in current_pair_ids:  # 本轮未通过协整检验
+          pair = self.all_pairs[pair_id]
+          if pair.has_position():
+              self.algorithm.Debug(
+                  f"[协整复查] {pair_id} 失去协整性但仍有持仓 "
+                  f"(持仓{holding_days}天,进入增强监控)"
+              )
+  ```
+- 触发时机: 每月选股后，检测上轮cointegrated但本轮失败的配对
+- 处理策略: 仅记录预警日志，不强制平仓（由现有风控处理）
+- 设计理由: 避免p-value临界波动导致的过度反应，已有止损/回撤/超时三重保护
+
+**4. 状态定义修正**:
+
+**PairsManager.py**:
+- Line 12-15: 修正三分类原则注释
+  - 旧: "LEGACY: 历史配对但仍有持仓(past with position)"
+  - 新: "LEGACY: 本轮未通过协整检验,但仍有持仓(failed current test, has position)"
+- Line 24-25: 修正状态常量注释
+- Line 32-35: 修正`classify()`方法文档
+- 关键修正: 状态判断基于"本轮检验结果"，与历史状态无关
+
+**5. 文档更新**:
+
+**CLAUDE.md**:
+- 新增"Log Design Principles"章节（Line 33-52）
+- 明确日志用户是AI Agent（backtest-analyst）而非人类开发者
+- 说明三文件协同分析模式:
+  - overview.json: 策略级指标（Sharpe、drawdown、total return）
+  - orders.csv: 订单执行细节（time、symbol、price、quantity、status）
+  - logs.txt: 推理上下文和状态转换（供AI推断决策过程）
+- 定义日志优先级层级:
+  1. Must Keep: trade_close JSON、风控触发（含数值细节）、状态转换
+  2. Can Remove: 可从orders.csv推断的冗余汇总、冗长的批次进度
+  3. Should Add: 入场条件（entry_zscore、quality_score）、市场环境（VIX）
+
+### 预期效果
+
+**日志减少量**:
+- 删除: 约626行（MarginAllocator 542行 + DataProcessor 9行 + ExecutionManager 75行）
+- 净减少: 约25-30%（新增协整复查预警约5行/月可忽略）
+
+**新增分析能力**:
+- 入场质量分析: 通过entry_zscore评估开仓时机（如-1.5σ vs -0.5σ入场的结果差异）
+- 质量相关性: 通过quality_score验证高质量配对是否真的表现更好
+- 协整失效监控: 早期预警协整关系破裂的配对
+
+**回测支持**:
+- 目标: 支持完整1年回测（不触发100KB日志限制）
+- 当前: 8.5个月（130KB日志）
+- 优化后: 预计可支持12个月（~91KB日志，25-30%减少）
+
+### 技术改进
+
+**设计原则变更**:
+1. **日志面向AI而非人类**: 优先考虑可编程解析和推理价值
+2. **三文件协同**: logs.txt补充overview.json和orders.csv的盲区
+3. **协整复查预警**: 渐进式实施（先监控数据，再决定是否强制平仓）
+
+**状态机制澄清**:
+- LEGACY可跨越3轮选股周期（45天持仓÷30天/轮≈1.5轮,跨3个自然月）
+- ARCHIVED与历史状态无关，只看本轮检验结果
+- 协整失效配对通过现有风控退出（止损±2.5σ、回撤10%、超时45天）
+
+---
+
 ## [v7.2.7_fix-securities-changes-log@20251026]
 
 ### 版本定义

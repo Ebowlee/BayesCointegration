@@ -9,10 +9,10 @@ class PairState:
     """
     配对状态常量与分类逻辑
 
-    三分类原则(时间维度):
-        - COINTEGRATED: 本轮通过协整检验的配对(current)
-        - LEGACY: 历史配对但仍有持仓(past with position)
-        - ARCHIVED: 历史配对且无持仓(past without position)
+    三分类原则(基于本轮协整检验结果):
+        - COINTEGRATED: 本轮通过协整检验的配对(current cointegrated)
+        - LEGACY: 本轮未通过协整检验,但仍有持仓(failed current test, has position)
+        - ARCHIVED: 本轮未通过协整检验,且无持仓(failed current test, no position)
 
     设计说明:
         - 使用类常量而非 Enum: 保持与其他常量类(TradingSignal, PositionMode)一致
@@ -20,9 +20,9 @@ class PairState:
         - 合并分类逻辑: 状态定义和分类规则内聚在同一个类中
     """
     # 状态常量(简短值,便于日志输出)
-    COINTEGRATED = 'cointegrated'  # 本轮通过协整检验(current cointegrated pairs)
-    LEGACY = 'legacy'               # 历史配对但仍有持仓(past with position)
-    ARCHIVED = 'archived'           # 历史配对且无持仓(past without position)
+    COINTEGRATED = 'cointegrated'   # 本轮通过协整检验(current cointegrated pairs)
+    LEGACY = 'legacy'               # 本轮未通过协整检验,但仍有持仓(failed current test, has position)
+    ARCHIVED = 'archived'           # 本轮未通过协整检验,且无持仓(failed current test, no position)
 
     @staticmethod
     def classify(pair_id: tuple, pair, current_pair_ids: Set) -> str:
@@ -31,8 +31,8 @@ class PairState:
 
         分类规则:
             - COINTEGRATED: 本轮通过协整检验(在 current_pair_ids 中)
-            - LEGACY: 历史配对但仍有持仓(需要继续管理风险)
-            - ARCHIVED: 历史配对且无持仓(已归档,不参与交易)
+            - LEGACY: 本轮未通过协整检验但仍有持仓(需要继续管理风险)
+            - ARCHIVED: 本轮未通过协整检验且无持仓(已归档,不参与交易)
 
         Args:
             pair_id: 配对ID元组 (symbol1, symbol2)
@@ -133,6 +133,17 @@ class PairsManager:
                 # 新配对:直接添加
                 self.all_pairs[pair_id] = new_pair
                 self.algorithm.Debug(f"[PairsManager] 添加新配对 {pair_id}")
+
+        # 第一点五步:协整复查预警（方案A - 监控失去协整性但仍有持仓的配对）
+        for pair_id in self.cointegrated_ids:  # 上一轮是cointegrated
+            if pair_id not in current_pair_ids:  # 本轮未通过协整检验
+                pair = self.all_pairs[pair_id]
+                if pair.has_position():
+                    holding_days = pair.get_pair_holding_days()
+                    self.algorithm.Debug(
+                        f"[协整复查] {pair_id} 失去协整性但仍有持仓 "
+                        f"(持仓{holding_days}天,进入增强监控)"
+                    )
 
         # 第二步:重新分类所有配对
         self.reclassify_pairs(current_pair_ids)

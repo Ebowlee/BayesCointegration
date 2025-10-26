@@ -58,7 +58,8 @@
       "Bash(git mv src/risk/PortfolioBaseRule.py src/risk/RiskBaseRule.py)",
       "Bash(git mv:*)",
       "Bash(powershell:*)",
-      "Bash(more:*)"
+      "Bash(more:*)",
+      "Bash(sed:*)"
     ],
     "deny": []
   },

@@ -30,6 +30,27 @@ Key architectural principles (v7.0.0):
 - **Intra-industry pairing** - Securities paired within same Morningstar industry group (26 groups)
 - **Natural fund constraints** - Position limits determined by available capital, not hard caps
 
+## Log Design Principles
+
+### Purpose: Logs are for AI Agents, Not Humans
+
+**Critical Understanding**:
+- **Primary User**: backtest-analyst agent (AI), not human developers
+- **File Ecosystem**:
+  - overview.json: Strategy-level metrics (Sharpe, drawdown, total return)
+  - orders.csv: Order execution details (time, symbol, price, quantity, status)
+  - logs.txt: Reasoning context and state transitions (for AI inference)
+
+**Design Goals**:
+- Maximize AI-parseable analysis value within 100KB limit
+- Provide context that overview.json and orders.csv cannot capture
+- Enable forensic analysis of strategy decision-making process
+
+**Log Priority Tiers**:
+1. **Must Keep**: trade_close JSON, risk triggers with numerical details, state transitions
+2. **Can Remove**: Redundant summaries derivable from orders.csv, verbose batch progress
+3. **Should Add**: Entry conditions (entry_zscore, quality_score), market context (VIX)
+
 ## Development Commands
 
 ### **IMPORTANT: Backtest Workflow**

@@ -466,6 +466,4 @@ class ExecutionManager:
                 if success:
                     actual_opened += 1
 
-        # Step 4: 执行结果
-        if actual_opened > 0:
-            self.algorithm.Debug(f"[开仓] 成功开仓{actual_opened}/{len(entry_candidates)}个配对")
+        # Step 4: 完成（TM注册日志已提供每个配对的执行状态，无需总结）

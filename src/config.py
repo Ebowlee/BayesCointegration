@@ -118,7 +118,7 @@ class StrategyConfig:
             'scoring_thresholds': {
                 'half_life': {
                     'optimal_days': 20,                 # 最优半衰期(天,符合日频实际) → 1.0分
-                    'max_acceptable_days': 60           # 最大可接受半衰期(包含长周期配对) → 0分
+                    'max_acceptable_days': 45           # 最大可接受半衰期(包含长周期配对) → 0分
                 }
             }
         }
@@ -150,7 +150,7 @@ class StrategyConfig:
             # 交易阈值
             'entry_threshold': 1.0,              # 建仓Z-score阈值
             'exit_threshold': 0.3,               # 平仓Z-score阈值
-            'stop_threshold': 2.5,               # 止损Z-score阈值
+            'stop_threshold': 2.0,               # 止损Z-score阈值
             'pair_cooldown_days': 20,            # 正常清仓后配对的冷却期（天）
 
             # 仓位管理参数
@@ -214,7 +214,7 @@ class StrategyConfig:
                 'holding_timeout': {
                     'enabled': True,
                     'priority': 60,
-                    'max_days': 60,                      # 最大持仓天数
+                    'max_days': 45,                      # 最大持仓天数
                     'cooldown_days': 20                  # per-pair冷却期(30天)
                 }
             }

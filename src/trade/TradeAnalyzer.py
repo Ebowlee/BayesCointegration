@@ -124,11 +124,16 @@ class TradeAnalyzer:
             'reason': reason,
             'pnl_pct': round(pnl_pct, 4),
             'holding_days': holding_days,
+            'quality_score': round(pair.quality_score, 3),  # 配对质量分数(分析质量与结果相关性)
         }
 
         # 只有 exit_zscore 不为 None 时才添加 (正常平仓时有效, 风控平仓时为 None)
         if exit_zscore is not None:
             log_data['exit_zscore'] = round(exit_zscore, 2)
+
+        # 添加开仓时Z-score（如果有记录）
+        if hasattr(pair, 'entry_zscore') and pair.entry_zscore is not None:
+            log_data['entry_zscore'] = round(pair.entry_zscore, 2)
 
         self.algorithm.Debug(json.dumps(log_data, ensure_ascii=False))
 

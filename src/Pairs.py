@@ -54,6 +54,9 @@ class Pairs:
         self.pair_opened_time = None                                           # 配对开仓时间(双腿都成交的时刻)
         self.pair_closed_time = None                                           # 配对平仓时间(双腿都成交的时刻)
 
+        # === 交易质量追踪(用于事后分析) ===
+        self.entry_zscore = None                                               # 开仓时Z-score(分析入场时机质量)
+
         # === 持仓追踪(OrderTicket-based,避免Portfolio全局查询混淆) ===
         self.tracked_qty1 = 0                                                  # 配对专属持仓追踪(symbol1)
         self.tracked_qty2 = 0                                                  # 配对专属持仓追踪(symbol2)
@@ -606,6 +609,11 @@ class Pairs:
         # 检查数量有效性
         if qty1 == 0 or qty2 == 0:
             return None  # 数量为0,无法开仓
+
+        # 存储开仓时Z-score（用于事后分析入场质量）
+        current_zscore = self.get_zscore(data)
+        if current_zscore is not None:
+            self.entry_zscore = current_zscore
 
         # 构建意图对象
         return OpenIntent(
