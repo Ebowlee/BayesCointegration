@@ -202,9 +202,15 @@ class PairSelector:
 
     def _calculate_half_life_score(self, log_prices1_recent, log_prices2_recent, beta):
         """
-        计算半衰期分数（基于价格序列的均值回归速度）
+        计算半衰期分数（双向衰减，峰值在optimal_days）
 
         使用AR(1)模型估计半衰期: half_life = -log(2) / log(ρ)
+
+        评分逻辑（v7.2.15改进）:
+        - [0, min_acceptable): 0分（过快，缺乏交易空间）
+        - [min_acceptable, optimal]: 线性上升 0→1（逐渐接近最优）
+        - [optimal, max_acceptable]: 线性下降 1→0（逐渐偏离最优）
+        - [max_acceptable, ∞): 0分（过慢，持仓时间过长）
 
         Args:
             log_prices1_recent: 最近252天的对数价格序列（symbol1）- 来自PairData预计算
@@ -229,10 +235,22 @@ class PairSelector:
             # 计算半衰期
             if 0 < rho < 1:
                 half_life = -np.log(2) / np.log(rho)
-                # 使用配置的阈值进行插值
-                optimal_days = self.scoring_thresholds['half_life']['optimal_days']
-                zero_score_days = self.scoring_thresholds['half_life']['zero_score_threshold']
-                return self._linear_interpolate(half_life, optimal_days, zero_score_days, 0.0, 1.0)
+
+                # 双向衰减评分（v7.2.15）
+                optimal = self.scoring_thresholds['half_life']['optimal_days']
+                min_acceptable = self.scoring_thresholds['half_life']['min_acceptable_days']
+                max_acceptable = self.scoring_thresholds['half_life']['max_acceptable_days']
+
+                if half_life < min_acceptable:
+                    return 0  # 过快
+                elif half_life <= optimal:
+                    # 左侧上升段: [min_acceptable, optimal] → [0, 1]
+                    return (half_life - min_acceptable) / (optimal - min_acceptable)
+                elif half_life <= max_acceptable:
+                    # 右侧下降段: [optimal, max_acceptable] → [1, 0]
+                    return 1 - (half_life - optimal) / (max_acceptable - optimal)
+                else:
+                    return 0  # 过慢
             else:
                 # rho <= 0 或 rho >= 1: 无均值回归
                 return 0

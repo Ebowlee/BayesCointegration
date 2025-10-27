@@ -114,11 +114,12 @@ class StrategyConfig:
                 'liquidity': 0.30                      
             },
 
-            # 评分阈值
+            # 评分阈值 (v7.2.15改进为双向衰减)
             'scoring_thresholds': {
                 'half_life': {
-                    'optimal_days': 15,                 # 最优半衰期(天,符合日频实际) → 1.0分
-                    'zero_score_threshold': 60          # 得0分的阈值(评分函数上界,从45调整为60天,提升区分度)
+                    'optimal_days': 20,                 # 最优半衰期(天) → 1.0分 (峰值点,从15天调整为20天)
+                    'min_acceptable_days': 5,           # 最小可接受半衰期(天) → 0分 (过快边界,<5天缺乏交易空间)
+                    'max_acceptable_days': 60           # 最大可接受半衰期(天) → 0分 (过慢边界,>60天持仓时间过长)
                 }
             }
         }
@@ -208,13 +209,13 @@ class StrategyConfig:
                 'pair_drawdown': {
                     'enabled': True,                     # Step 3已实现
                     'priority': 80,
-                    'threshold': 0.10,                   # 配对回撤阈值
+                    'threshold': 0.08,                   # 配对回撤阈值
                     'cooldown_days': 30                  # per-pair冷却期(30天)
                 },
                 'holding_timeout': {
                     'enabled': True,
                     'priority': 60,
-                    'max_days': 45,                      # 最大持仓天数
+                    'max_days': 60,                      # 最大持仓天数
                     'cooldown_days': 20                  # per-pair冷却期(30天)
                 }
             }

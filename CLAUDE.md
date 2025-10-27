@@ -637,6 +637,48 @@ for pair in tradeable_pairs.values():
     signal = pair.get_signal(data)
 ```
 
+### Entry Z-Score Recording vs. Signal Threshold (v7.2.15)
+**Problem**: Trades may show `entry_zscore=0.07` despite `entry_threshold=1.0`
+**Root Cause**: Recording timing mismatch and market slippage
+- Signal generation checks threshold at bar N close (e.g., z=1.05 triggers entry)
+- `entry_zscore` is recorded at `get_open_intent()` call time (bar N or N+1)
+- Actual order fill may occur at bar N+1 or N+2 with different prices
+- Post-fill z-score calculation using fill prices can deviate significantly
+
+**Why Deviations Occur**:
+- **Low values (0.07)**: Signal triggered at z=1.05, but price gap-up on next bar causes rapid mean reversion, fill price yields z=0.07
+- **High values (2.13)**: Signal triggered at z=1.03, but price continues diverging, fill price yields z=2.13
+
+**Technical Details**:
+```python
+# Signal check in Pairs.py:526-531 (threshold enforced here)
+if zscore > self.entry_threshold:  # e.g., 1.0
+    return TradingSignal.SHORT_SPREAD
+
+# Recording in Pairs.py:614-616 (may differ from signal check)
+current_zscore = self.get_zscore(data)  # Recalculated with current prices
+if current_zscore is not None:
+    self.entry_zscore = current_zscore  # Stored for analysis
+```
+
+**Why This Is Expected Behavior**:
+- Z-score is calculated using current market prices (no smoothing, see [Pairs.py:485-507](src/Pairs.py#L485-L507))
+- Market orders execute at next available price (not signal-check price)
+- This is a feature, not a bug: captures actual entry execution quality
+
+**Understanding Z-Score Calculation** (No Smoothing):
+```python
+# Pairs.py:485-507 - Raw price calculation
+log_residual = np.log(price1) - (alpha_mean + beta_mean * np.log(price2))
+zscore = (log_residual - residual_mean) / residual_std
+# No rolling window, no EMA, no filtering - instant response to price changes
+```
+
+**Solution Options** (Not Yet Implemented):
+- Use limit orders to reduce slippage (currently MarketOrder only)
+- Record both `signal_zscore` (at threshold check) and `fill_zscore` (at fill time) separately
+- Accept deviation as inherent to market execution dynamics
+
 ## Testing and Debugging
 
 - **Local backtesting**: Use `lean backtest` for rapid iteration
