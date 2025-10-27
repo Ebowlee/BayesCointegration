@@ -4,6 +4,557 @@
 
 ---
 
+## [v7.2.21_dual-cooldown@20250127]
+
+### 版本定义
+**双冷却期机制**: 根据平仓原因动态调整冷却期长度 - 正常回归10天,止损退出30天
+
+### 核心改动
+
+#### 1. 配置层调整
+**文件**: [src/config.py:152-154](src/config.py#L152-L154)
+
+**修改前（单一冷却期）**:
+```python
+'pair_cooldown_days': 10,  # 正常清仓后配对的冷却期（天）
+```
+
+**修改后（双冷却期）**:
+```python
+# 双冷却期机制 (v7.2.21: 区分正常回归和止损)
+'pair_cooldown_days_for_exit': 10,  # 正常回归平仓后的冷却期(天) - Z-score收敛
+'pair_cooldown_days_for_stop': 30,  # 止损平仓后的冷却期(天) - Z-score超限
+```
+
+#### 2. Pairs 对象增强
+**文件**: [src/Pairs.py](src/Pairs.py)
+
+**修改点 A: `__init__` 方法（line 43-45）**:
+```python
+# 修改前
+self.cooldown_days = config['pair_cooldown_days']
+
+# 修改后
+self.cooldown_days_for_exit = config['pair_cooldown_days_for_exit']  # 正常回归: 10天
+self.cooldown_days_for_stop = config['pair_cooldown_days_for_stop']  # 止损: 30天
+self.last_close_reason = None  # 新增: 记录最后一次平仓原因
+```
+
+**修改点 B: `on_position_filled` 方法（line 160,195）**:
+```python
+# 修改前
+def on_position_filled(self, action: str, fill_time, tickets):
+
+# 修改后（新增 reason 参数）
+def on_position_filled(self, action: str, fill_time, tickets, reason: str = None):
+    # ...
+    elif action == OrderAction.CLOSE:
+        self.pair_closed_time = fill_time
+        self.last_close_reason = reason  # 存储平仓原因
+```
+
+**修改点 C: 新增 `get_cooldown_days()` 方法（line 346-370）**:
+```python
+def get_cooldown_days(self) -> int:
+    """
+    根据最后一次平仓原因返回对应的冷却期天数
+
+    Returns:
+        30天 (STOP_LOSS) 或 10天 (其他)
+    """
+    if self.last_close_reason == 'STOP_LOSS':
+        return self.cooldown_days_for_stop  # 30天
+    else:
+        return self.cooldown_days_for_exit  # 10天
+```
+
+#### 3. TicketsManager 传递 reason
+**文件**: [src/TicketsManager.py](src/TicketsManager.py)
+
+**修改点 A: `__init__` 方法（line 69-71）**:
+```python
+# 新增存储结构
+self._pair_close_reasons: Dict[str, str] = {}  # 存储平仓原因
+```
+
+**修改点 B: `register_tickets` 方法（line 76,110-111）**:
+```python
+# 修改前
+def register_tickets(self, pair_id: str, tickets: List[OrderTicket], action: str):
+
+# 修改后（新增 reason 参数）
+def register_tickets(self, pair_id: str, tickets: List[OrderTicket], action: str, reason: str = None):
+    # ...
+    # 存储平仓原因
+    if action == OrderAction.CLOSE and reason:
+        self._pair_close_reasons[pair_id] = reason
+```
+
+**修改点 C: `on_order_event` 方法（line 198-210）**:
+```python
+# 修改前
+pairs_obj.on_position_filled(action, fill_time, tickets)
+
+# 修改后（传递 reason）
+reason = self._pair_close_reasons.get(pair_id, None)
+pairs_obj.on_position_filled(action, fill_time, tickets, reason)
+
+# 清理 reason 存储
+if action == OrderAction.CLOSE:
+    self._pair_close_reasons.pop(pair_id, None)
+```
+
+#### 4. OrderExecutor 传递 intent.reason
+**文件**: [src/execution/OrderExecutor.py:136-138](src/execution/OrderExecutor.py#L136-L138)
+
+**修改前**:
+```python
+self.tickets_manager.register_tickets(intent.pair_id, tickets, OrderAction.CLOSE)
+```
+
+**修改后**:
+```python
+self.tickets_manager.register_tickets(
+    intent.pair_id, tickets, OrderAction.CLOSE, reason=intent.reason
+)
+```
+
+#### 5. ExecutionManager 使用动态冷却期
+**文件**: [src/execution/ExecutionManager.py:98-130](src/execution/ExecutionManager.py#L98-L130)
+
+**修改前**:
+```python
+def is_pair_in_normal_cooldown(self, pair) -> bool:
+    frozen_days = pair.get_pair_frozen_days()
+    if frozen_days is None:
+        return False
+    return frozen_days < pair.cooldown_days  # 固定值
+```
+
+**修改后**:
+```python
+def is_pair_in_normal_cooldown(self, pair) -> bool:
+    frozen_days = pair.get_pair_frozen_days()
+    if frozen_days is None:
+        return False
+    cooldown_days = pair.get_cooldown_days()  # 动态获取（10或30）
+    return frozen_days < cooldown_days
+```
+
+### 设计原理
+
+#### reason 传递链路
+```
+1. ExecutionManager
+   ↓ pair.get_close_intent(reason='STOP_LOSS')
+2. OrderExecutor
+   ↓ tickets_manager.register_tickets(..., reason=intent.reason)
+3. TicketsManager
+   ↓ 存储到 _pair_close_reasons[pair_id]
+4. on_order_event (异步回调)
+   ↓ pairs_obj.on_position_filled(..., reason)
+5. Pairs
+   ↓ 存储到 last_close_reason
+6. ExecutionManager.is_pair_in_normal_cooldown()
+   ↓ pair.get_cooldown_days() 根据 last_close_reason 返回 10 或 30
+```
+
+#### 冷却期哲学
+| 平仓类型 | 冷却期 | 原因 | 策略意图 |
+|---------|-------|------|---------|
+| **CLOSE** (正常回归) | 10天 | Z-score收敛至阈值内,配对关系仍健康 | 快速重入,保持资金效率 |
+| **STOP_LOSS** (止损) | 30天 | Z-score超限,配对可能出现结构性问题 | 延长观察期,避免重复止损 |
+| **其他** (TIMEOUT/RISK_TRIGGER) | 10天 | 风控触发或持仓超时 | 默认使用正常冷却期 |
+
+### 预期效果
+- **提高资金利用率**: 正常退出后10天即可重新开仓（原20天）
+- **降低重复止损**: 止损后30天冷却,避免问题配对反复触发
+- **改善风险收益**: 健康配对快速重入，问题配对延长观察
+
+### 边界情况处理
+- **reason=None**: 默认使用 `cooldown_days_for_exit` (10天)
+- **未知 reason**: 同样使用10天冷却期
+- **向后兼容**: 未传递 reason 时不影响现有逻辑
+
+### 回测结果分析 (Jumping Fluorescent Yellow Pigeon)
+
+**整体性能**:
+- 总收益率: 16.87% (年化16.77%)
+- 夏普比率: 0.83
+- 最大回撤: 4.3%
+- 胜率: 50.0%
+- 盈利因子: 1.55
+- 总交易: 183笔, 平均持仓14天
+
+**平仓原因分布**:
+- STOP_LOSS: 36次 (45.1%) ⚠️ 频率过高
+- CLOSE: 33次 (38.0%)
+- DRAWDOWN: 9次 (12.7%)
+- TIMEOUT: 3次 (4.2%)
+
+**与基准版本对比** (Logical Green Hippopotamus):
+```
+指标           基准版本    v7.2.21     变化
+总收益         17.14%     16.87%     -0.27%
+夏普比率       1.01       0.83       -0.18
+最大回撤       5.5%       4.3%       -1.2% ✓
+胜率          53.3%      50.0%      -3.3%
+止损次数       22次       36次       +64% ⚠️
+```
+
+**关键发现**:
+1. ✅ **回撤控制改善**: 最大回撤降低1.2% (5.5%→4.3%)
+2. ❌ **止损频率激增**: 止损次数增加64% (22→36次), 45%的交易以止损结束
+3. ❌ **连续止损问题**: 检测到最多连续6次止损(7天内)
+4. ❌ **重复止损配对**: 4个配对重复触发止损 - ('CNP','NEE'), ('AMAT','NVDA'), ('OXY','XOM'), ('TMUS','VZ')
+
+**结论**:
+30天止损冷却期虽然改善了回撤控制,但导致止损频率大幅上升和整体收益下降。建议采用渐进式冷却期(第1次10天→第2次30天→第3次90天黑名单)配合配对质量追踪机制。
+
+---
+
+## [v7.2.20_scoring-improvements@20250127]
+
+### 版本定义
+**评分系统优化**: Volatility Score对数变换改进区分度 + Half-Life梯形平台设计扩大优质区间
+
+### 核心改动
+
+#### 1. Volatility Score 对数变换（改进区分度）
+**文件**: [src/analysis/PairSelector.py:322-326](src/analysis/PairSelector.py#L322-L326)
+
+**修改前（v7.2.19 - 线性变换）**:
+```python
+# 线性变换: score = 1 - ratio
+volatility_score = max(0.0, 1.0 - variance_ratio)
+
+# 问题: [0.0, 0.2] 区间拥挤
+# ratio=0.0 → score=1.000
+# ratio=0.1 → score=0.900
+# ratio=0.2 → score=0.800
+# 61.5%样本集中在 [0.8, 1.0] 区间（拥挤）
+```
+
+**修改后（v7.2.20 - 对数变换）**:
+```python
+# 对数变换: score = 1 - log(1 + ratio) / log(2)
+volatility_score = max(0.0, 1.0 - np.log(1 + variance_ratio) / np.log(2))
+
+# 改善区分度（拉开程度适中）
+# ratio=0.0 → score=1.000
+# ratio=0.1 → score=0.862 (-0.04)
+# ratio=0.2 → score=0.737 (-0.06)
+# 61.5%样本分散到 [0.737, 1.0] 区间（拥挤度改善 31.5%）
+```
+
+**数学原理**:
+- **对数变换**: 在低值区间（优质配对）拉开差距，高值区间（劣质配对）保持紧凑
+- **归一化**: `log(1 + ratio) / log(2)` 将 [0, 1] 映射到 [0, 1]
+- **物理意义**: 平滑非线性变换，保持单调递减和连续可导
+
+#### 2. Half-Life Score 梯形平台设计（扩大优质区间）
+**文件**: [src/analysis/PairSelector.py:255-275](src/analysis/PairSelector.py#L255-L275)
+
+**修改前（v7.2.15 - 单峰三角形）**:
+```python
+# 单峰设计: optimal_days = 17.5
+# [0, 5]: 0分
+# [5, 17.5]: 线性上升 0→1
+# [17.5, 30]: 线性下降 1→0
+# [30, ∞]: 0分
+
+# 问题: 满分配对少（只有17.5天附近）
+```
+
+**修改后（v7.2.20 - 梯形平台）**:
+```python
+# 梯形设计: optimal_min=7, optimal_max=14
+# [0, 3): 0分（过快）
+# [3, 7]: 线性上升 0→1（左侧上升段）
+# [7, 14]: 1.0分（平台期 - 黄金持仓期）
+# [14, 30]: 线性下降 1→0（右侧下降段）
+# [30, ∞): 0分（过慢）
+
+# 改进:
+# - 平台期从单点扩大到区间（7-14天都是满分）
+# - 左侧边界放宽（3天 vs 5天）
+# - 符合交易经验（7-14天是黄金持仓期）
+```
+
+**配置更新** ([src/config.py:114-120](src/config.py#L114-L120)):
+```python
+'scoring_thresholds': {
+    'half_life': {
+        'optimal_min_days': 7,       # 平台期下限（新增）
+        'optimal_max_days': 14,      # 平台期上限（新增）
+        'min_acceptable_days': 3,    # 最小边界（从5改为3）
+        'max_acceptable_days': 30    # 最大边界（不变）
+    }
+}
+```
+
+### 预期效果
+
+#### Volatility Score 区分度改善
+```
+当前分布（线性变换，v7.2.19数据）:
+- [0.0, 0.2] ratio → [0.8, 1.0] score
+- 61.5% 样本拥挤在 0.2 分数跨度内
+
+改进后（对数变换）:
+- [0.0, 0.2] ratio → [0.737, 1.0] score
+- 61.5% 样本分散到 0.263 分数跨度内
+- 拥挤度改善: 31.5%
+```
+
+#### Half-Life Score 分布变化
+```
+当前设计（单峰 optimal=17.5）:
+- 满分配对: 非常少（只有17.5天附近）
+- 高分配对（0.8-1.0）: 约20-30%
+
+改进后（平台 [7,14]）:
+- 满分配对: 显著增加（整个7-14天区间）
+- 高分配对（0.8-1.0）: 预期40-50%
+```
+
+#### 整体质量分数分布
+```
+权重配置:
+- statistical: 10%
+- half_life: 50%
+- volatility_ratio: 40%
+
+预期改善:
+- 质量分数分布更均匀（减少极端值）
+- 优质配对（Q>0.6）占比提升
+- 通过质量阈值（0.40）的配对数保持稳定
+```
+
+### 验证步骤
+
+运行回测后检查 PairScore 日志:
+1. **Volatility score**: 大部分应在 [0.7, 1.0] 区间（vs 旧版 [0.8, 1.0]）
+2. **Half-life score**: 7-14天区间配对评分=1.0
+3. **质量分数**: 分布更均匀，优质配对（Q>0.6）占比提升
+
+---
+
+## [v7.2.19_fix-volatility-ratio-formula@20250127]
+
+### 版本定义
+**修正Volatility Ratio公式**: 从错误的"混合波动率"改为正确的"方差比值"方法,解决95.9%过滤率问题
+
+### 核心改动
+
+**Volatility Ratio公式修正** ([src/analysis/PairSelector.py:280-330](src/analysis/PairSelector.py#L280-L330)):
+
+**修改前（v7.2.18 - 错误）**:
+```python
+# 问题: 分子是价格标准差,分母是收益率标准差(单位不一致)
+spread_vol = np.std(spread)                          # 价格标准差
+returns = np.diff(log_prices)
+avg_stock_vol = (std(returns1) + std(returns2)) / 2 # 收益率标准差
+volatility_ratio = spread_vol / avg_stock_vol       # 混合单位 → ratio中位数=2.512
+```
+
+**修改后（v7.2.19 - 正确）**:
+```python
+# 修正: 单位一致,都用方差
+spread_var = np.var(spread)                   # 价差方差
+stock_var_sum = var1 + var2                   # 个股方差之和
+variance_ratio = spread_var / stock_var_sum   # 同单位 → 预计ratio中位数=0.3-0.5
+volatility_score = max(0, 1 - variance_ratio) # 线性变换为评分
+```
+
+**数学原理**:
+- **方差比值**: `Var(spread) / [Var(x) + Var(y)]`
+- **物理意义**: 价差方差相对于整体系统方差的占比
+- **归一化**: 天然归一化在[0, 1]区间,1.0是无协整的临界点
+- **评分转换**: `score = max(0, 1 - ratio)` → ratio越小score越高
+
+**配置简化** ([src/config.py:114-125](src/config.py#L114-L125)):
+- **删除**: `'volatility_ratio': {'min_ratio': 0.05, 'max_ratio': 1.0}`
+- **原因**: 1.0是天然临界点,无需配置参数
+- **新增**: 注释说明评分公式和物理意义
+
+### 预期效果
+
+**方差比值数值范围**（修正后）:
+```
+当前错误公式: ratio中位数=2.512, 98.3%>1.0
+修正后预测: ratio中位数=0.3-0.5, 大部分在[0.2, 0.8]
+
+转换为score后:
+- GOOG-GOOGL类: ratio=0.05-0.15 → score=0.85-0.95 (高分)
+- 能源类配对: ratio=0.4-0.6 → score=0.4-0.6 (中等)
+- 大部分配对: ratio=0.2-0.8 → score=0.2-0.8 (合理分布)
+```
+
+**过滤率改善**:
+- v7.2.18: 95.9%过滤率(165/172被拒绝)
+- v7.2.19预测: **40-60%过滤率**(预计60-100个配对通过)
+- 通过配对数: 7个 → 预计50-80个
+
+**示例配对评分变化**:
+```
+假设某能源类配对:
+- Stat = 0.60 (p=0.01, 优秀)
+- Half = 0.50 (half_life=15天, 中等)
+- Vol变化: ratio=2.5→0.5, score=0.0→0.5
+
+Quality Score:
+v7.2.18: Q = 0.10*0.60 + 0.50*0.50 + 0.40*0.00 = 0.31 < 0.40 [FAIL]
+v7.2.19: Q = 0.10*0.60 + 0.50*0.50 + 0.40*0.50 = 0.51 > 0.40 [PASS]
+```
+
+### 技术细节
+
+**为什么当前公式错误**:
+1. **单位不一致**: 分子是价格水平标准差(累积值),分母是收益率标准差(单期变化)
+2. **数量级失配**: 价格标准差通常>1.0,收益率标准差通常<0.1,导致ratio>>1.0
+3. **无物理意义**: 混合单位的比值无法解释为"协整稳定性"
+
+**为什么方差比值正确**:
+1. **单位一致**: 分子分母都是方差(对数价格的二阶矩)
+2. **天然归一化**: ratio∈[0,1]当spread_var≤var1+var2,1.0是无协整临界点
+3. **物理意义**: 价差方差占比越小 → 协整效果越强
+4. **用户方案**: 符合用户的数学直觉 `Var(y-beta*x) / [Var(x)+Var(y)]`
+
+### 文件变更
+1. [src/analysis/PairSelector.py](src/analysis/PairSelector.py) - 重写_calculate_volatility_ratio_score方法(280-330行)
+2. [src/config.py](src/config.py) - 删除volatility_ratio阈值配置,新增注释说明(114-125行)
+3. [docs/CHANGELOG.md](docs/CHANGELOG.md) - 新增v7.2.19版本记录
+
+### 验证步骤
+运行回测后检查日志中的PairScore:
+1. variance_ratio大部分应在[0.2, 0.8]区间
+2. volatility_score应有合理分布(不再全是0.000)
+3. 通过质量阈值的配对数应显著增加(从7个到50+个)
+
+---
+
+## [v7.2.18.1_enhance-quality-score-logging@20250127]
+
+### 版本定义
+**增强质量评分日志**: 添加详细的评分组成日志,用于诊断95.9%过滤率问题
+
+### 核心改动
+
+**日志增强** ([src/analysis/PairSelector.py:128-138](src/analysis/PairSelector.py#L128-L138)):
+- **修改**: `_calculate_half_life_score` 返回元组 `(score, half_life_days)`
+- **修改**: `_calculate_volatility_ratio_score` 返回元组 `(score, volatility_ratio)`
+- **新增**: 每个配对的详细评分日志,格式:
+  ```
+  [PairScore] (SYM1, SYM2): Q=0.523 [PASS] | Stat=0.667(p=0.0021) | Half=0.800(days=15.3) | Vol=0.526(ratio=0.45)
+  ```
+
+### 日志输出示例
+
+```
+[PairScore] (AAPL, MSFT): Q=0.523 [PASS] | Stat=0.667(p=0.0021) | Half=0.800(days=15.3) | Vol=0.526(ratio=0.45)
+[PairScore] (GOOG, GOOGL): Q=0.362 [FAIL] | Stat=0.500(p=0.0100) | Half=0.200(days=3.2) | Vol=0.400(ratio=0.57)
+```
+
+### 诊断能力
+
+通过新日志可以快速识别:
+1. **Half-Life问题**: 大量配对的days<5或>30 → 半衰期阈值过严
+2. **Volatility Ratio问题**: 大量配对的ratio>0.8 → max_ratio=1.0过严
+3. **叠加效应**: Half和Vol都偏低但未触底 → 需要调整权重分配
+4. **P-value问题**: 如果Stat普遍很低 → 协整检验本身不够显著
+
+### 技术细节
+
+**Rich Return模式**:
+- 评分方法从返回单一值改为返回元组
+- 不改变核心计算逻辑,仅增加诊断信息
+- 遵循"可观测性优先"原则
+
+### Bugfix (v7.2.18.1)
+
+**Symbol格式化错误修复** ([src/analysis/PairSelector.py:133](src/analysis/PairSelector.py#L133)):
+- **问题**: `f"({symbol1:4s}, {symbol2:4s})"` 运行时错误 - Symbol对象不支持字符串格式化
+- **修复**: 使用 `symbol1.Value` 和 `symbol2.Value` 提取ticker字符串
+- **技术说明**: QuantConnect的Symbol对象需要通过`.Value`属性访问ticker字符串,这是标准做法且性能最优
+
+---
+
+## [v7.2.18_volatility-ratio-replaces-liquidity@20250127]
+
+### 版本定义
+**Volatility Ratio替代Liquidity**: 用价差波动率比值(spread_vol/stock_vol)替代流动性指标,直接衡量协整稳定性
+
+### 核心改动
+
+**质量评分体系重构**:
+- **删除**: `liquidity_score` (流动性指标) - 原因: UniverseSelection已过滤volume>5M+price>$15,PairSelector的$500M基准分辨力有限
+- **新增**: `volatility_ratio_score` (价差波动率比值) - 公式: `spread_vol / avg_stock_vol`
+- **权重调整** ([src/config.py:107-112](src/config.py#L107-L112)):
+  ```python
+  # 原权重: statistical=10%, half_life=60%, liquidity=30%
+  # 新权重: statistical=10%, half_life=50%, volatility_ratio=40%
+  'quality_weights': {
+      'statistical': 0.10,
+      'half_life': 0.50,
+      'volatility_ratio': 0.40
+  }
+  ```
+
+**评分函数设计** ([src/analysis/PairSelector.py:262-311](src/analysis/PairSelector.py#L262-L311)):
+```python
+def _calculate_volatility_ratio_score(self, log_prices1, log_prices2, beta):
+    """
+    线性衰减评分(单向,非双向):
+    - ratio ≤ 0.05: score = 1.0 (完美稳定)
+    - ratio ≥ 1.0: score = 0.0 (无协整)
+    - 0.05 < ratio < 1.0: score = (1.0 - ratio) / 0.95 (线性下降)
+    """
+    spread = log_prices1 - beta * log_prices2
+    spread_vol = np.std(spread, ddof=1)
+
+    returns1 = np.diff(log_prices1)
+    returns2 = np.diff(log_prices2)
+    avg_stock_vol = (np.std(returns1) + np.std(returns2)) / 2
+
+    ratio = spread_vol / avg_stock_vol
+
+    if ratio <= 0.05:
+        return 1.0
+    elif ratio >= 1.0:
+        return 0.0
+    else:
+        return (1.0 - ratio) / 0.95
+```
+
+**配置参数更新** ([src/config.py:114-125](src/config.py#L114-L125)):
+```python
+'scoring_thresholds': {
+    'volatility_ratio': {
+        'min_ratio': 0.05,   # ≤5%完美稳定 → 1.0分
+        'max_ratio': 1.0     # ≥100%失效 → 0.0分
+    }
+}
+```
+
+### 设计理念
+
+**为什么用volatility_ratio替代liquidity?**
+1. **消除冗余**: UniverseSelection已过滤`volume>5M`和`price>$15`(暗含日均交易额>$75M),PairSelector的$500M基准分辨力有限
+2. **直接相关**: `spread_vol/stock_vol`直接衡量协整稳定性,比间接的流动性更相关质量
+3. **复用计算**: 使用OLS beta(已在half_life中计算),无额外性能开销
+
+**为什么用线性衰减(非双向)?**
+- **物理意义**: ratio越小越好,不存在"过小"的概念(与half_life不同)
+- **阈值设计**: 5%以下完美(score=1.0), 100%以上失效(score=0.0), 中间线性插值
+
+### 影响范围
+- ✅ **配置**: src/config.py (删除liquidity_benchmark, 更新权重和阈值)
+- ✅ **评分逻辑**: src/analysis/PairSelector.py (替换方法, 移除clean_data依赖)
+- ⚠️ **API兼容**: selection_procedure保留clean_data参数(默认None, 向后兼容)
+
+---
+
 ## [v7.2.15_half-life-bidirectional-scoring@20250127]
 
 ### 版本定义
