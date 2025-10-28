@@ -33,25 +33,25 @@ class PairSelector:
         self.scoring_thresholds = module_config['scoring_thresholds']
 
 
-    def selection_procedure(self, raw_pairs, pair_data_dict, clean_data=None):
+    def selection_procedure(self, modeling_results):
         """
-        执行配对筛选流程 - 评估质量并筛选最佳配对（重构版）
+        执行配对筛选流程 - 基于贝叶斯后验参数评估质量并筛选（v7.4.0重构）
 
         Args:
-            raw_pairs: CointegrationAnalyzer输出的配对列表
-            pair_data_dict: 预构建的PairData对象字典（从main.py传入）
-            clean_data: 清洗后的OHLCV数据（v7.2.18: 保留兼容性，实际未使用）
+            modeling_results: BayesianModeler输出的建模结果列表
+                每个元素包含: symbol1, symbol2, quality_score, beta_mean, beta_std,
+                             lambda_mean, lambda_std, lambda_t_stat, residual_std, etc.
 
         Returns:
-            List[Dict]: 筛选后的配对列表（包含质量分数和OLS参数）
+            List[Dict]: 筛选后的配对列表（包含四维质量分数）
 
-        设计理念:
-        - 专注于质量评估和筛选逻辑（单一职责）
-        - 数据准备由调用方负责（依赖倒置）
-        - 复用预计算的对数价格（性能优化）
+        设计变更 (v7.4.0):
+        - 不再使用OLS近似，直接使用贝叶斯后验参数
+        - 四维评分系统：half_life, beta_stability, mean_reversion_certainty, residual_quality
+        - 移除volatility_ratio（理论缺陷）
         """
-        # 步骤1: 评估配对质量（使用预计算的对数价格）
-        scored_pairs = self.evaluate_quality(raw_pairs, pair_data_dict)
+        # 步骤1: 评估配对质量（使用贝叶斯后验参数）
+        scored_pairs = self.evaluate_quality(modeling_results)
 
         # 步骤2: 筛选最佳配对
         selected_pairs = self.select_best(scored_pairs)
@@ -59,87 +59,64 @@ class PairSelector:
         return selected_pairs
 
 
-    def evaluate_quality(self, raw_pairs, pair_data_dict):
+    def evaluate_quality(self, modeling_results):
         """
-        评估配对质量（v7.2.18: volatility_ratio替代liquidity）
+        评估配对质量（v7.4.0: 基于贝叶斯后验参数的四维评分系统）
 
         Args:
-            raw_pairs: CointegrationAnalyzer输出的配对列表
-            pair_data_dict: {pair_key: PairData} 预构建的PairData对象字典
+            modeling_results: BayesianModeler输出的建模结果列表
 
-        设计说明: 使用252天长期窗口与BayesianModeler保持一致
-        - 协整是长期概念,评分应基于稳定的长期关系
-        - 避免短期窗口捕捉到"伪协整"或运气好的配对
-        - 确保评分高的配对在实际交易中也表现良好
+        四维评分系统:
+        1. Half-life (30%): 使用贝叶斯beta_mean计算半衰期
+        2. Beta stability (25%): 使用beta_std衡量对冲比率稳定性
+        3. Mean-reversion certainty (30%): 使用lambda_t_stat衡量AR(1)显著性
+        4. Residual quality (15%): 使用residual_std衡量模型拟合质量
 
-        性能优化:
-        - 对数价格从PairData获取（预计算，消除重复np.log()）
-        - volatility_ratio复用OLS beta（一次计算，多处使用）
+        设计优势:
+        - 使用贝叶斯后验参数（比OLS更准确）
+        - 移除volatility_ratio（理论缺陷）
+        - 所有指标都有明确的统计意义
         """
         scored_pairs = []
 
-        for pair_info in raw_pairs:
-            symbol1 = pair_info['symbol1']
-            symbol2 = pair_info['symbol2']
-            pair_key = (symbol1, symbol2)
+        for model_result in modeling_results:
+            symbol1 = model_result['symbol1']
+            symbol2 = model_result['symbol2']
 
-            # 获取PairData对象（包含预计算的对数价格）
-            pair_data = pair_data_dict[pair_key]
+            # 四维评分计算
+            half_life_score, half_life_days = self._calculate_half_life_score_v2(model_result)
+            beta_stability_score = self._calculate_beta_stability_score(model_result['beta_std'])
+            mean_reversion_score, t_stat = self._calculate_mean_reversion_certainty_score(model_result['lambda_t_stat'])
+            residual_quality_score = self._calculate_residual_quality_score(model_result['residual_std'])
 
-            # ⭐ 使用PairData的预计算对数价格（消除重复np.log()调用）
-            if len(pair_data.log_prices1) >= self.lookback_days:
-                log_prices1_recent = pair_data.log_prices1[-self.lookback_days:]
-                log_prices2_recent = pair_data.log_prices2[-self.lookback_days:]
-
-                # 估计beta（OLS回归，使用预计算的对数价格）
-                linreg_result = stats.linregress(log_prices2_recent, log_prices1_recent)
-                slope = linreg_result.slope
-                intercept = linreg_result.intercept
-                beta = slope if slope > 0 else 1.0  # 安全检查: beta应为正
-
-                # 计算半衰期分数（传入预计算的对数价格）
-                half_life_score, half_life_days = self._calculate_half_life_score(log_prices1_recent, log_prices2_recent, beta)
-
-                # 计算价差波动率比值分数（v7.2.18: 替代liquidity，复用OLS beta）
-                volatility_ratio_score, raw_vol_ratio = self._calculate_volatility_ratio_score(
-                    log_prices1_recent, log_prices2_recent, beta
-                )
-            else:
-                # 数据不足，分数为0
-                slope = None
-                intercept = None
-                half_life_score = 0
-                half_life_days = None
-                volatility_ratio_score = 0
-                raw_vol_ratio = None
-
-            # 综合质量分数（双指标体系 v7.3.1: 移除statistical，专注交易特性）
+            # 综合质量分数（四维加权平均）
             quality_score = (
                 self.quality_weights['half_life'] * half_life_score +
-                self.quality_weights['volatility_ratio'] * volatility_ratio_score
+                self.quality_weights['beta_stability'] * beta_stability_score +
+                self.quality_weights['mean_reversion_certainty'] * mean_reversion_score +
+                self.quality_weights['residual_quality'] * residual_quality_score
             )
 
-            # 详细日志：每个配对的评分组成（v7.2.18.1: 诊断95.9%过滤率）
+            # 详细日志：每个配对的四维评分组成
             status = "PASS" if quality_score > self.min_quality_threshold else "FAIL"
             half_life_str = f"{half_life_days:.1f}" if half_life_days is not None else "N/A"
-            vol_ratio_str = f"{raw_vol_ratio:.3f}" if raw_vol_ratio is not None else "N/A"
-            # v7.3.1: 移除Stat字段，简化为双指标输出
             self.algorithm.Debug(
-                f"[PairScore] ({symbol1.Value:4s}, {symbol2.Value:4s}): "  # 使用.Value提取ticker字符串
+                f"[PairScore] ({symbol1.Value:4s}, {symbol2.Value:4s}): "
                 f"Q={quality_score:.3f} [{status}] | "
                 f"Half={half_life_score:.3f}(days={half_life_str}) | "
-                f"Vol={volatility_ratio_score:.3f}(ratio={vol_ratio_str})"
+                f"BetaStab={beta_stability_score:.3f}(std={model_result['beta_std']:.4f}) | "
+                f"MeanRev={mean_reversion_score:.3f}(t={t_stat:.2f}) | "
+                f"Resid={residual_quality_score:.3f}(std={model_result['residual_std']:.4f})"
             )
 
-            # 添加评分结果和OLS结果（供BayesianModeler复用）
-            pair_info.update({
-                'quality_score': quality_score,
-                'half_life_score': half_life_score,
-                'volatility_ratio_score': volatility_ratio_score,
-                'ols_beta': slope,      # OLS原始斜率（可能为负）
-                'ols_alpha': intercept  # OLS截距
-            })
-            scored_pairs.append(pair_info)
+            # 更新质量分数到model_result（保留原有字段）
+            model_result['quality_score'] = quality_score
+            model_result['half_life_score'] = half_life_score
+            model_result['beta_stability_score'] = beta_stability_score
+            model_result['mean_reversion_score'] = mean_reversion_score
+            model_result['residual_quality_score'] = residual_quality_score
+
+            scored_pairs.append(model_result)
 
         return scored_pairs
 
@@ -276,58 +253,144 @@ class PairSelector:
             return (0, None)  # 异常返回0分
 
 
-    def _calculate_volatility_ratio_score(self, log_prices1_recent, log_prices2_recent, beta):
+    # ===== v7.4.0 新增: 四维评分方法 =====
+
+    def _calculate_half_life_score_v2(self, model_result):
         """
-        计算方差比值分数（v7.2.20: 对数变换改进区分度）
+        计算半衰期分数 v2（v7.4.0: 使用贝叶斯beta_mean，复用AR(1) lambda）
 
-        核心思想:
-        - variance_ratio = Var(spread) / [Var(x) + Var(y)]
-        - 比值越小 → 协整越强 → 分数越高
-        - ratio=0: 完美协整 → score=1.0
-        - ratio=1.0: 无协整临界点 → score=0.0
-        - ratio>1.0: 负协整 → score=0.0
-
-        评分公式（对数变换 v7.2.20）:
-        - volatility_score = max(0, 1 - log(1 + ratio) / log(2))
-        - 在 [0.0, 0.2] 区间拉开到 [0.737, 1.0]，改善拥挤度 31.5%
-        - 拉开程度适中，保持连续可导
-
-        物理意义:
-        - 方差比值衡量价差方差相对于整体系统方差的占比
-        - 1.0是天然临界点（无协整的物理定义）
-        - 单位一致性：分子分母都是方差（对数价格的二阶矩）
+        使用贝叶斯beta和AR(1) lambda直接计算半衰期: half_life = -log(2) / lambda
 
         Args:
-            log_prices1_recent: 最近252天对数价格（symbol1）- 来自PairData预计算
-            log_prices2_recent: 最近252天对数价格（symbol2）- 来自PairData预计算
-            beta: 协整系数（OLS回归斜率）
+            model_result: BayesianModeler输出的模型结果（包含lambda_mean）
 
         Returns:
-            (score, variance_ratio): 评分和原始方差比值（用于诊断日志）
+            (score, half_life_days): 评分和原始半衰期天数
         """
         try:
-            # 1. 计算协整价差方差
-            spread = log_prices1_recent - beta * log_prices2_recent
-            spread_var = np.var(spread, ddof=1)
+            lambda_mean = model_result['lambda_mean']
 
-            # 2. 计算个股方差
-            var1 = np.var(log_prices1_recent, ddof=1)
-            var2 = np.var(log_prices2_recent, ddof=1)
-            stock_var_sum = var1 + var2
+            # lambda应该是负数（均值回归特性）
+            if lambda_mean >= 0 or lambda_mean <= -1:
+                return (0, None)  # 无效的lambda
 
-            # 3. 计算方差比值
-            if stock_var_sum <= 0:
-                return (0, None)
-            variance_ratio = spread_var / stock_var_sum
+            # 计算半衰期
+            half_life = -np.log(2) / np.log(1 + lambda_mean)
 
-            # 4. 对数变换为评分（v7.2.20: 改进区分度）
-            # 公式: score = 1 - log(1 + ratio) / log(2)
-            # ratio=0 → score=1.0, ratio=1.0 → score=0.0, ratio>1.0 → score=0.0
-            # 在 [0.0, 0.2] 区间拉开到 [0.737, 1.0]，改善拥挤度 31.5%
-            volatility_score = max(0.0, 1.0 - np.log(1 + variance_ratio) / np.log(2))
+            # 梯形平台评分（与v7.3.1保持一致）
+            optimal_min = self.scoring_thresholds['half_life']['optimal_min_days']
+            optimal_max = self.scoring_thresholds['half_life']['optimal_max_days']
+            min_acceptable = self.scoring_thresholds['half_life']['min_acceptable_days']
+            max_acceptable = self.scoring_thresholds['half_life']['max_acceptable_days']
 
-            return (volatility_score, variance_ratio)
+            if half_life < min_acceptable:
+                return (0, half_life)
+            elif half_life <= optimal_min:
+                score = (half_life - min_acceptable) / (optimal_min - min_acceptable)
+                return (score, half_life)
+            elif half_life <= optimal_max:
+                return (1.0, half_life)
+            elif half_life <= max_acceptable:
+                score = 1 - (half_life - optimal_max) / (max_acceptable - optimal_max)
+                return (score, half_life)
+            else:
+                return (0, half_life)
 
         except Exception as e:
-            self.algorithm.Debug(f"[PairSelector] Variance ratio计算失败: {e}")
+            self.algorithm.Debug(f"[PairSelector] 半衰期计算v2失败: {e}")
             return (0, None)
+
+
+    def _calculate_beta_stability_score(self, beta_std):
+        """
+        计算Beta稳定性分数（v7.4.0新增）
+
+        Beta稳定性衡量对冲比率的波动程度:
+        - beta_std越小 → 对冲比率越稳定 → 分数越高
+        - 使用指数衰减函数: score = exp(-decay_factor * beta_std)
+
+        Args:
+            beta_std: Beta的后验标准差（来自贝叶斯MCMC）
+
+        Returns:
+            float: 评分 [0, 1]
+        """
+        try:
+            decay_factor = self.scoring_thresholds['beta_stability']['decay_factor']
+            score = np.exp(-decay_factor * beta_std)
+            return max(0.0, min(1.0, score))
+
+        except Exception as e:
+            self.algorithm.Debug(f"[PairSelector] Beta稳定性计算失败: {e}")
+            return 0.0
+
+
+    def _calculate_mean_reversion_certainty_score(self, lambda_t_stat):
+        """
+        计算均值回归确定性分数（v7.4.0新增）
+
+        Lambda t统计量衡量AR(1)系数的显著性:
+        - |t_stat|越大 → lambda估计越显著 → 均值回归特性越可靠
+        - t_stat应为负数（lambda < 0）
+        - 使用分段线性函数
+
+        Args:
+            lambda_t_stat: Lambda的t统计量（来自AR(1)模型）
+
+        Returns:
+            (score, raw_t_stat): 评分和原始t统计量（用于日志）
+        """
+        try:
+            min_t_stat = self.scoring_thresholds['mean_reversion_certainty']['min_t_stat']
+            max_t_stat = self.scoring_thresholds['mean_reversion_certainty']['max_t_stat']
+
+            # 取绝对值（负t统计量更好，但评分基于绝对值）
+            abs_t_stat = abs(lambda_t_stat)
+
+            if abs_t_stat < min_t_stat:
+                return (0.0, lambda_t_stat)
+            elif abs_t_stat >= max_t_stat:
+                return (1.0, lambda_t_stat)
+            else:
+                # 线性插值
+                score = (abs_t_stat - min_t_stat) / (max_t_stat - min_t_stat)
+                return (score, lambda_t_stat)
+
+        except Exception as e:
+            self.algorithm.Debug(f"[PairSelector] 均值回归确定性计算失败: {e}")
+            return (0.0, 0.0)
+
+
+    def _calculate_residual_quality_score(self, residual_std):
+        """
+        计算残差质量分数（v7.4.0新增，替代volatility_ratio）
+
+        Residual std直接衡量模型拟合质量:
+        - residual_std越小 → 模型拟合越好 → 分数越高
+        - 使用对数变换改善区分度
+
+        Args:
+            residual_std: 残差的后验标准差（来自贝叶斯MCMC）
+
+        Returns:
+            float: 评分 [0, 1]
+        """
+        try:
+            min_residual = self.scoring_thresholds['residual_quality']['min_residual_std']
+            max_residual = self.scoring_thresholds['residual_quality']['max_residual_std']
+
+            if residual_std <= min_residual:
+                return 1.0
+            elif residual_std >= max_residual:
+                return 0.0
+            else:
+                # 对数变换线性插值
+                log_min = np.log(min_residual)
+                log_max = np.log(max_residual)
+                log_residual = np.log(residual_std)
+                score = 1.0 - (log_residual - log_min) / (log_max - log_min)
+                return max(0.0, min(1.0, score))
+
+        except Exception as e:
+            self.algorithm.Debug(f"[PairSelector] 残差质量计算失败: {e}")
+            return 0.0

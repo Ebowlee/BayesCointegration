@@ -104,9 +104,12 @@ class StrategyConfig:
             # 质量门槛
             'min_quality_threshold': 0.50,              # 最低质量分数阈值
 
+            # v7.4.0: 四维评分权重体系
             'quality_weights': {
-                'half_life': 0.55,                      # 从0.50提升到0.55 (均值回归速度)
-                'volatility_ratio': 0.45                # 从0.40提升到0.45 (协整稳定性)
+                'half_life': 0.30,                      # 均值回归速度 (使用贝叶斯beta和AR(1) lambda)
+                'beta_stability': 0.25,                 # Beta稳定性 (后验标准差)
+                'mean_reversion_certainty': 0.30,       # AR(1)显著性 (lambda t统计量)
+                'residual_quality': 0.15                # 拟合质量 (残差标准差，替代volatility_ratio)
             },
 
             'scoring_thresholds': {
@@ -115,6 +118,17 @@ class StrategyConfig:
                     'optimal_max_days': 15,             # 平台期上限(天) - 黄金持仓期终点
                     'min_acceptable_days': 3,           # 最小可接受半衰期(天)
                     'max_acceptable_days': 30           # 最大可接受半衰期(天)
+                },
+                'beta_stability': {
+                    'decay_factor': 10.0                # 指数衰减因子 (exp(-decay * beta_std))
+                },
+                'mean_reversion_certainty': {
+                    'min_t_stat': 2.0,                  # 最小t统计量阈值 (显著性起点)
+                    'max_t_stat': 5.0                   # 最大t统计量阈值 (显著性满分)
+                },
+                'residual_quality': {
+                    'min_residual_std': 0.01,           # 最小残差标准差 (完美拟合)
+                    'max_residual_std': 0.20            # 最大残差标准差 (可接受上限)
                 }
             }
         }

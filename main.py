@@ -154,21 +154,21 @@ class BayesianCointegrationStrategy(QCAlgorithm):
             pair_key = (pair_info['symbol1'], pair_info['symbol2'])
             pair_data_dict[pair_key] = PairData.from_clean_data(pair_info, clean_data)
 
-        # === 步骤4: 质量评估和配对筛选 ===
-        selected_pairs = self.pair_selector.selection_procedure(raw_pairs, pair_data_dict, clean_data)
-
-        if not selected_pairs:
-            return
-
-        # === 步骤5: 贝叶斯建模（复用PairData字典） ===
-        modeling_results = self.bayesian_modeler.modeling_procedure(selected_pairs, pair_data_dict)
+        # === 步骤4: 贝叶斯建模（v7.4.0: 移至前置，处理所有协整对） ===
+        modeling_results = self.bayesian_modeler.modeling_procedure(raw_pairs, pair_data_dict)
 
         if not modeling_results:
             return
 
+        # === 步骤5: 质量评估和配对筛选（v7.4.0: 移至后置，使用贝叶斯后验参数） ===
+        selected_pairs = self.pair_selector.selection_procedure(modeling_results)
+
+        if not selected_pairs:
+            return
+
         # === 步骤6: 通过类方法工厂创建Pairs对象 ===
         new_pairs_dict = {}
-        for model_result in modeling_results:
+        for model_result in selected_pairs:
             # 使用类方法工厂创建Pairs对象（与PairData.from_clean_data()一致）
             pair = Pairs.from_model_result(self, model_result, self.config.pairs_trading)
             new_pairs_dict[pair.pair_id] = pair

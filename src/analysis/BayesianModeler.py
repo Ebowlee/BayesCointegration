@@ -227,7 +227,8 @@ class BayesianModeler:
 
 
     def _extract_posterior_stats(self, trace, pair_data: PairData) -> Dict:
-        """提取后验统计量并保存到历史记录"""
+        """提取后验统计量并保存到历史记录（v7.4.0: 增加AR(1)参数）"""
+        # 基础后验统计
         stats = {
             'alpha_mean': float(np.mean(trace['alpha'])),
             'alpha_std': float(np.std(trace['alpha'])),
@@ -240,9 +241,79 @@ class BayesianModeler:
             'update_time': self.algorithm.UtcTime
         }
 
+        # v7.4.0: 拟合AR(1)模型获取均值回归参数
+        beta_mean = stats['beta_mean']
+        alpha_mean = stats['alpha_mean']
+        spread = pair_data.log_prices1 - beta_mean * pair_data.log_prices2 - alpha_mean
+        ar1_stats = self._fit_ar1_model(spread)
+        stats.update(ar1_stats)
+
         self.historical_posteriors[pair_data.pair_key] = stats.copy()
 
         return stats
+
+
+    def _fit_ar1_model(self, spread: np.ndarray) -> Dict:
+        """
+        拟合AR(1)模型估计lambda及其t统计量（v7.4.0新增）
+
+        模型: spread_t = lambda * spread_{t-1} + epsilon
+
+        目的:
+        - lambda < 0 表示均值回归特性
+        - |lambda| 越大，回归速度越快
+        - t统计量衡量lambda的显著性（越显著越可靠）
+
+        Args:
+            spread: 价差序列（已去除协整关系，即residuals）
+
+        Returns:
+            Dict: {
+                'lambda_mean': lambda的后验均值,
+                'lambda_std': lambda的后验标准差,
+                'lambda_t_stat': lambda的t统计量 (mean/std)
+            }
+        """
+        try:
+            with pm.Model() as ar1_model:
+                # 先验设定: lambda预期在[-0.5, 0]区间 (负值表示均值回归)
+                lambda_param = pm.Normal('lambda', mu=-0.1, sigma=0.5)
+                sigma_ar = pm.HalfNormal('sigma_ar', sigma=0.1)
+
+                # 构建AR(1)数据 (spread_t vs spread_{t-1})
+                spread_lag = spread[:-1]
+                spread_curr = spread[1:]
+                mu_ar = lambda_param * spread_lag
+                likelihood = pm.Normal('spread_t', mu=mu_ar, sigma=sigma_ar, observed=spread_curr)
+
+                # 采样 (使用较少样本以节省时间)
+                trace = pm.sample(
+                    draws=300,
+                    tune=200,
+                    chains=2,
+                    return_inferencedata=False,
+                    progressbar=False
+                )
+
+            # 提取统计量
+            lambda_mean = float(np.mean(trace['lambda']))
+            lambda_std = float(np.std(trace['lambda']))
+            lambda_t_stat = lambda_mean / lambda_std if lambda_std > 0 else 0.0
+
+            return {
+                'lambda_mean': lambda_mean,
+                'lambda_std': lambda_std,
+                'lambda_t_stat': lambda_t_stat
+            }
+
+        except Exception as e:
+            # AR(1)建模失败时返回默认值
+            self.algorithm.Debug(f"[BayesianModeler] AR(1)建模失败: {str(e)}")
+            return {
+                'lambda_mean': 0.0,
+                'lambda_std': 0.0,
+                'lambda_t_stat': 0.0
+            }
 
 
     def _build_result(self, pair_info: Dict, pair_data: PairData,
