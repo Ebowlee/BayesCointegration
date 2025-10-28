@@ -1,6 +1,7 @@
 # region imports
 from AlgorithmImports import *
 from typing import Dict, List, Set
+from src.constants import OrderAction  # v7.2.21: 修复导入遗漏
 # endregion
 
 
@@ -66,12 +67,16 @@ class TicketsManager:
         # 例: {"(AAPL, MSFT)": "OPEN", ("GOOGL", "AMZN")": "CLOSE"}
         self.pair_actions: Dict[str, str] = {}
 
+        # pair_id → reason 映射(v7.2.21: 记录平仓原因,用于传递给Pairs)
+        # 例: {"(AAPL, MSFT)": "STOP_LOSS", ("GOOGL", "AMZN")": "CLOSE"}
+        self._pair_close_reasons: Dict[str, str] = {}
+
 
     # ========== 公共接口 ==========
 
-    def register_tickets(self, pair_id: str, tickets: List[OrderTicket], action: str):
+    def register_tickets(self, pair_id: str, tickets: List[OrderTicket], action: str, reason: str = None):
         """
-        注册订单到管理器
+        注册订单到管理器 (v7.2.21: 新增reason参数)
 
         触发时机:
         - pair.open_position() 返回tickets后
@@ -81,15 +86,19 @@ class TicketsManager:
         - 建立OrderId→pair_id映射
         - 激活订单锁定(状态变为PENDING)
         - 记录动作类型(用于COMPLETED时回调Pairs)
+        - 存储平仓原因(v7.2.21: 用于动态冷却期)
 
         Args:
             pair_id: 配对ID,格式如 "(AAPL, MSFT)"
             tickets: OrderTicket列表,通常包含2个元素(long + short)
             action: OrderAction.OPEN 或 OrderAction.CLOSE
+            reason: 平仓原因 (仅当action=CLOSE时有效) - v7.2.21
+                   例: 'CLOSE', 'STOP_LOSS', 'TIMEOUT', 'RISK_TRIGGER'
 
         注意:
             - 如果tickets为空,不做任何操作
             - 注册后配对状态自动为PENDING
+            - reason会在COMPLETED时传递给Pairs.on_position_filled()
         """
         if not tickets:
             return
@@ -97,6 +106,10 @@ class TicketsManager:
         # 存储订单引用和动作类型
         self.pair_tickets[pair_id] = tickets
         self.pair_actions[pair_id] = action
+
+        # v7.2.21: 存储平仓原因(仅对CLOSE动作有效)
+        if action == OrderAction.CLOSE and reason:
+            self._pair_close_reasons[pair_id] = reason
 
         # 建立OrderId→pair_id映射
         for ticket in tickets:
@@ -183,12 +196,19 @@ class TicketsManager:
                     if t is not None and t.Status == OrderStatus.Filled
                 )
 
-                # 回调Pairs记录时间和数量(传递tickets引用)
-                pairs_obj.on_position_filled(action, fill_time, tickets)
+                # v7.2.21: 获取平仓原因(如果有)
+                reason = self._pair_close_reasons.get(pair_id, None)
+
+                # 回调Pairs记录时间和数量(v7.2.21: 新增reason参数)
+                pairs_obj.on_position_filled(action, fill_time, tickets, reason)
 
                 # 平仓完成后清理 HWM（委托给 RiskManager）
                 if action == "CLOSE" and hasattr(self.algorithm, 'risk_manager'):
                     self.algorithm.risk_manager.cleanup_pair_hwm(pair_id)
+
+                # v7.2.21: 清理平仓原因存储(防止内存泄漏)
+                if action == OrderAction.CLOSE:
+                    self._pair_close_reasons.pop(pair_id, None)
 
             # 清理已完成订单的映射（防止内存泄漏）
             self._cleanup_order_to_pair(pair_id)

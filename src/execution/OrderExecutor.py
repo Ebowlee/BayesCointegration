@@ -131,9 +131,11 @@ class OrderExecutor:
             if ticket2:
                 tickets.append(ticket2)
 
-        # 如果有订单提交,自动注册到TicketsManager
+        # 如果有订单提交,自动注册到TicketsManager (v7.2.21: 传递reason)
         if tickets:
-            self.tickets_manager.register_tickets(intent.pair_id, tickets, OrderAction.CLOSE)
+            self.tickets_manager.register_tickets(
+                intent.pair_id, tickets, OrderAction.CLOSE, reason=intent.reason
+            )
             return True
 
         return False

@@ -59,7 +59,9 @@
       "Bash(git mv:*)",
       "Bash(powershell:*)",
       "Bash(more:*)",
-      "Bash(sed:*)"
+      "Bash(sed:*)",
+      "Bash(if exist tests rmdir /s /q tests)",
+      "Read(//c/Users/Lybst/OneDrive/桌面/MyLeanProject/**)"
     ],
     "deny": []
   },

@@ -19,11 +19,11 @@ class StrategyConfig:
             'account_type': AccountType.Margin,
 
             # 选股调度配置
-            'schedule_frequency': 'MonthStart',  # 每月初
-            'schedule_time': (9, 10),            # 9:10 AM
+            'schedule_frequency': 'MonthStart',         # 每月初
+            'schedule_time': (9, 10),                   # 9:10 AM
 
             # 开发配置
-            'debug_mode': True                   # True=开发调试(详细日志), False=生产运行(仅关键日志)
+            'debug_mode': True                          # True=开发调试(详细日志), False=生产运行(仅关键日志)
         }
 
 
@@ -45,28 +45,28 @@ class StrategyConfig:
                     'enabled': True,
                     'path': 'ValuationRatios.PERatio',
                     'operator': 'lt',
-                    'threshold': 100,                 # PE上限
+                    'threshold': 100,                   # PE上限
                     'fail_key': 'pe_failed'
                 },
                 'roe': {
                     'enabled': False,
                     'path': 'OperationRatios.ROE.Value',
                     'operator': 'gt',
-                    'threshold': 0,                   # ROE下限
+                    'threshold': 0,                     # ROE下限
                     'fail_key': 'roe_failed'
                 },
                 'debt_ratio': {
                     'enabled': True,
                     'path': 'OperationRatios.DebtToAssets.Value',
                     'operator': 'lt',
-                    'threshold': 0.6,                 # 负债率上限
+                    'threshold': 0.6,                   # 负债率上限
                     'fail_key': 'debt_failed'
                 },
                 'leverage': {
                     'enabled': True,
                     'path': 'OperationRatios.FinancialLeverage.Value',
                     'operator': 'lt',
-                    'threshold': 6,                   # 杠杆率上限（总资产/股东权益）
+                    'threshold': 6,                     # 杠杆率上限（总资产/股东权益）
                     'fail_key': 'leverage_failed'
                 }
             }
@@ -102,24 +102,20 @@ class StrategyConfig:
             'max_pairs': 30,                            # 最大配对数(配合max_symbol_repeats放宽)
 
             # 质量门槛
-            'min_quality_threshold': 0.40,              # 最低质量分数阈值(严格大于,异常beta配对理论上限=0.40)
+            'min_quality_threshold': 0.50,              # 最低质量分数阈值
 
-            # 流动性基准
-            'liquidity_benchmark': 5e8,                 # 流动性评分基准(5亿美元, 每日成交金额)
-
-            # 质量评分权重
             'quality_weights': {
-                'statistical': 0.10,                    
-                'half_life': 0.60,                   
-                'liquidity': 0.30                      
+                'statistical': 0.10,
+                'half_life': 0.50,
+                'volatility_ratio': 0.40  
             },
 
-            # 评分阈值 (v7.2.15改进为双向衰减)
             'scoring_thresholds': {
                 'half_life': {
-                    'optimal_days': 20,                 # 最优半衰期(天) → 1.0分 (峰值点,从15天调整为20天)
-                    'min_acceptable_days': 5,           # 最小可接受半衰期(天) → 0分 (过快边界,<5天缺乏交易空间)
-                    'max_acceptable_days': 60           # 最大可接受半衰期(天) → 0分 (过慢边界,>60天持仓时间过长)
+                    'optimal_min_days': 7,              # 平台期下限(天) - 黄金持仓期起点
+                    'optimal_max_days': 14,             # 平台期上限(天) - 黄金持仓期终点
+                    'min_acceptable_days': 3,           # 最小可接受半衰期(天)
+                    'max_acceptable_days': 21           # 最大可接受半衰期(天)
                 }
             }
         }
@@ -141,27 +137,29 @@ class StrategyConfig:
                 'informed': {                           # 历史后验先验(强信息,重复建模时使用)
                     'sigma_multiplier': 2.0,            # sigma放大系数
                     'sample_reduction_factor': 0.5,     # 采样减少比例
-                    'validity_days': 60                 # 历史后验有效期
+                    'validity_days': 60                 # 历史后验有效期: 上次建模后60天内,复用后验加速收敛; 超过60天则协整关系可能漂移,降级到OLS informed prior重新建模
                 }
             }
         }
 
         # ========== Pairs/PairsManager 配置 ==========
         self.pairs_trading = {
-            # 交易阈值
-            'entry_threshold': 1.0,              # 建仓Z-score阈值
-            'exit_threshold': 0.3,               # 平仓Z-score阈值
-            'stop_threshold': 2.5,               # 止损Z-score阈值
-            'pair_cooldown_days': 20,            # 正常清仓后配对的冷却期（天）
+            'entry_threshold_min': 1.00,           # 建仓Z-score下限 (信号足够强)
+            'entry_threshold_max': 1.75,            # 建仓Z-score上限 (避免过度偏离)
+            'exit_threshold': 0.30,                 # 平仓Z-score阈值
+            'stop_threshold': 2.00,                 # 止损Z-score阈值
+
+            'pair_cooldown_days_for_exit': 10,      # 正常回归平仓后的冷却期(天) - Z-score收敛
+            'pair_cooldown_days_for_stop': 30,      # 止损平仓后的冷却期(天) - Z-score超限
 
             # 仓位管理参数
-            'min_investment_ratio': 0.05,        # 质量最低(0.0分)配对投资比例: 5%,同时作为绝对门槛
-            'max_investment_ratio': 0.20,        # 质量最高(1.0分)配对投资比例: 20%
+            'min_investment_ratio': 0.05,           # 质量最低(0.0分)配对投资比例: 5%,同时作为绝对门槛
+            'max_investment_ratio': 0.25,           # 质量最高(1.0分)配对投资比例: 25%
 
             # 保证金管理 (美股规则)
-            'margin_requirement_long': 0.5,      # 多头保证金率: 50%
-            'margin_requirement_short': 1.5,     # 空头保证金率: 150% (100%借券+50%保证金)
-            'margin_usage_ratio': 0.98           # 保证金使用率: 95% (保留5%动态缓冲)
+            'margin_requirement_long': 0.5,         # 多头保证金率: 50%
+            'margin_requirement_short': 1.5,        # 空头保证金率: 150% (100%借券+50%保证金)
+            'margin_usage_ratio': 0.98              # 保证金使用率: 98% (保留2%动态缓冲)
         }
 
 
@@ -173,12 +171,12 @@ class StrategyConfig:
 
             # ========== 市场条件检查 ==========
             'market_condition': {
-                'enabled': True,                     # 是否启用市场条件检查
-                'vix_symbol': 'VIX',                 # VIX指数代码
-                'vix_resolution': Resolution.Daily,  # VIX数据分辨率
-                'vix_threshold': 30,                 # VIX恐慌阈值（前瞻性指标）
-                'spy_volatility_threshold': 0.25,    # SPY年化波动率阈值（25%）
-                'spy_volatility_window': 20          # 滚动窗口天数（行业标准）
+                'enabled': True,                        # 是否启用市场条件检查
+                'vix_symbol': 'VIX',                    # VIX指数代码
+                'vix_resolution': Resolution.Daily,     # VIX数据分辨率
+                'vix_threshold': 30,                    # VIX恐慌阈值（前瞻性指标）
+                'spy_volatility_threshold': 0.25,       # SPY年化波动率阈值（25%）
+                'spy_volatility_window': 20             # 滚动窗口天数（行业标准）
             },
 
             # ========== Portfolio层面规则 ==========
@@ -186,7 +184,7 @@ class StrategyConfig:
                 'account_blowup': {
                     'enabled': True,                     # 重新启用
                     'priority': 100,
-                    'threshold': 0.20,                   # 爆仓阈值
+                    'threshold': 0.15,                   # 爆仓阈值
                     'cooldown_days': 36500,              # 永久冷却(100年)
                     'action': 'portfolio_liquidate_all'
                 },
@@ -202,20 +200,20 @@ class StrategyConfig:
             # ========== Pair层面规则 ==========
             'pair_rules': {
                 'pair_anomaly': {
-                    'enabled': True,                     # Step 2已实现
+                    'enabled': True,                     
                     'priority': 100,                     # 最高优先级：异常必须立即处理
                     'cooldown_days': 30                  # per-pair冷却期(30天)
                 },
                 'pair_drawdown': {
-                    'enabled': True,                     # Step 3已实现
+                    'enabled': True,                    
                     'priority': 80,
-                    'threshold': 0.08,                   # 配对回撤阈值
+                    'threshold': 0.05,                   # 配对回撤阈值
                     'cooldown_days': 30                  # per-pair冷却期(30天)
                 },
                 'holding_timeout': {
                     'enabled': True,
                     'priority': 60,
-                    'max_days': 60,                      # 最大持仓天数
+                    'max_days': 42,                      # 最大持仓天数
                     'cooldown_days': 20                  # per-pair冷却期(30天)
                 }
             }

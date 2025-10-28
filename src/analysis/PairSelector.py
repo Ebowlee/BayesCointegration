@@ -29,19 +29,18 @@ class PairSelector:
         self.max_symbol_repeats = module_config['max_symbol_repeats']
         self.max_pairs = module_config['max_pairs']
         self.min_quality_threshold = module_config['min_quality_threshold']
-        self.liquidity_benchmark = module_config['liquidity_benchmark']
         self.quality_weights = module_config['quality_weights']
         self.scoring_thresholds = module_config['scoring_thresholds']
 
 
-    def selection_procedure(self, raw_pairs, pair_data_dict, clean_data):
+    def selection_procedure(self, raw_pairs, pair_data_dict, clean_data=None):
         """
         执行配对筛选流程 - 评估质量并筛选最佳配对（重构版）
 
         Args:
             raw_pairs: CointegrationAnalyzer输出的配对列表
             pair_data_dict: 预构建的PairData对象字典（从main.py传入）
-            clean_data: 清洗后的OHLCV数据（用于流动性评分）
+            clean_data: 清洗后的OHLCV数据（v7.2.18: 保留兼容性，实际未使用）
 
         Returns:
             List[Dict]: 筛选后的配对列表（包含质量分数和OLS参数）
@@ -52,7 +51,7 @@ class PairSelector:
         - 复用预计算的对数价格（性能优化）
         """
         # 步骤1: 评估配对质量（使用预计算的对数价格）
-        scored_pairs = self.evaluate_quality(raw_pairs, pair_data_dict, clean_data)
+        scored_pairs = self.evaluate_quality(raw_pairs, pair_data_dict)
 
         # 步骤2: 筛选最佳配对
         selected_pairs = self.select_best(scored_pairs)
@@ -60,14 +59,13 @@ class PairSelector:
         return selected_pairs
 
 
-    def evaluate_quality(self, raw_pairs, pair_data_dict, clean_data):
+    def evaluate_quality(self, raw_pairs, pair_data_dict):
         """
-        评估配对质量（重构版 - 使用PairData消除重复np.log()）
+        评估配对质量（v7.2.18: volatility_ratio替代liquidity）
 
         Args:
             raw_pairs: CointegrationAnalyzer输出的配对列表
             pair_data_dict: {pair_key: PairData} 预构建的PairData对象字典
-            clean_data: 清洗后的OHLCV数据（用于流动性评分的volume字段）
 
         设计说明: 使用252天长期窗口与BayesianModeler保持一致
         - 协整是长期概念,评分应基于稳定的长期关系
@@ -76,7 +74,7 @@ class PairSelector:
 
         性能优化:
         - 对数价格从PairData获取（预计算，消除重复np.log()）
-        - Volume数据从clean_data获取（避免PairData膨胀）
+        - volatility_ratio复用OLS beta（一次计算，多处使用）
         """
         scored_pairs = []
 
@@ -105,31 +103,45 @@ class PairSelector:
                 beta = slope if slope > 0 else 1.0  # 安全检查: beta应为正
 
                 # 计算半衰期分数（传入预计算的对数价格）
-                half_life_score = self._calculate_half_life_score(log_prices1_recent, log_prices2_recent, beta)
+                half_life_score, half_life_days = self._calculate_half_life_score(log_prices1_recent, log_prices2_recent, beta)
+
+                # 计算价差波动率比值分数（v7.2.18: 替代liquidity，复用OLS beta）
+                volatility_ratio_score, raw_vol_ratio = self._calculate_volatility_ratio_score(
+                    log_prices1_recent, log_prices2_recent, beta
+                )
             else:
                 # 数据不足，分数为0
                 slope = None
                 intercept = None
                 half_life_score = 0
+                half_life_days = None
+                volatility_ratio_score = 0
+                raw_vol_ratio = None
 
-            # 流动性分数（从clean_data获取volume数据）
-            # 注意: PairData不存储volume（避免膨胀），保持简洁设计
-            data1 = clean_data[symbol1]
-            data2 = clean_data[symbol2]
-            liquidity_score = self._calculate_liquidity_score(data1, data2)
-
-            # 综合质量分数（三指标体系）
+            # 综合质量分数（三指标体系 v7.2.18: volatility_ratio替代liquidity）
             quality_score = (
                 self.quality_weights['statistical'] * pvalue_score +
                 self.quality_weights['half_life'] * half_life_score +
-                self.quality_weights['liquidity'] * liquidity_score
+                self.quality_weights['volatility_ratio'] * volatility_ratio_score
+            )
+
+            # 详细日志：每个配对的评分组成（v7.2.18.1: 诊断95.9%过滤率）
+            status = "PASS" if quality_score > self.min_quality_threshold else "FAIL"
+            half_life_str = f"{half_life_days:.1f}" if half_life_days is not None else "N/A"
+            vol_ratio_str = f"{raw_vol_ratio:.3f}" if raw_vol_ratio is not None else "N/A"
+            self.algorithm.Debug(
+                f"[PairScore] ({symbol1.Value:4s}, {symbol2.Value:4s}): "  # 使用.Value提取ticker字符串
+                f"Q={quality_score:.3f} [{status}] | "
+                f"Stat={pvalue_score:.3f}(p={pair_info['pvalue']:.4f}) | "
+                f"Half={half_life_score:.3f}(days={half_life_str}) | "
+                f"Vol={volatility_ratio_score:.3f}(ratio={vol_ratio_str})"
             )
 
             # 添加评分结果和OLS结果（供BayesianModeler复用）
             pair_info.update({
                 'quality_score': quality_score,
                 'half_life_score': half_life_score,
-                'liquidity_score': liquidity_score,
+                'volatility_ratio_score': volatility_ratio_score,
                 'ols_beta': slope,      # OLS原始斜率（可能为负）
                 'ols_alpha': intercept  # OLS截距
             })
@@ -202,27 +214,31 @@ class PairSelector:
 
     def _calculate_half_life_score(self, log_prices1_recent, log_prices2_recent, beta):
         """
-        计算半衰期分数（双向衰减，峰值在optimal_days）
+        计算半衰期分数（v7.2.20: 梯形平台设计，7-14天黄金持仓期）
 
         使用AR(1)模型估计半衰期: half_life = -log(2) / log(ρ)
 
-        评分逻辑（v7.2.15改进）:
-        - [0, min_acceptable): 0分（过快，缺乏交易空间）
-        - [min_acceptable, optimal]: 线性上升 0→1（逐渐接近最优）
-        - [optimal, max_acceptable]: 线性下降 1→0（逐渐偏离最优）
-        - [max_acceptable, ∞): 0分（过慢，持仓时间过长）
+        评分逻辑（v7.2.20梯形平台）:
+        - [0, 3): 0分（过快，缺乏交易空间）
+        - [3, 7]: 线性上升 0→1（左侧上升段）
+        - [7, 14]: 1.0分（平台期 - 黄金持仓期）
+        - [14, 30]: 线性下降 1→0（右侧下降段）
+        - [30, ∞): 0分（过慢，持仓时间过长）
 
         Args:
             log_prices1_recent: 最近252天的对数价格序列（symbol1）- 来自PairData预计算
             log_prices2_recent: 最近252天的对数价格序列（symbol2）- 来自PairData预计算
             beta: 预先计算的协整系数
+
+        Returns:
+            (score, half_life_days): 评分和原始半衰期天数（用于诊断日志 v7.2.18.1）
         """
         try:
             # Beta调整价差（使用预计算的对数价格，消除np.log()重复调用）
             spread = log_prices1_recent - beta * log_prices2_recent
 
             if len(spread) < 2:
-                return 0  # 无数据，返回0分
+                return (0, None)  # 无数据，返回0分
 
             # AR(1)自相关
             spread_lag = spread[:-1]
@@ -236,57 +252,88 @@ class PairSelector:
             if 0 < rho < 1:
                 half_life = -np.log(2) / np.log(rho)
 
-                # 双向衰减评分（v7.2.15）
-                optimal = self.scoring_thresholds['half_life']['optimal_days']
+                # 梯形平台评分（v7.2.20）
+                optimal_min = self.scoring_thresholds['half_life']['optimal_min_days']
+                optimal_max = self.scoring_thresholds['half_life']['optimal_max_days']
                 min_acceptable = self.scoring_thresholds['half_life']['min_acceptable_days']
                 max_acceptable = self.scoring_thresholds['half_life']['max_acceptable_days']
 
                 if half_life < min_acceptable:
-                    return 0  # 过快
-                elif half_life <= optimal:
-                    # 左侧上升段: [min_acceptable, optimal] → [0, 1]
-                    return (half_life - min_acceptable) / (optimal - min_acceptable)
+                    return (0, half_life)  # 过快
+                elif half_life <= optimal_min:
+                    # 左侧上升段: [3, 7] → [0, 1]
+                    score = (half_life - min_acceptable) / (optimal_min - min_acceptable)
+                    return (score, half_life)
+                elif half_life <= optimal_max:
+                    # 平台期: [7, 14] → 1.0（黄金持仓期）
+                    return (1.0, half_life)
                 elif half_life <= max_acceptable:
-                    # 右侧下降段: [optimal, max_acceptable] → [1, 0]
-                    return 1 - (half_life - optimal) / (max_acceptable - optimal)
+                    # 右侧下降段: [14, 30] → [1, 0]
+                    score = 1 - (half_life - optimal_max) / (max_acceptable - optimal_max)
+                    return (score, half_life)
                 else:
-                    return 0  # 过慢
+                    return (0, half_life)  # 过慢
             else:
                 # rho <= 0 或 rho >= 1: 无均值回归
-                return 0
+                return (0, None)
 
         except Exception as e:
             self.algorithm.Debug(f"[PairSelector] 半衰期计算失败: {e}")
-            return 0  # 异常返回0分
+            return (0, None)  # 异常返回0分
 
 
-    def _calculate_liquidity_score(self, data1, data2):
+    def _calculate_volatility_ratio_score(self, log_prices1_recent, log_prices2_recent, beta):
         """
-        基于成交量的流动性评分（使用配置的基准值归一化）
+        计算方差比值分数（v7.2.20: 对数变换改进区分度）
 
-        使用最近60天的滚动窗口,更反映当前流动性状况
+        核心思想:
+        - variance_ratio = Var(spread) / [Var(x) + Var(y)]
+        - 比值越小 → 协整越强 → 分数越高
+        - ratio=0: 完美协整 → score=1.0
+        - ratio=1.0: 无协整临界点 → score=0.0
+        - ratio>1.0: 负协整 → score=0.0
+
+        评分公式（对数变换 v7.2.20）:
+        - volatility_score = max(0, 1 - log(1 + ratio) / log(2))
+        - 在 [0.0, 0.2] 区间拉开到 [0.737, 1.0]，改善拥挤度 31.5%
+        - 拉开程度适中，保持连续可导
+
+        物理意义:
+        - 方差比值衡量价差方差相对于整体系统方差的占比
+        - 1.0是天然临界点（无协整的物理定义）
+        - 单位一致性：分子分母都是方差（对数价格的二阶矩）
+
+        Args:
+            log_prices1_recent: 最近252天对数价格（symbol1）- 来自PairData预计算
+            log_prices2_recent: 最近252天对数价格（symbol2）- 来自PairData预计算
+            beta: 协整系数（OLS回归斜率）
+
+        Returns:
+            (score, variance_ratio): 评分和原始方差比值（用于诊断日志）
         """
         try:
-            # 检查volume字段
-            if 'volume' not in data1.columns or 'volume' not in data2.columns:
-                return 0  # 无成交量数据
+            # 1. 计算协整价差方差
+            spread = log_prices1_recent - beta * log_prices2_recent
+            spread_var = np.var(spread, ddof=1)
 
-            if 'close' not in data1.columns or 'close' not in data2.columns:
-                return 0  # 无价格数据
+            # 2. 计算个股方差
+            var1 = np.var(log_prices1_recent, ddof=1)
+            var2 = np.var(log_prices2_recent, ddof=1)
+            stock_var_sum = var1 + var2
 
-            # 使用最近60天的平均日成交额(更反映当前流动性)
-            recent_window = 60
-            dollar_volume1 = (data1['volume'][-recent_window:] * data1['close'][-recent_window:]).mean()
-            dollar_volume2 = (data2['volume'][-recent_window:] * data2['close'][-recent_window:]).mean()
+            # 3. 计算方差比值
+            if stock_var_sum <= 0:
+                return (0, None)
+            variance_ratio = spread_var / stock_var_sum
 
-            # 使用较小的成交额作为配对的流动性（短板效应）
-            min_dollar_volume = min(dollar_volume1, dollar_volume2)
+            # 4. 对数变换为评分（v7.2.20: 改进区分度）
+            # 公式: score = 1 - log(1 + ratio) / log(2)
+            # ratio=0 → score=1.0, ratio=1.0 → score=0.0, ratio>1.0 → score=0.0
+            # 在 [0.0, 0.2] 区间拉开到 [0.737, 1.0]，改善拥挤度 31.5%
+            volatility_score = max(0.0, 1.0 - np.log(1 + variance_ratio) / np.log(2))
 
-            # 使用配置的基准值归一化
-            liquidity_score = min(1.0, min_dollar_volume / self.liquidity_benchmark)
-
-            return liquidity_score
+            return (volatility_score, variance_ratio)
 
         except Exception as e:
-            self.algorithm.Debug(f"[PairSelector] 流动性计算失败: {e}")
-            return 0  # 异常返回0分
+            self.algorithm.Debug(f"[PairSelector] Variance ratio计算失败: {e}")
+            return (0, None)

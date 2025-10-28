@@ -97,15 +97,16 @@ class ExecutionManager:
 
     def is_pair_in_normal_cooldown(self, pair) -> bool:
         """
-        检查配对是否在普通交易冷却期
+        检查配对是否在普通交易冷却期 (v7.2.21: 支持动态冷却期)
 
-        普通冷却期由正常平仓激活(10天):
-        - 信号回归平仓 (CLOSE)
-        - 止损平仓 (STOP_LOSS)
+        冷却期长度动态决定:
+        - CLOSE (正常回归): 10天 - 配对关系健康,允许较快重入
+        - STOP_LOSS (止损退出): 30天 - 配对可能出现问题,需要更长观察期
 
         实现原理:
-        - Pairs对象存储 pair_closed_time 和 cooldown_days
-        - 通过 get_pair_frozen_days() 查询已冷却天数
+        - Pairs对象存储 pair_closed_time 和 last_close_reason
+        - get_pair_frozen_days() 查询已冷却天数
+        - get_cooldown_days() 根据 last_close_reason 动态返回需要的冷却期
         - 如果 frozen_days < cooldown_days, 则仍在冷却期
 
         Args:
@@ -116,14 +117,17 @@ class ExecutionManager:
             False: 不在冷却期或无冷却期数据
 
         设计特点:
-        - 数据所有权: Pairs拥有pair_closed_time数据
+        - 数据所有权: Pairs拥有数据 (pair_closed_time, last_close_reason)
         - 决策职责: ExecutionManager负责判断逻辑
-        - 分离关注: 数据查询(Pairs) vs 决策(ExecutionManager)
+        - 动态策略: 根据退出原因自动调整冷却期长度
         """
         frozen_days = pair.get_pair_frozen_days()
         if frozen_days is None:
             return False  # 无冷却期数据,允许开仓
-        return frozen_days < pair.cooldown_days
+
+        # v7.2.21: 使用动态冷却期 (根据 last_close_reason 返回 10 或 30)
+        cooldown_days = pair.get_cooldown_days()
+        return frozen_days < cooldown_days
 
 
     # ===== 风控执行方法 =====

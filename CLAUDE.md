@@ -436,11 +436,62 @@ required_margin = long_value * 0.5 + short_value * 1.5
 
 **Key Insight**: This model naturally constrains position count by available margin, eliminating the need for hard pair limits.
 
+### Dual Cooldown Mechanism (v7.2.21)
+
+The strategy implements **dynamic cooldown periods** based on exit reasons to balance trading frequency with risk management:
+
+**Normal Exit (CLOSE)**: 10 days
+- Z-score converges to mean (< 0.25σ)
+- Pair relationship remains healthy and mean-reverting
+- Allows relatively quick re-entry to maintain capital efficiency
+
+**Stop Loss Exit (STOP_LOSS)**: 30 days
+- Z-score exceeds threshold (> 2.5σ)
+- Indicates potential breakdown in cointegration relationship
+- Requires extended observation period before re-entry
+
+**Implementation Architecture:**
+```python
+# Pairs.py stores exit reason and provides dynamic cooldown
+class Pairs:
+    def __init__(self, ...):
+        self.cooldown_days_for_exit = 10  # Normal exit cooldown
+        self.cooldown_days_for_stop = 30  # Stop loss cooldown
+        self.last_close_reason = None     # Stores 'CLOSE' or 'STOP_LOSS'
+
+    def get_cooldown_days(self) -> int:
+        """Returns 30 for STOP_LOSS, 10 for all other exits"""
+        if self.last_close_reason == 'STOP_LOSS':
+            return self.cooldown_days_for_stop  # 30 days
+        else:
+            return self.cooldown_days_for_exit  # 10 days
+
+# ExecutionManager uses dynamic cooldown in entry checks
+def is_pair_in_normal_cooldown(self, pair) -> bool:
+    frozen_days = pair.get_pair_frozen_days()  # Days since last close
+    if frozen_days is None:
+        return False
+    cooldown_days = pair.get_cooldown_days()   # Dynamic: 10 or 30
+    return frozen_days < cooldown_days
+```
+
+**Reason Propagation Chain:**
+1. ExecutionManager generates intent: `pair.get_close_intent(reason='STOP_LOSS')`
+2. OrderExecutor registers with reason: `tickets_manager.register_tickets(..., reason=intent.reason)`
+3. TicketsManager stores reason temporarily in `_pair_close_reasons`
+4. On order completion: `pairs_obj.on_position_filled(..., reason)`
+5. Pairs stores in `last_close_reason` for future cooldown calculations
+
+**Design Rationale:**
+- **Normal exits**: Pair still cointegrated, quick re-entry capitalizes on mean reversion
+- **Stop loss exits**: Suggests structural change, extended cooldown prevents repeated losses
+- **Other exits** (TIMEOUT/RISK_TRIGGER): Use 10-day cooldown as default (wind down scenarios)
+
 ### Statistical Engine
 - **Cointegration testing**: Engle-Granger test with p-value < 0.05
 - **Bayesian modeling**: PyMC with 500 warmup + 500 posterior samples, 2 chains
 - **Signal thresholds**: Entry ±1.0σ, Exit ±0.3σ, Stop ±3.0σ
-- **Cooldown Period**: 10 days after closing a pair (updated in v6.4.0)
+- **Cooldown Period**: Dynamic - 10 days (normal exit) or 30 days (stop loss) - updated in v7.2.21
 
 ### Universe Selection Logic
 1. **Coarse filtering**: Price > $20, Volume > $5M, IPO > 3 years
@@ -637,34 +688,31 @@ for pair in tradeable_pairs.values():
     signal = pair.get_signal(data)
 ```
 
-### Entry Z-Score Recording vs. Signal Threshold (v7.2.15)
-**Problem**: Trades may show `entry_zscore=0.07` despite `entry_threshold=1.0`
-**Root Cause**: Recording timing mismatch and market slippage
-- Signal generation checks threshold at bar N close (e.g., z=1.05 triggers entry)
-- `entry_zscore` is recorded at `get_open_intent()` call time (bar N or N+1)
-- Actual order fill may occur at bar N+1 or N+2 with different prices
-- Post-fill z-score calculation using fill prices can deviate significantly
+### Entry Z-Score Recording Mechanism (v7.2.16 Fixed)
+**Recording Timing**: `entry_zscore` is recorded **at signal generation time** in `get_signal()` method
+**Guarantee**: All recorded `entry_zscore` values satisfy `|zscore| >= entry_threshold` (1.0)
 
-**Why Deviations Occur**:
-- **Low values (0.07)**: Signal triggered at z=1.05, but price gap-up on next bar causes rapid mean reversion, fill price yields z=0.07
-- **High values (2.13)**: Signal triggered at z=1.03, but price continues diverging, fill price yields z=2.13
-
-**Technical Details**:
+**Implementation Details** (Fixed in v7.2.16):
 ```python
-# Signal check in Pairs.py:526-531 (threshold enforced here)
-if zscore > self.entry_threshold:  # e.g., 1.0
+# Pairs.py:526-533 - Record at signal trigger moment
+if zscore > self.entry_threshold:
+    self.entry_zscore = zscore  # Capture exact triggering zscore
     return TradingSignal.SHORT_SPREAD
 
-# Recording in Pairs.py:614-616 (may differ from signal check)
-current_zscore = self.get_zscore(data)  # Recalculated with current prices
-if current_zscore is not None:
-    self.entry_zscore = current_zscore  # Stored for analysis
+elif zscore < -self.entry_threshold:
+    self.entry_zscore = zscore  # Capture exact triggering zscore
+    return TradingSignal.LONG_SPREAD
 ```
 
-**Why This Is Expected Behavior**:
-- Z-score is calculated using current market prices (no smoothing, see [Pairs.py:485-507](src/Pairs.py#L485-L507))
-- Market orders execute at next available price (not signal-check price)
-- This is a feature, not a bug: captures actual entry execution quality
+**Why This Fix Matters**:
+- **Before v7.2.16**: `entry_zscore` recorded at `get_open_intent()` time → could deviate to 0.07 due to market price changes
+- **After v7.2.16**: `entry_zscore` recorded at signal trigger moment → guaranteed to be ≥1.0 or ≤-1.0
+- **Analysis Impact**: Trade analysis now accurately reflects entry decision quality
+
+**Note on Fill Price vs. Signal Price**:
+- `entry_zscore` reflects the **decision-making moment** (when signal triggered)
+- Actual fill occurs at next bar with potentially different prices
+- This is intentional: separates decision quality from execution slippage
 
 **Understanding Z-Score Calculation** (No Smoothing):
 ```python
@@ -673,11 +721,6 @@ log_residual = np.log(price1) - (alpha_mean + beta_mean * np.log(price2))
 zscore = (log_residual - residual_mean) / residual_std
 # No rolling window, no EMA, no filtering - instant response to price changes
 ```
-
-**Solution Options** (Not Yet Implemented):
-- Use limit orders to reduce slippage (currently MarketOrder only)
-- Record both `signal_zscore` (at threshold check) and `fill_zscore` (at fill time) separately
-- Accept deviation as inherent to market execution dynamics
 
 ## Testing and Debugging
 

@@ -34,13 +34,15 @@ class Pairs:
         self.residual_std = model_data['residual_std']                          # 残差标准差(对数空间)
         self.quality_score = model_data['quality_score']                        # 配对质量分数
 
-        # === 交易阈值 ===
-        self.entry_threshold = config['entry_threshold']
+        # === 交易阈值 (v7.2.17: entry改为区间约束) ===
+        self.entry_threshold_min = config['entry_threshold_min']
+        self.entry_threshold_max = config['entry_threshold_max']
         self.exit_threshold = config['exit_threshold']
         self.stop_threshold = config['stop_threshold']
 
-        # === 控制设置 ===
-        self.cooldown_days = config['pair_cooldown_days']
+        # === 控制设置 (v7.2.21: 双冷却期机制) ===
+        self.cooldown_days_for_exit = config['pair_cooldown_days_for_exit']   # 正常回归: 10天
+        self.cooldown_days_for_stop = config['pair_cooldown_days_for_stop']   # 止损: 30天
 
         # === 保证金参数 ===
         self.margin_long = config['margin_requirement_long']
@@ -53,6 +55,7 @@ class Pairs:
         # === 时间追踪 ===
         self.pair_opened_time = None                                           # 配对开仓时间(双腿都成交的时刻)
         self.pair_closed_time = None                                           # 配对平仓时间(双腿都成交的时刻)
+        self.last_close_reason = None                                          # 最后一次平仓原因 ('CLOSE', 'STOP_LOSS', etc.) - v7.2.21
 
         # === 交易质量追踪(用于事后分析) ===
         self.entry_zscore = None                                               # 开仓时Z-score(分析入场时机质量)
@@ -154,7 +157,7 @@ class Pairs:
         return cls(algorithm, model_result, config)
 
 
-    def on_position_filled(self, action: str, fill_time, tickets):
+    def on_position_filled(self, action: str, fill_time, tickets, reason: str = None):
         """
         订单成交回调(由TicketsManager调用)
 
@@ -164,6 +167,7 @@ class Pairs:
             action: OrderAction.OPEN 或 OrderAction.CLOSE
             fill_time: 最后一条腿成交的时间(确保两腿都已成交)
             tickets: List[OrderTicket] 成交的订单票据列表,用于提取实际成交数量
+            reason: 平仓原因 ('CLOSE', 'STOP_LOSS', 'TIMEOUT', etc.) - v7.2.21新增
 
         技术说明:
             - OrderTicket: QuantConnect SDK 订单票据类
@@ -188,6 +192,7 @@ class Pairs:
 
         elif action == OrderAction.CLOSE:
             self.pair_closed_time = fill_time
+            self.last_close_reason = reason  # v7.2.21: 存储平仓原因(用于动态冷却期)
 
             # 记录平仓价格（用于后续PnL计算）
             for ticket in tickets:
@@ -336,6 +341,33 @@ class Pairs:
             return None  # 从未平仓
 
         return (self.algorithm.UtcTime - self.pair_closed_time).days
+
+
+    def get_cooldown_days(self) -> int:
+        """
+        根据最后一次平仓原因返回对应的冷却期天数 (v7.2.21)
+
+        设计原理:
+        - STOP_LOSS: 30天 - 触发止损说明配对关系可能出现问题,需要更长观察期
+        - 其他 (CLOSE/TIMEOUT/RISK_TRIGGER): 10天 - 正常退出或风控触发
+
+        冷却期哲学:
+        - 正常回归 (CLOSE): 配对关系仍健康,允许较快重新进入
+        - 止损退出 (STOP_LOSS): 配对偏离过大,可能存在结构性变化,需要更长冷静期
+
+        Returns:
+            冷却期天数 (10 或 30)
+
+        使用示例:
+            # ExecutionManager.is_pair_in_normal_cooldown() 中
+            frozen_days = pair.get_pair_frozen_days()  # 已冷却天数
+            cooldown_days = pair.get_cooldown_days()   # 需要的冷却天数
+            in_cooldown = frozen_days < cooldown_days  # 判断是否仍在冷却期
+        """
+        if self.last_close_reason == 'STOP_LOSS':
+            return self.cooldown_days_for_stop  # 30天
+        else:
+            return self.cooldown_days_for_exit  # 10天 (CLOSE/TIMEOUT/RISK_TRIGGER/None)
 
 
     def get_pair_pnl(self) -> Optional[float]:
@@ -520,16 +552,22 @@ class Pairs:
         # 内部检查持仓
         has_position = self.has_normal_position()
 
-        # 生成信号
+        # 生成信号 (v7.2.17: 区间约束 [entry_threshold_min, entry_threshold_max])
         if not has_position:
-            # Z-score高,spread偏高,做空
-            if zscore > self.entry_threshold:
-                return TradingSignal.SHORT_SPREAD
+            abs_zscore = abs(zscore)
 
-            # Z-score低,spread偏低,做多
-            elif zscore < -self.entry_threshold:
-                return TradingSignal.LONG_SPREAD
+            # 检查是否在有效区间内
+            if self.entry_threshold_min <= abs_zscore <= self.entry_threshold_max:
+                # Z-score高,spread偏高,做空
+                if zscore > 0:
+                    self.entry_zscore = zscore  # 信号触发时立即记录(v7.2.16修复)
+                    return TradingSignal.SHORT_SPREAD
+                # Z-score低,spread偏低,做多
+                else:
+                    self.entry_zscore = zscore  # 信号触发时立即记录(v7.2.16修复)
+                    return TradingSignal.LONG_SPREAD
             else:
+                # 区间外: |zscore| < 1.25 (信号弱) 或 > 2.0 (偏离过大)
                 return TradingSignal.WAIT
         else:
             # 有持仓时的出场信号
@@ -610,10 +648,8 @@ class Pairs:
         if qty1 == 0 or qty2 == 0:
             return None  # 数量为0,无法开仓
 
-        # 存储开仓时Z-score（用于事后分析入场质量）
-        current_zscore = self.get_zscore(data)
-        if current_zscore is not None:
-            self.entry_zscore = current_zscore
+        # 注意: entry_zscore已在get_signal()中记录(v7.2.16修复)
+        # 不再在此处重新计算,避免市场价格波动导致记录值与触发值不一致
 
         # 构建意图对象
         return OpenIntent(
