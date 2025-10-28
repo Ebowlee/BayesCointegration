@@ -86,9 +86,6 @@ class PairSelector:
             # 获取PairData对象（包含预计算的对数价格）
             pair_data = pair_data_dict[pair_key]
 
-            # v7.3.1: 移除statistical分数 - 协整检验p<0.05已作为质量门槛
-            # 专注于交易特性指标: half_life（均值回归速度）+ volatility_ratio（协整稳定性）
-
             # ⭐ 使用PairData的预计算对数价格（消除重复np.log()调用）
             if len(pair_data.log_prices1) >= self.lookback_days:
                 log_prices1_recent = pair_data.log_prices1[-self.lookback_days:]
