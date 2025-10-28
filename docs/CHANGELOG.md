@@ -4,6 +4,386 @@
 
 ---
 
+## [v7.3.1_pair-drawdown-dynamic-cooldown@20251028]
+
+### 版本概述
+**PairDrawdown动态冷却期机制** + **质量评分体系简化**
+
+本版本引入基于PnL状态的动态冷却期,并简化质量评分体系(移除冗余的statistical指标)。
+
+### 核心改动
+
+#### 1. PairDrawdown动态冷却期机制 ⭐
+
+**设计理念**: 根据配对平仓时的PnL状态动态决定冷却期长度
+- **盈利平仓** (pnl > 0): 20天冷却 - 协整关系可能仍有效,快速恢复交易
+- **亏损平仓** (pnl ≤ 0): 40天冷却 - 协整关系可能已破坏,需要更长观察期
+
+**文件**: [src/config.py:208-214](src/config.py#L208-L214)
+
+**配置修改**:
+```python
+# 修改前 (v7.3.0)
+'pair_drawdown': {
+    'enabled': True,
+    'priority': 90,
+    'threshold': 0.05,
+    'cooldown_days': 30  # 统一冷却期
+}
+
+# 修改后 (v7.3.1)
+'pair_drawdown': {
+    'enabled': True,
+    'priority': 90,
+    'threshold': 0.05,                       # 统一回撤阈值 (5%)
+    'cooldown_days_for_profit': 20,          # 盈利平仓后冷却期
+    'cooldown_days_for_loss': 40             # 亏损平仓后冷却期
+}
+```
+
+#### 2. PairDrawdown新增get_cooldown_days()方法
+
+**文件**: [src/risk/PairDrawdown.py:151-192](src/risk/PairDrawdown.py#L151-L192)
+
+```python
+def get_cooldown_days(self, pair) -> int:
+    """
+    根据配对PnL状态确定冷却期天数
+
+    设计原理:
+    - 盈利配对 (pnl > 0): 协整关系可能仍然有效,快速恢复交易 (20天)
+    - 亏损配对 (pnl <= 0): 协整关系可能已破坏,需要更长观察期 (40天)
+
+    Returns:
+        int: 冷却期天数 (20或40)
+    """
+    pnl = pair.get_pair_pnl()
+
+    # 容错处理: 无法获取PnL时使用保守策略 (40天)
+    if pnl is None:
+        return self.config['cooldown_days_for_loss']
+
+    # 根据PnL状态返回对应冷却期
+    if pnl > 0:
+        return self.config['cooldown_days_for_profit']  # 20天
+    else:
+        return self.config['cooldown_days_for_loss']    # 40天
+```
+
+#### 3. RiskBaseRule支持动态days参数
+
+**文件**: [src/risk/RiskBaseRule.py:137-190](src/risk/RiskBaseRule.py#L137-L190)
+
+**修改前**:
+```python
+def activate_cooldown(self, pair_id=None):
+    # 固定从config读取cooldown_days
+    days = self.config['cooldown_days']
+```
+
+**修改后** (v7.3.1):
+```python
+def activate_cooldown(self, pair_id=None, days=None):
+    """
+    激活冷却期（v7.3.1: 支持动态days参数）
+
+    Args:
+        pair_id: 配对ID
+        days: 冷却天数 (可选, v7.3.1新增)
+             - 如果提供: 使用此值
+             - 如果None: 从config['cooldown_days']读取
+             - 用于PairDrawdownRule根据PnL状态动态决定冷却期
+    """
+    # v7.3.1: 优先使用传入的days参数,否则从config读取
+    if days is None:
+        if 'cooldown_days' not in self.config:
+            return
+        days = self.config['cooldown_days']
+
+    # ... 其余逻辑保持不变
+```
+
+#### 4. RiskManager智能识别PairDrawdown
+
+**文件**: [src/risk/RiskManager.py:598-654](src/risk/RiskManager.py#L598-L654)
+
+```python
+def activate_cooldown_for_pairs(self, executed_pair_ids: List[Tuple]) -> None:
+    activated_rules = {}
+
+    for pair_id in executed_pair_ids:
+        if pair_id in self._pair_intent_to_rule_map:
+            rule = self._pair_intent_to_rule_map[pair_id]
+
+            # v7.3.1: PairDrawdownRule支持动态冷却期
+            if rule.__class__.__name__ == 'PairDrawdownRule':
+                # 获取pair对象
+                pair = self.pairs_manager.get_pair_by_id(pair_id)
+                if pair:
+                    # 根据PnL状态动态确定冷却期
+                    cooldown_days = rule.get_cooldown_days(pair)
+                    rule.activate_cooldown(pair_id=pair_id, days=cooldown_days)
+                    activated_rules[rule].append((pair_id, cooldown_days))
+            else:
+                # 其他Rule使用默认cooldown_days
+                rule.activate_cooldown(pair_id=pair_id)
+                cooldown_days = rule.config.get('cooldown_days', 0)
+                activated_rules[rule].append((pair_id, cooldown_days))
+
+    # 批量日志输出 (v7.3.1: 支持per-pair显示冷却期)
+    for rule, pair_cooldowns in activated_rules.items():
+        if rule.__class__.__name__ == 'PairDrawdownRule':
+            # PairDrawdownRule: 显示每个配对的冷却期(可能不同)
+            pairs_str = ", ".join(
+                f"{pair_id}({days}天)" for pair_id, days in pair_cooldowns
+            )
+            self.algorithm.Debug(
+                f"[Pair风控] {rule.__class__.__name__} 激活{len(pair_cooldowns)}个配对的动态冷却期: {pairs_str}"
+            )
+```
+
+#### 5. 移除statistical质量分数 🔧
+
+**设计理由**:
+- Statistical分数基于p-value,但协整检验已要求p<0.05
+- 该指标为冗余检查,不增加额外信息价值
+- 简化为**双指标体系**: half_life (55%) + volatility_ratio (45%)
+
+**文件**: [src/config.py:107-112](src/config.py#L107-L112)
+
+**修改前**:
+```python
+'quality_weights': {
+    'statistical': 0.10,         # 统计质量(p-value)
+    'half_life': 0.50,           # 均值回归速度
+    'volatility_ratio': 0.40     # 协整稳定性
+}
+```
+
+**修改后** (v7.3.1):
+```python
+'quality_weights': {
+    'half_life': 0.55,           # 从0.50提升到0.55 (均值回归速度)
+    'volatility_ratio': 0.45     # 从0.40提升到0.45 (协整稳定性)
+}
+# 权重按原比例5:4重新分配
+```
+
+**文件**: [src/analysis/PairSelector.py](src/analysis/PairSelector.py)
+
+**删除内容**:
+```python
+# 删除: pvalue_score计算 (Lines 89-92)
+# pvalue_score = min(1.0, -np.log10(pair_info['pvalue']) / 3.0)
+
+# 更新: quality_score计算 (Lines 119-123)
+# 修改前
+quality_score = (
+    self.quality_weights['statistical'] * pvalue_score +
+    self.quality_weights['half_life'] * half_life_score +
+    self.quality_weights['volatility_ratio'] * volatility_ratio_score
+)
+
+# 修改后
+quality_score = (
+    self.quality_weights['half_life'] * half_life_score +
+    self.quality_weights['volatility_ratio'] * volatility_ratio_score
+)
+```
+
+**日志输出简化** (Lines 129-135):
+```python
+# 移除Stat字段
+self.algorithm.Debug(
+    f"[PairScore] ({symbol1.Value:4s}, {symbol2.Value:4s}): "
+    f"Q={quality_score:.3f} [{status}] | "
+    # f"Stat={pvalue_score:.3f}(p={pair_info['pvalue']:.4f}) | "  # 删除
+    f"Half={half_life_score:.3f}(days={half_life_str}) | "
+    f"Vol={volatility_ratio_score:.3f}(ratio={vol_ratio_str})"
+)
+```
+
+### 技术亮点
+
+#### 向后兼容设计
+- RiskBaseRule.activate_cooldown()的days参数为**可选**
+- 其他风控规则(HoldingTimeout, PairAnomaly)无需修改
+- PairDrawdown特殊处理,不影响其他Rule
+
+#### 容错机制
+- 无法获取PnL时使用保守策略(40天)
+- 找不到pair对象时使用默认值(config['cooldown_days'])
+- 多重Fail-Safe,确保系统健壮性
+
+#### 职责分离
+- **决策层**: PairDrawdown.get_cooldown_days() - 根据PnL决定冷却期
+- **执行层**: RiskBaseRule.activate_cooldown() - 设置冷却结束时间
+- **协调层**: RiskManager.activate_cooldown_for_pairs() - 智能识别Rule类型
+
+#### 智能日志输出
+- PairDrawdownRule: 显示per-pair冷却期 `(AAPL,MSFT)(20天), (GOOGL,META)(40天)`
+- 其他Rule: 统一冷却期显示 `30天: [pair_id1, pair_id2]`
+
+### 预期效果
+
+#### PairDrawdown动态冷却期
+- **盈利配对**: 20天快速恢复交易,提升资金效率
+- **亏损配对**: 40天充分观察期,避免重复触发问题配对
+- **风险收益平衡**: 健康配对快速重入,问题配对延长冷却
+
+#### 质量评分简化
+- **提升计算效率**: 减少一项指标计算(pvalue_score)
+- **专注交易特性**: half_life(均值回归速度) + volatility_ratio(协整稳定性)
+- **维持相对关系**: 原5:4比例保持不变,配对排序基本一致
+
+### 修改统计
+- **5个文件修改**: +136行 / -52行
+- **核心模块**: PairDrawdown.py, RiskBaseRule.py, RiskManager.py
+- **配置层**: config.py
+- **分析层**: PairSelector.py
+
+---
+
+## [v7.3.0_config-optimization@20251028]
+
+### 版本概述
+**Entry阈值区间约束** + **双冷却期机制** + **投资比例优化**
+
+本版本引入Entry阈值的区间约束机制,并实现基于平仓原因的双冷却期策略。
+
+### 核心改动
+
+#### 1. Entry阈值区间约束 [1.0, 1.75]
+
+**设计理念**: 避免过早进入(Z-score接近0)和过晚进入(Z-score过大)
+- **下限1.0**: 确保有足够的均值回归空间
+- **上限1.75**: 避免Z-score过大时的风险累积
+
+**文件**: [src/config.py:134-135](src/config.py#L134-L135)
+
+**修改前** (单一阈值):
+```python
+'entry_threshold': 1.0  # Z-score进场阈值(绝对值)
+```
+
+**修改后** (区间约束):
+```python
+'entry_threshold_min': 1.0,   # Z-score进场最小阈值(绝对值) - 避免过早进入
+'entry_threshold_max': 1.75   # Z-score进场最大阈值(绝对值) - 避免过晚进入
+```
+
+**文件**: [src/Pairs.py](src/Pairs.py)
+
+**信号生成逻辑调整**:
+```python
+# 修改前
+if abs(zscore) >= self.entry_threshold:
+    return TradingSignal.LONG_SPREAD if zscore < 0 else TradingSignal.SHORT_SPREAD
+
+# 修改后
+if self.entry_threshold_min <= abs(zscore) <= self.entry_threshold_max:
+    return TradingSignal.LONG_SPREAD if zscore < 0 else TradingSignal.SHORT_SPREAD
+```
+
+#### 2. 双冷却期机制 (exit: 10天, stop: 30天)
+
+**文件**: [src/config.py:152-154](src/config.py#L152-L154)
+
+**修改前** (单一冷却期):
+```python
+'pair_cooldown_days': 20  # 统一冷却期
+```
+
+**修改后** (双冷却期):
+```python
+'pair_cooldown_days_for_exit': 10,  # 正常回归平仓后的冷却期 - Z-score收敛
+'pair_cooldown_days_for_stop': 30   # 止损平仓后的冷却期 - Z-score超限
+```
+
+**传递链路** (详见v7.2.21版本记录):
+```
+ExecutionManager → OrderExecutor → TicketsManager → Pairs
+                    ↓ reason
+         pair.get_cooldown_days() 返回 10 或 30
+```
+
+#### 3. 最大投资比例提升 20% → 25%
+
+**文件**: [src/config.py](src/config.py)
+
+```python
+# 修改前
+'max_investment_pct': 0.20  # 单个配对最大投资比例(20%)
+
+# 修改后
+'max_investment_pct': 0.25  # 单个配对最大投资比例(25%)
+```
+
+**理由**: 提升优质配对的资金分配权重,增加收益潜力
+
+#### 4. 质量评分算法优化
+
+**文件**: [src/analysis/PairSelector.py](src/analysis/PairSelector.py)
+
+- 优化half_life评分曲线(梯形平台)
+- 引入volatility_ratio评分(协整稳定性)
+- 细化边界情况处理
+
+#### 5. 清理过时测试文件
+
+**删除**: tests/目录下18个文件(-2288行)
+- test_account_blowup_rule.py
+- test_pair_anomaly_rule.py
+- test_risk_base.py
+- test_risk_manager.py
+- test_simple.py
+- test_tickets_manager.py
+- mocks/目录
+
+**理由**: 测试框架已过时,等待v7.4.0重构测试体系
+
+### 修改统计
+- **18个文件修改**: +310行 / -2288行
+- **核心逻辑**: Pairs.py, ExecutionManager.py, config.py
+- **分析模块**: PairSelector.py
+- **清理**: 删除过时测试文件
+
+---
+
+## [chore: 清理废弃目录@20251029]
+
+### 清理内容
+
+#### 1. 从Git仓库移除tools/目录
+
+**删除的文件** (6个分析脚本):
+- tools/backtest_analysis/README.md
+- tools/backtest_analysis/__init__.py
+- tools/backtest_analysis/analyze_trades_detail.py
+- tools/backtest_analysis/analyze_zscore_pnl.py
+- tools/backtest_analysis/compare_backtests.py
+- tools/backtest_analysis/extract_stats.py
+
+**理由**: 这些工具已被 `.claude/agents/backtest-analyst` agent替代
+
+#### 2. 格式微调
+
+- **src/config.py**: 对齐注释格式
+- **src/analysis/PairSelector.py**: 删除多余空行
+
+#### 3. 本地清理 (不在Git跟踪)
+
+- `__pycache__/` - Python字节码缓存(所有子目录)
+- `tests/` - 测试目录
+- `backtests/tools/` - 临时分析脚本
+
+### 清理统计
+- **删除代码量**: -1287行
+- **清理文件数**: 8个文件
+- **优化效果**: 项目结构更清晰,专注于核心策略代码
+
+---
+
 ## [v7.2.21_dual-cooldown@2025/10/28] ⭐ 优化基准版本
 
 ### 版本定义
