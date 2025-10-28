@@ -134,9 +134,9 @@ class RiskRule(ABC):
             return self.algorithm.Time <= self.pair_cooldowns[pair_id]
 
 
-    def activate_cooldown(self, pair_id=None):
+    def activate_cooldown(self, pair_id=None, days=None):
         """
-        激活冷却期
+        激活冷却期（v7.3.1: 支持动态days参数）
 
         调用时机(v7.1.0):
         - Intent执行成功后，由RiskManager调用
@@ -151,25 +151,32 @@ class RiskRule(ABC):
 
         Pair层面:
         - 持仓超时: 30天 (避免该配对立即重开仓)
-        - 配对回撤: 30天 (止损后充分冷却)
+        - 配对回撤: 20/40天 (根据PnL状态动态决定 - v7.3.1)
         - 仓位异常: 30天 (异常配对暂时冻结)
 
         Args:
             pair_id: 配对ID (仅Pair规则需要传入,Portfolio规则传None)
+            days: 冷却天数 (可选, v7.3.1新增)
+                 - 如果提供: 使用此值
+                 - 如果None: 从config['cooldown_days']读取
+                 - 用于PairDrawdownRule根据PnL状态动态决定冷却期
 
         设计特点:
         - Portfolio规则 (pair_id=None): 设置全局cooldown_until
         - Pair规则 (pair_id不为None): 设置该配对的pair_cooldowns[pair_id]
-        - 向后兼容: 默认pair_id=None,Portfolio规则无需修改
+        - 动态冷却期 (days不为None): 覆盖config配置值
+        - 向后兼容: 默认pair_id=None, days=None, 现有调用无需修改
 
         特殊情况:
-        - 如果配置中没有'cooldown_days'字段，不设置冷却期
+        - 如果days=None且config中没有'cooldown_days'字段，不设置冷却期
         - 如果cooldown_days=0或None，不设置冷却期
         """
-        if 'cooldown_days' not in self.config:
-            return
+        # v7.3.1: 优先使用传入的days参数,否则从config读取
+        if days is None:
+            if 'cooldown_days' not in self.config:
+                return
+            days = self.config['cooldown_days']
 
-        days = self.config['cooldown_days']
         if days is None or days <= 0:
             return
 

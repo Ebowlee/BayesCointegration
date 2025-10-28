@@ -31,8 +31,8 @@ class StrategyConfig:
         # ========== 选股模块配置 ==========
         self.universe_selection = {
             # 基础筛选
-            'min_price': 15,                          # 最低股价（美元）
-            'min_volume': 5e6,                        # 最低日均成交量
+            'min_price': 10,                          # 最低股价（美元）
+            'min_volume': 1e6,                        # 最低日均成交量
             'min_days_since_ipo': 360,                # IPO最短时间（天）
 
             # 风险指标
@@ -91,8 +91,8 @@ class StrategyConfig:
             'pvalue_threshold': 0.05,                   # Engle-Granger p值阈值(95%置信度)
 
             # 子行业分组
-            'min_stocks_per_group': 3,                  # 子行业最少股票数(不足则跳过)
-            'max_stocks_per_group': 20,                 # 子行业最多股票数(按市值选TOP)
+            'min_stocks_per_group': 4,                  # 子行业最少股票数(不足则跳过)
+            'max_stocks_per_group': 40,                 # 子行业最多股票数(按市值选TOP)
         }
 
         # 3. 配对质量评估模块
@@ -104,18 +104,19 @@ class StrategyConfig:
             # 质量门槛
             'min_quality_threshold': 0.50,              # 最低质量分数阈值
 
+            # v7.3.1: 移除statistical分数(10%权重)，专注交易特性指标
+            # 原权重按比例5:4重新分配给half_life和volatility_ratio
             'quality_weights': {
-                'statistical': 0.10,
-                'half_life': 0.50,
-                'volatility_ratio': 0.40  
+                'half_life': 0.55,           # 从0.50提升到0.55 (均值回归速度)
+                'volatility_ratio': 0.45     # 从0.40提升到0.45 (协整稳定性)
             },
 
             'scoring_thresholds': {
                 'half_life': {
                     'optimal_min_days': 7,              # 平台期下限(天) - 黄金持仓期起点
-                    'optimal_max_days': 14,             # 平台期上限(天) - 黄金持仓期终点
+                    'optimal_max_days': 15,             # 平台期上限(天) - 黄金持仓期终点
                     'min_acceptable_days': 3,           # 最小可接受半衰期(天)
-                    'max_acceptable_days': 21           # 最大可接受半衰期(天)
+                    'max_acceptable_days': 30           # 最大可接受半衰期(天)
                 }
             }
         }
@@ -145,12 +146,12 @@ class StrategyConfig:
         # ========== Pairs/PairsManager 配置 ==========
         self.pairs_trading = {
             'entry_threshold_min': 1.00,           # 建仓Z-score下限 (信号足够强)
-            'entry_threshold_max': 1.75,            # 建仓Z-score上限 (避免过度偏离)
+            'entry_threshold_max': 2.00,            # 建仓Z-score上限 (避免过度偏离)
             'exit_threshold': 0.30,                 # 平仓Z-score阈值
-            'stop_threshold': 2.00,                 # 止损Z-score阈值
+            'stop_threshold': 2.30,                 # 止损Z-score阈值
 
-            'pair_cooldown_days_for_exit': 10,      # 正常回归平仓后的冷却期(天) - Z-score收敛
-            'pair_cooldown_days_for_stop': 30,      # 止损平仓后的冷却期(天) - Z-score超限
+            'pair_cooldown_days_for_exit': 20,      # 正常回归平仓后的冷却期(天) - Z-score收敛
+            'pair_cooldown_days_for_stop': 60,      # 止损平仓后的冷却期(天) - Z-score超限
 
             # 仓位管理参数
             'min_investment_ratio': 0.05,           # 质量最低(0.0分)配对投资比例: 5%,同时作为绝对门槛
@@ -205,16 +206,17 @@ class StrategyConfig:
                     'cooldown_days': 30                  # per-pair冷却期(30天)
                 },
                 'pair_drawdown': {
-                    'enabled': True,                    
-                    'priority': 80,
-                    'threshold': 0.05,                   # 配对回撤阈值
-                    'cooldown_days': 30                  # per-pair冷却期(30天)
+                    'enabled': True,
+                    'priority': 90,
+                    'threshold': 0.05,                       # 统一回撤阈值 (5%)
+                    'cooldown_days_for_profit': 20,          # 盈利平仓后冷却期(20天)
+                    'cooldown_days_for_loss': 40             # 亏损平仓后冷却期(40天)
                 },
                 'holding_timeout': {
                     'enabled': True,
-                    'priority': 60,
-                    'max_days': 42,                      # 最大持仓天数
-                    'cooldown_days': 20                  # per-pair冷却期(30天)
+                    'priority': 80,
+                    'max_days': 60,                      # 最大持仓天数
+                    'cooldown_days': 30                  # per-pair冷却期(30天)
                 }
             }
         }

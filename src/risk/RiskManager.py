@@ -595,28 +595,60 @@ class RiskManager:
         - 移除Rule去重逻辑(同一Rule可对多个配对激活cooldown)
         - 批量日志输出,按Rule汇总pair_id列表
         """
-        activated_rules = {}  # {rule: [pair_ids]} 用于批量日志
+        activated_rules = {}  # {rule: [(pair_id, cooldown_days)]} 用于批量日志
 
         for pair_id in executed_pair_ids:
             # 查找该pair_id对应的Rule
             if pair_id in self._pair_intent_to_rule_map:
                 rule = self._pair_intent_to_rule_map[pair_id]
 
-                # 激活该Rule对该配对的cooldown
-                rule.activate_cooldown(pair_id=pair_id)
+                # v7.3.1: PairDrawdownRule支持动态冷却期
+                if rule.__class__.__name__ == 'PairDrawdownRule':
+                    # 获取pair对象
+                    pair = self.pairs_manager.get_pair_by_id(pair_id)
+                    if pair:
+                        # 根据PnL状态动态确定冷却期
+                        cooldown_days = rule.get_cooldown_days(pair)
+                        rule.activate_cooldown(pair_id=pair_id, days=cooldown_days)
 
-                # 记录用于批量日志
-                if rule not in activated_rules:
-                    activated_rules[rule] = []
-                activated_rules[rule].append(pair_id)
+                        # 记录用于批量日志
+                        if rule not in activated_rules:
+                            activated_rules[rule] = []
+                        activated_rules[rule].append((pair_id, cooldown_days))
+                    else:
+                        # 容错: 找不到pair对象时使用默认值
+                        rule.activate_cooldown(pair_id=pair_id)
+                        if rule not in activated_rules:
+                            activated_rules[rule] = []
+                        activated_rules[rule].append((pair_id, None))
+                else:
+                    # 其他Rule使用默认cooldown_days
+                    rule.activate_cooldown(pair_id=pair_id)
 
-        # 批量日志输出
-        for rule, pair_ids in activated_rules.items():
-            cooldown_days = rule.config.get('cooldown_days', 0)
-            self.algorithm.Debug(
-                f"[Pair风控] {rule.__class__.__name__} 激活{len(pair_ids)}个配对的冷却期 "
-                f"({cooldown_days}天): {pair_ids}"
-            )
+                    # 记录用于批量日志
+                    if rule not in activated_rules:
+                        activated_rules[rule] = []
+                    cooldown_days = rule.config.get('cooldown_days', 0)
+                    activated_rules[rule].append((pair_id, cooldown_days))
+
+        # 批量日志输出 (v7.3.1: 支持per-pair显示冷却期)
+        for rule, pair_cooldowns in activated_rules.items():
+            if rule.__class__.__name__ == 'PairDrawdownRule':
+                # PairDrawdownRule: 显示每个配对的冷却期(可能不同)
+                pairs_str = ", ".join(
+                    f"{pair_id}({days}天)" for pair_id, days in pair_cooldowns
+                )
+                self.algorithm.Debug(
+                    f"[Pair风控] {rule.__class__.__name__} 激活{len(pair_cooldowns)}个配对的动态冷却期: {pairs_str}"
+                )
+            else:
+                # 其他Rule: 统一冷却期
+                pair_ids = [pair_id for pair_id, _ in pair_cooldowns]
+                cooldown_days = pair_cooldowns[0][1] if pair_cooldowns else 0
+                self.algorithm.Debug(
+                    f"[Pair风控] {rule.__class__.__name__} 激活{len(pair_ids)}个配对的冷却期 "
+                    f"({cooldown_days}天): {pair_ids}"
+                )
 
         # 清空映射(防止下次OnData误用旧映射)
         self._pair_intent_to_rule_map.clear()

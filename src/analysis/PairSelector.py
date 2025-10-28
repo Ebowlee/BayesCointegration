@@ -86,10 +86,8 @@ class PairSelector:
             # 获取PairData对象（包含预计算的对数价格）
             pair_data = pair_data_dict[pair_key]
 
-            # 统计质量分数（基于p值的对数转换）
-            # 使用Log10转换反映p值的统计学对数特性
-            # p=0.001→1.0, p=0.01→0.667, p=0.05→0.434
-            pvalue_score = min(1.0, -np.log10(pair_info['pvalue']) / 3.0)
+            # v7.3.1: 移除statistical分数 - 协整检验p<0.05已作为质量门槛
+            # 专注于交易特性指标: half_life（均值回归速度）+ volatility_ratio（协整稳定性）
 
             # ⭐ 使用PairData的预计算对数价格（消除重复np.log()调用）
             if len(pair_data.log_prices1) >= self.lookback_days:
@@ -118,9 +116,8 @@ class PairSelector:
                 volatility_ratio_score = 0
                 raw_vol_ratio = None
 
-            # 综合质量分数（三指标体系 v7.2.18: volatility_ratio替代liquidity）
+            # 综合质量分数（双指标体系 v7.3.1: 移除statistical，专注交易特性）
             quality_score = (
-                self.quality_weights['statistical'] * pvalue_score +
                 self.quality_weights['half_life'] * half_life_score +
                 self.quality_weights['volatility_ratio'] * volatility_ratio_score
             )
@@ -129,10 +126,10 @@ class PairSelector:
             status = "PASS" if quality_score > self.min_quality_threshold else "FAIL"
             half_life_str = f"{half_life_days:.1f}" if half_life_days is not None else "N/A"
             vol_ratio_str = f"{raw_vol_ratio:.3f}" if raw_vol_ratio is not None else "N/A"
+            # v7.3.1: 移除Stat字段，简化为双指标输出
             self.algorithm.Debug(
                 f"[PairScore] ({symbol1.Value:4s}, {symbol2.Value:4s}): "  # 使用.Value提取ticker字符串
                 f"Q={quality_score:.3f} [{status}] | "
-                f"Stat={pvalue_score:.3f}(p={pair_info['pvalue']:.4f}) | "
                 f"Half={half_life_score:.3f}(days={half_life_str}) | "
                 f"Vol={volatility_ratio_score:.3f}(ratio={vol_ratio_str})"
             )

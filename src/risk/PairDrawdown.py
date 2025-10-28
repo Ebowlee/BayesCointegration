@@ -136,14 +136,60 @@ class PairDrawdownRule(RiskRule):
         # 7. 判断是否触发
         threshold = self.config['threshold']
         if drawdown >= threshold:
+            # v7.3.1: 添加PnL状态到描述中(用于日志分析)
+            pnl_status = "盈利" if pnl > 0 else "亏损"
             description = (
                 f"配对回撤: {drawdown*100:.1f}% >= {threshold*100:.1f}% "
                 f"(当前价值: ${pair_value:,.2f}, HWM: ${hwm:,.2f}, "
-                f"PnL: ${pnl:,.2f}, 成本: ${pair_cost:,.2f})"
+                f"PnL: ${pnl:,.2f}, 成本: ${pair_cost:,.2f}, 状态: {pnl_status})"
             )
             return True, description
 
         return False, ""
+
+
+    def get_cooldown_days(self, pair) -> int:
+        """
+        根据配对PnL状态确定冷却期天数（v7.3.1: 动态冷却期机制）
+
+        设计原理:
+        - 盈利配对 (pnl > 0): 协整关系可能仍然有效,快速恢复交易 (20天)
+        - 亏损配对 (pnl <= 0): 协整关系可能已破坏,需要更长观察期 (40天)
+
+        触发场景:
+        - 在RiskManager.activate_cooldown_for_pairs()中调用
+        - 配对回撤触发后,根据平仓时的PnL状态决定冷却期长度
+
+        Args:
+            pair: Pairs对象,用于获取PnL状态
+
+        Returns:
+            int: 冷却期天数 (20或40)
+
+        容错处理:
+        - 如果无法获取PnL (pair.get_pair_pnl()返回None): 使用loss模式 (40天)
+        - 保守策略: 宁可多观察,不急于重新交易
+
+        使用示例:
+        ```python
+        # 在RiskManager.activate_cooldown_for_pairs()中:
+        triggered, desc = pair_drawdown_rule.check(pair)
+        if triggered:
+            cooldown_days = pair_drawdown_rule.get_cooldown_days(pair)
+            pair_drawdown_rule.activate_cooldown(pair.pair_id, days=cooldown_days)
+        ```
+        """
+        pnl = pair.get_pair_pnl()
+
+        # 容错处理: 无法获取PnL时使用保守策略 (40天)
+        if pnl is None:
+            return self.config['cooldown_days_for_loss']
+
+        # 根据PnL状态返回对应冷却期
+        if pnl > 0:
+            return self.config['cooldown_days_for_profit']  # 20天
+        else:
+            return self.config['cooldown_days_for_loss']    # 40天
 
 
     def on_pair_closed(self, pair_id: tuple):
