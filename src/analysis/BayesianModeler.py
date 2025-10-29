@@ -25,37 +25,12 @@ class BayesianModeler:
         self.mcmc_warmup_samples = module_config['mcmc_warmup_samples']
         self.mcmc_posterior_samples = module_config['mcmc_posterior_samples']
         self.mcmc_chains = module_config['mcmc_chains']
-        self.bayesian_priors = module_config['bayesian_priors']  # 贝叶斯先验配置(无信息/信息先验)
+        self.bayesian_priors = module_config['bayesian_priors']  # 贝叶斯先验配置(无信息/信息/AR(1)先验)
+        self.ar1_priors = self.bayesian_priors['ar1']  # v7.4.2: AR(1)模型先验配置
         self.historical_posteriors = {}  # 内部管理历史后验,实现动态更新
 
 
-    def _cleanup_historical_posteriors(self):
-        """
-        清理过期的历史后验记录，避免内存无限增长
-        清理规则：删除超过 2 * lookback_days 天的记录
-        """
-        if not self.historical_posteriors:
-            return
-
-        current_time = self.algorithm.UtcTime
-        expired_threshold = 2 * self.lookback_days  # 双倍lookback作为过期阈值
-
-        # 找出需要清理的配对
-        pairs_to_remove = []
-        for pair_key, posterior in self.historical_posteriors.items():
-            if (current_time - posterior['update_time']).days > expired_threshold:
-                pairs_to_remove.append(pair_key)
-
-        # 执行清理
-        for pair_key in pairs_to_remove:
-            del self.historical_posteriors[pair_key]
-
-        # 记录清理情况
-        if pairs_to_remove:
-            self.algorithm.Debug(
-                f"[BayesianModeler] 清理了{len(pairs_to_remove)}个过期的历史后验记录"
-            )
-
+    # ===== 主流程方法 (Public API) =====
 
     def modeling_procedure(self, cointegrated_pairs: List[Dict], pair_data_dict: Dict) -> List[Dict]:
         """
@@ -147,8 +122,6 @@ class BayesianModeler:
         return days_old <= validity_days
 
 
-
-
     def _create_historical_prior(self, pair_key: tuple) -> Dict:
         """创建历史后验先验"""
         config = self.bayesian_priors['informed']
@@ -185,8 +158,7 @@ class BayesianModeler:
         }
 
 
-    # ===== 建模执行系统 =====
-
+    # ===== 建模系统 (MCMC采样 → 后验提取 → AR(1)模型) =====
 
     def _sample_posterior(self, pair_data: PairData, prior_params: Dict):
         """执行MCMC采样"""
@@ -228,7 +200,7 @@ class BayesianModeler:
             'update_time': self.algorithm.UtcTime
         }
 
-        # v7.4.0: 拟合AR(1)模型获取均值回归参数
+        # 拟合AR(1)模型获取均值回归参数
         beta_mean = stats['beta_mean']
         alpha_mean = stats['alpha_mean']
         spread = pair_data.log_prices1 - beta_mean * pair_data.log_prices2 - alpha_mean
@@ -263,21 +235,23 @@ class BayesianModeler:
         """
         try:
             with pm.Model() as ar1_model:
-                # 先验设定: lambda预期在[-0.5, 0]区间 (负值表示均值回归)
-                lambda_param = pm.Normal('lambda', mu=-0.1, sigma=0.5)
-                sigma_ar = pm.HalfNormal('sigma_ar', sigma=0.1)
+                # 先验设定 (v7.4.2: 从配置读取)
+                lambda_param = pm.Normal('lambda',
+                                        mu=self.ar1_priors['lambda_mu'],
+                                        sigma=self.ar1_priors['lambda_sigma'])
+                sigma_ar = pm.HalfNormal('sigma_ar', sigma=self.ar1_priors['sigma_ar'])
 
                 # 构建AR(1)数据 (spread_t vs spread_{t-1})
-                spread_lag = spread[:-1]
-                spread_curr = spread[1:]
+                spread_lag = spread[:-1]   # 滞后一期: spread_{t-1}
+                spread_curr = spread[1:]   # 当期: spread_t
                 mu_ar = lambda_param * spread_lag
                 likelihood = pm.Normal('spread_t', mu=mu_ar, sigma=sigma_ar, observed=spread_curr)
 
-                # 采样 (使用较少样本以节省时间)
+                # 采样 (v7.4.2: 从配置读取)
                 trace = pm.sample(
-                    draws=300,
-                    tune=200,
-                    chains=2,
+                    draws=self.ar1_priors['mcmc_draws'],
+                    tune=self.ar1_priors['mcmc_warmup'],
+                    chains=self.mcmc_chains,
                     return_inferencedata=False,
                     progressbar=False
                 )
@@ -303,6 +277,8 @@ class BayesianModeler:
             }
 
 
+    # ===== 结果处理 =====
+
     def _build_result(self, pair_info: Dict, pair_data: PairData,
                      prior_type: str, posterior_stats: Dict) -> Dict:
         """构建建模结果字典"""
@@ -327,3 +303,33 @@ class BayesianModeler:
             f"[BayesianModeler] 建模完成: 成功{successful}对, 失败{failed}对 "
             f"(历史后验{historical_posterior}对, 无信息先验{uninformed}对)"
         )
+
+
+    # ===== 辅助方法 =====
+
+    def _cleanup_historical_posteriors(self):
+        """
+        清理过期的历史后验记录，避免内存无限增长
+        清理规则：删除超过 2 * lookback_days 天的记录
+        """
+        if not self.historical_posteriors:
+            return
+
+        current_time = self.algorithm.UtcTime
+        expired_threshold = 2 * self.lookback_days  # 双倍lookback作为过期阈值
+
+        # 找出需要清理的配对
+        pairs_to_remove = []
+        for pair_key, posterior in self.historical_posteriors.items():
+            if (current_time - posterior['update_time']).days > expired_threshold:
+                pairs_to_remove.append(pair_key)
+
+        # 执行清理
+        for pair_key in pairs_to_remove:
+            del self.historical_posteriors[pair_key]
+
+        # 记录清理情况
+        if pairs_to_remove:
+            self.algorithm.Debug(
+                f"[BayesianModeler] 清理了{len(pairs_to_remove)}个过期的历史后验记录"
+            )

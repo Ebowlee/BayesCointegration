@@ -150,7 +150,14 @@ class StrategyConfig:
                 'informed': {                           # 历史后验先验(强信息,重复建模时使用)
                     'sigma_multiplier': 2.0,            # sigma放大系数
                     'sample_reduction_factor': 0.5,     # 采样减少比例
-                    'validity_days': 60                 # 历史后验有效期: 上次建模后60天内,复用后验加速收敛; 超过60天则协整关系可能漂移,降级到OLS informed prior重新建模
+                    'validity_days': 60                 # 历史后验有效期: 上次建模后60天内,复用后验加速收敛; 超过60天则协整关系可能漂移,降级到uninformed prior重新建模
+                },
+                'ar1': {                                # AR(1)均值回归模型先验配置(v7.4.2新增)
+                    'lambda_mu': -0.1,                  # lambda中心值(预期温和回归,-0.1表示10%回归力)
+                    'lambda_sigma': 0.5,                # lambda标准差(95%置信区间覆盖[-1.1, 0.9],包含快速回归到无回归)
+                    'sigma_ar': 0.1,                    # AR噪声HalfNormal参数(预期小噪声,log价差残差通常0.01-0.10)
+                    'mcmc_warmup': 200,                 # AR(1)预热样本数(比主模型少,节省时间)
+                    'mcmc_draws': 300                   # AR(1)后验样本数(比主模型少,AR(1)模型更简单)
                 }
             }
         }
