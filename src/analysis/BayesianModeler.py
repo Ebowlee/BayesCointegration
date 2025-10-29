@@ -100,8 +100,8 @@ class BayesianModeler:
             pair_key = (pair['symbol1'], pair['symbol2'])
             pair_data = pair_data_dict[pair_key]
 
-            # Step 2: 先验层（三级策略）
-            prior_params, prior_type = self._select_prior(pair, pair_data.pair_key)
+            # Step 2: 先验层（v7.4.1: 二级策略）
+            prior_params, prior_type = self._select_prior(pair_data.pair_key)
 
             # Step 3: 建模层
             trace = self._sample_posterior(pair_data, prior_params)
@@ -119,20 +119,20 @@ class BayesianModeler:
             return None
 
 
-    # ===== 先验选择系统 (三级策略) =====
+    # ===== 先验选择系统 (二级策略, v7.4.1简化) =====
 
-    def _select_prior(self, pair_info: Dict, pair_key: tuple) -> tuple:
-        """先验选择策略（三级体系）"""
+    def _select_prior(self, pair_key: tuple) -> tuple:
+        """先验选择策略（v7.4.1: 简化为二级体系）
+
+        二级策略:
+        - Level 1: 历史后验先验（强信息，加速收敛）
+        - Level 2: 完全无信息先验（让数据说话）
+        """
         # Level 1: 历史后验先验（强信息）
         if self._has_valid_historical_posterior(pair_key):
             return self._create_historical_prior(pair_key), 'historical_posterior'
 
-        # Level 2: OLS弱信息先验（使用PairSelector的OLS结果）
-        if pair_info.get('ols_beta') is not None and pair_info.get('ols_alpha') is not None:
-            return self._create_ols_prior(pair_info), 'ols_informed'
-
-        # Level 3: 完全无信息先验（降级方案）
-        self.algorithm.Debug(f"[BayesianModeler] {pair_key} 使用完全无信息先验 (原因: 无历史后验且OLS失败)")
+        # Level 2: 完全无信息先验（默认方案）
         return self._create_uninformed_prior(), 'uninformed'
 
 
@@ -147,19 +147,6 @@ class BayesianModeler:
         return days_old <= validity_days
 
 
-    def _create_ols_prior(self, pair_info: Dict) -> Dict:
-        """创建OLS弱信息先验（关键优化）"""
-        config = self.bayesian_priors['uninformed']
-
-        return {
-            'alpha_mu': pair_info['ols_alpha'],
-            'alpha_sigma': config['alpha_sigma'],
-            'beta_mu': pair_info['ols_beta'],
-            'beta_sigma': config['beta_sigma'],
-            'sigma_sigma': config['sigma_sigma'],
-            'tune': self.mcmc_warmup_samples,
-            'draws': self.mcmc_posterior_samples,
-        }
 
 
     def _create_historical_prior(self, pair_key: tuple) -> Dict:
@@ -323,7 +310,6 @@ class BayesianModeler:
             'symbol1': pair_data.symbol1,
             'symbol2': pair_data.symbol2,
             'industry_group': pair_info['industry_group'],
-            'quality_score': pair_info['quality_score'],
             'modeling_type': prior_type,
             'modeling_time': self.algorithm.Time,
             **posterior_stats
@@ -331,14 +317,13 @@ class BayesianModeler:
 
 
     def _log_statistics(self, statistics: dict):
-        """输出建模统计信息（重构版）"""
+        """输出建模统计信息（v7.4.1: 简化为二级先验）"""
         successful = statistics.get('successful', 0)
         failed = statistics.get('failed', 0)
-        ols_informed = statistics.get('ols_informed_modeling', 0)
         historical_posterior = statistics.get('historical_posterior_modeling', 0)
         uninformed = statistics.get('uninformed_modeling', 0)
 
         self.algorithm.Debug(
             f"[BayesianModeler] 建模完成: 成功{successful}对, 失败{failed}对 "
-            f"(OLS弱信息{ols_informed}对, 历史后验{historical_posterior}对, 完全无信息{uninformed}对)"
+            f"(历史后验{historical_posterior}对, 无信息先验{uninformed}对)"
         )
