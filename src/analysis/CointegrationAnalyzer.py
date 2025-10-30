@@ -57,8 +57,8 @@ class CointegrationAnalyzer:
         # 步骤2: 每个子行业内部进行协整配对
         all_cointegrated_pairs = []
         for ig_name, symbols in industry_groups.items():
-            # 分析该子行业内的配对
-            ig_pairs = self._analyze_industry_group(ig_name, symbols, clean_data)
+            # 查找该子行业内的协整配对
+            ig_pairs = self._find_cointegrated_pairs_in_group(ig_name, symbols, clean_data)
             all_cointegrated_pairs.extend(ig_pairs)
 
             # 统计
@@ -85,9 +85,9 @@ class CointegrationAnalyzer:
         }
 
 
-    def _analyze_industry_group(self, ig_name: str, symbols: List[Symbol], clean_data: Dict) -> List[Dict]:
+    def _find_cointegrated_pairs_in_group(self, ig_name: str, symbols: List[Symbol], clean_data: Dict) -> List[Dict]:
         """
-        分析单个子行业内的协整关系
+        在单个子行业内查找协整配对
 
         Args:
             ig_name: 子行业名称
