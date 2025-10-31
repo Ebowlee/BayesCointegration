@@ -4,6 +4,112 @@
 
 ---
 
+## [v7.5.7_cleanup-stats-dict@20250129]
+
+### 版本概述
+**BayesianModeler stats字典优化** - 删除冗余派生统计量,仅保留原始MCMC样本
+
+本版本通过删除可从原始样本派生的统计量,将stats字典从16个字段精简至10个,实现37.5%的字段减少和~50%的代码减少。
+
+### 核心改动
+
+#### 1. BayesianModeler stats字典精简 ⭐
+
+**设计理念**: 只存储原始MCMC样本,派生统计量按需计算
+
+**文件**: [src/analysis/BayesianModeler.py:214-248](src/analysis/BayesianModeler.py#L214-L248)
+
+**字段变更**:
+```python
+# 修改前 (v7.5.6) - 16个字段
+stats = {
+    'alpha_mean': ..., 'alpha_std': ...,
+    'beta_mean': ..., 'beta_std': ...,
+    'sigma_mean': ..., 'sigma_std': ...,
+    'rho_mean': ..., 'rho_std': ...,           # ← 删除
+    'rho_samples': ...,                         # ✓ 保留
+    'half_life_mean': ...,                      # ← 删除
+    'half_life_std': ...,                       # ← 删除
+    'half_life_percentile_5': ...,              # ← 删除
+    'half_life_percentile_95': ...,             # ← 删除
+    'spread': ...,
+    'method': ..., 'update_time': ...
+}
+
+# 修改后 (v7.5.7) - 10个字段
+stats = {
+    'alpha_mean': ..., 'alpha_std': ...,
+    'beta_mean': ..., 'beta_std': ...,
+    'sigma_mean': ..., 'sigma_std': ...,
+    'rho_samples': ...,                         # ✓ 原始MCMC样本
+    'spread': ...,
+    'method': ..., 'update_time': ...
+}
+```
+
+**删除字段** (6个):
+- `rho_mean`, `rho_std`: 可从rho_samples计算
+- `half_life_mean`, `half_life_std`, `half_life_percentile_5`, `half_life_percentile_95`: 可从rho_samples派生
+
+**代码简化**:
+```python
+# 删除前 (214-225行,共12行)
+rho_samples = trace['rho']
+rho_mean = float(np.mean(rho_samples))
+rho_std = float(np.std(rho_samples))
+
+half_life_samples = trace['half_life']
+half_life_mean = float(np.mean(half_life_samples))
+half_life_std = float(np.std(half_life_samples))
+half_life_p5 = float(np.percentile(half_life_samples, 5))
+half_life_p95 = float(np.percentile(half_life_samples, 95))
+
+# 删除后 (214-215行,共2行)
+# 提取后验样本（原始MCMC样本，供PairSelector按需计算）
+rho_samples = trace['rho'].flatten()
+```
+
+#### 2. PairSelector按需计算rho_mean
+
+**文件**: [src/analysis/PairSelector.py:198-211](src/analysis/PairSelector.py#L198-L211)
+
+**修改逻辑**:
+```python
+# 修改前 (v7.5.6) - 直接使用预存统计量
+def _calculate_half_life_score(self, model_result):
+    rho_mean = model_result['rho_mean']  # 从stats字典读取
+    # ...
+
+# 修改后 (v7.5.7) - 从样本按需计算
+def _calculate_half_life_score(self, model_result):
+    rho_samples = model_result.get('rho_samples')
+    if rho_samples is None or len(rho_samples) == 0:
+        return (0, None)
+
+    rho_mean = np.mean(rho_samples)  # 按需计算
+    # ...
+```
+
+**新增健壮性检查**:
+- 检查`rho_samples`存在性和非空性
+- 失败降级值保持一致: `rho_samples=np.array([0.5])`
+
+### 架构优势
+
+1. **职责分离**: BayesianModeler = 数据提供者, PairSelector = 域评分器
+2. **内存优化**: historical_posteriors每个配对节省6个float (长周期回测显著)
+3. **代码简洁**: 统计量提取代码减少50% (12行→2行)
+4. **功能等价**: `np.mean(rho_samples)`的数学结果与预存`rho_mean`完全一致
+5. **性能影响**: 可忽略 (O(n)计算 vs 数百倍MCMC时间)
+
+### 优化效益
+
+- **字段减少**: 37.5% (16→10个字段)
+- **代码减少**: ~50% (统计量提取逻辑)
+- **内存节省**: 每配对6个float × N个配对
+
+---
+
 ## [v7.3.1_pair-drawdown-dynamic-cooldown@20251028]
 
 ### 版本概述
