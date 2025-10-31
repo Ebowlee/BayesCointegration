@@ -13,7 +13,6 @@ from src.TicketsManager import TicketsManager
 from src.risk import RiskManager
 from src.execution import ExecutionManager, OrderExecutor, MarginAllocator
 from src.trade import TradeAnalyzer
-
 # endregion
 
 

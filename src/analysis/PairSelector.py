@@ -2,8 +2,6 @@
 from AlgorithmImports import *
 from collections import defaultdict
 import numpy as np
-import pandas as pd
-from scipy import stats  # 用于OLS回归估计AR(1)系数
 from src.analysis.PairData import PairData
 # endregion
 
@@ -33,22 +31,24 @@ class PairSelector:
         self.scoring_thresholds = module_config['scoring_thresholds']
 
 
+    # ===== 公共方法 (Public Methods) =====
+
     def selection_procedure(self, modeling_results):
         """
-        执行配对筛选流程 - 基于贝叶斯后验参数评估质量并筛选（v7.4.0重构）
+        执行配对筛选流程 - 基于贝叶斯后验参数评估质量并筛选（v7.5.3统一rho）
 
         Args:
             modeling_results: BayesianModeler输出的建模结果列表
                 每个元素包含: symbol1, symbol2, quality_score, beta_mean, beta_std,
-                             lambda_mean, lambda_std, lambda_t_stat, residual_std, etc.
+                             rho_mean, rho_std, residual_std, half_life_mean, etc.
 
         Returns:
             List[Dict]: 筛选后的配对列表（包含四维质量分数）
 
-        设计变更 (v7.4.0):
-        - 不再使用OLS近似，直接使用贝叶斯后验参数
+        设计变更 (v7.5.3):
+        - 统一使用rho表示AR(1)系数,移除lambda派生量
         - 四维评分系统：half_life, beta_stability, mean_reversion_certainty, residual_quality
-        - 移除volatility_ratio（理论缺陷）
+        - 半衰期直接从rho计算: -ln(2) / ln(ρ)
         """
         # 步骤1: 评估配对质量（使用贝叶斯后验参数）
         scored_pairs = self.evaluate_quality(modeling_results)
@@ -61,20 +61,20 @@ class PairSelector:
 
     def evaluate_quality(self, modeling_results):
         """
-        评估配对质量（v7.4.0: 基于贝叶斯后验参数的四维评分系统）
+        评估配对质量（v7.5.3: 统一使用rho,四维评分系统）
 
         Args:
             modeling_results: BayesianModeler输出的建模结果列表
 
         四维评分系统:
-        1. Half-life (30%): 使用贝叶斯beta_mean计算半衰期
+        1. Half-life (30%): 使用贝叶斯rho_mean计算半衰期
         2. Beta stability (25%): 使用beta_std衡量对冲比率稳定性
-        3. Mean-reversion certainty (30%): 使用lambda_t_stat衡量AR(1)显著性
-        4. Residual quality (15%): 使用residual_std衡量模型拟合质量
+        3. Mean-reversion certainty (30%): 使用rho统计量衡量AR(1)显著性
+        4. Residual quality (15%): 使用sigma_mean(residual_std)衡量模型拟合质量
 
         设计优势:
         - 使用贝叶斯后验参数（比OLS更准确）
-        - 移除volatility_ratio（理论缺陷）
+        - 统一使用rho表示AR(1)系数
         - 所有指标都有明确的统计意义
         """
         scored_pairs = []
@@ -83,11 +83,11 @@ class PairSelector:
             symbol1 = model_result['symbol1']
             symbol2 = model_result['symbol2']
 
-            # 四维评分计算
-            half_life_score, half_life_days = self._calculate_half_life_score_v2(model_result)
-            beta_stability_score = self._calculate_beta_stability_score(model_result['beta_std'])
-            mean_reversion_score, t_stat = self._calculate_mean_reversion_certainty_score(model_result['lambda_t_stat'])
-            residual_quality_score = self._calculate_residual_quality_score(model_result['residual_std'])
+            # 四维评分计算 (调用私有方法)
+            half_life_score, half_life_days = self._calculate_half_life_score(model_result)
+            beta_stability_score = self._calculate_beta_stability_score(model_result['beta_mean'], model_result['beta_std'])
+            mean_reversion_score, snr_kappa = self._calculate_mean_reversion_certainty_score(model_result)
+            residual_quality_score, rrs_value = self._calculate_residual_quality_score(model_result)
 
             # 综合质量分数（四维加权平均）
             quality_score = (
@@ -100,13 +100,17 @@ class PairSelector:
             # 详细日志：每个配对的四维评分组成
             status = "PASS" if quality_score > self.min_quality_threshold else "FAIL"
             half_life_str = f"{half_life_days:.1f}" if half_life_days is not None else "N/A"
+
+            # 计算CV用于日志显示
+            beta_cv = model_result['beta_std'] / abs(model_result['beta_mean']) if abs(model_result['beta_mean']) > 1e-6 else 999
+
             self.algorithm.Debug(
                 f"[PairScore] ({symbol1.Value:4s}, {symbol2.Value:4s}): "
                 f"Q={quality_score:.3f} [{status}] | "
                 f"Half={half_life_score:.3f}(days={half_life_str}) | "
-                f"BetaStab={beta_stability_score:.3f}(std={model_result['beta_std']:.4f}) | "
-                f"MeanRev={mean_reversion_score:.3f}(t={t_stat:.2f}) | "
-                f"Resid={residual_quality_score:.3f}(std={model_result['residual_std']:.4f})"
+                f"BetaStab={beta_stability_score:.3f}(CV={beta_cv:.3f}) | "
+                f"MeanRev={mean_reversion_score:.3f}(SNR_κ={snr_kappa:.2f}) | "
+                f"Resid={residual_quality_score:.3f}(RRS={rrs_value:.3f})"
             )
 
             # 更新质量分数到model_result（保留原有字段）
@@ -170,154 +174,104 @@ class PairSelector:
         return selected
 
 
-    def _linear_interpolate(self, value, min_val, max_val, min_score=0.0, max_score=1.0):
+    # ===== 私有评分方法 (Private Scoring Methods) =====
+
+    def _calculate_half_life_score(self, model_result):
         """
-        线性插值计算分数
-        """
-        if value <= min_val:
-            return max_score
-        elif value >= max_val:
-            return min_score
-        else:
-            # 线性插值
-            return max_score - (value - min_val) * (max_score - min_score) / (max_val - min_val)
+        计算半衰期分数 (v7.5.3: 统一使用rho,正弦单峰评分)
 
+        使用正弦函数实现15天峰值,向边界加速衰减:
+        - 公式: f(x) = sin((x - 5)·π / 20), x ∈ [5, 25]
+        - 峰值: 15天 = 1.0分 (唯一最优点)
+        - 边界: <5天 或 >25天 = 0.0分 (硬截断)
+        - 非线性衰减: 远离峰值时惩罚加重
 
-    def _calculate_half_life_score(self, log_prices1_recent, log_prices2_recent, beta):
-        """
-        计算半衰期分数（v7.2.20: 梯形平台设计，7-14天黄金持仓期）
-
-        使用AR(1)模型估计半衰期: half_life = -log(2) / log(ρ)
-
-        评分逻辑（v7.2.20梯形平台）:
-        - [0, 3): 0分（过快，缺乏交易空间）
-        - [3, 7]: 线性上升 0→1（左侧上升段）
-        - [7, 14]: 1.0分（平台期 - 黄金持仓期）
-        - [14, 30]: 线性下降 1→0（右侧下降段）
-        - [30, ∞): 0分（过慢，持仓时间过长）
+        设计优势:
+        - 单峰明确: 只有15天=满分,避免梯形平台过于宽松
+        - 加速惩罚: 正弦曲线凸性,极端值衰减更快
+        - 完美对称: 关于15天中心对称
+        - 光滑连续: 无分段点,导数连续
 
         Args:
-            log_prices1_recent: 最近252天的对数价格序列（symbol1）- 来自PairData预计算
-            log_prices2_recent: 最近252天的对数价格序列（symbol2）- 来自PairData预计算
-            beta: 预先计算的协整系数
-
-        Returns:
-            (score, half_life_days): 评分和原始半衰期天数（用于诊断日志 v7.2.18.1）
-        """
-        try:
-            # Beta调整价差（使用预计算的对数价格，消除np.log()重复调用）
-            spread = log_prices1_recent - beta * log_prices2_recent
-
-            if len(spread) < 2:
-                return (0, None)  # 无数据，返回0分
-
-            # AR(1)自相关
-            spread_lag = spread[:-1]
-            spread_curr = spread[1:]
-
-            # 使用OLS回归估计AR(1)系数(标准方法,处理非零均值更准确)
-            slope, _, _, _, _ = stats.linregress(spread_lag, spread_curr)
-            rho = slope
-
-            # 计算半衰期
-            if 0 < rho < 1:
-                half_life = -np.log(2) / np.log(rho)
-
-                # 梯形平台评分（v7.2.20）
-                optimal_min = self.scoring_thresholds['half_life']['optimal_min_days']
-                optimal_max = self.scoring_thresholds['half_life']['optimal_max_days']
-                min_acceptable = self.scoring_thresholds['half_life']['min_acceptable_days']
-                max_acceptable = self.scoring_thresholds['half_life']['max_acceptable_days']
-
-                if half_life < min_acceptable:
-                    return (0, half_life)  # 过快
-                elif half_life <= optimal_min:
-                    # 左侧上升段: [3, 7] → [0, 1]
-                    score = (half_life - min_acceptable) / (optimal_min - min_acceptable)
-                    return (score, half_life)
-                elif half_life <= optimal_max:
-                    # 平台期: [7, 14] → 1.0（黄金持仓期）
-                    return (1.0, half_life)
-                elif half_life <= max_acceptable:
-                    # 右侧下降段: [14, 30] → [1, 0]
-                    score = 1 - (half_life - optimal_max) / (max_acceptable - optimal_max)
-                    return (score, half_life)
-                else:
-                    return (0, half_life)  # 过慢
-            else:
-                # rho <= 0 或 rho >= 1: 无均值回归
-                return (0, None)
-
-        except Exception as e:
-            self.algorithm.Debug(f"[PairSelector] 半衰期计算失败: {e}")
-            return (0, None)  # 异常返回0分
-
-
-    # ===== v7.4.0 新增: 四维评分方法 =====
-
-    def _calculate_half_life_score_v2(self, model_result):
-        """
-        计算半衰期分数 v2（v7.4.0: 使用贝叶斯beta_mean，复用AR(1) lambda）
-
-        使用贝叶斯beta和AR(1) lambda直接计算半衰期: half_life = -log(2) / lambda
-
-        Args:
-            model_result: BayesianModeler输出的模型结果（包含lambda_mean）
+            model_result: BayesianModeler输出的模型结果(包含rho_samples)
 
         Returns:
             (score, half_life_days): 评分和原始半衰期天数
         """
         try:
-            lambda_mean = model_result['lambda_mean']
+            # 从rho_samples按需计算rho_mean
+            rho_samples = model_result.get('rho_samples')
+            if rho_samples is None or len(rho_samples) == 0:
+                return (0, None)
 
-            # lambda应该是负数（均值回归特性）
-            if lambda_mean >= 0 or lambda_mean <= -1:
-                return (0, None)  # 无效的lambda
+            rho_mean = np.mean(rho_samples)
 
-            # 计算半衰期
-            half_life = -np.log(2) / np.log(1 + lambda_mean)
+            # rho有效性检查 (均值回归要求: ρ ∈ (0, 1))
+            if rho_mean <= 0 or rho_mean >= 1:
+                return (0, None)
 
-            # 梯形平台评分（与v7.3.1保持一致）
-            optimal_min = self.scoring_thresholds['half_life']['optimal_min_days']
-            optimal_max = self.scoring_thresholds['half_life']['optimal_max_days']
-            min_acceptable = self.scoring_thresholds['half_life']['min_acceptable_days']
-            max_acceptable = self.scoring_thresholds['half_life']['max_acceptable_days']
+            # 计算半衰期: half_life = -ln(2) / ln(ρ)
+            half_life = -np.log(2) / np.log(rho_mean)
 
-            if half_life < min_acceptable:
-                return (0, half_life)
-            elif half_life <= optimal_min:
-                score = (half_life - min_acceptable) / (optimal_min - min_acceptable)
-                return (score, half_life)
-            elif half_life <= optimal_max:
-                return (1.0, half_life)
-            elif half_life <= max_acceptable:
-                score = 1 - (half_life - optimal_max) / (max_acceptable - optimal_max)
-                return (score, half_life)
-            else:
-                return (0, half_life)
+            # 读取阈值
+            min_days = self.scoring_thresholds['half_life']['min_days']      # 5天
+            max_days = self.scoring_thresholds['half_life']['max_days']      # 25天
+
+            # 边界检查 (硬截断)
+            if half_life < min_days or half_life > max_days:
+                return (0.0, half_life)
+
+            # 正弦单峰评分
+            # 映射 [5, 25] → [0, π]: x=5→0, x=15→π/2, x=25→π
+            score = np.sin((half_life - min_days) * np.pi / (max_days - min_days))
+
+            return (score, half_life)
 
         except Exception as e:
-            self.algorithm.Debug(f"[PairSelector] 半衰期计算v2失败: {e}")
+            self.algorithm.Debug(f"[PairSelector] 半衰期计算失败: {e}")
             return (0, None)
 
 
-    def _calculate_beta_stability_score(self, beta_std):
+    def _calculate_beta_stability_score(self, beta_mean, beta_std):
         """
-        计算Beta稳定性分数（v7.4.0新增）
+        计算Beta稳定性分数（v7.5.4: 基于变异系数CV归一化）
 
-        Beta稳定性衡量对冲比率的波动程度:
-        - beta_std越小 → 对冲比率越稳定 → 分数越高
-        - 使用指数衰减函数: score = exp(-decay_factor * beta_std)
+        Beta稳定性衡量对冲比率的相对不确定性:
+        - CV = beta_std / |beta_mean| (变异系数,确保不同beta量级可比)
+        - CV越小 → 对冲比率越稳定 → 分数越高
+        - 使用逻辑斯蒂函数: score = 1 / (1 + exp(a·(CV - b)))
+
+        设计优势:
+        - 归一化处理: 不同beta量级的配对具有可比性
+        - 光滑连续: S型曲线在关键区间(0.10-0.40)提供最佳区分度
+        - 物理意义: CV < 0.10(优秀), 0.10-0.20(良好), 0.20-0.30(合格), 0.30-0.40(警戒), CV > 0.40(淘汰)
 
         Args:
+            beta_mean: Beta的后验均值（来自贝叶斯MCMC）
             beta_std: Beta的后验标准差（来自贝叶斯MCMC）
 
         Returns:
             float: 评分 [0, 1]
+
+        Examples:
+            beta=1.5, std=0.15 → CV=0.10 → score≈0.98 (优秀)
+            beta=0.2, std=0.02 → CV=0.10 → score≈0.98 (优秀,公平!)
+            beta=1.0, std=0.30 → CV=0.30 → score≈0.71 (合格)
         """
         try:
-            decay_factor = self.scoring_thresholds['beta_stability']['decay_factor']
-            score = np.exp(-decay_factor * beta_std)
+            # 计算变异系数(CV = std / |mean|)
+            if abs(beta_mean) < 1e-6:  # 防止除零
+                return 0.0
+
+            cv = beta_std / abs(beta_mean)
+
+            # 读取逻辑斯蒂参数
+            a = self.scoring_thresholds['beta_stability']['logistic_steepness']  # 15.03
+            b = self.scoring_thresholds['beta_stability']['logistic_midpoint']   # 0.359
+
+            # 逻辑斯蒂评分函数
+            score = 1.0 / (1.0 + np.exp(a * (cv - b)))
+
             return max(0.0, min(1.0, score))
 
         except Exception as e:
@@ -325,72 +279,115 @@ class PairSelector:
             return 0.0
 
 
-    def _calculate_mean_reversion_certainty_score(self, lambda_t_stat):
+    def _calculate_mean_reversion_certainty_score(self, model_result):
         """
-        计算均值回归确定性分数（v7.4.0新增）
+        计算均值回归确定性分数（v7.5.5: κ-based SNR，逐样本精确计算）
 
-        Lambda t统计量衡量AR(1)系数的显著性:
-        - |t_stat|越大 → lambda估计越显著 → 均值回归特性越可靠
-        - t_stat应为负数（lambda < 0）
-        - 使用分段线性函数
+        核心思路:
+        1. 连续时间转换: κ = -ln|ρ|/Δt (频率不变性)
+        2. 逐样本转换: κ^(s) = -ln|ρ^(s)|/Δt (贝叶斯一致性)
+        3. 精确后验统计: E[κ] = mean(κ^(s)), Std[κ] = std(κ^(s))
+        4. SNR计算: SNR_κ = E[κ] / Std[κ] (估计精度)
+        5. 逻辑斯蒂归一化: score = 1/(1+exp(a·(b-SNR_κ))) (S曲线)
+
+        数学原理:
+        - κ: 连续时间均值回归率 (单位: 1/天)
+        - κ越大 → 均值回归越快 → 半衰期越短
+        - SNR_κ越高 → κ估计越可靠 → 交易策略越稳健
 
         Args:
-            lambda_t_stat: Lambda的t统计量（来自AR(1)模型）
+            model_result: BayesianModeler输出（包含rho_samples数组）
 
         Returns:
-            (score, raw_t_stat): 评分和原始t统计量（用于日志）
+            (score, snr_kappa): 评分和κ-based SNR（用于日志）
         """
         try:
-            min_t_stat = self.scoring_thresholds['mean_reversion_certainty']['min_t_stat']
-            max_t_stat = self.scoring_thresholds['mean_reversion_certainty']['max_t_stat']
+            # 提取rho样本
+            rho_samples = model_result.get('rho_samples')
+            if rho_samples is None:
+                # 降级：兼容旧版（无样本数据）
+                self.algorithm.Debug("[PairSelector] rho_samples缺失,降级处理")
+                return (0.0, 0.0)
 
-            # 取绝对值（负t统计量更好，但评分基于绝对值）
-            abs_t_stat = abs(lambda_t_stat)
+            # κ转换（逐样本）
+            delta_t = self.scoring_thresholds['mean_reversion_certainty']['time_delta_days']
+            kappa_samples = -np.log(np.abs(rho_samples)) / delta_t
 
-            if abs_t_stat < min_t_stat:
-                return (0.0, lambda_t_stat)
-            elif abs_t_stat >= max_t_stat:
-                return (1.0, lambda_t_stat)
-            else:
-                # 线性插值
-                score = (abs_t_stat - min_t_stat) / (max_t_stat - min_t_stat)
-                return (score, lambda_t_stat)
+            # 精确后验统计
+            kappa_mean = np.mean(kappa_samples)
+            kappa_std = np.std(kappa_samples)
+
+            # SNR计算
+            if kappa_std <= 0:
+                return (0.0, 0.0)
+            snr_kappa = kappa_mean / kappa_std
+
+            # 上界截断
+            max_snr = self.scoring_thresholds['mean_reversion_certainty']['max_snr_kappa']
+            snr_kappa = min(snr_kappa, max_snr)
+
+            # 逻辑斯蒂评分
+            a = self.scoring_thresholds['mean_reversion_certainty']['logistic_steepness']
+            b = self.scoring_thresholds['mean_reversion_certainty']['logistic_midpoint']
+            score = 1.0 / (1.0 + np.exp(a * (b - snr_kappa)))
+
+            return (max(0.0, min(1.0, score)), snr_kappa)
 
         except Exception as e:
-            self.algorithm.Debug(f"[PairSelector] 均值回归确定性计算失败: {e}")
+            self.algorithm.Debug(f"[PairSelector] κ-based均值回归确定性计算失败: {e}")
             return (0.0, 0.0)
 
 
-    def _calculate_residual_quality_score(self, residual_std):
+    def _calculate_residual_quality_score(self, model_result):
         """
-        计算残差质量分数（v7.4.0新增，替代volatility_ratio）
+        计算残差质量分数（v7.5.6: RRS归一化 + Sigmoid评分）
 
-        Residual std直接衡量模型拟合质量:
-        - residual_std越小 → 模型拟合越好 → 分数越高
-        - 使用对数变换改善区分度
+        核心改进:
+        1. RRS归一化: 消除价格尺度和波动率影响
+        2. MAD估计: 对fat-tailed残差分布稳健
+        3. Sigmoid评分: 平滑连续的[0,1]映射
+
+        数学原理:
+        - spread = log(P1) - β·log(P2) (协整残差,由BayesianModeler提供)
+        - baseline_scale = MAD(spread)×1.4826 (spread天然波动,在此计算)
+        - RRS = residual_std / baseline_scale (相对残差尺度)
+        - score = 1/(1+exp(a·[log(RRS)-b])) where a=1.88, b=0
+
+        锚点校准:
+        - RRS < 0.3: 优秀 (score>0.90)
+        - RRS = 1.0: 中性 (score=0.50)
+        - RRS > 2.0: 较差 (score<0.22)
 
         Args:
-            residual_std: 残差的后验标准差（来自贝叶斯MCMC）
+            model_result: BayesianModeler输出（包含residual_std和spread数组）
 
         Returns:
-            float: 评分 [0, 1]
+            tuple: (score, rrs_value) - 评分和原始RRS值（用于日志）
         """
         try:
-            min_residual = self.scoring_thresholds['residual_quality']['min_residual_std']
-            max_residual = self.scoring_thresholds['residual_quality']['max_residual_std']
+            residual_std = model_result['residual_std']
+            spread = model_result.get('spread')
 
-            if residual_std <= min_residual:
-                return 1.0
-            elif residual_std >= max_residual:
-                return 0.0
-            else:
-                # 对数变换线性插值
-                log_min = np.log(min_residual)
-                log_max = np.log(max_residual)
-                log_residual = np.log(residual_std)
-                score = 1.0 - (log_residual - log_min) / (log_max - log_min)
-                return max(0.0, min(1.0, score))
+            if spread is None or len(spread) == 0:
+                self.algorithm.Debug("[PairSelector] spread数据缺失,降级处理")
+                return (0.0, 0.0)
+
+            # 计算baseline_scale (MAD估计)
+            spread_median = np.median(spread)
+            mad = np.median(np.abs(spread - spread_median))
+            baseline_scale = mad * 1.4826  # 转换为等效标准差
+
+            # RRS计算（防止除零）
+            epsilon = self.scoring_thresholds['residual_quality']['epsilon']
+            rrs = residual_std / max(baseline_scale, epsilon)
+
+            # Sigmoid评分（对数域）
+            a = self.scoring_thresholds['residual_quality']['logistic_steepness']
+            b = self.scoring_thresholds['residual_quality']['logistic_midpoint']
+            score = 1.0 / (1.0 + np.exp(a * (np.log(rrs) - b)))
+
+            return (max(0.0, min(1.0, score)), rrs)
 
         except Exception as e:
-            self.algorithm.Debug(f"[PairSelector] 残差质量计算失败: {e}")
-            return 0.0
+            self.algorithm.Debug(f"[PairSelector] RRS残差质量计算失败: {e}")
+            return (0.0, 0.0)
