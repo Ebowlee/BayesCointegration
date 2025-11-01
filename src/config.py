@@ -23,7 +23,7 @@ class StrategyConfig:
             'schedule_time': (9, 10),                   # 9:10 AM
 
             # 开发配置
-            'debug_mode': False                         # True=开发调试(详细日志), False=生产运行(仅关键日志) | v7.5.14: 关闭避免100KB截断
+            'debug_mode': True                          # True=开发调试(详细日志), False=生产运行(仅关键日志) | v7.5.16: 重新开启以验证v7.5.15修复
         }
 
 
