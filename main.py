@@ -181,13 +181,18 @@ class BayesianCointegrationStrategy(QCAlgorithm):
     def OnData(self, data: Slice):
         """处理实时数据 - OnData架构的核心"""
 
+        # Debug: 确认OnData被调用
+        self.Debug(f"[OnData] 触发 - Bars={data.Bars.Count}, is_analyzing={self.is_analyzing}")
+
         # 如果正在分析，跳过
         if self.is_analyzing:
+            self.Debug(f"[OnData] 跳过 - 正在分析配对")
             return
 
         # === Portfolio规则cooldown检查（第一道防线） ===
         # Portfolio规则排他性 - 任何规则在cooldown，阻止所有交易
         if self.risk_manager.is_portfolio_in_risk_cooldown():
+            self.Debug(f"[OnData] 跳过 - Portfolio风控冷却期")
             # 检查并清理残留持仓(Portfolio风控触发后可能有部分配对平仓失败)
             self.execution_manager.cleanup_remaining_positions()
             return  # 冷却期内完全停止所有交易
@@ -196,6 +201,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # Intent Pattern - 返回List[CloseIntent]和触发的规则
         portfolio_intents, triggered_rule = self.risk_manager.check_portfolio_risks()
         if portfolio_intents and triggered_rule:
+            self.Debug(f"[OnData] 触发Portfolio风控 - {triggered_rule}")
             # 传递triggered_rule用于激活cooldown
             self.execution_manager.handle_portfolio_risk_intents(
                 portfolio_intents, triggered_rule, self.risk_manager
@@ -204,11 +210,17 @@ class BayesianCointegrationStrategy(QCAlgorithm):
 
         # 如果没有可交易配对，跳过
         if not self.pairs_manager.has_tradeable_pairs():
+            self.Debug(f"[OnData] 跳过 - 无可交易配对")
             return
+
+        # Debug: 进入交易逻辑
+        self.Debug(f"[OnData] 进入交易逻辑")
 
         # 分类获取配对
         pairs_with_position = self.pairs_manager.get_pairs_with_position()
         pairs_without_position = self.pairs_manager.get_pairs_without_position()
+
+        self.Debug(f"[OnData] 配对状态 - 持仓={len(pairs_with_position)}, 待开仓={len(pairs_without_position)}")
 
         # === Pair层面风控检查 ===
         # 直接循环检查每个配对
@@ -229,6 +241,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         if pairs_without_position:
             # 市场条件检查（高波动时阻止开仓，但允许平仓）
             if not self.risk_manager.is_safe_to_open_positions():
+                self.Debug(f"[OnData] 跳过开仓 - 市场高波动")
                 return  # 市场高波动，跳过开仓逻辑
 
             self.execution_manager.handle_normal_open_intents(pairs_without_position, data)
