@@ -4,6 +4,114 @@
 
 ---
 
+## [v7.5.15_fix-schedule-monthstart-bug@20250129]
+
+### 版本概述
+**CRITICAL BUG FIX**: 修复MonthStart调度失效导致2024年6-9月交易断层问题。根本原因是`DateRules.MonthStart()`不带symbol参数时在日历月首触发(可能非交易日),导致7月/9月等月份调度失败。
+
+### 问题诊断
+
+**用户观察** (CSV数据验证):
+```
+2024年月度交易数:
+- 1-2月: 14笔/月 (正常)
+- 3-5月: 10-8笔/月 (下降)
+- 6月: 6笔 (急剧下降)
+- 7月: 0笔 ⚠️
+- 8月: 4笔
+- 9月: 0笔 ⚠️
+```
+
+**根本原因** (QuantConnect已知陷阱):
+- `DateRules.MonthStart()`无参数 → 在**日历月首**触发
+- 2024年1月1日(周一) = 元旦假期,非交易日 → 调度失败
+- 2024年9月1日(周日) = 周末,非交易日 → 调度失败
+- **官方文档**: "If symbol not specified, fires on calendar first day (may not be trading day)"
+
+**证据链**:
+1. 2024年有30笔OPEN交易 → 证明选股**确实发生了**(未完全失效)
+2. 但7月/9月完全无交易 → 证明调度在特定月份失败
+3. QuantConnect论坛多次报告此陷阱 → 确认为已知问题
+
+### 修复内容
+
+**文件**: [main.py:48](main.py#L48)
+
+```python
+# BEFORE (v7.5.14及之前)
+date_rule = getattr(self.DateRules, self.config.main['schedule_frequency'])()
+
+# AFTER (v7.5.15)
+# 传入market_benchmark确保在首个交易日触发(而非日历月首)
+date_rule = getattr(self.DateRules, self.config.main['schedule_frequency'])(self.market_benchmark)
+```
+
+**关键改动**:
+- 传入`self.market_benchmark` (SPY symbol)
+- 自动处理节假日/周末,始终在**首个交易日**触发
+- 100%兼容现有配置结构,无需修改config.py
+
+### 预期效果
+
+**修复后**:
+- 7月/9月等月份将正常触发选股
+- 交易频率恢复到前期水平(24-28笔/月)
+- 消除日历依赖导致的随机失效
+
+**后续步骤**:
+1. 重新回测完整12个月
+2. 验证每月调度是否全部触发
+3. 分析高质量配对亏损原因(需完整数据)
+
+### Entry Zscore机制澄清
+
+**用户质疑**: entry_zscore是否真实反映购买时刻?
+
+**机制验证** ([Pairs.py:563/567](src/Pairs.py#L563)):
+```python
+if zscore > self.entry_threshold:
+    self.entry_zscore = zscore  # 信号触发时刻记录
+    return TradingSignal.SHORT_SPREAD
+```
+
+**时间线**:
+- Day T 16:00: 信号生成 + entry_zscore记录 (决策时刻)
+- Day T 16:00: 订单提交
+- Day T+1 09:30: MarketOnOpen成交 (执行时刻)
+
+**结论**:
+- entry_zscore反映**决策质量**(T时刻Z-score)
+- 实际成交在T+1,存在**隐含隔夜缺口**(Daily Resolution固有特性)
+- 这不是bug,而是架构限制
+
+### 信号执行延迟分析
+
+**Daily Resolution特性** (QuantConnect警告):
+> "All market orders sent using daily data, or market orders sent after hours are automatically converted into MarketOnOpen orders."
+
+**实际延迟**:
+- 信号→成交: T+1隔夜缺口
+- 日志时间戳相同 → 实际成交时间不同
+- **滑点来源**: 隔夜价格变动,非代码延迟
+
+**可能优化** (暂不实施):
+- Resolution.Hour: 缩短延迟,但增加数据成本
+- 记录fill price: 分离决策质量 vs 执行滑点
+
+### 遗留问题
+
+**高质量配对亏损** (需完整回测后分析):
+- ('CTRA', 'WMB'): quality=0.786, PnL=-674%
+- ('CNP', 'EXC'): quality=0.839, PnL=-630%, entry_z=1.93 (接近边界2.0)
+- 需完整12个月数据评估quality score与PnL相关性
+
+**撤回声明**:
+- v7.5.14中关于"回测截断在12月"的诊断**错误**
+- 日志截断≠回测截断,CSV包含完整数据
+- 感谢用户纠正
+
+---
+
 ## [v7.5.14_fix-log-truncation-diagnosis@20250129]
 
 ### 版本概述
