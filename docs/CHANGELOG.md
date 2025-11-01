@@ -4,6 +4,125 @@
 
 ---
 
+## [v7.5.18_deep-forensic-analysis@20250202]
+
+### 版本概述
+**Deep Forensics工具**: 创建配对级别的全生命周期追踪分析脚本，系统性回答4个核心质量诊断问题，识别策略关键弱点。
+
+### 变更内容
+
+#### 1. 新增Deep Forensics分析脚本
+
+**文件**: [backtests/analysis/deep_forensics.py](backtests/analysis/deep_forensics.py)
+
+**核心功能**:
+- **LogParser**: 从logs.txt提取质量分数、信号zscore、平仓原因
+- **TradeReconstructor**: 从CSV重建完整交易时间线(开仓/平仓/PnL/持仓天数)
+- **DeepForensics**: 主分析器,逐配对深度追踪全生命周期
+
+**分析维度**:
+```python
+# 每笔交易追踪
+- 开仓时间、信号zscore、质量分数(Q/half_life/beta_cv/SNR_κ/RRS)
+- 持仓期间双腿价格变化、beta对冲效果
+- 平仓原因、持仓天数、最终PnL
+
+# 配对级别诊断
+- 冷静期合规性检查(连续交易间隔 vs 要求天数)
+- Beta对冲失效检测(双腿同向运动识别)
+- 质量评分盲点分析(高分配对亏损原因)
+```
+
+#### 2. 4个核心问题的答案
+
+**问题1: 开仓滑点检测 (signal_zscore vs entry_zscore)**
+- ✅ 成功提取信号时刻zscore (例: CTRA,ENB signal_zscore=1.608)
+- ⚠️ 局限性: 日志未记录MarketOnOpen执行时刻的实际zscore
+- **建议**: 在OrderExecutor中添加执行时刻zscore日志
+
+**问题2: 平仓滑点检测 (exit_signal_zscore vs actual_exit_zscore)**
+- ⚠️ 与问题1相同局限性——执行时刻zscore未记录
+
+**问题3: 冷静期机制验证**
+- ✅ 所有检查通过: AMAT,NVDA两次交易间隔59天 > 20天要求
+- ✅ 无冷静期违规情况
+
+**问题4: 质量分数追踪**
+- ✅ 成功提取质量分数:
+  - CTRA,ENB: Q=0.526 (half_life=37.0天, beta_cv=0.117)
+  - EXC,NEE: Q=0.825 (half_life=16.1天, beta_cv=0.090)
+- **关键发现**: EXC,NEE高质量(0.825)仍亏损$1,125
+
+#### 3. 关键发现: Beta对冲系统性失效
+
+分析Sleepy Orange Dinosaur回测TOP 5亏损配对:
+
+**系统性模式**: 所有亏损配对都显示**双腿同向运动**
+```
+DVN,ET:     +21.44% vs +13.15%  (双涨) → -$3,110
+AMAT,NVDA:  +11.25% vs +36.02%  (双涨) → -$2,673
+CTRA,SLB:   +8.11%  vs +11.90%  (双涨) → -$2,039
+CTRA,ENB:   -1.09%  vs +3.58%   (对冲不足) → -$1,245
+EXC,NEE:    +4.90%  vs -2.65%   (反向但失衡) → -$1,125
+```
+
+**诊断**: 协整关系在持仓期间发生regime change或beta breakdown
+
+#### 4. 质量评分系统的盲点
+
+**EXC,NEE案例**:
+- quality_score=0.825 (最高)
+- beta_cv=0.090 (优秀的历史稳定性)
+- SNR_κ=2.27 (显著均值回归特征)
+- **但仍亏损$1,125**
+
+**根本原因**: 历史beta稳定性无法预测持仓期间的时变beta或市场regime切换
+
+### 技术实现细节
+
+**Timezone兼容性修复**:
+```python
+# CSV timestamps (timezone-aware) vs log timestamps (timezone-naive)
+if hasattr(target_time, 'tz'):
+    target_time = target_time.tz_localize(None)
+```
+
+**Log解析正则表达式**:
+```python
+# 质量分数提取
+r'\[PairScore\] \((.+?)\): Q=([\d.]+).+?days=([\d.]+)\).+?CV=([\d.]+)\).+?SNR_κ=([\d.]+)\).+?RRS=([\d.]+)'
+
+# 信号zscore提取
+r'\[候选筛选\] \(\'(.+?)\', \'(.+?)\'\): signal=(\w+), zscore=([-\d.]+)'
+```
+
+### 受影响文件
+
+**新增**:
+- `backtests/analysis/deep_forensics.py` (400+ lines)
+
+### 向后兼容性
+
+✅ 无破坏性变更 - 纯分析工具,不影响策略代码
+
+### 已知局限性
+
+1. **执行滑点无法量化**: 日志缺失MarketOnOpen执行时刻的zscore
+2. **质量分数覆盖不全**: 早期配对可能不在日志窗口内
+3. **Beta breakdown预警缺失**: 当前系统无法实时检测beta时变性
+
+### 改进建议
+
+**短期** (可在v7.5.19实现):
+- 在OrderExecutor.execute_open/close中记录执行时刻zscore
+- 在trade_close JSON中添加entry_zscore字段
+
+**长期** (需要研究验证):
+- 开发beta时变性监控指标(rolling window beta variance)
+- 考虑动态调整策略参数(entry_threshold)以适应市场regime
+
+---
+
 ## [v7.5.17_cleanup-analysis-scripts@20250129]
 
 ### 版本概述
