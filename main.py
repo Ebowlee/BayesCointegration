@@ -44,7 +44,8 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         self.symbols = []
 
         # 选股触发调度器
-        date_rule = getattr(self.DateRules, self.config.main['schedule_frequency'])()
+        # v7.5.15: 传入market_benchmark确保在首个交易日触发(而非日历月首)
+        date_rule = getattr(self.DateRules, self.config.main['schedule_frequency'])(self.market_benchmark)
         time_rule = self.TimeRules.At(*self.config.main['schedule_time'])
         self.Schedule.On(date_rule, time_rule, Action(self.universe_selector.trigger_selection))
 
