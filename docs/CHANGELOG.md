@@ -4,6 +4,110 @@
 
 ---
 
+## [v7.5.11_add-execution-debug-logs@20250129]
+
+### 版本概述
+**诊断工具: ExecutionManager开仓流程诊断日志** - 添加详细日志定位为什么配对进入交易逻辑后无法开仓
+
+### 问题背景
+v7.5.10日志显示OnData正常运行,且显示"待开仓=2"配对,但无后续开仓日志。问题定位到`handle_normal_open_intents`和`get_entry_candidates`方法缺少诊断日志,无法追踪执行在哪一步停止。
+
+### 核心改动
+
+#### 1. get_entry_candidates 诊断增强
+**文件**: [src/execution/ExecutionManager.py:379-433](src/execution/ExecutionManager.py#L379-L433)
+
+**新增**:
+1. **入口日志** (Line 401):
+   ```python
+   self.algorithm.Debug(f"[候选筛选] 开始: 检查{len(pairs_without_position)}个无持仓配对")
+   ```
+
+2. **信号统计追踪**:
+   ```python
+   signal_stats = {'LONG_SPREAD': 0, 'SHORT_SPREAD': 0, 'WAIT': 0, 'NO_DATA': 0, 'HOLD': 0}
+   ```
+
+3. **Per-Pair信号和Z-score日志** (Lines 413-420):
+   ```python
+   zscore_str = f"{zscore:.3f}" if zscore is not None else "None"
+   self.algorithm.Debug(
+       f"[候选筛选] {pair.pair_id}: signal={signal.name}, zscore={zscore_str}, quality={pair.quality_score:.3f}"
+   )
+   ```
+
+4. **完成总结日志** (Lines 428-433):
+   ```python
+   self.algorithm.Debug(
+       f"[候选筛选] 完成: {len(candidates)}个开仓候选 | "
+       f"信号分布: LONG={signal_stats['LONG_SPREAD']}, SHORT={signal_stats['SHORT_SPREAD']}, "
+       f"WAIT={signal_stats['WAIT']}, NO_DATA={signal_stats['NO_DATA']}"
+   )
+   ```
+
+#### 2. handle_normal_open_intents 诊断增强
+**文件**: [src/execution/ExecutionManager.py:436-521](src/execution/ExecutionManager.py#L436-L521)
+
+**Step 1: 候选获取** (Lines 438-446):
+- **成功**: `[开仓流程] Step 1成功: 获得N个候选`
+- **失败**: `[开仓流程] Step 1失败: 无开仓候选`
+
+**Step 2: 资金分配** (Lines 448-455):
+- **成功**: `[开仓流程] Step 2成功: 分配N个配对, 总金额=$XXX.XX`
+- **失败**: `[开仓流程] Step 2失败: 资金分配失败 (MarginRemaining=XXX.XX)` (包含MarginRemaining可见性)
+
+**Step 3: 执行开仓** (Lines 458-505):
+新增`skip_stats`字典追踪所有跳过原因:
+```python
+skip_stats = {
+    'locked': 0,           # 订单锁定
+    'risk_cooldown': 0,    # 风险冷却期
+    'normal_cooldown': 0,  # 交易冷却期
+    'intent_failed': 0,    # Intent生成失败
+    'execute_failed': 0    # OrderExecutor执行失败
+}
+```
+
+Per-Pair跳过/成功日志:
+- `[开仓跳过] {pair_id} 订单锁定`
+- `[开仓跳过] {pair_id} 在风险冷却期`
+- `[开仓跳过] {pair_id} 在交易冷却期`
+- `[开仓跳过] {pair_id} Intent生成失败`
+- `[开仓成功] {pair_id} 分配=$XXX.XX`
+- `[开仓失败] {pair_id} OrderExecutor执行失败`
+
+**Step 4: 完成总结** (Lines 507-521):
+```python
+self.algorithm.Debug(
+    f"[开仓流程] 完成: 成功开仓{actual_opened}/{len(allocations)}个配对 | "
+    f"跳过统计: 锁定={skip_stats['locked']}, 风险冷却={skip_stats['risk_cooldown']}, "
+    f"交易冷却={skip_stats['normal_cooldown']}, Intent失败={skip_stats['intent_failed']}, "
+    f"执行失败={skip_stats['execute_failed']}"
+)
+```
+
+### 诊断价值
+
+**可识别的失败点**:
+1. **信号问题**: Z-score不在[1.0, 2.0]区间 → `WAIT`信号 → 无候选
+2. **资金不足**: MarginRemaining太低 → Step 2失败
+3. **冷却期阻塞**: 风险冷却或交易冷却 → Per-Pair跳过
+4. **Intent失败**: `pair.get_open_intent()`返回None
+5. **执行失败**: OrderExecutor无法提交订单
+
+### 预期下步
+1. 用户运行回测 (用户负责运行)
+2. Claude分析新日志
+3. 定位精确阻塞点 (信号/资金/冷却/Intent/执行)
+4. 修复根本原因
+
+### 技术影响
+- **无功能变化**: 纯诊断日志,不影响策略逻辑
+- **性能影响**: 可忽略 (per-pair日志开销<1ms)
+- **日志增量**: 每个开仓候选配对1条详细日志 + 统计总结
+
+---
+
 ## [v7.5.10_add-ondata-debug-logs@20250129]
 
 ### 版本概述
