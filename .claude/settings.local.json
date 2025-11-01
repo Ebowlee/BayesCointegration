@@ -79,7 +79,10 @@
       "Read(//c/msys64/mingw64/bin//**)",
       "Bash(echo:*)",
       "Bash(timeout:*)",
-      "Bash(/bashes)"
+      "Bash(/bashes)",
+      "Bash(for commit in 7560e07 7fac185 a81b9ec acb1b62)",
+      "Bash(do echo \"=== Commit: $commit ===\")",
+      "Bash(done)"
     ],
     "deny": []
   },

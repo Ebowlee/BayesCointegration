@@ -246,9 +246,9 @@ class BayesianModeler:
                 # AR(1)参数（v7.5.5: 仅保留原始MCMC样本,供PairSelector按需计算）
                 'rho_samples': rho_samples,
                 # v7.5.13: 对数空间的spread和统计量 (修正:现在是对数空间)
-                'spread': log_spread,  # 修改: 现在是对数空间 (y - α - βx)
-                'residual_mean': residual_mean,  # 修改: 基于log_spread
-                'residual_std': residual_std_calc,  # 新增: spread的标准差(对数空间)
+                'spread': log_spread,                               # 修改: 现在是对数空间 (y - α - βx)
+                'residual_mean': residual_mean,                     # 修改: 基于log_spread
+                'residual_std': residual_std_calc,                  # 新增: spread的标准差(对数空间)
                 # 元信息
                 'method': 'joint_bayesian',
                 'update_time': self.algorithm.UtcTime
@@ -269,10 +269,10 @@ class BayesianModeler:
                 'beta_std': 0.0,
                 'sigma_mean': 0.01,
                 'sigma_std': 0.0,
-                'rho_samples': np.array([0.5]),  # v7.5.5: 降级默认值
-                'spread': np.array([0.0]),  # v7.5.6: 降级默认值
-                'residual_mean': 0.0,  # v7.5.9: 降级默认值
-                'residual_std': 0.05,  # v7.5.13: 降级默认值(对数空间的合理标准差)
+                'rho_samples': np.array([0.5]),             # v7.5.5: 降级默认值
+                'spread': np.array([0.0]),                  # v7.5.6: 降级默认值
+                'residual_mean': 0.0,                       # v7.5.9: 降级默认值
+                'residual_std': 0.05,                       # v7.5.13: 降级默认值(对数空间的合理标准差)
                 'method': 'joint_bayesian_failed',
                 'update_time': self.algorithm.UtcTime
             }
@@ -292,7 +292,6 @@ class BayesianModeler:
             **posterior_stats
         }
 
-        # v7.5.13: residual_std现在直接在posterior_stats中提供,无需重新映射
         return result
 
 

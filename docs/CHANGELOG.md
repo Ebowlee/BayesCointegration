@@ -4,6 +4,68 @@
 
 ---
 
+## [v7.5.17_cleanup-analysis-scripts@20250129]
+
+### 版本概述
+**文件组织清理**: 修复emoji字符导致的git push失败,重组回测分析脚本到专用文件夹,删除过时的experiments测试代码。
+
+### 变更内容
+
+#### 1. 回测分析脚本重组
+
+**新建文件夹**: `backtests/analysis/`
+
+**迁移文件**:
+```bash
+# 移除emoji并重写
+analyze_latest_backtest.py  → backtests/analysis/monthly_summary.py
+forensic_analysis.py        → backtests/analysis/pair_forensics.py
+```
+
+**Emoji替换规则**:
+```python
+# 状态标记
+✅ → [PASS]
+❌ → [FAIL]
+⚠️ → [WARNING]
+
+# 数据标记
+💰 → [PnL]
+🕐 → [Cooldown]
+⏱️ → [Delay]
+```
+
+#### 2. 删除过时文件
+
+- ❌ `experiments/` 整个文件夹 (用户确认不再需要本地测试)
+- ❌ 根目录下的原始分析脚本 (已迁移)
+
+#### 3. Git Push修复
+
+**问题**: Windows文件系统/git编码无法处理Unicode emoji字符
+```
+Error: File contents of `forensic_analysis.py` contains invalid characters near 💰
+```
+
+**解决**: 所有脚本使用纯ASCII文本标记,确保跨平台兼容性
+
+### 受影响文件
+
+**新增**:
+- `backtests/analysis/monthly_summary.py` - 月度交易统计与v7.5.15修复验证
+- `backtests/analysis/pair_forensics.py` - 高频亏损配对深度追踪
+
+**删除**:
+- `analyze_latest_backtest.py`
+- `forensic_analysis.py`
+- `experiments/` (整个文件夹)
+
+### 向后兼容性
+
+✅ 无破坏性变更 - 仅文件位置调整,核心代码逻辑不变
+
+---
+
 ## [v7.5.16_re-enable-debug-mode@20250129]
 
 ### 版本概述

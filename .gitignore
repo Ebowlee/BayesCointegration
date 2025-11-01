@@ -53,10 +53,14 @@ docs/architecture_books_recommendation.md
 tools/**/__pycache__/
 tools/**/*.pyc
 
-# Prevent analysis scripts from being added to backtests/ folder
-# (Keep scripts in tools/, not in backtests/)
+# Prevent analysis scripts from being added to backtests/ root
+# (Keep scripts in backtests/analysis/, not in backtests/)
 backtests/*.py
 backtests/*.txt
 !backtests/*_logs.txt
 !backtests/*_trades.csv
 !backtests/*.json
+
+# Allow backtests/analysis/ folder (v7.5.17: new location for analysis scripts)
+!backtests/analysis/
+!backtests/analysis/*.py
