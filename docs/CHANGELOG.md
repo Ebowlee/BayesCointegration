@@ -110,6 +110,159 @@ def _calculate_half_life_score(self, model_result):
 
 ---
 
+## [v7.4.3_rename-analyze-to-find-pairs@20250129]
+
+### 版本概述
+**函数命名优化** - 提升CointegrationAnalyzer函数语义精确度
+
+### 核心改动
+- **函数重命名**: `_analyze_industry_group` → `_find_cointegrated_pairs_in_group`
+- **文档更新**: 更新函数文档字符串和调用处注释
+- **语义增强**: 新名称明确体现函数职责(查找+协整+配对+作用域)
+
+### 影响文件
+- [src/analysis/CointegrationAnalyzer.py](src/analysis/CointegrationAnalyzer.py): 4行修改
+
+### 设计理念
+原名称"analyze"过于抽象,新名称清晰传达函数职责:在特定子行业内查找协整配对。
+
+---
+
+## [v7.4.2_refactor-ar1-config-and-method-order@20250129]
+
+### 版本概述
+**配置化AR(1)参数** + **代码组织优化**
+
+### 核心改动
+
+#### 1. AR(1)参数配置化
+- **config.py**: 新增 `bayesian_priors['ar1']` 配置项
+  - `lambda_mu`, `lambda_sigma`: AR(1)先验参数
+  - `sigma_ar`: AR(1)噪声标准差
+  - MCMC采样配置: draws/tune
+- **BayesianModeler.py**: 读取并使用AR(1)配置参数,消除硬编码
+
+#### 2. 代码重组
+- **方法排序**: 按调用依赖关系重排(主流程 → 先验 → 建模 → 结果 → 辅助)
+- **注释增强**: AR(1)数组切片注释(`spread_lag`/`spread_curr`)
+- **文档修正**: validity_days注释修正(OLS→uninformed)
+
+### 影响文件
+- [src/analysis/BayesianModeler.py](src/analysis/BayesianModeler.py): 90行重组
+- [src/config.py](src/config.py): 新增AR(1)配置块
+
+### 优化效益
+- **可维护性提升**: AR(1)参数集中管理,易于调参实验
+- **可读性增强**: 方法按逻辑分组,代码导航更直观
+
+---
+
+## [v7.4.1_cleanup-ols-residuals@20250129]
+
+### 版本概述
+**先验系统简化** - 删除OLS弱信息先验分支
+
+### 核心改动
+- **先验策略简化**: 三级策略(历史后验/OLS/无信息) → 二级策略(历史后验/无信息)
+- **代码删除**:
+  - 删除 `_select_prior()` Level 2 OLS分支
+  - 删除 `_create_ols_prior()` 方法(28行)
+- **Bug修复**: 修复 `quality_score` KeyError
+- **日志简化**: `_log_statistics()` 输出格式精简
+
+### 影响文件
+- [src/analysis/BayesianModeler.py](src/analysis/BayesianModeler.py): 删除28行,修改13行
+
+### 设计理念
+v7.4.0架构调整后,CointegrationAnalyzer不再生成OLS参数,OLS先验分支成为死代码,果断删除保持代码整洁。
+
+---
+
+## [v7.4.0_bayesian-scoring-refactor@20250129]
+
+### 版本概述
+**架构重构** - BayesianModeler前置 + AR(1)增强 + 四维评分系统
+
+本版本完成重大架构调整,将贝叶斯建模提前至筛选前,所有协整对(~100个)先经过MCMC估计,再基于贝叶斯后验参数进行质量评分筛选(~30个)。
+
+### 核心改动
+
+#### 1. 分析流程调整 ⭐
+**main.py**: 调换步骤4(BayesianModeler)和步骤5(PairSelector)顺序
+- **旧流程**: CointegrationAnalyzer(OLS) → PairSelector(OLS评分) → BayesianModeler(MCMC精细估计)
+- **新流程**: CointegrationAnalyzer → BayesianModeler(全量MCMC) → PairSelector(贝叶斯评分)
+- **性能代价**: MCMC计算量3.3倍增加(30→100 pairs)
+- **质量提升**: 评分基于准确的贝叶斯参数,而非OLS近似
+
+#### 2. BayesianModeler增强 - AR(1)模型拟合
+新增 `_fit_ar1_model()` 方法:
+- **模型**: `spread_t = lambda * spread_{t-1} + epsilon`
+- **输出**: `lambda_mean`, `lambda_std`, `lambda_t_stat` (均值回归强度指标)
+- **采样**: 300 draws + 200 tune, 2 chains (性能优化配置)
+
+后验统计扩展:
+- `_extract_posterior_stats()` 集成AR(1)参数
+- 自动计算价差并拟合AR(1)模型
+- 容错处理: AR(1)失败时返回默认值(0.0)
+
+#### 3. PairSelector重构 - 四维评分系统
+
+**签名变更**:
+```python
+# 修改前: selection_procedure(raw_pairs, ...)
+# 修改后: selection_procedure(modeling_results, ...)
+```
+
+**evaluate_quality() 完全重写**:
+- **Half-life v2** (30%): 使用AR(1) lambda直接计算半衰期
+- **Beta stability** (25%): 后验标准差衡量对冲比率稳定性
+- **Mean-reversion certainty** (30%): lambda t统计量衡量AR(1)显著性
+- **Residual quality** (15%): 残差标准差替代volatility_ratio
+
+**新增四个评分方法**:
+- `_calculate_half_life_score_v2()`: 梯形函数,复用AR(1) lambda
+- `_calculate_beta_stability_score()`: 指数衰减函数
+- `_calculate_mean_reversion_certainty_score()`: 分段线性插值
+- `_calculate_residual_quality_score()`: 对数变换
+
+**删除旧方法**:
+- `_calculate_volatility_ratio_score()` (理论缺陷:单位不一致)
+
+#### 4. 配置更新 - 四维权重与阈值
+
+**质量权重** (config.py `quality_weights`):
+```python
+{
+    'half_life': 0.30,                      # 使用贝叶斯beta和AR(1) lambda
+    'beta_stability': 0.25,                 # 后验标准差
+    'mean_reversion_certainty': 0.30,       # lambda t统计量
+    'residual_quality': 0.15                # 残差标准差
+}
+```
+
+**评分阈值** (config.py `scoring_thresholds`):
+```python
+{
+    'beta_stability': {'decay_factor': 10.0},                    # 指数衰减
+    'mean_reversion_certainty': {'min_t_stat': 2.0, 'max_t_stat': 5.0},  # 线性插值
+    'residual_quality': {'min_std': 0.01, 'max_std': 0.20}      # 对数变换
+}
+```
+
+### 影响文件
+- [main.py](main.py): 分析流程顺序调整(14行)
+- [src/analysis/BayesianModeler.py](src/analysis/BayesianModeler.py): AR(1)模型集成(+73行)
+- [src/analysis/PairSelector.py](src/analysis/PairSelector.py): 四维评分系统重写(289行重构)
+- [src/config.py](src/config.py): 新增评分权重和阈值配置(+18行)
+
+### 架构优势
+1. **统计意义**: 所有指标都有明确的统计解释(后验分布/t统计量/残差分析)
+2. **理论改进**: 移除volatility_ratio的单位不一致问题
+3. **质量保证**: 基于MCMC后验的评分比OLS更准确
+4. **性能权衡**: 主MCMC 100 pairs + AR(1) 100 pairs × 600 samples (可接受)
+
+---
+
 ## [v7.3.1_pair-drawdown-dynamic-cooldown@20251028]
 
 ### 版本概述
