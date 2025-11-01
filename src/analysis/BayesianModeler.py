@@ -224,11 +224,15 @@ class BayesianModeler:
             sigma_mean = float(np.mean(trace['sigma_eta']))
             sigma_std = float(np.std(trace['sigma_eta']))
 
-            # v7.5.6: 计算spread (协整残差,供PairSelector评分使用)
-            spread = y_data - beta_mean * x_data
+            # v7.5.13: 对数空间的spread计算 (与Pairs.get_zscore()一致)
+            # y_data, x_data已经是np.log(price),所以直接计算对数空间残差
+            log_spread = y_data - (alpha_mean + beta_mean * x_data)
 
-            # v7.5.9: 计算残差均值 (供Pairs.get_zscore()进行Z-score标准化)
-            residual_mean = float(np.mean(spread))
+            # 残差均值 (对数空间,供Pairs.get_zscore()标准化)
+            residual_mean = float(np.mean(log_spread))
+
+            # 残差标准差 (对数空间,替代sigma_mean用于Z-score标准化)
+            residual_std_calc = float(np.std(log_spread))
 
             # 构建后验统计字典
             stats = {
@@ -241,10 +245,10 @@ class BayesianModeler:
                 'sigma_std': sigma_std,
                 # AR(1)参数（v7.5.5: 仅保留原始MCMC样本,供PairSelector按需计算）
                 'rho_samples': rho_samples,
-                # v7.5.6: 协整残差 (供PairSelector计算RRS使用)
-                'spread': spread,
-                # v7.5.9: 残差均值 (供Pairs.get_zscore()进行Z-score标准化)
-                'residual_mean': residual_mean,
+                # v7.5.13: 对数空间的spread和统计量 (修正:现在是对数空间)
+                'spread': log_spread,  # 修改: 现在是对数空间 (y - α - βx)
+                'residual_mean': residual_mean,  # 修改: 基于log_spread
+                'residual_std': residual_std_calc,  # 新增: spread的标准差(对数空间)
                 # 元信息
                 'method': 'joint_bayesian',
                 'update_time': self.algorithm.UtcTime
@@ -268,6 +272,7 @@ class BayesianModeler:
                 'rho_samples': np.array([0.5]),  # v7.5.5: 降级默认值
                 'spread': np.array([0.0]),  # v7.5.6: 降级默认值
                 'residual_mean': 0.0,  # v7.5.9: 降级默认值
+                'residual_std': 0.05,  # v7.5.13: 降级默认值(对数空间的合理标准差)
                 'method': 'joint_bayesian_failed',
                 'update_time': self.algorithm.UtcTime
             }
@@ -287,9 +292,7 @@ class BayesianModeler:
             **posterior_stats
         }
 
-        # 字段映射: PairSelector期望residual_std (实际为sigma_mean)
-        result['residual_std'] = posterior_stats['sigma_mean']
-
+        # v7.5.13: residual_std现在直接在posterior_stats中提供,无需重新映射
         return result
 
 
