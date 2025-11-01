@@ -22,8 +22,6 @@ class BayesianModeler:
         """
         self.algorithm = algorithm
         self.lookback_days = shared_config['lookback_days']
-        self.mcmc_warmup_samples = module_config['mcmc_warmup_samples']
-        self.mcmc_posterior_samples = module_config['mcmc_posterior_samples']
         self.mcmc_chains = module_config['mcmc_chains']
         self.bayesian_priors = module_config['bayesian_priors']
         self.joint_config = self.bayesian_priors['joint_single_stage']
@@ -110,7 +108,7 @@ class BayesianModeler:
 
 
     def _create_historical_prior(self, pair_key: tuple) -> Dict:
-        """创建历史后验先验"""
+        """创建历史后验先验（v7.5.8: 统一使用joint_config的1000/1000采样）"""
         config = self.bayesian_priors['informed']
         historical = self.historical_posteriors[pair_key]
 
@@ -125,13 +123,13 @@ class BayesianModeler:
             'beta_mu': historical['beta_mean'],
             'beta_sigma': historical['beta_std'],
             'sigma_sigma': sigma_prior,
-            'tune': int(self.mcmc_warmup_samples * config['sample_reduction_factor']),
-            'draws': int(self.mcmc_posterior_samples * config['sample_reduction_factor']),
+            'tune': self.joint_config['mcmc_warmup'],    # 统一使用1000
+            'draws': self.joint_config['mcmc_draws'],    # 统一使用1000
         }
 
 
     def _create_uninformed_prior(self) -> Dict:
-        """创建完全无信息先验"""
+        """创建完全无信息先验（v7.5.8: 统一使用joint_config的1000/1000采样）"""
         config = self.bayesian_priors['uninformed']
 
         return {
@@ -140,8 +138,8 @@ class BayesianModeler:
             'beta_mu': 1,
             'beta_sigma': config['beta_sigma'],
             'sigma_sigma': config['sigma_sigma'],
-            'tune': self.mcmc_warmup_samples,
-            'draws': self.mcmc_posterior_samples,
+            'tune': self.joint_config['mcmc_warmup'],    # 统一使用1000
+            'draws': self.joint_config['mcmc_draws'],    # 统一使用1000
         }
 
 

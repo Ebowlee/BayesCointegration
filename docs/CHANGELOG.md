@@ -4,6 +4,170 @@
 
 ---
 
+## [v7.5.8_unify-mcmc-sampling@20250201]
+
+### 版本概述
+**MCMC采样配置统一** - 删除冗余顶层配置,统一所有先验使用1000/1000采样
+
+本版本消除了配置冗余,简化了MCMC采样参数管理。所有先验(无信息/历史后验)现在统一使用`joint_single_stage`的1000 warmup + 1000 draws配置,避免了参数混淆和维护成本。
+
+### 核心改动
+
+#### 1. 删除冗余顶层MCMC配置 ⭐
+
+**设计理念**: 单一配置源,避免多层级参数混淆
+
+**文件**: [src/config.py:156-178](src/config.py#L156-L178)
+
+**配置变更**:
+```python
+# 修改前 (v7.5.7) - 双重配置
+self.bayesian_modeler = {
+    'mcmc_warmup_samples': 500,       # ← 删除(冗余)
+    'mcmc_posterior_samples': 500,    # ← 删除(冗余)
+    'mcmc_chains': 2,                 # ✓ 保留
+
+    'bayesian_priors': {
+        'informed': {
+            'sample_reduction_factor': 0.5,  # ← 删除(不再降采样)
+            # ...
+        },
+        'joint_single_stage': {
+            'mcmc_warmup': 1000,      # ✓ 统一使用
+            'mcmc_draws': 1000,       # ✓ 统一使用
+            # ...
+        }
+    }
+}
+
+# 修改后 (v7.5.8) - 统一配置
+self.bayesian_modeler = {
+    'mcmc_chains': 2,                 # ✓ 保留
+
+    'bayesian_priors': {
+        'informed': {
+            'sigma_multiplier': 2.0,
+            'validity_days': 60
+            # sample_reduction_factor已删除
+        },
+        'joint_single_stage': {       # ← 所有先验统一使用
+            'mcmc_warmup': 1000,      # 无信息/历史后验均使用
+            'mcmc_draws': 1000,       # 无信息/历史后验均使用
+            # ...
+        }
+    }
+}
+```
+
+**删除配置**:
+- `mcmc_warmup_samples`: 顶层预热样本数(500) - 已删除
+- `mcmc_posterior_samples`: 顶层后验样本数(500) - 已删除
+- `sample_reduction_factor`: 历史后验降采样因子(0.5) - 已删除
+
+**保留配置**:
+- `mcmc_chains`: MCMC链数(2) - 保留
+- `joint_single_stage.mcmc_warmup`: 统一预热样本数(1000)
+- `joint_single_stage.mcmc_draws`: 统一后验样本数(1000)
+
+#### 2. 简化BayesianModeler初始化
+
+**文件**: [src/analysis/BayesianModeler.py:14-28](src/analysis/BayesianModeler.py#L14-L28)
+
+**代码变更**:
+```python
+# 修改前
+def __init__(self, algorithm, shared_config: dict, module_config: dict):
+    self.mcmc_warmup_samples = module_config['mcmc_warmup_samples']      # ← 删除
+    self.mcmc_posterior_samples = module_config['mcmc_posterior_samples']  # ← 删除
+    self.mcmc_chains = module_config['mcmc_chains']                      # ✓ 保留
+    # ...
+
+# 修改后
+def __init__(self, algorithm, shared_config: dict, module_config: dict):
+    self.mcmc_chains = module_config['mcmc_chains']  # ✓ 保留
+    # ...
+```
+
+#### 3. 统一先验创建方法
+
+**文件**: [src/analysis/BayesianModeler.py:110-143](src/analysis/BayesianModeler.py#L110-L143)
+
+**代码变更**:
+```python
+# 修改前 - _create_historical_prior()
+return {
+    # ...
+    'tune': int(self.mcmc_warmup_samples * config['sample_reduction_factor']),  # 500*0.5=250
+    'draws': int(self.mcmc_posterior_samples * config['sample_reduction_factor']),  # 500*0.5=250
+}
+
+# 修改后 - _create_historical_prior()
+return {
+    # ...
+    'tune': self.joint_config['mcmc_warmup'],   # 统一使用1000
+    'draws': self.joint_config['mcmc_draws'],   # 统一使用1000
+}
+
+# 修改前 - _create_uninformed_prior()
+return {
+    # ...
+    'tune': self.mcmc_warmup_samples,   # 500
+    'draws': self.mcmc_posterior_samples,  # 500
+}
+
+# 修改后 - _create_uninformed_prior()
+return {
+    # ...
+    'tune': self.joint_config['mcmc_warmup'],   # 统一使用1000
+    'draws': self.joint_config['mcmc_draws'],   # 统一使用1000
+}
+```
+
+### 技术影响
+
+#### 采样数变化
+- **无信息先验**: 500/500 → 1000/1000 (+100%)
+- **历史后验**: 250/250 → 1000/1000 (+300%)
+- **生产模型**: 1000/1000 → 1000/1000 (无变化)
+
+#### 性能影响
+- 首次建模(无信息先验): 采样耗时增加~100%
+- 重复建模(历史后验): 采样耗时增加~300%
+- 收敛质量: 更多样本提升后验估计稳定性
+
+#### 代码简化
+- 删除2个顶层配置参数
+- 删除1个降采样因子参数
+- 删除2行__init__代码
+- 简化2个先验创建方法
+
+### 设计理念
+
+#### 为什么统一到1000/1000?
+1. **单一联合建模**: v7.4.0重构后,所有建模都通过`_fit_joint_model()`执行,生产配置统一为1000/1000
+2. **复杂度匹配**: 联合模型同时估计β, α, ρ三个参数,1000/1000采样量适配复杂度
+3. **避免降采样**: 历史后验的250/250采样过少,可能导致后验估计不稳定
+4. **配置一致性**: 消除"顶层500 vs joint 1000"的混淆,降低维护成本
+
+#### 删除sample_reduction_factor的理由
+1. **不再需要降采样**: 历史后验本身已有强信息(历史均值/标准差),无需通过减少采样加速
+2. **1000/1000不算多**: 相比MCMC标准实践(通常5000-10000),1000已是轻量级配置
+3. **收敛稳定性优先**: 宁可多采样确保收敛,也不降采样冒险
+
+### 兼容性
+- **向后兼容**: ✓ 不影响已存储的`historical_posteriors`
+- **配置迁移**: ✗ 依赖旧配置的外部脚本需更新(删除`mcmc_warmup_samples`, `mcmc_posterior_samples`)
+
+### 测试建议
+1. 对比v7.5.7 vs v7.5.8的建模结果:
+   - 后验估计的均值/标准差是否稳定
+   - 采样耗时增加是否可接受
+2. 监控历史后验建模:
+   - 1000/1000采样是否过度(实际可能~500即收敛)
+   - 若过度,可通过调整`joint_config.mcmc_warmup/draws`全局控制
+
+---
+
 ## [v7.5.7_cleanup-stats-dict@20250129]
 
 ### 版本概述

@@ -154,9 +154,7 @@ class StrategyConfig:
 
         # 4. 贝叶斯建模模块
         self.bayesian_modeler = {
-            # MCMC采样参数（v7.5.2调整：800/800→500/500，与单阶段模型公平对比）
-            'mcmc_warmup_samples': 500,                 # 预热样本数（Stage 1）
-            'mcmc_posterior_samples': 500,              # 后验样本数（Stage 1）
+            # MCMC采样参数（v7.5.8统一：删除冗余顶层配置，统一使用joint_single_stage的1000/1000）
             'mcmc_chains': 2,                           # MCMC链数
 
             # 先验配置
@@ -168,13 +166,12 @@ class StrategyConfig:
                 },
                 'informed': {                           # 历史后验先验(强信息,重复建模时使用)
                     'sigma_multiplier': 2.0,            # sigma放大系数
-                    'sample_reduction_factor': 0.5,     # 采样减少比例
                     'validity_days': 60                 # 历史后验有效期: 上次建模后60天内,复用后验加速收敛; 超过60天则协整关系可能漂移,降级到uninformed prior重新建模
                 },
-                'joint_single_stage': {                 # 单阶段联合模型配置(v7.5.3: 统一使用rho)
+                'joint_single_stage': {                 # 单阶段联合模型配置(v7.5.3: 统一使用rho; v7.5.8: 统一MCMC采样配置)
                     'sigma_ar': 0.1,                    # AR(1)噪声HalfNormal参数(预期小噪声,log价差残差通常0.01-0.10)
-                    'mcmc_warmup': 1000,                # MCMC预热样本数
-                    'mcmc_draws': 1000,                 # MCMC后验样本数
+                    'mcmc_warmup': 1000,                # MCMC预热样本数（所有先验统一使用）
+                    'mcmc_draws': 1000,                 # MCMC后验样本数（所有先验统一使用）
                     'enable': True                      # 是否启用联合模型(默认启用)
                 }
             }
