@@ -4,6 +4,97 @@
 
 ---
 
+## [v7.5.10_add-ondata-debug-logs@20250129]
+
+### 版本概述
+**诊断工具: OnData执行流诊断日志** - 添加详细日志来定位零交易回测的根本原因
+
+### 问题背景
+回测结果显示零交易(total_trades=0),但配对创建成功(33对配对)。日志缺失导致无法判断OnData是否被触发,或被哪个early return条件阻止。
+
+### 核心改动
+
+#### 1. OnData入口日志
+**文件**: [main.py:185](main.py#L185)
+
+**新增**:
+```python
+# Debug: 确认OnData被调用
+self.Debug(f"[OnData] 触发 - Bars={data.Bars.Count}, is_analyzing={self.is_analyzing}")
+```
+
+**诊断价值**:
+- 验证OnData是否被QC框架调用
+- 显示当前数据Bars数量
+- 显示is_analyzing标志状态
+
+#### 2. Early Return条件追踪
+**文件**: [main.py:189-213](main.py#L189-L213)
+
+**新增日志点**:
+1. **正在分析配对** (Line 189):
+   ```python
+   self.Debug(f"[OnData] 跳过 - 正在分析配对")
+   ```
+
+2. **Portfolio风控冷却期** (Line 195):
+   ```python
+   self.Debug(f"[OnData] 跳过 - Portfolio风控冷却期")
+   ```
+
+3. **触发Portfolio风控** (Line 204):
+   ```python
+   self.Debug(f"[OnData] 触发Portfolio风控 - {triggered_rule}")
+   ```
+
+4. **无可交易配对** (Line 213):
+   ```python
+   self.Debug(f"[OnData] 跳过 - 无可交易配对")
+   ```
+
+#### 3. 交易流程进度日志
+**文件**: [main.py:217-244](main.py#L217-L244)
+
+**新增**:
+1. **进入交易逻辑** (Line 217):
+   ```python
+   self.Debug(f"[OnData] 进入交易逻辑")
+   ```
+
+2. **配对状态统计** (Line 223):
+   ```python
+   self.Debug(f"[OnData] 配对状态 - 持仓={len(pairs_with_position)}, 待开仓={len(pairs_without_position)}")
+   ```
+
+3. **市场高波动拦截** (Line 244):
+   ```python
+   self.Debug(f"[OnData] 跳过开仓 - 市场高波动")
+   ```
+
+### 诊断策略
+
+**Log分析矩阵**:
+
+| 日志模式 | 诊断结论 | 下一步 |
+|---------|---------|--------|
+| 无`[OnData]`日志 | OnData未被框架调用 | 检查数据订阅/Resolution配置 |
+| 有`触发`,无后续 | Early return阻止 | 分析具体跳过原因 |
+| 有`进入交易逻辑` | 通过所有检查点 | 检查信号生成/订单执行 |
+| 有`配对状态 - 待开仓=N` | N个候选配对 | 检查开仓逻辑执行 |
+
+### 预期下步
+1. 用户运行回测 (用户负责运行)
+2. Claude分析新日志
+3. 定位具体阻塞点
+4. 修复根本原因
+
+### 技术影响
+- **无功能变化**: 纯诊断日志,不影响策略逻辑
+- **性能影响**: 可忽略 (字符串格式化开销<1ms)
+- **日志增量**: 每个OnData周期最多8条日志
+
+---
+
 ## [v7.5.9_fix-residual-mean@20250201]
 
 ### 版本概述
