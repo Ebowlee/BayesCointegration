@@ -249,6 +249,8 @@ class SectorBasedUniverseSelection(FineFundamentalUniverseSelectionModel):
     # ========== 公开方法 ==========
     def trigger_selection(self):
         """触发新一轮选股"""
+        # v7.5.14: 添加调度触发日志(不受debug_mode控制,确保可见性)
+        self.algorithm.Debug(f"[选股调度] 触发第{self.fine_selection_count + 1}次选股 ({self.algorithm.Time.strftime('%Y-%m-%d')})")
         self.selection_on = True
 
 

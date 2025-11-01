@@ -23,7 +23,7 @@ class StrategyConfig:
             'schedule_time': (9, 10),                   # 9:10 AM
 
             # 开发配置
-            'debug_mode': True                          # True=开发调试(详细日志), False=生产运行(仅关键日志)
+            'debug_mode': False                         # True=开发调试(详细日志), False=生产运行(仅关键日志) | v7.5.14: 关闭避免100KB截断
         }
 
 
@@ -32,7 +32,7 @@ class StrategyConfig:
         self.universe_selection = {
             # 基础筛选
             'min_price': 10,                          # 最低股价（美元）
-            'min_volume': 1e6,                        # 最低日均成交量（股数）
+            'min_volume': 5e6,                        # 最低日均成交量（股数）
             'min_days_since_ipo': 360,                # IPO最短时间（天）
 
             # 风险指标
@@ -106,9 +106,9 @@ class StrategyConfig:
 
             # v7.4.0: 四维评分权重体系
             'quality_weights': {
-                'half_life': 0.30,                      # 均值回归速度 (使用贝叶斯beta和AR(1) lambda)
+                'half_life': 0.35,                      # 均值回归速度 (使用贝叶斯beta和AR(1) lambda)
                 'beta_stability': 0.25,                 # Beta稳定性 (后验标准差)
-                'mean_reversion_certainty': 0.30,       # AR(1)显著性 (lambda t统计量)
+                'mean_reversion_certainty': 0.25,       # AR(1)显著性 (lambda t统计量)
                 'residual_quality': 0.15                # 拟合质量 (残差标准差，替代volatility_ratio)
             },
 
@@ -249,7 +249,7 @@ class StrategyConfig:
                 'holding_timeout': {
                     'enabled': True,
                     'priority': 80,
-                    'max_days': 60,                          # 最大持仓天数
+                    'max_days': 50,                          # 最大持仓天数
                     'cooldown_days': 30                     
                 }
             }
