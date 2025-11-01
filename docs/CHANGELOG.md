@@ -4,6 +4,71 @@
 
 ---
 
+## [v7.5.12_fix-signal-attribute-error@20250129]
+
+### 版本概述
+**Bugfix**: 修复v7.5.11引入的`AttributeError: 'str' object has no attribute 'name'`运行时错误
+
+### 问题背景
+v7.5.11在`ExecutionManager.get_entry_candidates()`方法中添加诊断日志时,错误地使用`signal.name`,但`TradingSignal`是字符串常量类,返回的`signal`本身就是字符串(如`'LONG_SPREAD'`),不是枚举对象。
+
+### 错误堆栈
+```
+Runtime Error: 'str' object has no attribute 'name'
+  at get_entry_candidates
+    signal_stats[signal.name] = signal_stats.get(signal.name, 0) + 1
+ in ExecutionManager.py: line 410
+```
+
+### 核心改动
+
+**文件**: [src/execution/ExecutionManager.py](src/execution/ExecutionManager.py#L410-L416)
+
+**修复1: Line 410** (信号统计)
+```python
+# ❌ 错误(v7.5.11)
+signal_stats[signal.name] = signal_stats.get(signal.name, 0) + 1
+
+# ✅ 正确(v7.5.12)
+signal_stats[signal] = signal_stats.get(signal, 0) + 1
+```
+
+**修复2: Line 416** (日志输出)
+```python
+# ❌ 错误(v7.5.11)
+self.algorithm.Debug(
+    f"[候选筛选] {pair.pair_id}: signal={signal.name}, ..."
+)
+
+# ✅ 正确(v7.5.12)
+self.algorithm.Debug(
+    f"[候选筛选] {pair.pair_id}: signal={signal}, ..."
+)
+```
+
+### 根本原因
+
+**TradingSignal设计** ([src/constants.py:18-27](src/constants.py#L18-L27)):
+```python
+class TradingSignal:
+    """交易信号常量"""
+    LONG_SPREAD = 'LONG_SPREAD'     # 字符串常量,不是Enum
+    SHORT_SPREAD = 'SHORT_SPREAD'
+    WAIT = 'WAIT'
+    # ...
+```
+
+- `TradingSignal.LONG_SPREAD`直接返回字符串`'LONG_SPREAD'`
+- 不是Python Enum对象,没有`.name`属性
+- v7.5.11误用了Enum语法导致AttributeError
+
+### 技术影响
+- 纯bugfix,无功能变化
+- 修复后诊断日志可正常工作
+- 不影响其他模块
+
+---
+
 ## [v7.5.11_add-execution-debug-logs@20250129]
 
 ### 版本概述
