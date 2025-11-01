@@ -4,6 +4,116 @@
 
 ---
 
+## [v7.5.13_fix-zscore-log-space-consistency@20250129]
+
+### 版本概述
+**Critical Bugfix**: 修复Z-score计算的数学空间不一致导致的极端值爆炸(-150量级),恢复正常交易信号生成
+
+### 问题背景
+回测日志显示Z-score异常值(-150.203, -153.429),导致所有配对信号为WAIT,无法产生交易。诊断发现两个根本性错误:
+1. **残差空间混淆**: `residual_mean`在线性空间计算(`y - β·x`),但`log_residual`在对数空间计算(`log(y) - α - β·log(x)`)
+2. **标准差概念混淆**: `residual_std`错误使用`sigma_mean`(AR(1)噪声项),而非spread的标准差
+
+### 症状表现
+**回测日志** (Retrospective Fluorescent Pink Viper):
+```
+[候选筛选] ('CVX', 'EPD'): signal=WAIT, zscore=-150.203, quality=0.631
+[候选筛选] ('ET', 'FTI'): signal=WAIT, zscore=-153.429, quality=0.830
+```
+- Z-score应在±3范围,实际-150量级(爆炸50倍)
+- 全部配对signal=WAIT(Z-score超出[1.0, 2.0]入场阈值)
+- 整个回测期间零交易
+
+### 数学原理分析
+
+**错误机制** (v7.5.12及之前):
+```python
+# BayesianModeler (线性空间)
+spread = y_data - beta_mean * x_data  # y, x是价格(如$100量级)
+residual_mean = np.mean(spread)        # 均值约$100
+residual_std = sigma_mean              # AR(1)噪声项(约0.001)
+
+# Pairs.get_zscore() (对数空间)
+log_residual = np.log(price1) - (alpha + beta * np.log(price2))  # 无量纲(约0.05)
+zscore = (log_residual - residual_mean) / residual_std
+       = (0.05 - 100) / 0.001 ≈ -100,000  # 量纲不匹配导致爆炸
+```
+
+**正确计算** (v7.5.13):
+```python
+# BayesianModeler (对数空间,与Pairs一致)
+log_spread = y_data - (alpha_mean + beta_mean * x_data)  # y,x已是np.log(price)
+residual_mean = np.mean(log_spread)        # 对数空间均值(约0.001)
+residual_std_calc = np.std(log_spread)     # 对数空间标准差(约0.05)
+
+# Pairs.get_zscore() (对数空间)
+log_residual = np.log(price1) - (alpha + beta * np.log(price2))
+zscore = (log_residual - residual_mean) / residual_std
+       = (0.05 - 0.001) / 0.05 ≈ 1.0  # 正常范围
+```
+
+### 核心改动
+
+**文件**: [src/analysis/BayesianModeler.py](src/analysis/BayesianModeler.py)
+
+**改动1: 修正spread计算为对数空间** (Lines 227-235)
+```python
+# ❌ 错误(v7.5.12及之前): 线性空间
+spread = y_data - beta_mean * x_data
+residual_mean = float(np.mean(spread))
+
+# ✅ 正确(v7.5.13): 对数空间
+log_spread = y_data - (alpha_mean + beta_mean * x_data)  # y_data, x_data已经是np.log(price)
+residual_mean = float(np.mean(log_spread))
+residual_std_calc = float(np.std(log_spread))  # 新增: spread标准差
+```
+
+**改动2: 更新posterior_stats字典** (Lines 237-255)
+```python
+stats = {
+    # ...其他字段保持不变...
+    'spread': log_spread,  # 修改: 现在是对数空间 (y - α - βx)
+    'residual_mean': residual_mean,  # 修改: 基于log_spread
+    'residual_std': residual_std_calc,  # 新增: spread标准差(对数空间)
+    # ...
+}
+```
+
+**改动3: 移除错误的字段映射** (Line 294)
+```python
+# ❌ 删除(v7.5.12及之前)
+result['residual_std'] = posterior_stats['sigma_mean']  # 错误使用sigma_mean
+
+# ✅ 正确(v7.5.13): residual_std直接在posterior_stats中提供
+# (无需重新映射)
+```
+
+**改动4: 更新降级默认值** (Line 275)
+```python
+return {
+    # ...
+    'residual_std': 0.05,  # 新增: 对数空间的合理标准差(降级默认值)
+    # ...
+}
+```
+
+### 影响范围
+- **BayesianModeler**: spread计算从线性空间改为对数空间,新增residual_std字段
+- **PairSelector**: 无影响(RRS计算使用spread,现在是正确的对数空间)
+- **Pairs**: 无代码改动(但现在接收正确的residual_std,Z-score恢复正常)
+
+### 预期效果
+- Z-score回归正常范围(±3以内)
+- 配对能够正常产生LONG_SPREAD/SHORT_SPREAD信号
+- 开仓逻辑恢复正常执行
+
+### 验证建议
+1. 重新运行回测,检查Z-score数值(应在-3到+3范围)
+2. 确认诊断日志显示LONG_SPREAD/SHORT_SPREAD信号(不再全是WAIT)
+3. 验证交易数量恢复正常(不再为零)
+
+---
+
 ## [v7.5.12_fix-signal-attribute-error@20250129]
 
 ### 版本概述
