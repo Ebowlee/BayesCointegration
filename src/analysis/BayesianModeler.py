@@ -227,6 +227,9 @@ class BayesianModeler:
             # v7.5.6: 计算spread (协整残差,供PairSelector评分使用)
             spread = y_data - beta_mean * x_data
 
+            # v7.5.9: 计算残差均值 (供Pairs.get_zscore()进行Z-score标准化)
+            residual_mean = float(np.mean(spread))
+
             # 构建后验统计字典
             stats = {
                 # 协整参数
@@ -240,6 +243,8 @@ class BayesianModeler:
                 'rho_samples': rho_samples,
                 # v7.5.6: 协整残差 (供PairSelector计算RRS使用)
                 'spread': spread,
+                # v7.5.9: 残差均值 (供Pairs.get_zscore()进行Z-score标准化)
+                'residual_mean': residual_mean,
                 # 元信息
                 'method': 'joint_bayesian',
                 'update_time': self.algorithm.UtcTime
@@ -262,6 +267,7 @@ class BayesianModeler:
                 'sigma_std': 0.0,
                 'rho_samples': np.array([0.5]),  # v7.5.5: 降级默认值
                 'spread': np.array([0.0]),  # v7.5.6: 降级默认值
+                'residual_mean': 0.0,  # v7.5.9: 降级默认值
                 'method': 'joint_bayesian_failed',
                 'update_time': self.algorithm.UtcTime
             }

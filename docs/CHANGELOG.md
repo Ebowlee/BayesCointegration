@@ -4,6 +4,55 @@
 
 ---
 
+## [v7.5.9_fix-residual-mean@20250201]
+
+### 版本概述
+**Bugfix: 补全residual_mean字段** - 修复v7.5.7引入的KeyError运行时错误
+
+### 问题描述
+v7.5.7清理后验统计量时误删了`residual_mean`字段,导致Pairs初始化时抛出KeyError。该字段用于Z-score标准化公式 `z = (ε_t - μ_ε) / σ_ε`,无法假设μ_ε=0(存在有限样本偏差)。
+
+### 核心改动
+
+#### 1. BayesianModeler输出补全residual_mean
+**文件**: [src/analysis/BayesianModeler.py:230-247](src/analysis/BayesianModeler.py#L230-L247)
+
+**新增计算** (Line 230-231):
+```python
+# v7.5.9: 计算残差均值 (供Pairs.get_zscore()进行Z-score标准化)
+residual_mean = float(np.mean(spread))
+```
+
+**stats字典补全** (Line 247):
+```python
+'residual_mean': residual_mean,  # v7.5.9: 残差均值
+```
+
+**失败降级补全** (Line 270):
+```python
+'residual_mean': 0.0,  # v7.5.9: 降级默认值
+```
+
+### 数学必要性
+
+**Z-score标准化公式** (Pairs.get_zscore:535):
+```python
+zscore = (log_residual - self.residual_mean) / self.residual_std
+```
+
+**为何不能假设μ_ε=0**:
+- 有限样本偏差: 252天样本的均值可能偏离0 (典型范围±0.05到±0.15)
+- 影响示例: 若μ_ε=0.08, σ_ε=0.12, ε_t=0.20
+  - 正确: z = (0.20-0.08)/0.12 = 1.00 (触发阈值)
+  - 错误: z = 0.20/0.12 = 1.67 (虚假信号!)
+
+### 技术影响
+- **修复**: KeyError: 'residual_mean' at Pairs.py:33
+- **保证**: Z-score计算正确性 (避免系统性交易信号偏差)
+- **兼容**: 所有下游模块无需修改
+
+---
+
 ## [v7.5.8_unify-mcmc-sampling@20250201]
 
 ### 版本概述
