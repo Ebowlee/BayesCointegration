@@ -407,13 +407,13 @@ class ExecutionManager:
             signal = pair.get_signal(data)
 
             # 统计信号分布
-            signal_stats[signal.name] = signal_stats.get(signal.name, 0) + 1
+            signal_stats[signal] = signal_stats.get(signal, 0) + 1
 
             # Debug: 记录每个配对的信号和Z-score
             zscore = pair.get_zscore(data)
             zscore_str = f"{zscore:.3f}" if zscore is not None else "None"
             self.algorithm.Debug(
-                f"[候选筛选] {pair.pair_id}: signal={signal.name}, zscore={zscore_str}, quality={pair.quality_score:.3f}"
+                f"[候选筛选] {pair.pair_id}: signal={signal}, zscore={zscore_str}, quality={pair.quality_score:.3f}"
             )
 
             if signal in [TradingSignal.LONG_SPREAD, TradingSignal.SHORT_SPREAD]:
