@@ -4,6 +4,86 @@
 
 ---
 
+## [v7.5.19_phase1-config-optimization@20250202]
+
+### 版本概述
+**Phase 1配置优化**: 基于v7.5.18 Deep Forensics发现(Beta对冲系统性失效),优化BayesianModeler配置参数,提升命名一致性并缩短历史后验有效期以匹配持仓周期。
+
+### 变更内容
+
+#### 1. 配置命名统一: sigma_ar → sigma_eta_prior
+
+**修改理由**:
+- PyMC模型中变量名为`sigma_eta` (AR(1)创新噪声η的标准差)
+- 原配置键`sigma_ar`命名模糊,与模型变量不一致
+- 统一为`sigma_eta_prior`清晰表达"σ_η的先验参数"语义
+
+**修改文件**: [src/config.py:172](src/config.py#L172)
+```python
+# BEFORE
+'sigma_ar': 0.1,  # AR(1)噪声HalfNormal参数
+
+# AFTER
+'sigma_eta_prior': 0.1,  # AR(1)创新噪声η的HalfNormal先验参数(σ_η ~ HalfNormal(0.1), 预期小噪声, log价差残差通常0.01-0.10)
+```
+
+**级联更新**: [src/analysis/BayesianModeler.py:189](src/analysis/BayesianModeler.py#L189)
+```python
+# BEFORE
+sigma_eta = pm.HalfNormal('sigma_eta', sigma=self.joint_config['sigma_ar'])
+
+# AFTER
+sigma_eta = pm.HalfNormal('sigma_eta', sigma=self.joint_config['sigma_eta_prior'])
+```
+
+#### 2. 缩短历史后验有效期: 60天 → 30天
+
+**修改理由** (基于v7.5.18 Deep Forensics):
+- TOP 5亏损配对全部显示**Beta对冲失效** (双腿同向运动或对冲不足)
+- 配对平均持仓周期约30天
+- 协整关系在30天内即可发生regime change或beta breakdown
+- 60天有效期过长,导致过期历史后验被复用,降低模型适应性
+
+**修改文件**: [src/config.py:169](src/config.py#L169)
+```python
+# BEFORE
+'validity_days': 60  # 历史后验有效期: 上次建模后60天内,复用后验加速收敛
+
+# AFTER
+'validity_days': 30  # 历史后验有效期: 上次建模后30天内,复用后验加速收敛; 超过30天则协整关系可能漂移(v7.5.19: 从60天缩短至30天,匹配持仓周期),降级到uninformed prior重新建模
+```
+
+**影响**:
+- 超过30天未建模的配对将使用无信息先验重新估计参数
+- 减少stale posterior propagation风险
+- 保持模型对市场regime变化的灵敏度
+
+### 设计讨论: 为何仅α/β使用历史后验,ρ/σ_η未使用?
+
+**当前实现** ([BayesianModeler.py:110-128](src/analysis/BayesianModeler.py#L110-L128)):
+- ✅ α (cointegration intercept): 历史后验 → 先验
+- ✅ β (cointegration slope): 历史后验 → 先验
+- ❌ ρ (AR(1) autoregressive coefficient): 固定Uniform(0.01, 0.99)先验
+- ❌ σ_η (AR(1) innovation noise): 固定HalfNormal(sigma_eta_prior)先验
+
+**Phase 2/3规划** (待讨论):
+- **Phase 2** (中风险): 将ρ/σ_η历史后验也纳入先验传播机制
+- **Phase 3** (高风险): 自适应有效期+实时beta监控
+
+### 受影响文件
+
+- [src/config.py](src/config.py): 配置参数优化 (2处修改)
+- [src/analysis/BayesianModeler.py](src/analysis/BayesianModeler.py): 配置键引用更新 (1处修改)
+
+### 向后兼容性
+
+✅ **完全兼容**:
+- 参数值未改变 (sigma_eta_prior仍为0.1)
+- 仅配置键名调整,无breaking changes
+- 现有代码功能不受影响
+
+---
+
 ## [v7.5.18_deep-forensic-analysis@20250202]
 
 ### 版本概述

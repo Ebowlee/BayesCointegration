@@ -186,7 +186,7 @@ class BayesianModeler:
                 # AR(1)参数（使用rho确保平稳性）
                 # rho ∈ (0,1) 确保平稳性,直接用于计算半衰期和均值回归速度
                 rho = pm.Uniform('rho', lower=0.01, upper=0.99)
-                sigma_eta = pm.HalfNormal('sigma_eta', sigma=self.joint_config['sigma_ar'])
+                sigma_eta = pm.HalfNormal('sigma_eta', sigma=self.joint_config['sigma_eta_prior'])
 
                 # 派生量(半衰期后验分布,用于直接提取统计量)
                 half_life = pm.Deterministic('half_life', -pm.math.log(2) / pm.math.log(rho))

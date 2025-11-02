@@ -166,10 +166,10 @@ class StrategyConfig:
                 },
                 'informed': {                           # 历史后验先验(强信息,重复建模时使用)
                     'sigma_multiplier': 2.0,            # sigma放大系数
-                    'validity_days': 60                 # 历史后验有效期: 上次建模后60天内,复用后验加速收敛; 超过60天则协整关系可能漂移,降级到uninformed prior重新建模
+                    'validity_days': 30                 # 历史后验有效期: 上次建模后30天内,复用后验加速收敛; 超过30天则协整关系可能漂移(v7.5.19: 从60天缩短至30天,匹配持仓周期),降级到uninformed prior重新建模
                 },
                 'joint_single_stage': {                 # 单阶段联合模型配置(v7.5.3: 统一使用rho; v7.5.8: 统一MCMC采样配置)
-                    'sigma_ar': 0.1,                    # AR(1)噪声HalfNormal参数(预期小噪声,log价差残差通常0.01-0.10)
+                    'sigma_eta_prior': 0.1,             # AR(1)创新噪声η的HalfNormal先验参数(σ_η ~ HalfNormal(0.1), 预期小噪声, log价差残差通常0.01-0.10)
                     'mcmc_warmup': 1000,                # MCMC预热样本数（所有先验统一使用）
                     'mcmc_draws': 1000,                 # MCMC后验样本数（所有先验统一使用）
                     'enable': True                      # 是否启用联合模型(默认启用)
