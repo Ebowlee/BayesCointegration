@@ -84,6 +84,41 @@ class BayesianModeler:
 
     # ===== 先验选择 =====
 
+    def _beta_moment_matching(self, mean: float, var: float, config: dict) -> tuple:
+        """
+        Beta分布矩匹配 (v7.5.20)
+
+        Args:
+            mean: 后验均值 (ρ̄)
+            var: 后验方差 (Var(ρ))
+            config: informed配置 (包含variance_multiplier和safety系数)
+
+        Returns:
+            (alpha, beta): Beta分布参数
+        """
+        # 温度化放宽
+        var_prior = var * config['rho_variance_multiplier']
+
+        # 安全夹紧 (防止var超过m(1-m)导致无解)
+        max_var = config['rho_variance_safety'] * mean * (1 - mean)
+        var_safe = min(var_prior, max_var)
+
+        # 数值稳定性: var太小会导致A+B极大
+        var_safe = max(var_safe, 1e-6)
+
+        # 矩匹配
+        A_plus_B = mean * (1 - mean) / var_safe - 1
+        A = mean * A_plus_B
+        B = (1 - mean) * A_plus_B
+
+        # 安全检查
+        if A <= 0 or B <= 0:
+            # 降级到弱信息先验
+            self.algorithm.Debug(f"[BayesianModeler] Beta矩匹配失败 (A={A:.3f}, B={B:.3f}), 降级到Beta(2,2)")
+            return (2.0, 2.0)
+
+        return (A, B)
+
     def _select_prior(self, pair_key: tuple) -> tuple:
         """
         先验选择策略（二级体系）
@@ -108,7 +143,7 @@ class BayesianModeler:
 
 
     def _create_historical_prior(self, pair_key: tuple) -> Dict:
-        """创建历史后验先验（v7.5.8: 统一使用joint_config的1000/1000采样）"""
+        """创建历史后验先验 (v7.5.20: 添加ρ/σ_η历史先验)"""
         config = self.bayesian_priors['informed']
         historical = self.historical_posteriors[pair_key]
 
@@ -117,29 +152,51 @@ class BayesianModeler:
             historical['sigma_mean'] * 1.0
         )
 
+        # v7.5.20: ρ的Beta先验 (矩匹配)
+        rho_alpha, rho_beta = self._beta_moment_matching(
+            mean=historical['rho_mean'],
+            var=historical['rho_std'] ** 2,
+            config=config
+        )
+
+        # v7.5.20: σ_η的HalfNormal先验 (温度化放宽)
+        sigma_eta_prior = historical['sigma_std'] * config['sigma_eta_multiplier']
+
         return {
+            # 协整参数
             'alpha_mu': historical['alpha_mean'],
             'alpha_sigma': historical['alpha_std'],
             'beta_mu': historical['beta_mean'],
             'beta_sigma': historical['beta_std'],
             'sigma_sigma': sigma_prior,
-            'tune': self.joint_config['mcmc_warmup'],    # 统一使用1000
-            'draws': self.joint_config['mcmc_draws'],    # 统一使用1000
+            # AR(1)参数 (v7.5.20新增)
+            'rho_alpha': rho_alpha,
+            'rho_beta': rho_beta,
+            'sigma_eta_prior': sigma_eta_prior,
+            # MCMC配置
+            'tune': self.joint_config['mcmc_warmup'],
+            'draws': self.joint_config['mcmc_draws'],
         }
 
 
     def _create_uninformed_prior(self) -> Dict:
-        """创建完全无信息先验（v7.5.8: 统一使用joint_config的1000/1000采样）"""
+        """创建完全无信息先验 (v7.5.20: 添加ρ/σ_η无信息先验)"""
         config = self.bayesian_priors['uninformed']
 
         return {
+            # 协整参数
             'alpha_mu': 0,
             'alpha_sigma': config['alpha_sigma'],
             'beta_mu': 1,
             'beta_sigma': config['beta_sigma'],
             'sigma_sigma': config['sigma_sigma'],
-            'tune': self.joint_config['mcmc_warmup'],    # 统一使用1000
-            'draws': self.joint_config['mcmc_draws'],    # 统一使用1000
+            # AR(1)参数 (v7.5.20新增)
+            'rho_alpha': config['rho_alpha'],              # Beta(2,2)
+            'rho_beta': config['rho_beta'],
+            'sigma_eta_prior': self.joint_config['sigma_eta_prior'],  # HalfNormal(0.1)
+            # MCMC配置
+            'tune': self.joint_config['mcmc_warmup'],
+            'draws': self.joint_config['mcmc_draws'],
         }
 
 
@@ -183,10 +240,10 @@ class BayesianModeler:
                 beta = pm.Normal('beta', mu=prior_params['beta_mu'], sigma=prior_params['beta_sigma'] * 2.5)
                 alpha = pm.Normal('alpha', mu=prior_params['alpha_mu'], sigma=prior_params['alpha_sigma'] * 2.5)
 
-                # AR(1)参数（使用rho确保平稳性）
-                # rho ∈ (0,1) 确保平稳性,直接用于计算半衰期和均值回归速度
-                rho = pm.Uniform('rho', lower=0.01, upper=0.99)
-                sigma_eta = pm.HalfNormal('sigma_eta', sigma=self.joint_config['sigma_eta_prior'])
+                # AR(1)参数 (v7.5.20: 使用先验参数,支持历史后验传播)
+                # ρ ∈ (0,1) 通过Beta分布天然保证平稳性,直接用于计算半衰期和均值回归速度
+                rho = pm.Beta('rho', alpha=prior_params['rho_alpha'], beta=prior_params['rho_beta'])
+                sigma_eta = pm.HalfNormal('sigma_eta', sigma=prior_params['sigma_eta_prior'])
 
                 # 派生量(半衰期后验分布,用于直接提取统计量)
                 half_life = pm.Deterministic('half_life', -pm.math.log(2) / pm.math.log(rho))
@@ -224,6 +281,10 @@ class BayesianModeler:
             sigma_mean = float(np.mean(trace['sigma_eta']))
             sigma_std = float(np.std(trace['sigma_eta']))
 
+            # v7.5.20: ρ后验统计 (供下次建模作为先验)
+            rho_mean = float(np.mean(rho_samples))
+            rho_std = float(np.std(rho_samples))
+
             # v7.5.13: 对数空间的spread计算 (与Pairs.get_zscore()一致)
             # y_data, x_data已经是np.log(price),所以直接计算对数空间残差
             log_spread = y_data - (alpha_mean + beta_mean * x_data)
@@ -243,8 +304,10 @@ class BayesianModeler:
                 'beta_std': beta_std,
                 'sigma_mean': sigma_mean,
                 'sigma_std': sigma_std,
-                # AR(1)参数（v7.5.5: 仅保留原始MCMC样本,供PairSelector按需计算）
-                'rho_samples': rho_samples,
+                # AR(1)参数 (v7.5.20: 添加rho统计量,供历史后验先验使用)
+                'rho_samples': rho_samples,         # 供PairSelector使用
+                'rho_mean': rho_mean,               # 供历史后验先验使用
+                'rho_std': rho_std,                 # 供历史后验先验使用
                 # v7.5.13: 对数空间的spread和统计量 (修正:现在是对数空间)
                 'spread': log_spread,                               # 修改: 现在是对数空间 (y - α - βx)
                 'residual_mean': residual_mean,                     # 修改: 基于log_spread
@@ -269,10 +332,13 @@ class BayesianModeler:
                 'beta_std': 0.0,
                 'sigma_mean': 0.01,
                 'sigma_std': 0.0,
-                'rho_samples': np.array([0.5]),             # v7.5.5: 降级默认值
-                'spread': np.array([0.0]),                  # v7.5.6: 降级默认值
-                'residual_mean': 0.0,                       # v7.5.9: 降级默认值
-                'residual_std': 0.05,                       # v7.5.13: 降级默认值(对数空间的合理标准差)
+                # v7.5.20: 添加ρ统计量默认值
+                'rho_samples': np.array([0.5]),
+                'rho_mean': 0.5,                            # Beta(2,2)的均值
+                'rho_std': 0.2,                             # 合理默认不确定性
+                'spread': np.array([0.0]),
+                'residual_mean': 0.0,
+                'residual_std': 0.05,
                 'method': 'joint_bayesian_failed',
                 'update_time': self.algorithm.UtcTime
             }

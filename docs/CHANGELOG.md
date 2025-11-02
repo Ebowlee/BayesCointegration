@@ -4,6 +4,255 @@
 
 ---
 
+## [v7.5.20_phase2-rho-sigma-prior-propagation@20250202]
+
+### 版本概述
+**Phase 2: ρ和σ_η历史后验先验传播** - 扩展贝叶斯建模系统,使AR(1)参数(ρ, σ_η)也能利用历史后验信息,实现完整的4参数闭环传播(α, β, ρ, σ_η)。
+
+### 核心设计
+
+#### 1. Beta分布矩匹配 (ρ先验)
+
+**设计目标**: ρ ∈ (0,1) 保证AR(1)平稳性 (|ρ| < 1)
+
+**矩匹配公式**:
+```python
+v_prior = τ × Var(ρ)              # 温度化放宽 (τ=1.2)
+v_safe = min(v_prior, c×m(1-m))   # 安全夹紧 (c=0.9)
+A + B = m(1-m) / v_safe - 1       # 矩匹配核心
+A = m × (A + B)
+B = (1-m) × (A + B)
+rho ~ Beta(A, B)
+```
+
+**降级机制**: 若A≤0或B≤0, 则使用Beta(2,2)弱信息先验
+
+#### 2. σ_η参数化HalfNormal先验
+
+**方法**: 使用历史后验标准差 × 放宽系数(2.5×)
+```python
+sigma_eta_prior = historical_sigma_std × 2.5
+```
+
+**对齐策略**: 与α/β的2.0×类似,避免过度自信
+
+### 代码变更
+
+#### 1. config.py - 配置扩展 (Lines 166-177)
+
+**无信息先验 (uninformed)**:
+```python
+'uninformed': {
+    'alpha_sigma': 10,
+    'beta_sigma': 5,
+    'sigma_sigma': 5.0,
+    # v7.5.20: ρ的无信息Beta先验
+    'rho_alpha': 2,                     # Beta(2,2) ≈ 弱信息Uniform
+    'rho_beta': 2
+},
+```
+
+**历史后验先验 (informed)**:
+```python
+'informed': {
+    'sigma_multiplier': 2.0,
+    'validity_days': 30,
+    # v7.5.20: ρ的Beta先验温度化参数
+    'rho_variance_multiplier': 1.2,     # ρ方差放宽系数(τ)
+    'rho_variance_safety': 0.9,         # Beta方差安全边界(c)
+    # v7.5.20: σ_η的HalfNormal先验放宽参数
+    'sigma_eta_multiplier': 2.5         # σ_η标准差放宽系数
+},
+```
+
+#### 2. BayesianModeler.py - 新增Beta矩匹配方法 (Lines 87-120)
+
+```python
+def _beta_moment_matching(self, mean: float, var: float, config: dict) -> tuple:
+    """
+    Beta分布矩匹配 (v7.5.20)
+
+    Args:
+        mean: 后验均值 (ρ̄)
+        var: 后验方差 (Var(ρ))
+        config: informed配置 (包含variance_multiplier和safety系数)
+
+    Returns:
+        (alpha, beta): Beta分布参数
+    """
+    # 温度化放宽
+    var_prior = var * config['rho_variance_multiplier']
+
+    # 安全夹紧 (防止var超过m(1-m)导致无解)
+    max_var = config['rho_variance_safety'] * mean * (1 - mean)
+    var_safe = min(var_prior, max_var)
+
+    # 数值稳定性: var太小会导致A+B极大
+    var_safe = max(var_safe, 1e-6)
+
+    # 矩匹配
+    A_plus_B = mean * (1 - mean) / var_safe - 1
+    A = mean * A_plus_B
+    B = (1 - mean) * A_plus_B
+
+    # 安全检查
+    if A <= 0 or B <= 0:
+        # 降级到弱信息先验
+        self.algorithm.Debug(f"[BayesianModeler] Beta矩匹配失败 (A={A:.3f}, B={B:.3f}), 降级到Beta(2,2)")
+        return (2.0, 2.0)
+
+    return (A, B)
+```
+
+**设计亮点**:
+- 三层数值保护: 温度化 → 安全夹紧 → 参数验证
+- 平滑降级: 失败时回退到Beta(2,2)而非抛出异常
+- 可配置: τ和c参数通过config动态控制
+
+#### 3. BayesianModeler.py - 扩展后验统计提取 (Lines 262-264, 285-288)
+
+**提取ρ后验统计**:
+```python
+# v7.5.20: ρ后验统计 (供下次建模作为先验)
+rho_mean = float(np.mean(rho_samples))
+rho_std = float(np.std(rho_samples))
+```
+
+**保存到historical_posteriors**:
+```python
+# AR(1)参数 (v7.5.20: 添加rho统计量,供历史后验先验使用)
+'rho_samples': rho_samples,         # 供PairSelector使用
+'rho_mean': rho_mean,               # 供历史后验先验使用
+'rho_std': rho_std,                 # 供历史后验先验使用
+```
+
+#### 4. BayesianModeler.py - 修改历史先验创建 (Lines 145-179)
+
+```python
+def _create_historical_prior(self, pair_key: tuple) -> Dict:
+    """创建历史后验先验 (v7.5.20: 添加ρ/σ_η历史先验)"""
+    config = self.bayesian_priors['informed']
+    historical = self.historical_posteriors[pair_key]
+
+    sigma_prior = max(
+        historical['sigma_std'] * config['sigma_multiplier'],
+        historical['sigma_mean'] * 1.0
+    )
+
+    # v7.5.20: ρ的Beta先验 (矩匹配)
+    rho_alpha, rho_beta = self._beta_moment_matching(
+        mean=historical['rho_mean'],
+        var=historical['rho_std'] ** 2,
+        config=config
+    )
+
+    # v7.5.20: σ_η的HalfNormal先验 (温度化放宽)
+    sigma_eta_prior = historical['sigma_std'] * config['sigma_eta_multiplier']
+
+    return {
+        # 协整参数
+        'alpha_mu': historical['alpha_mean'],
+        'alpha_sigma': historical['alpha_std'],
+        'beta_mu': historical['beta_mean'],
+        'beta_sigma': historical['beta_std'],
+        'sigma_sigma': sigma_prior,
+        # AR(1)参数 (v7.5.20新增)
+        'rho_alpha': rho_alpha,
+        'rho_beta': rho_beta,
+        'sigma_eta_prior': sigma_eta_prior,
+        # MCMC配置
+        'tune': self.joint_config['mcmc_warmup'],
+        'draws': self.joint_config['mcmc_draws'],
+    }
+```
+
+#### 5. BayesianModeler.py - 修改无信息先验 (Lines 182-200)
+
+```python
+def _create_uninformed_prior(self) -> Dict:
+    """创建完全无信息先验 (v7.5.20: 添加ρ/σ_η无信息先验)"""
+    config = self.bayesian_priors['uninformed']
+
+    return {
+        # 协整参数
+        'alpha_mu': 0,
+        'alpha_sigma': config['alpha_sigma'],
+        'beta_mu': 1,
+        'beta_sigma': config['beta_sigma'],
+        'sigma_sigma': config['sigma_sigma'],
+        # AR(1)参数 (v7.5.20新增)
+        'rho_alpha': config['rho_alpha'],              # Beta(2,2)
+        'rho_beta': config['rho_beta'],
+        'sigma_eta_prior': self.joint_config['sigma_eta_prior'],  # HalfNormal(0.1)
+        # MCMC配置
+        'tune': self.joint_config['mcmc_warmup'],
+        'draws': self.joint_config['mcmc_draws'],
+    }
+```
+
+#### 6. BayesianModeler.py - PyMC模型修改 (Lines 243-246)
+
+```python
+# AR(1)参数 (v7.5.20: 使用先验参数,支持历史后验传播)
+# ρ ∈ (0,1) 通过Beta分布天然保证平稳性,直接用于计算半衰期和均值回归速度
+rho = pm.Beta('rho', alpha=prior_params['rho_alpha'], beta=prior_params['rho_beta'])
+sigma_eta = pm.HalfNormal('sigma_eta', sigma=prior_params['sigma_eta_prior'])
+```
+
+**BREAKING CHANGE**: PyMC模型结构改变
+- **旧版**: `rho = pm.Uniform('rho', lower=0.01, upper=0.99)`
+- **新版**: `rho = pm.Beta('rho', alpha=prior_params['rho_alpha'], beta=prior_params['rho_beta'])`
+- **旧版**: `sigma_eta = pm.HalfNormal('sigma_eta', sigma=0.1)`  # 硬编码
+- **新版**: `sigma_eta = pm.HalfNormal('sigma_eta', sigma=prior_params['sigma_eta_prior'])`
+
+#### 7. BayesianModeler.py - 失败默认值 (Lines 313-316)
+
+```python
+# v7.5.20: 添加ρ统计量默认值
+'rho_samples': np.array([0.5]),
+'rho_mean': 0.5,                            # Beta(2,2)的均值
+'rho_std': 0.2,                             # 合理默认不确定性
+```
+
+### 数值稳定性保护
+
+1. **方差上界**: `v ≤ 0.9 × m(1-m)` (防止Beta参数溢出)
+2. **方差下界**: `v ≥ 1e-6` (防止A+B趋向无穷)
+3. **参数验证**: A≤0或B≤0时降级到Beta(2,2)
+4. **温度化**: τ=1.2 提供适度放宽,避免过度自信
+
+### 预期效果
+
+- ✅ **加速收敛**: 历史后验提供更精确的起始点,减少MCMC迭代需求
+- ✅ **稳定估计**: Beta分布天然约束ρ∈(0,1),避免越界采样
+- ✅ **闭环传播**: 4参数均受益于历史信息,理论完备性提升
+- ⚠️ **潜在风险**: 过度依赖历史后验可能降低对regime change的适应性 (通过τ=1.2和validity_days=30天缓解)
+
+### Breaking Changes
+
+⚠️ **PyMC模型结构改变**: ρ从Uniform变为Beta分布,σ_η从固定值变为参数化
+
+**影响**:
+- 使用旧代码的历史回测结果无法直接对比
+- MCMC采样轨迹和收敛诊断可能不同
+
+**建议**:
+- 更新后需重新运行完整回测以建立新基准
+- 对比v7.5.19(Phase 1)和v7.5.20(Phase 2)性能差异
+
+### 向后兼容性
+
+- ✅ **旧历史后验**: 若缺少`rho_mean`/`rho_std`,自动降级到uninformed prior
+- ✅ **配置缺失**: 若缺少新配置项,使用硬编码默认值(Beta(2,2), HalfNormal(0.1))
+- ✅ **数值降级**: Beta矩匹配失败时平滑回退,不影响策略运行
+
+### 受影响文件
+
+- [src/config.py](src/config.py): 配置参数扩展 (2处修改)
+- [src/analysis/BayesianModeler.py](src/analysis/BayesianModeler.py): 核心建模逻辑修改 (7处修改)
+
+---
+
 ## [v7.5.19_phase1-config-optimization@20250202]
 
 ### 版本概述
