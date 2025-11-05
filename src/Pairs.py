@@ -34,11 +34,11 @@ class Pairs:
         self.residual_std = model_data['residual_std']                          # 残差标准差(对数空间)
         self.quality_score = model_data['quality_score']                        # 配对质量分数
 
-        # === 交易阈值 (v7.2.17: entry改为区间约束) ===
-        self.entry_threshold_min = config['entry_threshold_min']
-        self.entry_threshold_max = config['entry_threshold_max']
-        self.exit_threshold = config['exit_threshold']
-        self.stop_threshold = config['stop_threshold']
+        # === 交易阈值 (v7.5.21: 改良C方案 - 从pairs_trading统一读取) ===
+        self.entry_threshold_lower = config['entry_threshold_lower']  # 1.2σ
+        self.entry_threshold_upper = config['entry_threshold_upper']  # 1.8σ
+        self.exit_threshold = config['exit_threshold']                # 0.3σ
+        self.stop_loss_threshold = config['stop_loss_threshold']      # 2.3σ
 
         # === 控制设置 (v7.2.21: 双冷却期机制) ===
         self.cooldown_days_for_exit = config['pair_cooldown_days_for_exit']   # 正常回归: 10天
@@ -552,12 +552,12 @@ class Pairs:
         # 内部检查持仓
         has_position = self.has_normal_position()
 
-        # 生成信号 (v7.2.17: 区间约束 [entry_threshold_min, entry_threshold_max])
+        # 生成信号 (v7.5.21: 改良C方案 [1.2σ, 1.8σ])
         if not has_position:
             abs_zscore = abs(zscore)
 
-            # 检查是否在有效区间内
-            if self.entry_threshold_min <= abs_zscore <= self.entry_threshold_max:
+            # 检查是否在有效区间内 (改良C方案: 1.2-1.8σ)
+            if self.entry_threshold_lower <= abs_zscore <= self.entry_threshold_upper:
                 # Z-score高,spread偏高,做空
                 if zscore > 0:
                     self.entry_zscore = zscore  # 信号触发时立即记录(v7.2.16修复)
@@ -567,11 +567,11 @@ class Pairs:
                     self.entry_zscore = zscore  # 信号触发时立即记录(v7.2.16修复)
                     return TradingSignal.LONG_SPREAD
             else:
-                # 区间外: |zscore| < 1.25 (信号弱) 或 > 2.0 (偏离过大)
+                # 区间外: |zscore| < 1.2σ (信号弱) 或 > 1.8σ (留0.7σ缓冲给止损)
                 return TradingSignal.WAIT
         else:
-            # 有持仓时的出场信号
-            if abs(zscore) > self.stop_threshold:
+            # 有持仓时的出场信号 (v7.5.21: 止损阈值使用stop_loss_threshold=2.5σ)
+            if abs(zscore) > self.stop_loss_threshold:
                 return TradingSignal.STOP_LOSS
 
             if abs(zscore) < self.exit_threshold:

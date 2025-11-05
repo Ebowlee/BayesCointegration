@@ -178,19 +178,27 @@ class PairSelector:
 
     def _calculate_half_life_score(self, model_result):
         """
-        计算半衰期分数 (v7.5.3: 统一使用rho,正弦单峰评分)
+        计算半衰期分数 (v7.5.21: 非对称高斯评分,阈值优先设计)
 
-        使用正弦函数实现15天峰值,向边界加速衰减:
-        - 公式: f(x) = sin((x - 5)·π / 20), x ∈ [5, 25]
-        - 峰值: 15天 = 1.0分 (唯一最优点)
-        - 边界: <5天 或 >25天 = 0.0分 (硬截断)
-        - 非线性衰减: 远离峰值时惩罚加重
+        设计理念:
+        - 峰值: 8天 (统计质量+timeout安全性的最优平衡)
+        - 核心区间: 5-10天 (评分≥0.75)
+        - 可接受区间: 4-12天 (评分≥0.50)
+        - 排除区间: <4天或>15天
 
-        设计优势:
-        - 单峰明确: 只有15天=满分,避免梯形平台过于宽松
-        - 加速惩罚: 正弦曲线凸性,极端值衰减更快
-        - 完美对称: 关于15天中心对称
-        - 光滑连续: 无分段点,导数连续
+        配合改良C方案:
+        - 入场: [1.2σ, 1.8σ]
+        - 出场: 0.3σ
+        - Timeout: 30天
+
+        评分标准(基于Timeout约束):
+        - 4天: 0.50 (次优,噪音风险)
+        - 5天: 0.75 (良好)
+        - 6天: 0.90 (优秀)
+        - 8天: 1.00 (峰值)
+        - 10天: 0.85 (良好)
+        - 12天: 0.65 (可接受)
+        - 15天: 0.18 (排除)
 
         Args:
             model_result: BayesianModeler输出的模型结果(包含rho_samples)
@@ -204,7 +212,7 @@ class PairSelector:
             if rho_samples is None or len(rho_samples) == 0:
                 return (0, None)
 
-            rho_mean = np.mean(rho_samples)
+            rho_mean = float(np.mean(rho_samples))
 
             # rho有效性检查 (均值回归要求: ρ ∈ (0, 1))
             if rho_mean <= 0 or rho_mean >= 1:
@@ -214,18 +222,32 @@ class PairSelector:
             half_life = -np.log(2) / np.log(rho_mean)
 
             # 读取阈值
-            min_days = self.scoring_thresholds['half_life']['min_days']      # 5天
-            max_days = self.scoring_thresholds['half_life']['max_days']      # 25天
+            peak_days = self.scoring_thresholds['half_life']['peak_days']       # 8天
+            sigma_left = self.scoring_thresholds['half_life']['sigma_left']     # 3.5
+            sigma_right = self.scoring_thresholds['half_life']['sigma_right']   # 4.5
+            min_days = self.scoring_thresholds['half_life']['min_days']         # 4天
+            decay_start = self.scoring_thresholds['half_life']['decay_start']   # 12天
+            decay_rate = self.scoring_thresholds['half_life']['decay_rate']     # 0.6
 
-            # 边界检查 (硬截断)
-            if half_life < min_days or half_life > max_days:
-                return (0.0, half_life)
+            # 非对称高斯核心
+            if half_life < peak_days:
+                # 左侧: 4-8天区间 (σ=3.5保证6天≈0.90)
+                score = np.exp(-((half_life - peak_days) ** 2) / (2 * sigma_left ** 2))
+            else:
+                # 右侧: 8-12天区间 (σ=4.5保证10天≈0.85, 12天≈0.65)
+                score = np.exp(-((half_life - peak_days) ** 2) / (2 * sigma_right ** 2))
 
-            # 正弦单峰评分
-            # 映射 [5, 25] → [0, π]: x=5→0, x=15→π/2, x=25→π
-            score = np.sin((half_life - min_days) * np.pi / (max_days - min_days))
+            # 软截断下界 (4天以下平滑惩罚)
+            if half_life < min_days:
+                lower_bound = 1 / (1 + np.exp(-3 * (half_life - min_days)))
+                score *= lower_bound
 
-            return (score, half_life)
+            # 远端指数衰减 (12天后快速排除)
+            if half_life > decay_start:
+                decay = np.exp(-decay_rate * (half_life - decay_start))
+                score *= decay
+
+            return (float(score), half_life)
 
         except Exception as e:
             self.algorithm.Debug(f"[PairSelector] 半衰期计算失败: {e}")

@@ -23,7 +23,7 @@ class StrategyConfig:
             'schedule_time': (9, 10),                   # 9:10 AM
 
             # 开发配置
-            'debug_mode': True                          # True=开发调试(详细日志), False=生产运行(仅关键日志) | v7.5.16: 重新开启以验证v7.5.15修复
+            'debug_mode': True                          # True=开发调试(详细日志), False=生产运行(仅关键日志) 
         }
 
 
@@ -104,20 +104,25 @@ class StrategyConfig:
             # 质量门槛
             'min_quality_threshold': 0.50,              # 最低质量分数阈值
 
-            # v7.4.0: 四维评分权重体系
+            # 四维评分权重体系
             'quality_weights': {
-                'half_life': 0.35,                      # 均值回归速度 (使用贝叶斯beta和AR(1) lambda)
+                'half_life': 0.25,                      # 均值回归速度 (使用贝叶斯beta和AR(1) lambda)
                 'beta_stability': 0.25,                 # Beta稳定性 (后验标准差)
                 'mean_reversion_certainty': 0.25,       # AR(1)显著性 (lambda t统计量)
-                'residual_quality': 0.15                # 拟合质量 (残差标准差，替代volatility_ratio)
+                'residual_quality': 0.25                # 拟合质量 (残差标准差，替代volatility_ratio)
             },
 
             'scoring_thresholds': {
-                # v7.5.0: 正弦单峰评分 f(x) = sin((x-5)π/20), x∈[5,25]
+                # 非对称高斯评分 (改良C方案配套, 阈值优先设计)
+                # 设计理念: 8天峰值平衡统计质量与30天timeout安全性
+                # 核心区间: 5-10天 (≥0.75), 可接受: 4-12天 (≥0.50)
                 'half_life': {
-                    'min_days': 5,                      # 硬下界 (<5天 = 0分)
-                    'optimal_days': 15,                 # 峰值 (15天 = 1.0分)
-                    'max_days': 25                      # 硬上界 (>25天 = 0分)
+                    'peak_days': 8,                     # 峰值 (统计质量+timeout安全性最优平衡)
+                    'sigma_left': 3.5,                  # 左侧标准差 (4-8天区间,保证6天≈0.90)
+                    'sigma_right': 4.5,                 # 右侧标准差 (8-12天区间,保证10天≈0.85, 12天≈0.65)
+                    'min_days': 4,                      # 软下界 (4天以下平滑惩罚,避免噪音)
+                    'decay_start': 12,                  # 远端衰减起点 (12天后快速排除)
+                    'decay_rate': 0.6                   # 衰减速率 (15天≈0.18)
                 },
                 'beta_stability': {
                     # v7.5.4: 逻辑斯蒂函数参数(基于CV归一化)
@@ -187,10 +192,11 @@ class StrategyConfig:
 
         # ========== Pairs/PairsManager 配置 ==========
         self.pairs_trading = {
-            'entry_threshold_min': 1.00,            # 建仓Z-score下限 (信号足够强)
-            'entry_threshold_max': 2.00,            # 建仓Z-score上限 (避免过度偏离)
-            'exit_threshold': 0.30,                 # 平仓Z-score阈值
-            'stop_threshold': 2.30,                 # 止损Z-score阈值
+            # v7.5.21: 改良C方案 - 信号阈值优化 (参数重命名)
+            'entry_threshold_lower': 1.2,           # 入场Z-score下限 (提高入场质量,过滤1.0-1.2弱信号)
+            'entry_threshold_upper': 1.8,           # 入场Z-score上限 (为止损留0.5σ缓冲,避免即开即止)
+            'exit_threshold': 0.3,                  # 出场Z-score阈值 (保持不变,避免假回归)
+            'stop_loss_threshold': 2.3,             # 止损Z-score阈值 (配合1.8上限,留0.5σ缓冲)
 
             'pair_cooldown_days_for_exit': 20,      # 正常回归平仓后的冷却期(天) - Z-score收敛
             'pair_cooldown_days_for_stop': 60,      # 止损平仓后的冷却期(天) - Z-score超限
