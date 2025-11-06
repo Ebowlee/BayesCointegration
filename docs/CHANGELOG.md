@@ -4,6 +4,126 @@
 
 ---
 
+## [v7.6.1_architecture-optimization@20250206]
+
+### 版本概述
+**架构优化** - 统一依赖注入模式 + 封装黑名单过滤逻辑。将PairSelector的trade_analyzer依赖从`self.algorithm.trade_analyzer`改为构造函数注入`self.trade_analyzer`,实现100%模块使用构造函数注入模式。同时将select_best()中26行黑名单过滤逻辑封装为`_filter_by_blacklist()`私有方法,提升代码可读性。
+
+### 核心变更
+
+#### 1. PairSelector依赖注入统一
+
+**构造函数签名更新**:
+```python
+# v7.6.0 (旧版):
+def __init__(self, algorithm, shared_config: dict, module_config: dict):
+    self.algorithm = algorithm
+
+# v7.6.1 (新版):
+def __init__(self, algorithm, shared_config: dict, module_config: dict, trade_analyzer):
+    self.algorithm = algorithm
+    self.trade_analyzer = trade_analyzer  # 显式依赖注入
+```
+
+**调用方式变更**:
+```python
+# v7.6.0 (旧版):
+blacklist = self.algorithm.trade_analyzer.get_blacklist()
+
+# v7.6.1 (新版):
+blacklist = self.trade_analyzer.get_blacklist()  # 直接访问注入依赖
+```
+
+**优势**:
+- ✅ 依赖显式化: 从构造函数一眼看出所有依赖
+- ✅ 解耦algorithm对象: 不再通过algorithm间接访问
+- ✅ 易于单元测试: 可以直接mock trade_analyzer
+- ✅ 架构一致性: 与ExecutionManager, RiskManager等其他90%模块保持一致
+
+#### 2. 黑名单过滤逻辑封装
+
+**新增私有方法**:
+```python
+def _filter_by_blacklist(self, qualified_pairs):
+    """
+    黑名单过滤 (v7.6.0 → v7.6.1封装)
+
+    将历史表现差的配对过滤掉,避免重复亏损。
+    黑名单标准: ≥3笔交易 AND 累计收益率<0%
+
+    Returns:
+        list: 非黑名单配对列表
+    """
+    # 26行逻辑（包含过滤+诊断日志）
+```
+
+**select_best()简化**:
+```python
+# v7.6.0 (旧版): 26行嵌入代码
+blacklist = self.algorithm.trade_analyzer.get_blacklist()
+blacklist_rejected = []
+non_blacklist_pairs = []
+for pair in qualified_pairs:
+    # ...26行逻辑
+
+# v7.6.1 (新版): 1行方法调用
+qualified_pairs = self._filter_by_blacklist(qualified_pairs)
+```
+
+**效果**:
+- 代码行数: 26行 → 1行 (-96%)
+- 职责分离: 业务逻辑与日志输出封装在一起
+- 可维护性: 便于单独测试和复用
+
+#### 3. main.py初始化顺序调整
+
+**修改原因**: PairSelector现在依赖trade_analyzer,需要调整初始化顺序
+
+**修改前**:
+```python
+self.pair_selector = PairSelector(...)       # Line 55
+# ...其他模块
+self.trade_analyzer = TradeAnalyzer(self)    # Line 74
+```
+
+**修改后**:
+```python
+self.trade_analyzer = TradeAnalyzer(self)    # Line 58 (前移)
+self.pair_selector = PairSelector(..., self.trade_analyzer)  # Line 59
+```
+
+### 文件变更
+
+#### 修改文件
+1. **src/analysis/PairSelector.py**
+   - 构造函数增加trade_analyzer参数
+   - 新增`_filter_by_blacklist()`私有方法
+   - 简化select_best()调用（26行 → 1行）
+
+2. **main.py**
+   - 调整初始化顺序（trade_analyzer前移到pair_selector之前）
+   - PairSelector构造函数增加trade_analyzer参数传递
+
+3. **CLAUDE.md**
+   - 更新PairSelector章节（依赖注入说明）
+   - 更新Cross-Module Communication章节（反馈循环）
+   - 更新Version History（v7.6.1条目）
+
+4. **docs/CHANGELOG.md**
+   - 新增v7.6.1版本条目
+
+### 破坏性变更
+无。仅内部实现优化,外部接口不变。
+
+### 验证清单
+- [x] PairSelector构造函数签名更新
+- [x] main.py初始化顺序调整
+- [x] 黑名单过滤逻辑封装
+- [x] CLAUDE.md文档更新
+- [x] CHANGELOG.md文档更新
+
+---
+
 ## [v7.6.0_pair-feedback-mechanism@20250206]
 
 ### 版本概述

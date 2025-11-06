@@ -275,9 +275,12 @@ git commit -m "docs: update CHANGELOG for v7.2.5"
 - **DataProcessor**: Clean and prepare historical data (252-day lookback)
 - **CointegrationAnalyzer**: Engle-Granger cointegration tests (p-value < 0.05)
 - **BayesianModeler**: PyMC MCMC parameter estimation (500 warmup + 500 samples, 2 chains)
-- **PairSelector**: Quality scoring using 2 weighted metrics (v7.5.23):
-  - **half_life** (60%): Mean reversion speed (most independent + highest predictive power 57%)
-  - **mean_reversion_certainty** (40%): AR(1) significance (theoretical core + moderate predictive power 50%)
+- **PairSelector**: Quality scoring using 2 weighted metrics (v7.5.23) + blacklist filtering (v7.6.0 → v7.6.1)
+  - **Dependency Injection** (v7.6.1): Constructor receives `trade_analyzer` for blacklist access
+  - **Quality Metrics**:
+    - **half_life** (60%): Mean reversion speed (most independent + highest predictive power 57%)
+    - **mean_reversion_certainty** (40%): AR(1) significance (theoretical core + moderate predictive power 50%)
+  - **Blacklist Filtering** (v7.6.0 → v7.6.1): `_filter_by_blacklist()` private method encapsulates filtering logic
 
 ### 11. trade/ - Trade Statistics Module (v7.2.0, v7.6.0 双重职责扩展)
 - **Purpose**: Real-time trade statistics collection and analysis (replaces TradeHistory)
@@ -512,13 +515,14 @@ def is_pair_in_normal_cooldown(self, pair) -> bool:
 
 ### Data Flow
 1. **Universe Changes**: `OnSecuritiesChanged()` → triggers pair analysis
-2. **Analysis Pipeline**: DataProcessor → CointegrationAnalyzer → BayesianModeler → PairSelector
+2. **Analysis Pipeline**: DataProcessor → CointegrationAnalyzer → BayesianModeler → PairSelector (v7.6.1: uses trade_analyzer blacklist)
 3. **Pair Creation**: Direct Pairs object creation → PairsManager.update_pairs()
 4. **Trading Flow (Intent Pattern)**: OnData → Risk detection → Order lock check → Pairs.get_*_intent() → OrderExecutor.execute() → Trade execution
 5. **Order Tracking**: Pairs.get_*_intent() → Returns Intent → OrderExecutor.execute() → Returns tickets → TicketsManager.register_tickets() → Order lock activated
 6. **Order Events**: QCAlgorithm.OnOrderEvent() → TicketsManager.on_order_event() → Status update (PENDING/COMPLETED/ANOMALY)
 7. **State Updates**: PairsManager maintains pair lifecycle states (active/legacy/dormant)
 8. **Intent Flow** (v7.0.0): Pairs (generate intent) → OrderExecutor (execute intent) → TicketsManager (track orders)
+9. **Feedback Loop** (v7.6.0 → v7.6.1): TradeAnalyzer (provides blacklist) → PairSelector (filters bad pairs via `_filter_by_blacklist()`)
 
 ### State Management
 - **Pair States**: Active (tradeable), Legacy (position only), Dormant (inactive)
@@ -754,9 +758,10 @@ zscore = (log_residual - residual_mean) / residual_std
 
 ## Version History
 
-**Current Version**: v7.6.0 (2025-02-06)
+**Current Version**: v7.6.1 (2025-02-06)
 
 **Recent Major Updates**:
+- **v7.6.1** (Feb 2025): Architecture optimization - unified dependency injection pattern + blacklist filtering encapsulation
 - **v7.6.0** (Feb 2025): Pair-level historical feedback mechanism - blacklist filtering + pnl_pct calculation fix
 - **v7.5.23** (Feb 2025): Two-dimension quality scoring - removed Beta Stability and Residual Quality
 - **v7.0.0** (Jan 2025): Intent Pattern refactor - separated intent generation from order execution

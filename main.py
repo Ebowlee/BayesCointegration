@@ -52,8 +52,12 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # === 初始化分析工具 ===
         self.data_processor = DataProcessor(self, self.config.analysis_shared, self.config.data_processor)
         self.cointegration_analyzer = CointegrationAnalyzer(self, self.config.cointegration_analyzer)
-        self.pair_selector = PairSelector(self, self.config.analysis_shared,self.config.pair_selector)
         self.bayesian_modeler = BayesianModeler(self, self.config.analysis_shared, self.config.bayesian_modeler)
+
+        # v7.6.1: trade_analyzer需在pair_selector之前初始化(依赖注入)
+        self.trade_analyzer = TradeAnalyzer(self)
+        self.pair_selector = PairSelector(self, self.config.analysis_shared, self.config.pair_selector, self.trade_analyzer)
+
         self.pairs_manager = PairsManager(self, self.config.pairs_trading)
 
 
@@ -71,7 +75,6 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         self.risk_manager = RiskManager(self, self.config, self.pairs_manager)
         self.order_executor = OrderExecutor(self, self.tickets_manager)
         self.margin_allocator = MarginAllocator(self, self.config)
-        self.trade_analyzer = TradeAnalyzer(self)
         self.execution_manager = ExecutionManager(self, self.pairs_manager, self.risk_manager, self.tickets_manager, self.order_executor, self.margin_allocator, self.trade_analyzer)
 
         self.Debug("[Initialize] 策略初始化完成")

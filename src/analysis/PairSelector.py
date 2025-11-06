@@ -9,7 +9,7 @@ from src.analysis.PairData import PairData
 class PairSelector:
     """配对评估和筛选器 - 负责评估配对质量并筛选最佳配对"""
 
-    def __init__(self, algorithm, shared_config: dict, module_config: dict):
+    def __init__(self, algorithm, shared_config: dict, module_config: dict, trade_analyzer):
         """
         初始化配对选择器
 
@@ -17,8 +17,10 @@ class PairSelector:
             algorithm: QCAlgorithm实例
             shared_config: 共享配置(analysis_shared)
             module_config: 模块配置(pair_selector)
+            trade_analyzer: 交易分析器实例(用于黑名单过滤,v7.6.1)
         """
         self.algorithm = algorithm
+        self.trade_analyzer = trade_analyzer
 
         # 从shared_config读取
         self.lookback_days = shared_config['lookback_days']  # 252天,与BayesianModeler统一
@@ -144,35 +146,11 @@ class PairSelector:
                 f"[PairSelector] 质量阈值过滤: {rejected_count}个配对 <= {min_threshold:.2f}分"
             )
 
-        # Step 2: [NEW v7.6.0] 黑名单过滤
-        blacklist = self.algorithm.trade_analyzer.get_blacklist()
-        blacklist_rejected = []
-        non_blacklist_pairs = []
-
-        for pair in qualified_pairs:
-            pair_id = (pair['symbol1'].Value, pair['symbol2'].Value)
-            if pair_id in blacklist:
-                blacklist_rejected.append(pair_id)
-            else:
-                non_blacklist_pairs.append(pair)
-
-        # 黑名单过滤诊断日志
-        if blacklist_rejected:
-            self.algorithm.Debug(
-                f"[PairSelector] 黑名单过滤: {len(blacklist_rejected)}个配对被排除 "
-                f"(黑名单规模={len(blacklist)})"
-            )
-            # 输出前3个被排除配对的统计信息
-            for pair_id in blacklist_rejected[:3]:
-                stats = self.algorithm.trade_analyzer.get_blacklist_stats(pair_id)
-                if stats:
-                    self.algorithm.Debug(
-                        f"  - {pair_id}: {stats['count']}笔交易, "
-                        f"累计收益={stats['total_pnl']:.2f}%"
-                    )
+        # Step 2: [v7.6.0 → v7.6.1封装] 黑名单过滤
+        qualified_pairs = self._filter_by_blacklist(qualified_pairs)
 
         # Step 3: 按质量分数排序（从高到低）
-        sorted_pairs = sorted(non_blacklist_pairs, key=lambda x: x['quality_score'], reverse=True)
+        sorted_pairs = sorted(qualified_pairs, key=lambda x: x['quality_score'], reverse=True)
 
         # Step 4: 单股重复限制（确保单个股票不会出现在过多配对中）
         selected = []
@@ -198,6 +176,48 @@ class PairSelector:
 
 
     # ===== 私有评分方法 (Private Scoring Methods) =====
+
+    def _filter_by_blacklist(self, qualified_pairs):
+        """
+        黑名单过滤 (v7.6.0 → v7.6.1封装)
+
+        将历史表现差的配对过滤掉,避免重复亏损。
+        黑名单标准: ≥3笔交易 AND 累计收益率<0%
+
+        Args:
+            qualified_pairs: 已通过质量门槛的配对列表
+
+        Returns:
+            list: 非黑名单配对列表
+        """
+        blacklist = self.trade_analyzer.get_blacklist()
+        blacklist_rejected = []
+        non_blacklist_pairs = []
+
+        for pair in qualified_pairs:
+            pair_id = (pair['symbol1'].Value, pair['symbol2'].Value)
+            if pair_id in blacklist:
+                blacklist_rejected.append(pair_id)
+            else:
+                non_blacklist_pairs.append(pair)
+
+        # 诊断日志
+        if blacklist_rejected:
+            self.algorithm.Debug(
+                f"[PairSelector] 黑名单过滤: {len(blacklist_rejected)}个配对被排除 "
+                f"(黑名单规模={len(blacklist)})"
+            )
+            # 输出前3个被排除配对的统计信息
+            for pair_id in blacklist_rejected[:3]:
+                stats = self.trade_analyzer.get_blacklist_stats(pair_id)
+                if stats:
+                    self.algorithm.Debug(
+                        f"  - {pair_id}: {stats['count']}笔交易, "
+                        f"累计收益={stats['total_pnl']:.2f}%"
+                    )
+
+        return non_blacklist_pairs
+
 
     def _calculate_half_life_score(self, model_result):
         """
