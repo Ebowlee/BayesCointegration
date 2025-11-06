@@ -61,16 +61,18 @@ class PairSelector:
 
     def evaluate_quality(self, modeling_results):
         """
-        评估配对质量（v7.5.3: 统一使用rho,四维评分系统）
+        评估配对质量（v7.5.22: 三维评分系统,移除ResidQual维度）
 
         Args:
             modeling_results: BayesianModeler输出的建模结果列表
 
-        四维评分系统:
-        1. Half-life (30%): 使用贝叶斯rho_mean计算半衰期
-        2. Beta stability (25%): 使用beta_std衡量对冲比率稳定性
-        3. Mean-reversion certainty (30%): 使用rho统计量衡量AR(1)显著性
-        4. Residual quality (15%): 使用sigma_mean(residual_std)衡量模型拟合质量
+        三维评分系统:
+        1. Half-life (40%): 均值回归速度 (最独立+预测力最强,准确率57%)
+        2. Beta stability (25%): Beta稳定性 (风控底线,虽与MR重叠30%但仍保留)
+        3. Mean-reversion certainty (35%): AR(1)显著性 (理论核心,预测力中等50%)
+
+        移除维度:
+        - Residual Quality: 预测失败率57%, 历史拟合≠未来预测
 
         设计优势:
         - 使用贝叶斯后验参数（比OLS更准确）
@@ -83,21 +85,19 @@ class PairSelector:
             symbol1 = model_result['symbol1']
             symbol2 = model_result['symbol2']
 
-            # 四维评分计算 (调用私有方法)
+            # 三维评分计算 (调用私有方法)
             half_life_score, half_life_days = self._calculate_half_life_score(model_result)
             beta_stability_score = self._calculate_beta_stability_score(model_result['beta_mean'], model_result['beta_std'])
             mean_reversion_score, snr_kappa = self._calculate_mean_reversion_certainty_score(model_result)
-            residual_quality_score, rrs_value = self._calculate_residual_quality_score(model_result)
 
-            # 综合质量分数（四维加权平均）
+            # 综合质量分数（三维加权平均, v7.5.22: 移除ResidQual维度）
             quality_score = (
                 self.quality_weights['half_life'] * half_life_score +
                 self.quality_weights['beta_stability'] * beta_stability_score +
-                self.quality_weights['mean_reversion_certainty'] * mean_reversion_score +
-                self.quality_weights['residual_quality'] * residual_quality_score
+                self.quality_weights['mean_reversion_certainty'] * mean_reversion_score
             )
 
-            # 详细日志：每个配对的四维评分组成
+            # 详细日志：每个配对的三维评分组成
             status = "PASS" if quality_score > self.min_quality_threshold else "FAIL"
             half_life_str = f"{half_life_days:.1f}" if half_life_days is not None else "N/A"
 
@@ -109,8 +109,7 @@ class PairSelector:
                 f"Q={quality_score:.3f} [{status}] | "
                 f"Half={half_life_score:.3f}(days={half_life_str}) | "
                 f"BetaStab={beta_stability_score:.3f}(CV={beta_cv:.3f}) | "
-                f"MeanRev={mean_reversion_score:.3f}(SNR_κ={snr_kappa:.2f}) | "
-                f"Resid={residual_quality_score:.3f}(RRS={rrs_value:.3f})"
+                f"MeanRev={mean_reversion_score:.3f}(SNR_κ={snr_kappa:.2f})"
             )
 
             # 更新质量分数到model_result（保留原有字段）
@@ -118,7 +117,6 @@ class PairSelector:
             model_result['half_life_score'] = half_life_score
             model_result['beta_stability_score'] = beta_stability_score
             model_result['mean_reversion_score'] = mean_reversion_score
-            model_result['residual_quality_score'] = residual_quality_score
 
             scored_pairs.append(model_result)
 
@@ -357,59 +355,4 @@ class PairSelector:
 
         except Exception as e:
             self.algorithm.Debug(f"[PairSelector] κ-based均值回归确定性计算失败: {e}")
-            return (0.0, 0.0)
-
-
-    def _calculate_residual_quality_score(self, model_result):
-        """
-        计算残差质量分数（v7.5.6: RRS归一化 + Sigmoid评分）
-
-        核心改进:
-        1. RRS归一化: 消除价格尺度和波动率影响
-        2. MAD估计: 对fat-tailed残差分布稳健
-        3. Sigmoid评分: 平滑连续的[0,1]映射
-
-        数学原理:
-        - spread = log(P1) - β·log(P2) (协整残差,由BayesianModeler提供)
-        - baseline_scale = MAD(spread)×1.4826 (spread天然波动,在此计算)
-        - RRS = residual_std / baseline_scale (相对残差尺度)
-        - score = 1/(1+exp(a·[log(RRS)-b])) where a=1.88, b=0
-
-        锚点校准:
-        - RRS < 0.3: 优秀 (score>0.90)
-        - RRS = 1.0: 中性 (score=0.50)
-        - RRS > 2.0: 较差 (score<0.22)
-
-        Args:
-            model_result: BayesianModeler输出（包含residual_std和spread数组）
-
-        Returns:
-            tuple: (score, rrs_value) - 评分和原始RRS值（用于日志）
-        """
-        try:
-            residual_std = model_result['residual_std']
-            spread = model_result.get('spread')
-
-            if spread is None or len(spread) == 0:
-                self.algorithm.Debug("[PairSelector] spread数据缺失,降级处理")
-                return (0.0, 0.0)
-
-            # 计算baseline_scale (MAD估计)
-            spread_median = np.median(spread)
-            mad = np.median(np.abs(spread - spread_median))
-            baseline_scale = mad * 1.4826  # 转换为等效标准差
-
-            # RRS计算（防止除零）
-            epsilon = self.scoring_thresholds['residual_quality']['epsilon']
-            rrs = residual_std / max(baseline_scale, epsilon)
-
-            # Sigmoid评分（对数域）
-            a = self.scoring_thresholds['residual_quality']['logistic_steepness']
-            b = self.scoring_thresholds['residual_quality']['logistic_midpoint']
-            score = 1.0 / (1.0 + np.exp(a * (np.log(rrs) - b)))
-
-            return (max(0.0, min(1.0, score)), rrs)
-
-        except Exception as e:
-            self.algorithm.Debug(f"[PairSelector] RRS残差质量计算失败: {e}")
             return (0.0, 0.0)

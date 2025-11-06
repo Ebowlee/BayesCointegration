@@ -104,12 +104,11 @@ class StrategyConfig:
             # 质量门槛
             'min_quality_threshold': 0.50,              # 最低质量分数阈值
 
-            # 四维评分权重体系
+            # 三维评分权重体系 (v7.5.22: 移除residual_quality维度)
             'quality_weights': {
-                'half_life': 0.25,                      # 均值回归速度 (使用贝叶斯beta和AR(1) lambda)
-                'beta_stability': 0.25,                 # Beta稳定性 (后验标准差)
-                'mean_reversion_certainty': 0.25,       # AR(1)显著性 (lambda t统计量)
-                'residual_quality': 0.25                # 拟合质量 (残差标准差，替代volatility_ratio)
+                'half_life': 0.40,                      # 均值回归速度 (最独立+预测力最强,准确率57%)
+                'beta_stability': 0.25,                 # Beta稳定性 (风控底线,虽与MR重叠30%但仍保留)
+                'mean_reversion_certainty': 0.35        # AR(1)显著性 (理论核心,预测力中等50%)
             },
 
             'scoring_thresholds': {
@@ -142,24 +141,13 @@ class StrategyConfig:
                     'logistic_steepness': 2.5,           # a参数: 控制S曲线陡峭度
                     'logistic_midpoint': 2.0,            # b参数: SNR_κ=2 → score=0.5
                     'max_snr_kappa': 10.0                # 上界截断（防止极端值）
-                },
-                'residual_quality': {
-                    # v7.5.6: RRS-based scoring (相对残差尺度，尺度不变)
-                    'epsilon': 0.01,                    # 防止除零的下界
-                    'logistic_steepness': 1.88,         # a参数: 最小二乘拟合三锚点
-                    'logistic_midpoint': 0.0,           # b参数: RRS=1.0 → score=0.5
-
-                    # 参考阈值(文档用途，不影响计算):
-                    # RRS=0.3 → score≈0.906 (优秀: 残差仅为spread波动的30%)
-                    # RRS=1.0 → score=0.500 (中性: 残差等于spread波动)
-                    # RRS=2.0 → score≈0.213 (较差: 残差是spread波动的2倍)
                 }
+                # v7.5.22: 移除residual_quality维度 (预测失败率57%, 历史拟合≠未来预测)
             }
         }
 
         # 4. 贝叶斯建模模块
         self.bayesian_modeler = {
-            # MCMC采样参数（v7.5.8统一：删除冗余顶层配置，统一使用joint_single_stage的1000/1000）
             'mcmc_chains': 2,                           # MCMC链数
 
             # 先验配置
@@ -181,7 +169,7 @@ class StrategyConfig:
                     # v7.5.20: σ_η的HalfNormal先验放宽参数
                     'sigma_eta_multiplier': 2.5         # σ_η标准差放宽系数
                 },
-                'joint_single_stage': {                 # 单阶段联合模型配置(v7.5.3: 统一使用rho; v7.5.8: 统一MCMC采样配置)
+                'joint_single_stage': {                 # 单阶段联合模型配置
                     'sigma_eta_prior': 0.1,             # AR(1)创新噪声η的HalfNormal先验参数(σ_η ~ HalfNormal(0.1), 预期小噪声, log价差残差通常0.01-0.10)
                     'mcmc_warmup': 1000,                # MCMC预热样本数（所有先验统一使用）
                     'mcmc_draws': 1000,                 # MCMC后验样本数（所有先验统一使用）
@@ -192,13 +180,12 @@ class StrategyConfig:
 
         # ========== Pairs/PairsManager 配置 ==========
         self.pairs_trading = {
-            # v7.5.21: 改良C方案 - 信号阈值优化 (参数重命名)
             'entry_threshold_lower': 1.2,           # 入场Z-score下限 (提高入场质量,过滤1.0-1.2弱信号)
             'entry_threshold_upper': 1.8,           # 入场Z-score上限 (为止损留0.5σ缓冲,避免即开即止)
             'exit_threshold': 0.3,                  # 出场Z-score阈值 (保持不变,避免假回归)
             'stop_loss_threshold': 2.3,             # 止损Z-score阈值 (配合1.8上限,留0.5σ缓冲)
 
-            'pair_cooldown_days_for_exit': 20,      # 正常回归平仓后的冷却期(天) - Z-score收敛
+            'pair_cooldown_days_for_exit': 15,      # 正常回归平仓后的冷却期(天) - Z-score收敛
             'pair_cooldown_days_for_stop': 60,      # 止损平仓后的冷却期(天) - Z-score超限
 
             # 仓位管理参数
@@ -257,14 +244,14 @@ class StrategyConfig:
                     'enabled': True,
                     'priority': 90,
                     'threshold': 0.05,                       # 统一回撤阈值
-                    'cooldown_days_for_profit': 20,          # 盈利前提下平仓后冷却期
+                    'cooldown_days_for_profit': 15,          # 盈利前提下平仓后冷却期
                     'cooldown_days_for_loss': 60             # 亏损前提下平仓后冷却期
                 },
                 'holding_timeout': {
                     'enabled': True,
                     'priority': 80,
-                    'max_days': 50,                          # 最大持仓天数
-                    'cooldown_days': 30                     
+                    'max_days': 30,                          # 最大持仓天数
+                    'cooldown_days': 60                     
                 }
             }
         }

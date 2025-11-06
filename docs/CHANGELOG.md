@@ -4,6 +4,181 @@
 
 ---
 
+## [v7.5.22_remove-residual-quality@20250129]
+
+### 版本概述
+**移除Residual Quality维度** - 基于实战数据分析(26配对+7交易),该维度预测失败率高达57%,且最高分配对(CNP, EXC)出现最大亏损(-672.4%),历史拟合质量无法预测未来表现,决定移除此维度。
+
+### 核心变更
+
+#### 1. 配对质量评分体系优化 (四维→三维)
+
+**移除维度**: Residual Quality Score (RRS归一化+Sigmoid评分)
+
+**移除理由**:
+1. **预测失败率57%**: 7个交易中4个结果与ResidQual预期相反
+2. **严重误判案例**:
+   - (CNP, EXC): ResidQual=0.578 (最高分) → -672.4% (最大亏损)
+   - (D, PPL): ResidQual=0.336 (低分) → +317.5% (盈利)
+3. **静态历史局限**: 252天历史拟合无法预测regime change
+4. **与交易表现无关**: 相关系数接近0,无预测价值
+
+**实证分析数据**:
+- 26个配对的四维度评分 (Lines 2-27)
+- 7个实际交易的PnL结果 (Lines 29-35)
+- ResidQual与PnL相关性: r=0.14 (几乎无关)
+- 预测准确率: 43% (低于随机)
+
+#### 2. 权重重新分配 (三维度)
+
+**新权重系统** (config.py Lines 107-112):
+```python
+# 三维评分权重体系 (v7.5.22: 移除residual_quality维度)
+'quality_weights': {
+    'half_life': 0.40,                      # 均值回归速度 (最独立+预测力最强,准确率57%)
+    'beta_stability': 0.25,                 # Beta稳定性 (风控底线,虽与MR重叠30%但仍保留)
+    'mean_reversion_certainty': 0.35        # AR(1)显著性 (理论核心,预测力中等50%)
+}
+```
+
+**权重分配理由**:
+- **Half-life (40%)**:
+  - 最高独立性 (avg correlation=0.18)
+  - 最高预测准确率 (57%)
+  - 物理意义直接 (回归速度)
+
+- **Beta Stability (25%)**:
+  - 风控基础 (对冲稳定性)
+  - 与MR有30%重叠 (r=0.71) 但作为底线仍需保留
+  - 无预测力但必要性高
+
+- **Mean-reversion Certainty (35%)**:
+  - 理论核心 (AR(1)显著性)
+  - 中等预测准确率 (50%)
+  - 与Half-life有22%重叠 (r=0.42)
+
+**维度重叠度矩阵** (基于26配对Pearson相关系数):
+|          | Half-life | Beta Stab | Mean Rev | Resid Qual |
+|----------|-----------|-----------|----------|------------|
+| **Half-life**   | 1.00      | 0.04      | 0.42     | 0.10       |
+| **Beta Stab**   | 0.04      | 1.00      | **0.71** | 0.17       |
+| **Mean Rev**    | 0.42      | **0.71**  | 1.00     | 0.15       |
+| **Resid Qual**  | 0.10      | 0.17      | 0.15     | 1.00       |
+
+**关键发现**: Beta Stability与Mean-reversion重叠度30% (r²=0.71²≈0.50), 但作为风控底线仍需保留。
+
+### 代码变更
+
+#### 1. config.py - 删除residual_quality配置块 (Lines 146-156)
+
+**删除内容**:
+```python
+# DELETED (Lines 146-156):
+'residual_quality': {
+    # v7.5.6: RRS-based scoring (相对残差尺度，尺度不变)
+    'epsilon': 0.01,
+    'logistic_steepness': 1.88,
+    'logistic_midpoint': 0.0,
+}
+```
+
+#### 2. config.py - 更新quality_weights (Lines 107-112)
+
+**变更前** (四维度, 均等权重):
+```python
+'quality_weights': {
+    'half_life': 0.25,
+    'beta_stability': 0.25,
+    'mean_reversion_certainty': 0.25,
+    'residual_quality': 0.25
+}
+```
+
+**变更后** (三维度, 基于独立性和预测力):
+```python
+# 三维评分权重体系 (v7.5.22: 移除residual_quality维度)
+'quality_weights': {
+    'half_life': 0.40,                      # 均值回归速度 (最独立+预测力最强,准确率57%)
+    'beta_stability': 0.25,                 # Beta稳定性 (风控底线,虽与MR重叠30%但仍保留)
+    'mean_reversion_certainty': 0.35        # AR(1)显著性 (理论核心,预测力中等50%)
+}
+```
+
+#### 3. PairSelector.py - 删除_calculate_residual_quality_score函数 (Lines 363-416)
+
+**删除内容**: 完整的RRS计算函数 (~54行代码)
+- MAD估计baseline_scale
+- RRS归一化计算
+- Sigmoid评分映射
+- 异常处理逻辑
+
+#### 4. PairSelector.py - 更新evaluate_quality函数 (Lines 62-123)
+
+**变更点**:
+1. **函数文档** (Lines 64-76):
+   - "四维评分系统" → "三维评分系统"
+   - 添加移除理由说明
+
+2. **评分计算** (Lines 88-98):
+   - 删除 `residual_quality_score, rrs_value = self._calculate_residual_quality_score(model_result)`
+   - 更新质量分数公式: 移除 `self.quality_weights['residual_quality'] * residual_quality_score`
+
+3. **日志输出** (Lines 107-113):
+   - 移除 `Resid={residual_quality_score:.3f}(RRS={rrs_value:.3f})`
+
+4. **结果字段** (Lines 115-120):
+   - 移除 `model_result['residual_quality_score'] = residual_quality_score`
+
+### 预期影响
+
+#### 1. 配对质量分数变化
+
+**理论变化**:
+- 旧公式: Q = 0.25×HL + 0.25×BS + 0.25×MR + 0.25×RQ
+- 新公式: Q = 0.40×HL + 0.25×BS + 0.35×MR
+- **权重再分配**: 移除的25%分配给Half-life(+15%) 和 Mean-reversion(+10%)
+
+**影响范围**:
+- 若配对HL=0.9, BS=0.95, MR=0.8, RQ=0.5
+- 旧Q: 0.25×0.9 + 0.25×0.95 + 0.25×0.8 + 0.25×0.5 = 0.7875
+- 新Q: 0.40×0.9 + 0.25×0.95 + 0.35×0.8 = 0.8775 (+11.4%)
+- **结论**: HL和MR优秀的配对分数上升, RQ独高的配对被淘汰
+
+#### 2. 配对筛选变化
+
+**min_quality_threshold保持不变** (config.py Line 105):
+```python
+'min_quality_threshold': 0.50,  # 不变
+```
+
+**预期效果**:
+- Half-life和Mean-reversion优秀的配对更容易通过
+- 纯靠ResidQual高分但HL/MR差的配对被淘汰
+- 整体通过率可能略有上升 (因为移除了无效维度)
+
+#### 3. 性能提升
+
+**计算量减少**:
+- 移除MAD计算 (np.median调用2次)
+- 移除RRS计算和Sigmoid评分
+- 每次选股周期节省 ~5-10ms (取决于配对数)
+
+### 后续验证
+
+1. **回测对比**:
+   - 对比v7.5.21 (四维度) vs v7.5.22 (三维度)
+   - 关键指标: 配对通过率, 平均Q-Score, 胜率, PnL
+
+2. **权重优化**:
+   - 验证40/25/35权重是否最优
+   - 使用网格搜索或贝叶斯优化寻找最佳权重
+
+3. **长期监控**:
+   - 观察1-3个月的实盘表现
+   - 验证三维度系统的稳定性
+
+---
+
 ## [v7.5.21_improved-c-plan-and-asymmetric-gaussian@20250129]
 
 ### 版本概述
