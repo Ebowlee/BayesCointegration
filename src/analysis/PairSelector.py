@@ -61,17 +61,17 @@ class PairSelector:
 
     def evaluate_quality(self, modeling_results):
         """
-        评估配对质量（v7.5.22: 三维评分系统,移除ResidQual维度）
+        评估配对质量（v7.5.23: 二维评分系统,移除BetaStab维度）
 
         Args:
             modeling_results: BayesianModeler输出的建模结果列表
 
-        三维评分系统:
-        1. Half-life (40%): 均值回归速度 (最独立+预测力最强,准确率57%)
-        2. Beta stability (25%): Beta稳定性 (风控底线,虽与MR重叠30%但仍保留)
-        3. Mean-reversion certainty (35%): AR(1)显著性 (理论核心,预测力中等50%)
+        二维评分系统:
+        1. Half-life (60%): 均值回归速度 (最独立+预测力最强,准确率57%)
+        2. Mean-reversion certainty (40%): AR(1)显著性 (理论核心,预测力中等50%)
 
         移除维度:
+        - Beta Stability: 与MR重叠50%(r=0.71), 所有配对评分0.97-0.99无区分度
         - Residual Quality: 预测失败率57%, 历史拟合≠未来预测
 
         设计优势:
@@ -85,37 +85,30 @@ class PairSelector:
             symbol1 = model_result['symbol1']
             symbol2 = model_result['symbol2']
 
-            # 三维评分计算 (调用私有方法)
+            # 二维评分计算 (调用私有方法)
             half_life_score, half_life_days = self._calculate_half_life_score(model_result)
-            beta_stability_score = self._calculate_beta_stability_score(model_result['beta_mean'], model_result['beta_std'])
             mean_reversion_score, snr_kappa = self._calculate_mean_reversion_certainty_score(model_result)
 
-            # 综合质量分数（三维加权平均, v7.5.22: 移除ResidQual维度）
+            # 综合质量分数（二维加权平均, v7.5.23: 移除BetaStab维度）
             quality_score = (
                 self.quality_weights['half_life'] * half_life_score +
-                self.quality_weights['beta_stability'] * beta_stability_score +
                 self.quality_weights['mean_reversion_certainty'] * mean_reversion_score
             )
 
-            # 详细日志：每个配对的三维评分组成
+            # 详细日志：每个配对的二维评分组成
             status = "PASS" if quality_score > self.min_quality_threshold else "FAIL"
             half_life_str = f"{half_life_days:.1f}" if half_life_days is not None else "N/A"
-
-            # 计算CV用于日志显示
-            beta_cv = model_result['beta_std'] / abs(model_result['beta_mean']) if abs(model_result['beta_mean']) > 1e-6 else 999
 
             self.algorithm.Debug(
                 f"[PairScore] ({symbol1.Value:4s}, {symbol2.Value:4s}): "
                 f"Q={quality_score:.3f} [{status}] | "
                 f"Half={half_life_score:.3f}(days={half_life_str}) | "
-                f"BetaStab={beta_stability_score:.3f}(CV={beta_cv:.3f}) | "
                 f"MeanRev={mean_reversion_score:.3f}(SNR_κ={snr_kappa:.2f})"
             )
 
             # 更新质量分数到model_result（保留原有字段）
             model_result['quality_score'] = quality_score
             model_result['half_life_score'] = half_life_score
-            model_result['beta_stability_score'] = beta_stability_score
             model_result['mean_reversion_score'] = mean_reversion_score
 
             scored_pairs.append(model_result)
@@ -251,52 +244,6 @@ class PairSelector:
             self.algorithm.Debug(f"[PairSelector] 半衰期计算失败: {e}")
             return (0, None)
 
-
-    def _calculate_beta_stability_score(self, beta_mean, beta_std):
-        """
-        计算Beta稳定性分数（v7.5.4: 基于变异系数CV归一化）
-
-        Beta稳定性衡量对冲比率的相对不确定性:
-        - CV = beta_std / |beta_mean| (变异系数,确保不同beta量级可比)
-        - CV越小 → 对冲比率越稳定 → 分数越高
-        - 使用逻辑斯蒂函数: score = 1 / (1 + exp(a·(CV - b)))
-
-        设计优势:
-        - 归一化处理: 不同beta量级的配对具有可比性
-        - 光滑连续: S型曲线在关键区间(0.10-0.40)提供最佳区分度
-        - 物理意义: CV < 0.10(优秀), 0.10-0.20(良好), 0.20-0.30(合格), 0.30-0.40(警戒), CV > 0.40(淘汰)
-
-        Args:
-            beta_mean: Beta的后验均值（来自贝叶斯MCMC）
-            beta_std: Beta的后验标准差（来自贝叶斯MCMC）
-
-        Returns:
-            float: 评分 [0, 1]
-
-        Examples:
-            beta=1.5, std=0.15 → CV=0.10 → score≈0.98 (优秀)
-            beta=0.2, std=0.02 → CV=0.10 → score≈0.98 (优秀,公平!)
-            beta=1.0, std=0.30 → CV=0.30 → score≈0.71 (合格)
-        """
-        try:
-            # 计算变异系数(CV = std / |mean|)
-            if abs(beta_mean) < 1e-6:  # 防止除零
-                return 0.0
-
-            cv = beta_std / abs(beta_mean)
-
-            # 读取逻辑斯蒂参数
-            a = self.scoring_thresholds['beta_stability']['logistic_steepness']  # 15.03
-            b = self.scoring_thresholds['beta_stability']['logistic_midpoint']   # 0.359
-
-            # 逻辑斯蒂评分函数
-            score = 1.0 / (1.0 + np.exp(a * (cv - b)))
-
-            return max(0.0, min(1.0, score))
-
-        except Exception as e:
-            self.algorithm.Debug(f"[PairSelector] Beta稳定性计算失败: {e}")
-            return 0.0
 
 
     def _calculate_mean_reversion_certainty_score(self, model_result):

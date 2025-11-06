@@ -4,6 +4,148 @@
 
 ---
 
+## [v7.5.23_remove-beta-stability@20250129]
+
+### 版本概述
+**移除Beta Stability维度** - 基于相关性分析和实证数据,该维度与Mean-reversion重叠度高达50%(r=0.71),且所有配对评分集中在0.97-0.99区间,完全无区分度,决定移除此维度,简化为二维评分系统。
+
+### 核心变更
+
+#### 1. 配对质量评分体系优化 (三维→二维)
+
+**移除维度**: Beta Stability Score (CV归一化+逻辑斯蒂评分)
+
+**移除理由**:
+1. **高度重叠**: 与Mean-reversion相关系数r=0.71 (重叠度r²≈50%)
+2. **无区分度**: 26个配对的Beta Stability评分全部集中在0.97-0.99 (标准差<0.01)
+3. **信息冗余**: Mean-reversion已包含均值回归强度信息,Beta Stability作为对冲稳定性指标贡献有限
+4. **简化优先**: 二维系统更简洁,Half-life和Mean-reversion足以覆盖核心统计特征
+
+**相关性矩阵** (基于26配对):
+|          | Half-life | Beta Stab | Mean Rev |
+|----------|-----------|-----------|----------|
+| **Half-life**   | 1.00      | 0.04      | 0.42     |
+| **Beta Stab**   | 0.04      | 1.00      | **0.71** |
+| **Mean Rev**    | 0.42      | **0.71**  | 1.00     |
+
+**关键发现**: Beta Stability与Mean-reversion重叠度最高,且评分区间极窄(0.97-0.99),失去筛选意义。
+
+#### 2. 权重重新分配 (二维度)
+
+**新权重系统** (config.py Lines 107-111):
+```python
+# 二维评分权重体系 (v7.5.23: 移除beta_stability维度)
+'quality_weights': {
+    'half_life': 0.60,                      # 均值回归速度 (最独立+预测力最强,准确率57%)
+    'mean_reversion_certainty': 0.40        # AR(1)显著性 (理论核心,预测力中等50%)
+}
+```
+
+**权重分配理由**:
+- **Half-life (60%)**:
+  - 最高独立性 (avg correlation=0.18)
+  - 最高预测准确率 (57%)
+  - 物理意义直接 (回归速度)
+  - 获得额外20%权重 (原40% + Beta Stab的25%×0.80 = 60%)
+
+- **Mean-reversion Certainty (40%)**:
+  - 理论核心 (AR(1)显著性)
+  - 中等预测准确率 (50%)
+  - 已包含均值回归强度信息
+  - 获得额外5%权重 (原35% + Beta Stab的25%×0.20 = 40%)
+
+**权重分配策略**:
+- Beta Stability的25%权重按80:20分配给Half-life和Mean-reversion
+- Half-life获得更多权重 (因为独立性最高且预测力最强)
+
+### 代码变更
+
+#### 1. config.py - 删除beta_stability配置块 (Lines 126-137)
+
+**删除内容**:
+```python
+# DELETED (Lines 126-137):
+'beta_stability': {
+    # v7.5.4: 逻辑斯蒂函数参数(基于CV归一化)
+    'logistic_steepness': 15.03,
+    'logistic_midpoint': 0.359,
+    # 参考阈值文档...
+}
+```
+
+#### 2. config.py - 更新quality_weights (Lines 107-111)
+
+**变更前** (三维度):
+```python
+'quality_weights': {
+    'half_life': 0.40,
+    'beta_stability': 0.25,
+    'mean_reversion_certainty': 0.35
+}
+```
+
+**变更后** (二维度):
+```python
+# 二维评分权重体系 (v7.5.23: 移除beta_stability维度)
+'quality_weights': {
+    'half_life': 0.60,
+    'mean_reversion_certainty': 0.40
+}
+```
+
+#### 3. PairSelector.py - 删除_calculate_beta_stability_score函数 (Lines 255-300)
+
+**删除内容**: 完整的Beta Stability计算函数 (~46行代码)
+- CV计算 (变异系数 = std / |mean|)
+- 逻辑斯蒂评分映射
+- 异常处理逻辑
+
+#### 4. PairSelector.py - 更新evaluate_quality函数 (Lines 62-116)
+
+**变更点**:
+1. **函数文档**: "三维评分系统" → "二维评分系统"
+2. **评分计算**: 移除beta_stability_score计算和加权
+3. **日志输出**: 移除BetaStab和CV显示
+4. **结果字段**: 移除beta_stability_score字段
+
+### 预期影响
+
+#### 1. 配对质量分数变化
+
+**理论变化**:
+- 旧公式(v7.5.22): Q = 0.40×HL + 0.25×BS + 0.35×MR
+- 新公式(v7.5.23): Q = 0.60×HL + 0.40×MR
+- **权重再分配**: Beta Stability的25%按80:20分配给HL和MR
+
+**影响范围** (假设配对HL=0.9, BS=0.98, MR=0.8):
+- 旧Q: 0.40×0.9 + 0.25×0.98 + 0.35×0.8 = 0.885
+- 新Q: 0.60×0.9 + 0.40×0.8 = 0.860 (-2.8%)
+- **结论**: 由于BS评分普遍极高(0.97-0.99),移除后整体分数略降,但区分度不变
+
+#### 2. 配对筛选变化
+
+**min_quality_threshold保持不变** (0.50)
+
+**预期效果**:
+- HL和MR优秀的配对更容易通过 (权重提升)
+- 整体通过率可能略有下降 (因移除了普遍高分维度)
+- 配对排序主要由HL和MR决定 (更符合实证预测力)
+
+#### 3. 性能提升
+
+**计算量减少**:
+- 移除CV计算和逻辑斯蒂评分
+- 每次选股周期节省 ~2-5ms
+- 代码简洁度提升 (删除46行函数)
+
+### 后续验证
+
+1. **回测对比**: 对比v7.5.22 (三维度) vs v7.5.23 (二维度)
+2. **阈值调整**: 验证min_quality_threshold=0.50是否仍合适
+3. **长期监控**: 观察1-3个月的实盘表现
+
+---
+
 ## [v7.5.22_remove-residual-quality@20250129]
 
 ### 版本概述

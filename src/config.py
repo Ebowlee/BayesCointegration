@@ -104,11 +104,10 @@ class StrategyConfig:
             # 质量门槛
             'min_quality_threshold': 0.50,              # 最低质量分数阈值
 
-            # 三维评分权重体系 (v7.5.22: 移除residual_quality维度)
+            # 二维评分权重体系 (v7.5.23: 移除beta_stability维度)
             'quality_weights': {
-                'half_life': 0.40,                      # 均值回归速度 (最独立+预测力最强,准确率57%)
-                'beta_stability': 0.25,                 # Beta稳定性 (风控底线,虽与MR重叠30%但仍保留)
-                'mean_reversion_certainty': 0.35        # AR(1)显著性 (理论核心,预测力中等50%)
+                'half_life': 0.60,                      # 均值回归速度 (最独立+预测力最强,准确率57%)
+                'mean_reversion_certainty': 0.40        # AR(1)显著性 (理论核心,预测力中等50%)
             },
 
             'scoring_thresholds': {
@@ -123,18 +122,7 @@ class StrategyConfig:
                     'decay_start': 12,                  # 远端衰减起点 (12天后快速排除)
                     'decay_rate': 0.6                   # 衰减速率 (15天≈0.18)
                 },
-                'beta_stability': {
-                    # v7.5.4: 逻辑斯蒂函数参数(基于CV归一化)
-                    'logistic_steepness': 15.03,        # a参数: 控制衰减陡峭度
-                    'logistic_midpoint': 0.359,         # b参数: score=0.5时的CV值
-
-                    # 参考阈值(文档用途,不影响计算):
-                    # CV < 0.10 → 优秀 (score≈0.98)
-                    # 0.10-0.20 → 良好 (score≈0.92)
-                    # 0.20-0.30 → 合格 (score≈0.71)
-                    # 0.30-0.40 → 警戒 (score≈0.35)
-                    # CV > 0.40 → 淘汰 (score<0.20)
-                },
+                # v7.5.23: 移除beta_stability维度 (与MR重叠50%,所有配对评分0.97-0.99无区分度)
                 'mean_reversion_certainty': {
                     # v7.5.5: κ-based SNR（连续时间均值回归率，频率不变）
                     'time_delta_days': 1.0,              # Δt（日频数据）
