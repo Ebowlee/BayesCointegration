@@ -102,18 +102,14 @@ class StrategyConfig:
             'max_pairs': 30,                            # 最大配对数(配合max_symbol_repeats放宽)
 
             # 质量门槛
-            'min_quality_threshold': 0.50,              # 最低质量分数阈值
+            'min_quality_threshold': 0.60,              # 最低质量分数阈值
 
-            # 二维评分权重体系 (v7.5.23: 移除beta_stability维度)
             'quality_weights': {
                 'half_life': 0.60,                      # 均值回归速度 (最独立+预测力最强,准确率57%)
                 'mean_reversion_certainty': 0.40        # AR(1)显著性 (理论核心,预测力中等50%)
             },
 
             'scoring_thresholds': {
-                # 非对称高斯评分 (改良C方案配套, 阈值优先设计)
-                # 设计理念: 8天峰值平衡统计质量与30天timeout安全性
-                # 核心区间: 5-10天 (≥0.75), 可接受: 4-12天 (≥0.50)
                 'half_life': {
                     'peak_days': 8,                     # 峰值 (统计质量+timeout安全性最优平衡)
                     'sigma_left': 3.5,                  # 左侧标准差 (4-8天区间,保证6天≈0.90)
@@ -122,15 +118,12 @@ class StrategyConfig:
                     'decay_start': 12,                  # 远端衰减起点 (12天后快速排除)
                     'decay_rate': 0.6                   # 衰减速率 (15天≈0.18)
                 },
-                # v7.5.23: 移除beta_stability维度 (与MR重叠50%,所有配对评分0.97-0.99无区分度)
                 'mean_reversion_certainty': {
-                    # v7.5.5: κ-based SNR（连续时间均值回归率，频率不变）
                     'time_delta_days': 1.0,              # Δt（日频数据）
                     'logistic_steepness': 2.5,           # a参数: 控制S曲线陡峭度
                     'logistic_midpoint': 2.0,            # b参数: SNR_κ=2 → score=0.5
                     'max_snr_kappa': 10.0                # 上界截断（防止极端值）
                 }
-                # v7.5.22: 移除residual_quality维度 (预测失败率57%, 历史拟合≠未来预测)
             }
         }
 

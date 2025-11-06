@@ -275,11 +275,9 @@ git commit -m "docs: update CHANGELOG for v7.2.5"
 - **DataProcessor**: Clean and prepare historical data (252-day lookback)
 - **CointegrationAnalyzer**: Engle-Granger cointegration tests (p-value < 0.05)
 - **BayesianModeler**: PyMC MCMC parameter estimation (500 warmup + 500 samples, 2 chains)
-- **PairSelector**: Quality scoring using 4 weighted metrics:
-  - **statistical** (30%): Cointegration strength (p-value based)
-  - **half_life** (30%): Mean reversion speed (5-30 days optimal)
-  - **volatility_ratio** (20%): Spread stability (spread_vol/stock_vol)
-  - **liquidity** (20%): Trading volume (dollar volume based)
+- **PairSelector**: Quality scoring using 2 weighted metrics (v7.5.23):
+  - **half_life** (60%): Mean reversion speed (most independent + highest predictive power 57%)
+  - **mean_reversion_certainty** (40%): AR(1) significance (theoretical core + moderate predictive power 50%)
 
 ### 11. trade/ - Trade Statistics Module (v7.2.0)
 - **Purpose**: Real-time trade statistics collection and analysis (replaces TradeHistory)

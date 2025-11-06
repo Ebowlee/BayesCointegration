@@ -43,12 +43,12 @@ class PairSelector:
                              rho_mean, rho_std, residual_std, half_life_mean, etc.
 
         Returns:
-            List[Dict]: 筛选后的配对列表（包含四维质量分数）
+            List[Dict]: 筛选后的配对列表（包含二维质量分数: half_life, mean_reversion_certainty）
 
-        设计变更 (v7.5.3):
-        - 统一使用rho表示AR(1)系数,移除lambda派生量
-        - 四维评分系统：half_life, beta_stability, mean_reversion_certainty, residual_quality
-        - 半衰期直接从rho计算: -ln(2) / ln(ρ)
+        设计变更 (v7.5.23):
+        - 简化为二维评分系统: half_life (60%), mean_reversion_certainty (40%)
+        - 移除维度: beta_stability (与MR重叠50%), residual_quality (预测失败57%)
+        - 统一使用rho表示AR(1)系数,半衰期直接从rho计算: -ln(2) / ln(ρ)
         """
         # 步骤1: 评估配对质量（使用贝叶斯后验参数）
         scored_pairs = self.evaluate_quality(modeling_results)
