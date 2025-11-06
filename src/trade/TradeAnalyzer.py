@@ -63,6 +63,10 @@ class TradeAnalyzer:
 
         在平仓时调用 (main.py执行完平仓后立即调用)
 
+        改动 (v7.6.0):
+        - 修正pnl_pct计算: (pnl_dollars / pair_cost) * 100
+        - 其他逻辑保持不变
+
         Args:
             pair: Pairs对象
             reason: 平仓原因 ('CLOSE', 'STOP_LOSS', 'TIMEOUT', etc.)
@@ -71,10 +75,18 @@ class TradeAnalyzer:
                   - 风控平仓 (TIMEOUT/RISK_TRIGGER): data=None, exit_zscore=None
         """
         # 1. 提取交易数据
-        pnl_pct = pair.get_pair_pnl()
+        pnl_dollars = pair.get_pair_pnl()  # 返回美元值
+        pair_cost = pair.get_pair_cost()   # 保证金占用（美元）
         holding_days = pair.get_pair_holding_days()
         pair_id = pair.pair_id
         exit_zscore = pair.get_zscore(data) if data else None
+
+        # 修正 (v7.6.0): 计算百分比收益率
+        # pnl_pct 表示相对于保证金占用的收益率百分比
+        if pair_cost and pair_cost > 0:
+            pnl_pct = (pnl_dollars / pair_cost) * 100
+        else:
+            pnl_pct = 0.0
 
         # 2. 更新全局统计
         self.total_trades += 1
@@ -152,3 +164,52 @@ class TradeAnalyzer:
         }
 
         self.algorithm.Debug(json.dumps(summary, ensure_ascii=False))
+
+    # ========== 黑名单接口 (v7.6.0) ==========
+
+    def get_blacklist(self) -> set:
+        """
+        获取黑名单 (供PairSelector调用)
+
+        黑名单标准:
+        - 交易次数 >= 3
+        - 累计收益率 < 0 (百分比)
+
+        设计说明:
+        - 代理模式: 直接委托给pair_collector
+        - 返回Set[Tuple[str, str]]便于集合操作
+
+        调用方: PairSelector.select_best()
+
+        Returns:
+            黑名单集合
+        """
+        return self.pair_collector.get_blacklist()
+
+    def is_blacklisted(self, pair_id: tuple) -> bool:
+        """
+        检查单个配对是否黑名单
+
+        供PairSelector内的循环中调用 (O(1)性能)
+
+        Args:
+            pair_id: 配对ID元组
+
+        Returns:
+            True if 黑名单, False otherwise
+        """
+        return self.pair_collector.is_blacklisted(pair_id)
+
+    def get_blacklist_stats(self, pair_id: tuple):
+        """
+        获取黑名单配对的统计信息
+
+        供诊断和日志调查使用
+
+        Args:
+            pair_id: 配对ID
+
+        Returns:
+            统计数据: {'count': int, 'wins': int, 'total_pnl': float} or None
+        """
+        return self.pair_collector.get_blacklist_stats(pair_id)

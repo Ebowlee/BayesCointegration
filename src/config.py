@@ -31,8 +31,8 @@ class StrategyConfig:
         # ========== 选股模块配置 ==========
         self.universe_selection = {
             # 基础筛选
-            'min_price': 10,                          # 最低股价（美元）
-            'min_volume': 5e6,                        # 最低日均成交量（股数）
+            'min_price': 15,                          # 最低股价（美元）
+            'min_volume': 1e6,                        # 最低日均成交量（股数）
             'min_days_since_ipo': 360,                # IPO最短时间（天）
 
             # 风险指标
@@ -98,8 +98,8 @@ class StrategyConfig:
         # 3. 配对质量评估模块
         self.pair_selector = {
             # 筛选限制
-            'max_symbol_repeats': 3,                    # 单股最多配对数(允许高质量股票参与多个配对)
-            'max_pairs': 30,                            # 最大配对数(配合max_symbol_repeats放宽)
+            'max_symbol_repeats': 1,                    # 单股最多配对数(允许高质量股票参与多个配对)
+            'max_pairs': 50,                            # 最大配对数(配合max_symbol_repeats放宽)
 
             # 质量门槛
             'min_quality_threshold': 0.60,              # 最低质量分数阈值

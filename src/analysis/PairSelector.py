@@ -122,8 +122,13 @@ class PairSelector:
 
         流程:
         1. 过滤低于最低分数阈值的配对（质量门槛）
-        2. 按质量分数排序
-        3. 确保单个股票不会出现在过多配对中
+        2. [NEW v7.6.0] 黑名单过滤
+        3. 按质量分数排序
+        4. 确保单个股票不会出现在过多配对中
+
+        改动 (v7.6.0):
+        - 新增第2步：黑名单过滤
+        - 其他逻辑保持不变
         """
         # Step 1: 最低质量门槛过滤（严格大于阈值）
         min_threshold = self.min_quality_threshold  # 从config读取
@@ -139,10 +144,37 @@ class PairSelector:
                 f"[PairSelector] 质量阈值过滤: {rejected_count}个配对 <= {min_threshold:.2f}分"
             )
 
-        # Step 2: 按质量分数排序（从高到低）
-        sorted_pairs = sorted(qualified_pairs, key=lambda x: x['quality_score'], reverse=True)
+        # Step 2: [NEW v7.6.0] 黑名单过滤
+        blacklist = self.algorithm.trade_analyzer.get_blacklist()
+        blacklist_rejected = []
+        non_blacklist_pairs = []
 
-        # Step 3: 单股重复限制（确保单个股票不会出现在过多配对中）
+        for pair in qualified_pairs:
+            pair_id = (pair['symbol1'].Value, pair['symbol2'].Value)
+            if pair_id in blacklist:
+                blacklist_rejected.append(pair_id)
+            else:
+                non_blacklist_pairs.append(pair)
+
+        # 黑名单过滤诊断日志
+        if blacklist_rejected:
+            self.algorithm.Debug(
+                f"[PairSelector] 黑名单过滤: {len(blacklist_rejected)}个配对被排除 "
+                f"(黑名单规模={len(blacklist)})"
+            )
+            # 输出前3个被排除配对的统计信息
+            for pair_id in blacklist_rejected[:3]:
+                stats = self.algorithm.trade_analyzer.get_blacklist_stats(pair_id)
+                if stats:
+                    self.algorithm.Debug(
+                        f"  - {pair_id}: {stats['count']}笔交易, "
+                        f"累计收益={stats['total_pnl']:.2f}%"
+                    )
+
+        # Step 3: 按质量分数排序（从高到低）
+        sorted_pairs = sorted(non_blacklist_pairs, key=lambda x: x['quality_score'], reverse=True)
+
+        # Step 4: 单股重复限制（确保单个股票不会出现在过多配对中）
         selected = []
         symbol_counts = defaultdict(int)
 

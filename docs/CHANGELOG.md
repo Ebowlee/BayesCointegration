@@ -4,6 +4,132 @@
 
 ---
 
+## [v7.6.0_pair-feedback-mechanism@20250206]
+
+### 版本概述
+**新增配对级别历史反馈机制** - trade模块扩展双重职责（向后输出日志 + 向前提供黑名单），PairSelector在月度选股时自动过滤历史亏损配对（交易次数>=3 且 累计收益率<0），同时修正TradeAnalyzer中pnl_pct计算错误（之前误将美元值当成百分比）。
+
+### 核心变更
+
+#### 1. trade模块双重职责扩展
+
+**向后职责**（原有功能）:
+- 输出JSON Lines日志供回测分析
+- 6种统计维度（reason/holding/pair/consecutive/monthly/global）
+
+**向前职责**（新增功能 v7.6.0）:
+- 提供黑名单集合供PairSelector过滤
+- 黑名单标准: 交易次数>=3 且 累计收益率<0
+- 脏位缓存机制避免重复计算（O(1)查询性能）
+
+#### 2. PairStatsCollector扩展
+
+**新增属性**:
+```python
+_blacklist_cache: Set[Tuple[str, str]]  # 黑名单缓存
+_blacklist_dirty: bool                   # 脏位标记
+```
+
+**新增方法**:
+- `get_blacklist() -> Set[Tuple[str, str]]`: 获取黑名单集合
+- `is_blacklisted(pair_id) -> bool`: O(1)查询单个配对
+- `get_blacklist_stats(pair_id) -> Optional[Dict]`: 获取黑名单配对统计信息
+
+**优化机制**:
+- 脏位标记: 仅在`update()`调用时标记dirty=True
+- 延迟计算: `get_blacklist()`仅在dirty=True时重算
+- 性能提升: 避免每次查询都重新遍历所有统计数据
+
+#### 3. TradeAnalyzer修正pnl_pct计算
+
+**修正前**（v7.5.23及之前版本）:
+```python
+pnl_pct = pair.get_pair_pnl()  # ❌ 返回美元值，不是百分比
+```
+
+**修正后**（v7.6.0）:
+```python
+pnl_dollars = pair.get_pair_pnl()    # 美元值
+pair_cost = pair.get_pair_cost()     # 保证金占用
+pnl_pct = (pnl_dollars / pair_cost) * 100  # 百分比
+```
+
+**影响范围**:
+- 所有Collector的`total_pnl`字段现在是正确的百分比累加
+- 黑名单判断逻辑基于正确的百分比收益率
+- 历史统计数据（v7.5.23之前）全部错误，需重新回测获取正确数据
+
+**TradeAnalyzer新增方法**:
+```python
+get_blacklist() -> set               # 返回黑名单集合
+is_blacklisted(pair_id) -> bool      # 查询单个配对
+get_blacklist_stats(pair_id) -> dict # 获取统计信息
+```
+
+#### 4. PairSelector黑名单过滤集成
+
+**select_best()流程更新**:
+```python
+# 原流程 (v7.5.23):
+Step 1: 质量阈值过滤 → Step 2: 排序 → Step 3: 单股重复限制
+
+# 新流程 (v7.6.0):
+Step 1: 质量阈值过滤 → Step 2: 黑名单过滤 → Step 3: 排序 → Step 4: 单股重复限制
+```
+
+**黑名单过滤逻辑**:
+```python
+blacklist = self.algorithm.trade_analyzer.get_blacklist()
+for pair in qualified_pairs:
+    pair_id = (pair['symbol1'].Value, pair['symbol2'].Value)
+    if pair_id not in blacklist:
+        non_blacklist_pairs.append(pair)
+```
+
+**诊断日志**:
+- 输出被排除配对数量和黑名单规模
+- 显示前3个被排除配对的统计信息（交易次数、累计收益率）
+
+### 代码示例
+
+#### 黑名单过滤示例
+```python
+# PairSelector.select_best() 中的黑名单过滤
+blacklist = self.algorithm.trade_analyzer.get_blacklist()
+# 输出: {('AAPL', 'MSFT'), ('GOOGL', 'META')}
+
+# 检查单个配对
+is_bad = self.algorithm.trade_analyzer.is_blacklisted(('AAPL', 'MSFT'))
+# 输出: True
+
+# 获取统计信息
+stats = self.algorithm.trade_analyzer.get_blacklist_stats(('AAPL', 'MSFT'))
+# 输出: {'count': 3, 'wins': 0, 'total_pnl': -15.5}
+```
+
+### 文件变更清单
+
+| 文件 | 变更类型 | 行数 |
+|------|---------|-----|
+| `src/trade/StatsCollectors.py` | 修改 | +50 |
+| `src/trade/TradeAnalyzer.py` | 修改 | +40 |
+| `src/analysis/PairSelector.py` | 修改 | +35 |
+| `CLAUDE.md` | 文档更新 | +30 |
+| `docs/CHANGELOG.md` | 文档更新 | +本条目 |
+
+### Breaking Changes
+
+**无Breaking Changes** - 向后兼容
+
+### 验证检查清单
+
+- [x] pnl_pct计算正确（百分比而非美元）
+- [x] 黑名单过滤生效（日志输出验证）
+- [x] 性能保证（O(1)查询，脏位避免重复计算）
+- [x] 向后兼容（现有调用方无需修改）
+
+---
+
 ## [v7.5.23_remove-beta-stability@20250129]
 
 ### 版本概述

@@ -279,31 +279,42 @@ git commit -m "docs: update CHANGELOG for v7.2.5"
   - **half_life** (60%): Mean reversion speed (most independent + highest predictive power 57%)
   - **mean_reversion_certainty** (40%): AR(1) significance (theoretical core + moderate predictive power 50%)
 
-### 11. trade/ - Trade Statistics Module (v7.2.0)
+### 11. trade/ - Trade Statistics Module (v7.2.0, v7.6.0 双重职责扩展)
 - **Purpose**: Real-time trade statistics collection and analysis (replaces TradeHistory)
-- **Design Principle**: Delegation Pattern - TradeAnalyzer delegates to 6 independent collectors
-- **Architecture**: Lightweight splitting (4 files) - no base classes, simple delegation
+- **Design Principle**: Delegation Pattern - TradeAnalyzer delegates to 5 independent collectors
+- **Architecture**: Lightweight splitting (3 files) - no base classes, simple delegation
+- **双重职责 (v7.6.0)**:
+  - **向后**: 输出日志供回测分析（原有功能）
+  - **向前**: 提供黑名单给PairSelector过滤（新增功能）
 - **Key Components**:
   - **TradeAnalyzer.py**: Main coordinator
-    - `analyze_trade(pair, reason)`: Called after every closing trade
+    - `analyze_trade(pair, reason)`: Called after every closing trade (v7.6.0: 修正pnl_pct计算)
     - `log_summary()`: Called in OnEndOfAlgorithm
-    - Delegates to 6 collectors for statistics updates
-  - **StatsCollectors.py**: 6 independent collector classes
+    - `get_blacklist()`: 返回黑名单集合供PairSelector调用 (v7.6.0新增)
+    - `is_blacklisted(pair_id)`: O(1)查询单个配对是否黑名单 (v7.6.0新增)
+    - Delegates to 5 collectors for statistics updates
+  - **StatsCollectors.py**: 5 independent collector classes
     - **ReasonStatsCollector**: Group by close reason (CLOSE, STOP_LOSS, TIMEOUT, etc.)
-    - **SignalStatsCollector**: Group by entry signal (LONG_SPREAD, SHORT_SPREAD)
     - **HoldingBucketCollector**: Group by holding period (0-7天, 8-14天, 15-30天, 30天+)
-    - **PairStatsCollector**: Identify "bad pairs" (≥3 trades with cumulative loss)
+    - **PairStatsCollector**: Identify "bad pairs" (≥3 trades with cumulative loss) + 黑名单管理 (v7.6.0扩展)
     - **ConsecutiveStatsCollector**: Track max consecutive wins/losses
     - **MonthlyStatsCollector**: Group by month (YYYY-MM)
   - **TradeSnapshot.py**: Immutable value object (reserved for future use)
 - **Output Format**: JSON Lines format for AI-friendly parsing
-- **Integration**: ExecutionManager calls `trade_analyzer.analyze_trade()` after all closing operations
+- **Integration**:
+  - ExecutionManager calls `trade_analyzer.analyze_trade()` after all closing operations
+  - PairSelector calls `trade_analyzer.get_blacklist()` during monthly selection (v7.6.0)
+- **黑名单机制 (v7.6.0)**:
+  - 标准: 交易次数>=3 且 累计收益率<0
+  - 优化: 脏位缓存避免重复计算
+  - 诊断: PairSelector输出被排除配对的统计信息
 - **Benefits**:
   - Complements insights.json blind spots
   - Fine-grained grouping statistics
   - Identifies bad pairs and consecutive patterns
   - No memory overhead (no historical storage)
   - Real-time statistics updates
+  - Historical feedback loop for pair selection optimization (v7.6.0)
 
 ## Trading Execution Flow (OnData)
 
@@ -743,12 +754,13 @@ zscore = (log_residual - residual_mean) / residual_std
 
 ## Version History
 
-**Current Version**: v7.2.4 (2025-01-25)
+**Current Version**: v7.6.0 (2025-02-06)
 
 **Recent Major Updates**:
+- **v7.6.0** (Feb 2025): Pair-level historical feedback mechanism - blacklist filtering + pnl_pct calculation fix
+- **v7.5.23** (Feb 2025): Two-dimension quality scoring - removed Beta Stability and Residual Quality
 - **v7.0.0** (Jan 2025): Intent Pattern refactor - separated intent generation from order execution
 - **v6.4.4** (Jan 2025): Order lifecycle tracking - duplicate order prevention via locking mechanism
-- **v6.0.0** (Jan 2025): OnData-driven architecture - migrated from Algorithm Framework
 
 **Complete History**: See [docs/CHANGELOG.md](docs/CHANGELOG.md) for detailed version history and breaking changes
 
