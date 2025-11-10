@@ -4,6 +4,67 @@
 
 ---
 
+## [v7.7.2_fix-missing-config@20250210]
+
+### 版本概述
+**修复配置缺失Bug** - 补充v7.7.0遗漏的`trade_analysis`配置块定义,修复运行时崩溃问题。
+
+### 问题描述
+v7.7.0重构时遗漏了黑名单系统的配置块定义,导致以下运行时错误:
+
+**错误1: AttributeError in main.py**
+```python
+# main.py:58
+self.blacklist_manager = BlacklistManager(self, self.config.trade_analysis)
+# ❌ AttributeError: 'StrategyConfig' object has no attribute 'trade_analysis'
+```
+
+**错误2: KeyError in BlacklistManager**
+```python
+# BlacklistManager.__init__:46-47
+self.min_trades = config['blacklist_min_trades']
+self.pnl_threshold = config['blacklist_pnl_threshold']
+# ❌ KeyError: 'blacklist_min_trades'
+```
+
+**根本原因**: `StrategyConfig.__init__()` 中缺少 `self.trade_analysis` 配置块定义
+
+### 核心变更
+
+#### 1. config.py - 添加配置块
+
+**插入位置**: 在 `pairs_trading` 和 `risk_management` 配置块之间 (第182-186行)
+
+```python
+# ========== 交易分析配置 (v7.7.0 黑名单系统) ==========
+self.trade_analysis = {
+    'blacklist_min_trades': 3,        # 最少交易次数 (确保统计意义)
+    'blacklist_pnl_threshold': 0.0    # 累计收益阈值 (低于此值黑名单, 单位: %)
+}
+```
+
+**参数说明**:
+- `blacklist_min_trades`: 黑名单判断的最少交易次数门槛 (默认3次)
+- `blacklist_pnl_threshold`: 累计收益率阈值,低于此值的配对将被黑名单 (默认0%,即累计亏损)
+
+### 影响范围
+
+**受影响文件** (1个):
+- `src/config.py`: 添加配置块定义
+
+**修复效果**:
+- ✅ 修复 main.py 初始化崩溃
+- ✅ 修复 BlacklistManager 参数读取崩溃
+- ✅ 黑名单系统现在可以正常运行
+
+### 向后兼容性
+
+**完全兼容**:
+- 配置值与v7.7.0/v7.7.1代码注释中的默认值一致
+- 不影响已有回测结果 (因为v7.7.0/v7.7.1无法运行)
+
+---
+
 ## [v7.7.1_fix-cumulative-pnl-calculation@20250210]
 
 ### 版本概述

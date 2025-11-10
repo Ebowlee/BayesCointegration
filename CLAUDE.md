@@ -301,7 +301,9 @@ git commit -m "docs: update CHANGELOG for v7.2.5"
 - **Architecture** (v7.7.0): Single-file module (79% code reduction from v7.6.0)
   - **BlacklistManager.py** (160 lines - v7.7.1): Stateless manager for blacklist logic with weighted average calculation
   - **No data storage**: Reads from Pairs objects on-demand
-  - **Configuration**: All thresholds from config.trade_analysis
+  - **Configuration** (v7.7.2): All thresholds from `config.trade_analysis`
+    - Location: `src/config.py` → `StrategyConfig.trade_analysis`
+    - Parameters: `blacklist_min_trades`, `blacklist_pnl_threshold`
 - **Key Methods**:
   - `get_blacklist()`: Returns Set[Tuple[str, str]] of blacklisted pairs (immediate query from all Pairs)
   - `is_blacklisted(pair_id)`: O(1) check if specific pair is blacklisted
@@ -774,9 +776,10 @@ zscore = (log_residual - residual_mean) / residual_std
 
 ## Version History
 
-**Current Version**: v7.7.1 (2025-02-10)
+**Current Version**: v7.7.2 (2025-02-10)
 
 **Recent Major Updates**:
+- **v7.7.2** (Feb 2025): Config bug fix - added missing trade_analysis configuration block (fixes v7.7.0/v7.7.1 runtime crash)
 - **v7.7.1** (Feb 2025): Math bug fix - weighted average cumulative return calculation (fixes v7.7.0 simple percentage addition error)
 - **v7.7.0** (Feb 2025): Trade module OOP refactor - face-to-face OOP design with 79% code reduction
 - **v7.6.1** (Feb 2025): Architecture optimization - unified dependency injection pattern + blacklist filtering encapsulation
