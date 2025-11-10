@@ -138,12 +138,13 @@ git commit -m "docs: update CHANGELOG for v7.2.5"
 - **Configuration**: All parameters in `src/config.py` via `StrategyConfig` class
 
 ### 2. Pairs.py - Pair Trading Object
-- **Purpose**: Encapsulates all pair-specific logic (data provider, signal generator, intent generator)
-- **Design Principle** (v7.0.0): "Data Provider + Intent Generator"
-  - ✅ **Provides**: PnL calculation, position data, holding time, signal generation, intent generation
+- **Purpose**: Encapsulates all pair-specific logic (data provider, signal generator, intent generator, trade history tracker)
+- **Design Principle** (v7.0.0 → v7.7.0): "Data Provider + Intent Generator + Trade History Owner"
+  - ✅ **Provides**: PnL calculation, position data, holding time, signal generation, intent generation, trade statistics (v7.7.0)
   - ❌ **Does NOT**: Risk checking, HWM tracking, drawdown calculation, order execution
   - **Removed** (v6.9.4): `check_position_integrity()` (unused), `get_pair_drawdown()` (moved to PairDrawdownRule), `pair_hwm` attribute
   - **Removed** (v7.0.0): `open_position()`, `close_position()` (replaced by get_*_intent + OrderExecutor)
+  - **Added** (v7.7.0): Trade statistics attributes (trade_count, win_count, total_pnl_pct) for blacklist system
 - **Creation Pattern** (v6.9.2):
   - **Recommended**: Use classmethod factory `Pairs.from_model_result(algorithm, model_result, config)`
   - **Avoid**: Direct constructor `Pairs(algorithm, model_result, config)`
@@ -158,7 +159,14 @@ git commit -m "docs: update CHANGELOG for v7.2.5"
   - `get_pair_cost()`: Calculate total margin required for the pair
   - `get_pair_holding_days()`: Calculate holding days (data query for PairHoldingTimeoutRule)
   - `is_in_cooldown()`: Check cooldown period (part of signal generation logic)
-- **Features**: Cooldown management, beta hedging, position tracking, intent generation
+  - `on_position_filled()`: Callback when position fills - clears tracking variables and updates trade stats (v7.7.0)
+  - `_update_trade_stats()`: Private method - calculates trade PnL% and updates statistics (v7.7.0)
+- **Trade Statistics** (v7.7.0):
+  - `trade_count`: Total historical trades for this pair
+  - `win_count`: Number of profitable trades (pnl_pct > 0)
+  - `total_pnl_pct`: Cumulative return across all trades
+  - **Auto-update**: Statistics calculated in `_update_trade_stats()` called by `on_position_filled()`
+- **Features**: Cooldown management, beta hedging, position tracking, intent generation, trade history (v7.7.0)
 
 ### 3. OrderExecutor.py - Order Execution Engine (v7.0.0)
 - **Purpose**: Unified order execution engine (separates intent from execution)
@@ -275,49 +283,48 @@ git commit -m "docs: update CHANGELOG for v7.2.5"
 - **DataProcessor**: Clean and prepare historical data (252-day lookback)
 - **CointegrationAnalyzer**: Engle-Granger cointegration tests (p-value < 0.05)
 - **BayesianModeler**: PyMC MCMC parameter estimation (500 warmup + 500 samples, 2 chains)
-- **PairSelector**: Quality scoring using 2 weighted metrics (v7.5.23) + blacklist filtering (v7.6.0 → v7.6.1)
-  - **Dependency Injection** (v7.6.1): Constructor receives `trade_analyzer` for blacklist access
+- **PairSelector**: Quality scoring using 2 weighted metrics (v7.5.23) + blacklist filtering (v7.6.0 → v7.7.0)
+  - **Dependency Injection** (v7.7.0): Constructor receives `blacklist_manager` for blacklist access (renamed from `trade_analyzer`)
   - **Quality Metrics**:
     - **half_life** (60%): Mean reversion speed (most independent + highest predictive power 57%)
     - **mean_reversion_certainty** (40%): AR(1) significance (theoretical core + moderate predictive power 50%)
   - **Blacklist Filtering** (v7.6.0 → v7.6.1): `_filter_by_blacklist()` private method encapsulates filtering logic
 
-### 11. trade/ - Trade Statistics Module (v7.2.0, v7.6.0 双重职责扩展)
-- **Purpose**: Real-time trade statistics collection and analysis (replaces TradeHistory)
-- **Design Principle**: Delegation Pattern - TradeAnalyzer delegates to 5 independent collectors
-- **Architecture**: Lightweight splitting (3 files) - no base classes, simple delegation
-- **双重职责 (v7.6.0)**:
-  - **向后**: 输出日志供回测分析（原有功能）
-  - **向前**: 提供黑名单给PairSelector过滤（新增功能）
-- **Key Components**:
-  - **TradeAnalyzer.py**: Main coordinator
-    - `analyze_trade(pair, reason)`: Called after every closing trade (v7.6.0: 修正pnl_pct计算)
-    - `log_summary()`: Called in OnEndOfAlgorithm
-    - `get_blacklist()`: 返回黑名单集合供PairSelector调用 (v7.6.0新增)
-    - `is_blacklisted(pair_id)`: O(1)查询单个配对是否黑名单 (v7.6.0新增)
-    - Delegates to 5 collectors for statistics updates
-  - **StatsCollectors.py**: 5 independent collector classes
-    - **ReasonStatsCollector**: Group by close reason (CLOSE, STOP_LOSS, TIMEOUT, etc.)
-    - **HoldingBucketCollector**: Group by holding period (0-7天, 8-14天, 15-30天, 30天+)
-    - **PairStatsCollector**: Identify "bad pairs" (≥3 trades with cumulative loss) + 黑名单管理 (v7.6.0扩展)
-    - **ConsecutiveStatsCollector**: Track max consecutive wins/losses
-    - **MonthlyStatsCollector**: Group by month (YYYY-MM)
-  - **TradeSnapshot.py**: Immutable value object (reserved for future use)
-- **Output Format**: JSON Lines format for AI-friendly parsing
-- **Integration**:
-  - ExecutionManager calls `trade_analyzer.analyze_trade()` after all closing operations
-  - PairSelector calls `trade_analyzer.get_blacklist()` during monthly selection (v7.6.0)
-- **黑名单机制 (v7.6.0)**:
-  - 标准: 交易次数>=3 且 累计收益率<0
-  - 优化: 脏位缓存避免重复计算
-  - 诊断: PairSelector输出被排除配对的统计信息
-- **Benefits**:
-  - Complements insights.json blind spots
-  - Fine-grained grouping statistics
-  - Identifies bad pairs and consecutive patterns
-  - No memory overhead (no historical storage)
-  - Real-time statistics updates
-  - Historical feedback loop for pair selection optimization (v7.6.0)
+### 11. trade/ - Blacklist Module (v7.7.0 OOP Refactor)
+- **Purpose**: Identify historically underperforming pairs to prevent repeated losses
+- **Design Principle** (v7.7.0): Face-to-Face OOP - Data belongs to Pairs, logic in BlacklistManager
+  - **Data Storage**: Trade history tracked in Pairs objects (trade_count, win_count, total_pnl_pct)
+  - **Logic Layer**: BlacklistManager provides stateless judgment logic
+  - **Auto-Update**: Statistics updated automatically in Pairs.on_position_filled()
+- **Architecture** (v7.7.0): Single-file module (79% code reduction from v7.6.0)
+  - **BlacklistManager.py** (90 lines): Stateless manager for blacklist logic
+  - **No data storage**: Reads from Pairs objects on-demand
+  - **Configuration**: All thresholds from config.trade_analysis
+- **Key Methods**:
+  - `get_blacklist()`: Returns Set[Tuple[str, str]] of blacklisted pairs (immediate query from all Pairs)
+  - `is_blacklisted(pair_id)`: O(1) check if specific pair is blacklisted
+  - `get_stats(pair_id)`: Returns diagnostic info (count, wins, total_pnl) for logging
+  - `_should_blacklist(pair)`: Private method - checks if Pairs object meets blacklist criteria
+- **Blacklist Criteria** (configurable in config.trade_analysis):
+  - **min_trades**: Minimum trade count (default: 3)
+  - **pnl_threshold**: Maximum cumulative return (default: 0%)
+  - Formula: `trade_count >= 3 AND total_pnl_pct < 0`
+- **Integration Points**:
+  - **Initialization** (main.py): `BlacklistManager(algorithm, config.trade_analysis)` → Injected to PairSelector
+  - **Pair Selection** (PairSelector): Calls `blacklist_manager.get_blacklist()` to filter bad pairs
+  - **Data Update** (Pairs): Statistics auto-updated in `on_position_filled()` after every closing trade
+  - **No manual calls**: Removed all `analyze_trade()` calls from ExecutionManager
+- **Trade Statistics** (stored in Pairs.py):
+  - `trade_count`: Total historical trades for this pair
+  - `win_count`: Number of profitable trades (pnl_pct > 0)
+  - `total_pnl_pct`: Cumulative return across all trades
+  - **Update Timing**: Calculated in `_update_trade_stats()` called by `on_position_filled()`
+- **Benefits** (v7.7.0 refactor):
+  - **Code reduction**: 79% (658 → 135 lines), 50% file reduction (4 → 2 files)
+  - **OOP design**: Data cohesion - trade history as intrinsic property of Pairs
+  - **Zero overhead**: No separate data structures, no manual update calls
+  - **Immediate query**: No caching, direct read from Pairs objects
+  - **Log reduction**: Eliminated backtest statistics logging (delegated to backtest-analyst agent)
 
 ## Trading Execution Flow (OnData)
 
@@ -515,14 +522,14 @@ def is_pair_in_normal_cooldown(self, pair) -> bool:
 
 ### Data Flow
 1. **Universe Changes**: `OnSecuritiesChanged()` → triggers pair analysis
-2. **Analysis Pipeline**: DataProcessor → CointegrationAnalyzer → BayesianModeler → PairSelector (v7.6.1: uses trade_analyzer blacklist)
+2. **Analysis Pipeline**: DataProcessor → CointegrationAnalyzer → BayesianModeler → PairSelector (v7.7.0: uses blacklist_manager blacklist)
 3. **Pair Creation**: Direct Pairs object creation → PairsManager.update_pairs()
 4. **Trading Flow (Intent Pattern)**: OnData → Risk detection → Order lock check → Pairs.get_*_intent() → OrderExecutor.execute() → Trade execution
 5. **Order Tracking**: Pairs.get_*_intent() → Returns Intent → OrderExecutor.execute() → Returns tickets → TicketsManager.register_tickets() → Order lock activated
 6. **Order Events**: QCAlgorithm.OnOrderEvent() → TicketsManager.on_order_event() → Status update (PENDING/COMPLETED/ANOMALY)
 7. **State Updates**: PairsManager maintains pair lifecycle states (active/legacy/dormant)
 8. **Intent Flow** (v7.0.0): Pairs (generate intent) → OrderExecutor (execute intent) → TicketsManager (track orders)
-9. **Feedback Loop** (v7.6.0 → v7.6.1): TradeAnalyzer (provides blacklist) → PairSelector (filters bad pairs via `_filter_by_blacklist()`)
+9. **Feedback Loop** (v7.6.0 → v7.7.0): Pairs (stores trade history) → BlacklistManager (reads & judges) → PairSelector (filters bad pairs via `_filter_by_blacklist()`)
 
 ### State Management
 - **Pair States**: Active (tradeable), Legacy (position only), Dormant (inactive)
@@ -758,9 +765,10 @@ zscore = (log_residual - residual_mean) / residual_std
 
 ## Version History
 
-**Current Version**: v7.6.1 (2025-02-06)
+**Current Version**: v7.7.0 (2025-02-06)
 
 **Recent Major Updates**:
+- **v7.7.0** (Feb 2025): Trade module OOP refactor - face-to-face OOP design with 79% code reduction
 - **v7.6.1** (Feb 2025): Architecture optimization - unified dependency injection pattern + blacklist filtering encapsulation
 - **v7.6.0** (Feb 2025): Pair-level historical feedback mechanism - blacklist filtering + pnl_pct calculation fix
 - **v7.5.23** (Feb 2025): Two-dimension quality scoring - removed Beta Stability and Residual Quality
@@ -782,17 +790,15 @@ zscore = (log_residual - residual_mean) / residual_std
   - **analysis/**: Data processing and statistical analysis (DataProcessor, CointegrationAnalyzer, BayesianModeler, PairSelector)
   - **config.py**: Centralized configuration via StrategyConfig class
   - **UniverseSelection.py**: Multi-stage stock filtering
-  - **Pairs.py**: Pair trading object with signal generation and intent generation (v7.0.0)
+  - **Pairs.py**: Pair trading object with signal generation, intent generation, and trade history tracking (v7.0.0 → v7.7.0)
   - **OrderExecutor.py**: Order execution engine (unified order submission - v7.0.0)
   - **OrderIntent.py**: Intent value objects (OpenIntent, CloseIntent - v7.0.0)
   - **PairsManager.py**: Lifecycle management for all pairs
   - **ExecutionManager.py**: Execution coordinator (orchestrates intent generation and execution - v7.0.0)
   - **risk/RiskManager.py**: Two-tier risk detection system
   - **TicketsManager.py**: Order lifecycle tracking and duplicate order prevention (v6.4.4)
-  - **trade/**: Trade statistics and analysis module (v7.2.0)
-    - **TradeAnalyzer.py**: Main coordinator using Delegation Pattern
-    - **StatsCollectors.py**: 6 independent collector classes (reason, signal, holding, pair, consecutive, monthly)
-    - **TradeSnapshot.py**: Immutable value object (reserved for future use)
+  - **trade/**: Blacklist module (v7.7.0 OOP refactor)
+    - **BlacklistManager.py**: Stateless blacklist logic manager (reads from Pairs objects)
 - **docs/**: Documentation and version history
   - **CHANGELOG.md**: Complete version history with detailed change tracking
 - **research/**: Jupyter notebooks for strategy research and analysis

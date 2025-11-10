@@ -52,6 +52,11 @@ class Pairs:
         self.creation_time = algorithm.Time                                    # 首次创建时间
         self.reactivation_count = 0                                            # 重新激活次数(配对消失又出现)
 
+        # === 交易历史统计 (v7.7.0 - 黑名单系统) ===
+        self.trade_count = 0        # 历史总交易次数
+        self.win_count = 0          # 历史盈利次数
+        self.total_pnl_pct = 0.0    # 历史累计收益率(%)
+
         # === 时间追踪 ===
         self.pair_opened_time = None                                           # 配对开仓时间(双腿都成交的时刻)
         self.pair_closed_time = None                                           # 配对平仓时间(双腿都成交的时刻)
@@ -202,8 +207,8 @@ class Pairs:
                     elif ticket.Symbol == self.symbol2:
                         self.exit_price2 = ticket.AverageFillPrice
 
-            # 注意: 交易统计由 ExecutionManager 在平仓时调用 trade_analyzer.analyze_trade() 完成
-            # on_position_filled() 只负责记录成交时间和价格（数据提供者职责）
+            # v7.7.0: 更新交易历史统计 (黑名单系统)
+            self._update_trade_stats()
 
             # 清零所有追踪变量
             self.tracked_qty1 = 0
@@ -211,7 +216,33 @@ class Pairs:
             self.entry_price1 = None
             self.entry_price2 = None
             self.exit_price1 = None
-            self.exit_price2 = None 
+            self.exit_price2 = None
+
+    def _update_trade_stats(self):
+        """
+        更新交易历史统计 (v7.7.0 - 黑名单系统)
+
+        在平仓时调用,计算本次交易收益并更新累计统计
+
+        设计说明:
+        - 在清零追踪变量之前调用 (此时 exit_price 已记录,可计算 PnL)
+        - 使用 get_pair_pnl() 和 get_pair_cost() 计算收益率
+        - 自动更新 trade_count, win_count, total_pnl_pct
+        """
+        # 计算本次交易收益率
+        pnl_dollars = self.get_pair_pnl()
+        pair_cost = self.get_pair_cost()
+
+        if pnl_dollars is not None and pair_cost is not None and pair_cost > 0:
+            pnl_pct = (pnl_dollars / pair_cost) * 100
+        else:
+            pnl_pct = 0.0
+
+        # 更新统计
+        self.trade_count += 1
+        if pnl_pct > 0:
+            self.win_count += 1
+        self.total_pnl_pct += pnl_pct
 
 
     # ===== 2. 基础数据访问(无依赖) =====

@@ -12,7 +12,7 @@ from src.PairsManager import PairsManager
 from src.TicketsManager import TicketsManager
 from src.risk import RiskManager
 from src.execution import ExecutionManager, OrderExecutor, MarginAllocator
-from src.trade import TradeAnalyzer
+from src.trade import BlacklistManager
 # endregion
 
 
@@ -54,9 +54,9 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         self.cointegration_analyzer = CointegrationAnalyzer(self, self.config.cointegration_analyzer)
         self.bayesian_modeler = BayesianModeler(self, self.config.analysis_shared, self.config.bayesian_modeler)
 
-        # v7.6.1: trade_analyzer需在pair_selector之前初始化(依赖注入)
-        self.trade_analyzer = TradeAnalyzer(self)
-        self.pair_selector = PairSelector(self, self.config.analysis_shared, self.config.pair_selector, self.trade_analyzer)
+        # v7.7.0: blacklist_manager需在pair_selector之前初始化(依赖注入)
+        self.blacklist_manager = BlacklistManager(self, self.config.trade_analysis)
+        self.pair_selector = PairSelector(self, self.config.analysis_shared, self.config.pair_selector, self.blacklist_manager)
 
         self.pairs_manager = PairsManager(self, self.config.pairs_trading)
 
@@ -75,7 +75,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         self.risk_manager = RiskManager(self, self.config, self.pairs_manager)
         self.order_executor = OrderExecutor(self, self.tickets_manager)
         self.margin_allocator = MarginAllocator(self, self.config)
-        self.execution_manager = ExecutionManager(self, self.pairs_manager, self.risk_manager, self.tickets_manager, self.order_executor, self.margin_allocator, self.trade_analyzer)
+        self.execution_manager = ExecutionManager(self, self.pairs_manager, self.risk_manager, self.tickets_manager, self.order_executor, self.margin_allocator)
 
         self.Debug("[Initialize] 策略初始化完成")
 
@@ -264,6 +264,5 @@ class BayesianCointegrationStrategy(QCAlgorithm):
 
 
     def OnEndOfAlgorithm(self):
-        """回测结束时的统计汇总"""
-        # 输出所有统计维度的汇总信息（JSON Lines格式）
-        self.trade_analyzer.log_summary()
+        """回测结束时调用 (v7.7.0: 删除trade_analyzer日志)"""
+        pass

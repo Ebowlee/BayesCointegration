@@ -9,7 +9,7 @@ from src.analysis.PairData import PairData
 class PairSelector:
     """配对评估和筛选器 - 负责评估配对质量并筛选最佳配对"""
 
-    def __init__(self, algorithm, shared_config: dict, module_config: dict, trade_analyzer):
+    def __init__(self, algorithm, shared_config: dict, module_config: dict, blacklist_manager):
         """
         初始化配对选择器
 
@@ -17,10 +17,10 @@ class PairSelector:
             algorithm: QCAlgorithm实例
             shared_config: 共享配置(analysis_shared)
             module_config: 模块配置(pair_selector)
-            trade_analyzer: 交易分析器实例(用于黑名单过滤,v7.6.1)
+            blacklist_manager: 黑名单管理器实例(v7.7.0重命名)
         """
         self.algorithm = algorithm
-        self.trade_analyzer = trade_analyzer
+        self.blacklist_manager = blacklist_manager
 
         # 从shared_config读取
         self.lookback_days = shared_config['lookback_days']  # 252天,与BayesianModeler统一
@@ -190,7 +190,7 @@ class PairSelector:
         Returns:
             list: 非黑名单配对列表
         """
-        blacklist = self.trade_analyzer.get_blacklist()
+        blacklist = self.blacklist_manager.get_blacklist()
         blacklist_rejected = []
         non_blacklist_pairs = []
 
@@ -209,7 +209,7 @@ class PairSelector:
             )
             # 输出前3个被排除配对的统计信息
             for pair_id in blacklist_rejected[:3]:
-                stats = self.trade_analyzer.get_blacklist_stats(pair_id)
+                stats = self.blacklist_manager.get_stats(pair_id)
                 if stats:
                     self.algorithm.Debug(
                         f"  - {pair_id}: {stats['count']}笔交易, "

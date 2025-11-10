@@ -4,6 +4,285 @@
 
 ---
 
+## [v7.7.0_trade-module-oop-refactor@20250206]
+
+### 版本概述
+**Trade模块面向对象重构** - 交易历史内聚到Pairs,BlacklistManager专注判断逻辑。删除所有回测统计功能,代码减少79%(658行→135行),文件减少50%(4个→2个)。采用面向对象设计,交易历史作为Pairs的固有属性自动更新,BlacklistManager无状态设计,仅提供黑名单判断逻辑。
+
+### 核心变更
+
+#### 1. Pairs 对象扩展 (数据层)
+
+**新增3个交易历史属性**:
+```python
+class Pairs:
+    def __init__(self, ...):
+        # === 交易历史统计 (v7.7.0 - 黑名单系统) ===
+        self.trade_count = 0        # 历史总交易次数
+        self.win_count = 0          # 历史盈利次数
+        self.total_pnl_pct = 0.0    # 历史累计收益率(%)
+```
+
+**自动更新机制**:
+```python
+def on_position_filled(self, action: str, fill_time, tickets, reason: str = None):
+    """订单成交回调"""
+    if action == OrderAction.CLOSE:
+        # ... 记录平仓价格 ...
+
+        # v7.7.0: 更新交易历史统计
+        self._update_trade_stats()
+
+        # ... 清零追踪变量 ...
+
+def _update_trade_stats(self):
+    """更新交易历史统计 (平仓时自动调用)"""
+    pnl_dollars = self.get_pair_pnl()
+    pair_cost = self.get_pair_cost()
+
+    if pair_cost and pair_cost > 0:
+        pnl_pct = (pnl_dollars / pair_cost) * 100
+    else:
+        pnl_pct = 0.0
+
+    self.trade_count += 1
+    if pnl_pct > 0:
+        self.win_count += 1
+    self.total_pnl_pct += pnl_pct
+```
+
+**设计优势**:
+- 数据内聚: 交易历史是Pairs的固有属性
+- 自动更新: 平仓时自动更新,无需手动调用
+- 持久化: 跨月度选股周期保留(只要配对在PairsManager中)
+
+#### 2. BlacklistManager 重构 (逻辑层)
+
+**设计原则**:
+- **无状态**: 不存储任何配对数据
+- **面向对象**: 从 Pairs 对象读取交易历史
+- **即时查询**: 遍历 PairsManager 获取最新数据
+
+**新建文件**: `src/trade/BlacklistManager.py` (90行)
+
+**核心方法**:
+```python
+class BlacklistManager:
+    def __init__(self, algorithm, config: dict):
+        self.algorithm = algorithm
+        self.min_trades = config['blacklist_min_trades']
+        self.pnl_threshold = config['blacklist_pnl_threshold']
+
+    def get_blacklist(self) -> Set[Tuple[str, str]]:
+        """获取黑名单 (即时计算,遍历所有Pairs)"""
+        blacklist = set()
+        all_pairs = self.algorithm.pairs_manager.all_pairs.values()
+
+        for pair in all_pairs:
+            if self._should_blacklist(pair):
+                blacklist.add(pair.pair_id)
+
+        return blacklist
+
+    def is_blacklisted(self, pair_id: Tuple[str, str]) -> bool:
+        """检查单个配对 (O(1)性能)"""
+        pair = self.algorithm.pairs_manager.get_pair_by_id(pair_id)
+        if not pair:
+            return False
+        return self._should_blacklist(pair)
+
+    def get_stats(self, pair_id: Tuple[str, str]) -> Optional[Dict]:
+        """获取配对统计信息 (用于诊断日志)"""
+        pair = self.algorithm.pairs_manager.get_pair_by_id(pair_id)
+        if not pair:
+            return None
+
+        return {
+            'count': pair.trade_count,
+            'wins': pair.win_count,
+            'total_pnl': pair.total_pnl_pct
+        }
+
+    def _should_blacklist(self, pair) -> bool:
+        """判断逻辑: trade_count >= min_trades AND total_pnl_pct < threshold"""
+        return (pair.trade_count >= self.min_trades and
+                pair.total_pnl_pct < self.pnl_threshold)
+```
+
+#### 3. 删除旧模块 (回测统计功能)
+
+**完全删除** (3个文件, 571行):
+- `src/trade/TradeSnapshot.py` (65行 - 僵尸代码,v7.2.0重构后无调用点)
+- `src/trade/StatsCollectors.py` (290行 - 6个回测统计Collector)
+- `src/trade/TradeAnalyzer.py` (216行 - 混杂回测统计和黑名单)
+
+**删除原因**:
+- 回测统计功能由 backtest-analyst agent 替代
+- trades.csv 已包含所有交易明细
+- 日志泛滥导致100KB截断问题(老毛病)
+- TradeSnapshot 无调用点(僵尸代码)
+
+**删除的统计Collector**:
+1. ReasonStatsCollector - 按平仓原因分组统计
+2. HoldingBucketCollector - 按持仓时长分桶统计
+3. ConsecutiveStatsCollector - 连续盈亏统计
+4. MonthlyStatsCollector - 月度表现分解
+5. PairStatsCollector(部分) - 删除log_summary(),保留黑名单功能
+
+### 破坏性变更
+
+#### API 变更
+
+**初始化** (main.py):
+```python
+# v7.6.1 (旧版):
+self.trade_analyzer = TradeAnalyzer(self)
+self.pair_selector = PairSelector(..., self.trade_analyzer)
+
+# v7.7.0 (新版):
+self.blacklist_manager = BlacklistManager(self, self.config.trade_analysis)
+self.pair_selector = PairSelector(..., self.blacklist_manager)
+```
+
+**ExecutionManager初始化**:
+```python
+# v7.6.1 (旧版):
+ExecutionManager(self, pairs_manager, risk_manager, tickets_manager, order_executor, margin_allocator, trade_analyzer)
+
+# v7.7.0 (新版):
+ExecutionManager(self, pairs_manager, risk_manager, tickets_manager, order_executor, margin_allocator)
+# trade_analyzer参数删除
+```
+
+**方法调用** (PairSelector):
+```python
+# v7.6.1 (旧版):
+blacklist = self.trade_analyzer.get_blacklist()
+stats = self.trade_analyzer.get_blacklist_stats(pair_id)
+
+# v7.7.0 (新版):
+blacklist = self.blacklist_manager.get_blacklist()
+stats = self.blacklist_manager.get_stats(pair_id)
+```
+
+**平仓统计更新** (ExecutionManager):
+```python
+# v7.6.1 (旧版):
+self.trade_analyzer.analyze_trade(pair, reason, data)
+
+# v7.7.0 (新版):
+# 无需手动调用!
+# Pairs.on_position_filled() 会自动调用 _update_trade_stats()
+```
+
+#### 删除的功能
+
+1. **回测日志输出**:
+   - `trade_analyzer.log_summary()` - 删除
+   - OnEndOfAlgorithm日志 - 删除
+   - 所有JSON Lines统计输出 - 删除
+
+2. **StatscCollectors模块**:
+   - 所有6个Collector类 - 删除
+   - JSON Lines格式日志 - 删除
+
+3. **TradeSnapshot模块**:
+   - `TradeSnapshot.from_pair()` - 删除(无调用点)
+   - 整个文件 - 删除
+
+### 升级指南
+
+#### 步骤1: 更新 main.py 初始化
+```python
+# 原代码 (v7.6.1):
+from src.trade import TradeAnalyzer
+self.trade_analyzer = TradeAnalyzer(self)
+self.pair_selector = PairSelector(..., self.trade_analyzer)
+self.execution_manager = ExecutionManager(..., self.trade_analyzer)
+
+# 新代码 (v7.7.0):
+from src.trade import BlacklistManager
+self.blacklist_manager = BlacklistManager(self, self.config.trade_analysis)
+self.pair_selector = PairSelector(..., self.blacklist_manager)
+self.execution_manager = ExecutionManager(...)  # 删除trade_analyzer参数
+```
+
+#### 步骤2: 删除 OnEndOfAlgorithm 日志
+```python
+# 删除或注释此方法:
+def OnEndOfAlgorithm(self):
+    self.trade_analyzer.log_summary()  # 删除此行
+```
+
+#### 步骤3: 更新 PairSelector 调用
+```python
+# 构造函数参数重命名:
+def __init__(self, algorithm, shared_config, module_config, blacklist_manager):  # trade_analyzer → blacklist_manager
+    self.blacklist_manager = blacklist_manager
+
+# 方法调用更新:
+blacklist = self.blacklist_manager.get_blacklist()          # was: trade_analyzer.get_blacklist()
+stats = self.blacklist_manager.get_stats(pair_id)          # was: trade_analyzer.get_blacklist_stats()
+```
+
+#### 步骤4: 删除 ExecutionManager 中的 analyze_trade 调用
+```python
+# 原代码 (v7.6.1): 5处调用点
+self.trade_analyzer.analyze_trade(pair, reason, data)
+
+# 新代码 (v7.7.0): 全部删除
+# 无需调用! Pairs.on_position_filled() 会自动更新统计
+```
+
+### 技术收益
+
+**代码简化**:
+- 代码减少 79% (658行 → 135行)
+  - Pairs扩展: +35行(3属性 + _update_trade_stats方法)
+  - BlacklistManager: 90行(新文件)
+  - trade/__init__.py: 10行(重写)
+  - 删除: -571行(3个旧文件)
+  - 调用方修改: +11行(各种注释和pass)
+- 文件减少 50% (4个文件 → 2个文件)
+
+**架构优化**:
+- 数据内聚: 交易历史属于Pairs的固有属性,符合OOP原则
+- 职责单一: BlacklistManager只负责判断逻辑,不负责数据存储
+- 无重复存储: 单一数据源(Pairs对象),无需缓存同步
+- 面向对象: 每个Pairs知道自己的历史表现,符合现实世界模型
+
+**性能优化**:
+- 即时查询: 无缓存脏位开销,直接查询Pairs对象
+- 自然更新: 平仓时自动更新,无需手动协调
+- O(1)单对象查询: `is_blacklisted()` 直接查询Pairs,无需生成整个黑名单集合
+
+**日志优化**:
+- 删除冗余日志: 减少日志体积,缓解100KB截断问题
+- 解决老毛病: 删除OnEndOfAlgorithm大量JSON Lines输出
+- 专注核心功能: 只保留黑名单诊断日志
+
+### 配置变更
+**无变更**。`config.trade_analysis` 配置保持不变:
+```python
+self.trade_analysis = {
+    'blacklist_min_trades': 3,
+    'blacklist_pnl_threshold': 0.0,
+}
+```
+
+### 测试建议
+1. **验证交易统计更新**: 检查平仓后 `trade_count`, `win_count`, `total_pnl_pct` 是否正确更新
+2. **验证黑名单功能**: 对比v7.6.1和v7.7.0的黑名单结果一致性
+3. **验证自动更新机制**: 确认 `on_position_filled()` 在平仓时被调用
+4. **性能测试**: 验证即时查询性能无显著下降
+
+### 注意事项
+1. **交易统计持久化**: Pairs对象存在于PairsManager中时,统计会持久化;配对被完全移除时,统计会丢失
+2. **黑名单实时性**: 黑名单通过即时查询生成,始终反映Pairs的最新状态
+3. **日志减少**: 不再输出OnEndOfAlgorithm统计日志,需要依赖trades.csv和backtest-analyst agent分析
+
+---
+
 ## [v7.6.1_architecture-optimization@20250206]
 
 ### 版本概述
