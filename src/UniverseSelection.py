@@ -115,7 +115,7 @@ class SelectionLogger:
                               final_count: int, financial_stats: Dict[str, int],
                               volatility_stats: Dict[str, int], final_stocks: List[FineFundamental]):
         """
-        输出选股流程的完整统计信息
+        输出选股流程的完整统计信息 (v7.8.0优化: 删除选股详情)
 
         Args:
             round_num: 选股轮次
@@ -125,97 +125,8 @@ class SelectionLogger:
             volatility_stats: 波动率筛选统计
             final_stocks: 最终选中的股票列表
         """
-        if not self.algorithm.debug_mode:
-            return
-
-        # 选股分隔符标记（便于长周期回测定位）
-        date_str = self.algorithm.Time.strftime('%Y-%m-%d')
-        self.algorithm.Debug(f"\n{'='*20} 第{round_num}次选股 ({date_str}) {'='*20}")
-
-        # 主要流程统计
-        self.algorithm.Debug(
-            f"粗选{initial_count}只 -> 最终{final_count}只"
-        )
-
-        # 财务淘汰原因
-        self._log_financial_failures(initial_count, financial_stats)
-
-        # 波动率淘汰原因
-        self._log_volatility_failures(volatility_stats)
-
-        # 最终统计
-        self.log_final_summary(final_stocks)
-
-
-    def _log_financial_failures(self, initial_count: int, stats: Dict[str, int]):
-        """
-        记录财务筛选淘汰原因
-
-        Args:
-            initial_count: 粗选股票总数
-            stats: 财务筛选统计字典,包含'passed'和各种失败原因计数
-        """
-        financial_passed = stats.get('passed', 0)
-        financial_failed = initial_count - financial_passed
-
-        if financial_failed <= 0:
-            return
-
-        reasons = []
-        if stats.get('pe_failed', 0) > 0:
-            reasons.append(f"PE高{stats['pe_failed']}")
-        if stats.get('roe_failed', 0) > 0:
-            reasons.append(f"ROE低{stats['roe_failed']}")
-        if stats.get('debt_failed', 0) > 0:
-            reasons.append(f"负债高{stats['debt_failed']}")
-        if stats.get('leverage_failed', 0) > 0:
-            reasons.append(f"杠杆高{stats['leverage_failed']}")
-        if stats.get('data_missing', 0) > 0:
-            reasons.append(f"数据缺失{stats['data_missing']}")
-
-        if reasons:
-            self.algorithm.Debug(f"财务淘汰{financial_failed}: {', '.join(reasons)}")
-
-
-    def _log_volatility_failures(self, stats: Dict[str, int]):
-        """
-        记录波动率筛选淘汰原因
-
-        Args:
-            stats: 波动率筛选统计字典,包含'total'、'passed'、'volatility_failed'、'data_missing'
-        """
-        volatility_failed = stats['total'] - stats['passed']
-        if volatility_failed > 0:
-            self.algorithm.Debug(
-                f"波动率淘汰{volatility_failed}: "
-                f"高波动{stats.get('volatility_failed', 0)}, "
-                f"数据不足{stats.get('data_missing', 0)}"
-            )
-
-
-    def log_final_summary(self, stocks: List[FineFundamental]):
-        """
-        记录最终选中股票的统计信息
-
-        Args:
-            stocks: 最终选中的股票列表（未分组）
-        """
-        if not stocks:
-            return
-
-        self.algorithm.Debug(f"[选股] 最终通过: {len(stocks)}只股票（未分组，将由CointegrationAnalyzer按子行业分组）")
-
-        # 可选：输出子行业分布TOP10（便于诊断）
-        if self.algorithm.debug_mode:
-            ig_dist = defaultdict(int)
-            for stock in stocks:
-                ig_code = stock.AssetClassification.MorningstarIndustryGroupCode
-                ig_dist[ig_code] += 1
-
-            sorted_groups = sorted(ig_dist.items(), key=lambda x: x[1], reverse=True)
-            # 使用可读行业名称
-            group_info = [f"{get_industry_display(int(ig_code), show_code=False)}({count}只)" for ig_code, count in sorted_groups[:10]]  # 只显示TOP 10
-            self.algorithm.Debug(f"[选股] 子行业分布TOP10: {', '.join(group_info)}")
+        # v7.8.0: 删除选股详情日志(月度噪音,可从最终配对数推断)
+        pass
 
 
 

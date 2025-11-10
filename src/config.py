@@ -181,8 +181,8 @@ class StrategyConfig:
 
         # ========== 交易分析配置 (v7.7.0 黑名单系统) ==========
         self.trade_analysis = {
-            'blacklist_min_trades': 3,        # 最少交易次数 (确保统计意义)
-            'blacklist_pnl_threshold': 0.0    # 累计收益阈值 (低于此值黑名单, 单位: %)
+            'blacklist_min_trades': 3,              # 最少交易次数 (确保统计意义)
+            'blacklist_pnl_threshold': 0.0          # 累计收益阈值 (低于此值黑名单, 单位: %)
         }
 
         # ========== 风险管理配置 ==========

@@ -97,18 +97,17 @@ class PairSelector:
                 self.quality_weights['mean_reversion_certainty'] * mean_reversion_score
             )
 
-            # 详细日志：每个配对的二维评分组成
-            status = "PASS" if quality_score > self.min_quality_threshold else "FAIL"
-            half_life_str = f"{half_life_days:.1f}" if half_life_days is not None else "N/A"
+            # v7.8.0: 只输出通过质量阈值的配对(失败配对可从选股统计推断)
+            if quality_score > self.min_quality_threshold:
+                half_life_str = f"{half_life_days:.1f}" if half_life_days is not None else "N/A"
+                self.algorithm.Debug(
+                    f"[PairScore] ({symbol1.Value:4s}, {symbol2.Value:4s}): "
+                    f"Q={quality_score:.3f} | "
+                    f"Half={half_life_score:.3f}(days={half_life_str}) | "
+                    f"MeanRev={mean_reversion_score:.3f}(SNR_κ={snr_kappa:.2f})"
+                )
 
-            self.algorithm.Debug(
-                f"[PairScore] ({symbol1.Value:4s}, {symbol2.Value:4s}): "
-                f"Q={quality_score:.3f} [{status}] | "
-                f"Half={half_life_score:.3f}(days={half_life_str}) | "
-                f"MeanRev={mean_reversion_score:.3f}(SNR_κ={snr_kappa:.2f})"
-            )
-
-            # 更新质量分数到model_result（保留原有字段）
+            # 更新质量分数到model_result(保留原有字段)
             model_result['quality_score'] = quality_score
             model_result['half_life_score'] = half_life_score
             model_result['mean_reversion_score'] = mean_reversion_score

@@ -116,11 +116,7 @@ class TicketsManager:
             if ticket is not None:
                 self.order_to_pair[ticket.OrderId] = pair_id
 
-        # 简化日志
-        self.algorithm.Debug(
-            f"[TM注册] {pair_id} {action} {len(tickets)}个订单 "
-            f"状态:{self.get_pair_status(pair_id)}"
-        )
+        # v7.8.0: 删除订单注册日志(高频噪音,可从开仓/平仓日志推断)
 
 
     def is_pair_locked(self, pair_id: str) -> bool:

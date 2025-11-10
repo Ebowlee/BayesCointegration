@@ -134,14 +134,7 @@ class CointegrationAnalyzer:
             except Exception:
                 failed_tests.append((symbol1, symbol2, 'unknown_error'))
 
-        # 日志记录失败情况
-        if failed_tests and self.algorithm.debug_mode:
-            sample_failures = [f'{s1.Value}&{s2.Value}({r})' for s1, s2, r in failed_tests[:3]]
-            self.algorithm.Debug(
-                f"[协整分析] 子行业{ig_name}测试失败{len(failed_tests)}对: {', '.join(sample_failures)}"
-                + (f" 等" if len(failed_tests) > 3 else "")
-            )
-
+        # v7.8.0: 删除测试失败日志(可从协整对数量推断失败率,无需逐项记录)
         return cointegrated_pairs
 
 
@@ -193,13 +186,7 @@ class CointegrationAnalyzer:
             except Exception:
                 failed_symbols.append((symbol, 'unknown_error'))
 
-        # 日志记录失败情况
-        if failed_symbols and self.algorithm.debug_mode:
-            sample_failures = [f'{s.Value}({r})' for s, r in failed_symbols[:5]]
-            self.algorithm.Debug(
-                f"[协整分析] 分组失败{len(failed_symbols)}只: {', '.join(sample_failures)}"
-                + (f" 等" if len(failed_symbols) > 5 else "")
-            )
+        # v7.8.0: 删除分组失败日志(可从最终分组数量推断失败率)
 
         # 步骤2: 按子行业分组
         for info in stock_info:
@@ -224,18 +211,9 @@ class CointegrationAnalyzer:
             # 提取symbols
             valid_groups[str(ig_code)] = [s['symbol'] for s in top_stocks]
 
-            # 日志（使用可读行业名称）
-            industry_display = get_industry_display(int(ig_code), show_code=True)
-            self.algorithm.Debug(
-                f"[协整分析] {industry_display}: 候选{len(stocks_list)}只 → 选中{len(top_stocks)}只"
-            )
+            # v7.8.0: 删除逐个子行业日志(月度噪音,可从协整对数量推断)
 
-        # 日志：跳过的子行业（使用可读行业名称）
-        if skipped_groups:
-            skipped_info = [f"{get_industry_display(int(ig), show_code=False)}({count}只)" for ig, count in skipped_groups]
-            self.algorithm.Debug(
-                f"[协整分析] 跳过{len(skipped_groups)}个子行业(股票数<{self.min_stocks_per_group}): {', '.join(skipped_info)}"
-            )
+        # v7.8.0: 删除跳过子行业详情(月度噪音,可从最终分组数推断)
 
         return valid_groups
 

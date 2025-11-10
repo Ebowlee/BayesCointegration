@@ -390,7 +390,7 @@ class ExecutionManager:
             - 调用 pair.get_signal() 等业务逻辑是执行器的职责
             - PairsManager 只负责存储和分类，不应调用业务逻辑
         """
-        self.algorithm.Debug(f"[候选筛选] 开始: 检查{len(pairs_without_position)}个无持仓配对")
+        # v7.8.1: 删除"开始"日志(每bar触发,高频噪音)
 
         candidates = []
         signal_stats = {'LONG_SPREAD': 0, 'SHORT_SPREAD': 0, 'WAIT': 0, 'NO_DATA': 0, 'HOLD': 0}
@@ -401,12 +401,7 @@ class ExecutionManager:
             # 统计信号分布
             signal_stats[signal] = signal_stats.get(signal, 0) + 1
 
-            # Debug: 记录每个配对的信号和Z-score
-            zscore = pair.get_zscore(data)
-            zscore_str = f"{zscore:.3f}" if zscore is not None else "None"
-            self.algorithm.Debug(
-                f"[候选筛选] {pair.pair_id}: signal={signal}, zscore={zscore_str}, quality={pair.quality_score:.3f}"
-            )
+            # v7.8.0: 删除逐个候选日志(高频噪音,统计汇总已足够)
 
             if signal in [TradingSignal.LONG_SPREAD, TradingSignal.SHORT_SPREAD]:
                 planned_pct = pair.get_planned_allocation_pct()
@@ -415,12 +410,13 @@ class ExecutionManager:
         # 按质量分数降序排序
         candidates.sort(key=lambda x: x[2], reverse=True)
 
-        # 输出统计信息
-        self.algorithm.Debug(
-            f"[候选筛选] 完成: {len(candidates)}个开仓候选 | "
-            f"信号分布: LONG={signal_stats['LONG_SPREAD']}, SHORT={signal_stats['SHORT_SPREAD']}, "
-            f"WAIT={signal_stats['WAIT']}, NO_DATA={signal_stats['NO_DATA']}"
-        )
+        # v7.8.1: 只在有候选时输出统计(无候选时的信号分布没有分析价值)
+        if candidates:
+            self.algorithm.Debug(
+                f"[候选筛选] 完成: {len(candidates)}个开仓候选 | "
+                f"信号分布: LONG={signal_stats['LONG_SPREAD']}, SHORT={signal_stats['SHORT_SPREAD']}, "
+                f"WAIT={signal_stats['WAIT']}, NO_DATA={signal_stats['NO_DATA']}"
+            )
 
         return candidates
 
@@ -451,18 +447,18 @@ class ExecutionManager:
         # Step 1: 获取开仓候选(已按质量降序)
         entry_candidates = self.get_entry_candidates(pairs_without_position, data)
         if not entry_candidates:
-            self.algorithm.Debug(f"[开仓流程] Step 1失败: 无开仓候选")
+            # v7.8.1: 删除Step日志(高频噪音,可从最终统计推断)
             return
 
-        self.algorithm.Debug(f"[开仓流程] Step 1成功: 获得{len(entry_candidates)}个候选")
+        # v7.8.1: 删除Step日志(高频噪音,可从最终统计推断)
 
         # Step 2: 使用MarginAllocator分配资金
         allocations = self.margin_allocator.allocate_margin(entry_candidates)
         if not allocations:
-            self.algorithm.Debug(f"[开仓流程] Step 2失败: 资金分配失败 (MarginRemaining={self.algorithm.Portfolio.MarginRemaining:.2f})")
+            # v7.8.1: 删除Step日志(高频噪音,可从最终统计推断)
             return  # 无可分配资金或候选配对
 
-        self.algorithm.Debug(f"[开仓流程] Step 2成功: 分配{len(allocations)}个配对, 总金额=${sum(allocations.values()):.2f}")
+        # v7.8.1: 删除Step日志(高频噪音,可从最终统计推断)
 
         # Step 3: 逐个开仓
         actual_opened = 0
@@ -474,26 +470,26 @@ class ExecutionManager:
             # 检查1: 订单锁定检查
             if self.tickets_manager.is_pair_locked(pair_id):
                 skip_stats['locked'] += 1
-                self.algorithm.Debug(f"[开仓跳过] {pair_id} 订单锁定")
+                # v7.8.1: 删除跳过日志(已在总结的skip_stats中体现)
                 continue
 
             # 检查2: 风险冷却期检查
             if self.is_pair_in_risk_cooldown(pair_id):
                 skip_stats['risk_cooldown'] += 1
-                self.algorithm.Debug(f"[开仓跳过] {pair_id} 在风险冷却期")
+                # v7.8.1: 删除跳过日志(已在总结的skip_stats中体现)
                 continue
 
             # 检查3: 普通交易冷却期检查
             if self.is_pair_in_normal_cooldown(pair):
                 skip_stats['normal_cooldown'] += 1
-                self.algorithm.Debug(f"[开仓跳过] {pair_id} 在交易冷却期")
+                # v7.8.1: 删除跳过日志(已在总结的skip_stats中体现)
                 continue
 
             # 执行开仓并注册订单追踪
             intent = pair.get_open_intent(amount_allocated, data)
             if not intent:
                 skip_stats['intent_failed'] += 1
-                self.algorithm.Debug(f"[开仓跳过] {pair_id} Intent生成失败")
+                # v7.8.1: 删除跳过日志(已在总结的skip_stats中体现)
                 continue
 
             success = self.order_executor.execute_open(intent)  # 自动注册到TicketsManager
@@ -502,7 +498,7 @@ class ExecutionManager:
                 self.algorithm.Debug(f"[开仓成功] {pair_id} 分配=${amount_allocated:.2f}")
             else:
                 skip_stats['execute_failed'] += 1
-                self.algorithm.Debug(f"[开仓失败] {pair_id} OrderExecutor执行失败")
+                # v7.8.1: 删除失败日志(已在总结的skip_stats中体现)
 
         # Step 4: 完成总结
         self.algorithm.Debug(

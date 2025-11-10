@@ -121,17 +121,12 @@ class PairsManager:
             if pair_id in self.all_pairs:
                 # 已存在的配对:调用 update_params 并检查返回值
                 old_pair = self.all_pairs[pair_id]
-                if old_pair.update_params(new_pair):
-                    # 更新成功:输出确认日志(含beta值)
-                    self.algorithm.Debug(
-                        f"[PairsManager] 更新配对 {pair_id} "
-                        f"(beta: {old_pair.beta_mean:.3f})"
-                    )
-                # 更新失败(有持仓):Pairs内部已输出冻结日志,这里不重复
+                old_pair.update_params(new_pair)
+                # v7.8.0: 删除逐个更新日志(月度噪音,可从统计汇总推断)
             else:
                 # 新配对:直接添加
                 self.all_pairs[pair_id] = new_pair
-                self.algorithm.Debug(f"[PairsManager] 添加新配对 {pair_id}")
+                # v7.8.0: 删除逐个添加日志(月度噪音,可从统计汇总推断)
 
         # 第一点五步:协整复查预警（方案A - 监控失去协整性但仍有持仓的配对）
         for pair_id in self.cointegrated_ids:  # 上一轮是cointegrated

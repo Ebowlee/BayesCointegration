@@ -78,7 +78,9 @@ class BayesianModeler:
             return result
 
         except Exception as e:
-            self.algorithm.Debug(f"[BayesianModeler] 建模失败: {str(e)}")
+            # v7.8.0: 条件化日志(建模失败极少见,仅debug模式输出)
+            if self.algorithm.debug_mode:
+                self.algorithm.Debug(f"[BayesianModeler] 建模失败: {str(e)}")
             return None
 
 
@@ -113,8 +115,9 @@ class BayesianModeler:
 
         # 安全检查
         if A <= 0 or B <= 0:
-            # 降级到弱信息先验
-            self.algorithm.Debug(f"[BayesianModeler] Beta矩匹配失败 (A={A:.3f}, B={B:.3f}), 降级到Beta(2,2)")
+            # v7.8.0: 条件化日志(降级场景极少见,仅debug模式输出)
+            if self.algorithm.debug_mode:
+                self.algorithm.Debug(f"[BayesianModeler] Beta矩匹配失败 (A={A:.3f}, B={B:.3f}), 降级到Beta(2,2)")
             return (2.0, 2.0)
 
         return (A, B)
@@ -323,8 +326,9 @@ class BayesianModeler:
             return stats
 
         except Exception as e:
-            # 建模失败时返回默认值
-            self.algorithm.Debug(f"[BayesianModeler] 联合建模失败: {str(e)}")
+            # v7.8.0: 条件化日志(联合建模失败极少见,仅debug模式输出)
+            if self.algorithm.debug_mode:
+                self.algorithm.Debug(f"[BayesianModeler] 联合建模失败: {str(e)}")
             return {
                 'alpha_mean': 0.0,
                 'alpha_std': 0.0,
