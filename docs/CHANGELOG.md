@@ -4,6 +4,172 @@
 
 ---
 
+## [v7.7.1_fix-cumulative-pnl-calculation@20250210]
+
+### 版本概述
+**修正累计收益率计算Bug** - 修复v7.7.0简单百分比相加的数学错误,采用加权平均公式。存储累计美元PnL和成本,黑名单判断时计算加权平均收益率,确保数学正确性。
+
+### 问题描述
+v7.7.0使用简单百分比相加计算累计收益率,忽略了不同交易的成本差异:
+
+**错误案例**:
+```python
+# v7.7.0 错误实现
+Trade 1: +$200 / $10,000 = +2%
+Trade 2: -$600 / $12,000 = -5%
+Trade 3: +$90  / $9,000  = +1%
+
+# 简单相加 (错误)
+total_pnl_pct = 2% + (-5%) + 1% = -2%
+
+# 正确计算 (加权平均)
+cumulative_return = (-$310) / ($31,000) = -1.0%
+```
+
+**影响**: 黑名单系统可能错误地过滤或保留配对,影响策略选择质量。
+
+### 核心变更
+
+#### 1. Pairs 对象 - 存储累计分子分母
+
+**修改前 (v7.7.0)**:
+```python
+class Pairs:
+    def __init__(self, ...):
+        self.trade_count = 0
+        self.win_count = 0
+        self.total_pnl_pct = 0.0  # 错误: 简单相加百分比
+```
+
+**修改后 (v7.7.1)**:
+```python
+class Pairs:
+    def __init__(self, ...):
+        self.trade_count = 0
+        self.win_count = 0
+        self.total_pnl_dollars = 0.0   # 累计美元PnL (分子)
+        self.total_pair_cost = 0.0     # 累计保证金成本 (分母)
+```
+
+#### 2. _update_trade_stats() - 累加分子分母
+
+**修改前 (v7.7.0)**:
+```python
+def _update_trade_stats(self):
+    pnl_dollars = self.get_pair_pnl()
+    pair_cost = self.get_pair_cost()
+
+    if pair_cost and pair_cost > 0:
+        pnl_pct = (pnl_dollars / pair_cost) * 100
+    else:
+        pnl_pct = 0.0
+
+    self.total_pnl_pct += pnl_pct  # 错误: 简单相加百分比
+```
+
+**修改后 (v7.7.1)**:
+```python
+def _update_trade_stats(self):
+    pnl_dollars = self.get_pair_pnl()
+    pair_cost = self.get_pair_cost()
+
+    # 数据完整性检查
+    if pnl_dollars is None or pair_cost is None or pair_cost <= 0:
+        return
+
+    # 累加分子和分母 (v7.7.1)
+    self.total_pnl_dollars += pnl_dollars
+    self.total_pair_cost += pair_cost
+```
+
+#### 3. BlacklistManager - 计算加权平均收益率
+
+**修改: get_stats() 方法**
+```python
+def get_stats(self, pair_id):
+    # v7.7.0 错误
+    return {'total_pnl': pair.total_pnl_pct}
+
+    # v7.7.1 修正
+    if pair.total_pair_cost > 0:
+        total_return_pct = (pair.total_pnl_dollars / pair.total_pair_cost) * 100
+    else:
+        total_return_pct = 0.0
+    return {'total_pnl': total_return_pct}
+```
+
+**修改: _should_blacklist() 方法**
+```python
+def _should_blacklist(self, pair):
+    # v7.7.0 错误
+    return (pair.trade_count >= self.min_trades and
+            pair.total_pnl_pct < self.pnl_threshold)
+
+    # v7.7.1 修正
+    if pair.trade_count < self.min_trades:
+        return False
+
+    if pair.total_pair_cost > 0:
+        cumulative_return_pct = (pair.total_pnl_dollars / pair.total_pair_cost) * 100
+    else:
+        return False
+
+    return cumulative_return_pct < self.pnl_threshold
+```
+
+### 数学原理
+
+**加权平均收益率公式**:
+```
+累计收益率 = Σ(PnL_i) / Σ(Cost_i)
+
+其中:
+- PnL_i: 第i笔交易的美元盈亏
+- Cost_i: 第i笔交易的保证金成本
+```
+
+**优点**:
+1. 数学正确: 反映真实投资回报率
+2. 考虑成本差异: 大额交易权重更高
+3. 可追溯性: 保留分子分母明细
+4. 向后兼容: 配置和接口不变
+
+### 影响范围
+
+**受影响文件** (3个):
+- `src/Pairs.py`: 修改属性和更新逻辑
+- `src/trade/BlacklistManager.py`: 修改计算逻辑
+- `docs/CHANGELOG.md`: 添加本版本记录
+
+**不受影响模块**:
+- 配置文件 (`config.py`): 阈值保持不变
+- PairSelector: 接口不变 (`get_blacklist()`)
+- 其他模块: 仅读取trade统计,不依赖计算逻辑
+
+### 测试建议
+
+**回测验证**:
+1. 对比v7.7.0和v7.7.1的黑名单集合差异
+2. 检查日志中`total_pnl`是否数学合理
+3. 验证重复交易配对的累计收益率计算
+
+**案例检查**:
+```python
+# 示例配对3笔交易
+trades = [
+    (+$200, $10,000),  # +2.0%
+    (-$600, $12,000),  # -5.0%
+    (+$90,  $9,000)    # +1.0%
+]
+
+# v7.7.1 应计算为:
+# total_pnl_dollars = -$310
+# total_pair_cost = $31,000
+# cumulative_return = -1.0%  (不是v7.7.0的-2.0%)
+```
+
+---
+
 ## [v7.7.0_trade-module-oop-refactor@20250206]
 
 ### 版本概述

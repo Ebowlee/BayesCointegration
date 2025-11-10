@@ -52,10 +52,11 @@ class Pairs:
         self.creation_time = algorithm.Time                                    # 首次创建时间
         self.reactivation_count = 0                                            # 重新激活次数(配对消失又出现)
 
-        # === 交易历史统计 (v7.7.0 - 黑名单系统) ===
-        self.trade_count = 0        # 历史总交易次数
-        self.win_count = 0          # 历史盈利次数
-        self.total_pnl_pct = 0.0    # 历史累计收益率(%)
+        # === 交易历史统计 (v7.7.0 → v7.7.1 黑名单系统) ===
+        self.trade_count = 0           # 历史总交易次数
+        self.win_count = 0             # 历史盈利次数
+        self.total_pnl_dollars = 0.0   # 累计美元PnL (v7.7.1: 修正加权平均收益率计算)
+        self.total_pair_cost = 0.0     # 累计保证金成本 (v7.7.1: 用于计算加权平均收益率)
 
         # === 时间追踪 ===
         self.pair_opened_time = None                                           # 配对开仓时间(双腿都成交的时刻)
@@ -220,29 +221,36 @@ class Pairs:
 
     def _update_trade_stats(self):
         """
-        更新交易历史统计 (v7.7.0 - 黑名单系统)
+        更新交易历史统计 (v7.7.0 → v7.7.1 修正累计收益率计算)
 
         在平仓时调用,计算本次交易收益并更新累计统计
 
         设计说明:
         - 在清零追踪变量之前调用 (此时 exit_price 已记录,可计算 PnL)
-        - 使用 get_pair_pnl() 和 get_pair_cost() 计算收益率
-        - 自动更新 trade_count, win_count, total_pnl_pct
+        - 使用 get_pair_pnl() 和 get_pair_cost() 获取美元PnL和成本
+        - 累加分子(total_pnl_dollars)和分母(total_pair_cost)用于计算加权平均收益率
+
+        v7.7.1 修正:
+        - 旧: total_pnl_pct += pnl_pct (简单相加,忽略成本差异)
+        - 新: 分别累加美元PnL和成本,外部计算加权平均 (total_pnl_dollars / total_pair_cost)
         """
-        # 计算本次交易收益率
+        # 计算本次交易的美元PnL和保证金成本
         pnl_dollars = self.get_pair_pnl()
         pair_cost = self.get_pair_cost()
 
-        if pnl_dollars is not None and pair_cost is not None and pair_cost > 0:
-            pnl_pct = (pnl_dollars / pair_cost) * 100
-        else:
-            pnl_pct = 0.0
+        # 数据完整性检查
+        if pnl_dollars is None or pair_cost is None or pair_cost <= 0:
+            # 数据不完整,跳过统计更新 (理论上不应发生,因为on_position_filled时数据应完整)
+            return
 
-        # 更新统计
+        # 累计美元PnL和保证金成本 (v7.7.1)
+        self.total_pnl_dollars += pnl_dollars
+        self.total_pair_cost += pair_cost
+
+        # 更新计数统计
         self.trade_count += 1
-        if pnl_pct > 0:
+        if pnl_dollars > 0:
             self.win_count += 1
-        self.total_pnl_pct += pnl_pct
 
 
     # ===== 2. 基础数据访问(无依赖) =====

@@ -100,21 +100,31 @@ class BlacklistManager:
             pair_id: 配对ID
 
         Returns:
-            Dict: 包含 count, wins, total_pnl
+            Dict: 包含 count, wins, total_pnl (v7.7.1: 加权平均收益率)
             None: 配对不存在
 
         Example:
             stats = blacklist_manager.get_stats(('AAPL', 'MSFT'))
             # 返回: {'count': 5, 'wins': 2, 'total_pnl': -8.5}
+
+        v7.7.1 修正:
+        - 旧: 返回 pair.total_pnl_pct (简单相加的错误结果)
+        - 新: 计算加权平均收益率 (total_pnl_dollars / total_pair_cost)
         """
         pair = self.algorithm.pairs_manager.get_pair_by_id(pair_id)
         if not pair:
             return None
 
+        # 计算加权平均累计收益率 (v7.7.1)
+        if pair.total_pair_cost > 0:
+            total_return_pct = (pair.total_pnl_dollars / pair.total_pair_cost) * 100
+        else:
+            total_return_pct = 0.0  # 无交易历史,返回0
+
         return {
             'count': pair.trade_count,
             'wins': pair.win_count,
-            'total_pnl': pair.total_pnl_pct
+            'total_pnl': total_return_pct
         }
 
     def _should_blacklist(self, pair) -> bool:
@@ -130,6 +140,20 @@ class BlacklistManager:
 
         Returns:
             bool: True if 应该黑名单
+
+        v7.7.1 修正:
+        - 旧: 使用 pair.total_pnl_pct (简单相加的错误结果)
+        - 新: 计算加权平均收益率 (total_pnl_dollars / total_pair_cost)
         """
-        return (pair.trade_count >= self.min_trades and
-                pair.total_pnl_pct < self.pnl_threshold)
+        # 检查交易次数门槛
+        if pair.trade_count < self.min_trades:
+            return False
+
+        # 计算加权平均累计收益率 (v7.7.1)
+        if pair.total_pair_cost > 0:
+            cumulative_return_pct = (pair.total_pnl_dollars / pair.total_pair_cost) * 100
+        else:
+            return False  # 无有效成本数据,不黑名单
+
+        # 判断是否累计亏损
+        return cumulative_return_pct < self.pnl_threshold

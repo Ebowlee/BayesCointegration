@@ -161,11 +161,13 @@ git commit -m "docs: update CHANGELOG for v7.2.5"
   - `is_in_cooldown()`: Check cooldown period (part of signal generation logic)
   - `on_position_filled()`: Callback when position fills - clears tracking variables and updates trade stats (v7.7.0)
   - `_update_trade_stats()`: Private method - calculates trade PnL% and updates statistics (v7.7.0)
-- **Trade Statistics** (v7.7.0):
+- **Trade Statistics** (v7.7.0 → v7.7.1):
   - `trade_count`: Total historical trades for this pair
-  - `win_count`: Number of profitable trades (pnl_pct > 0)
-  - `total_pnl_pct`: Cumulative return across all trades
-  - **Auto-update**: Statistics calculated in `_update_trade_stats()` called by `on_position_filled()`
+  - `win_count`: Number of profitable trades (pnl_dollars > 0)
+  - `total_pnl_dollars`: Cumulative dollar PnL across all trades (v7.7.1 - numerator for weighted average)
+  - `total_pair_cost`: Cumulative margin cost across all trades (v7.7.1 - denominator for weighted average)
+  - **Cumulative Return Calculation**: `(total_pnl_dollars / total_pair_cost) * 100` (weighted average, not simple addition)
+  - **Auto-update**: Statistics accumulated in `_update_trade_stats()` called by `on_position_filled()`
 - **Features**: Cooldown management, beta hedging, position tracking, intent generation, trade history (v7.7.0)
 
 ### 3. OrderExecutor.py - Order Execution Engine (v7.0.0)
@@ -290,40 +292,47 @@ git commit -m "docs: update CHANGELOG for v7.2.5"
     - **mean_reversion_certainty** (40%): AR(1) significance (theoretical core + moderate predictive power 50%)
   - **Blacklist Filtering** (v7.6.0 → v7.6.1): `_filter_by_blacklist()` private method encapsulates filtering logic
 
-### 11. trade/ - Blacklist Module (v7.7.0 OOP Refactor)
+### 11. trade/ - Blacklist Module (v7.7.0 → v7.7.1 OOP Refactor + Math Fix)
 - **Purpose**: Identify historically underperforming pairs to prevent repeated losses
 - **Design Principle** (v7.7.0): Face-to-Face OOP - Data belongs to Pairs, logic in BlacklistManager
-  - **Data Storage**: Trade history tracked in Pairs objects (trade_count, win_count, total_pnl_pct)
+  - **Data Storage**: Trade history tracked in Pairs objects (trade_count, win_count, total_pnl_dollars, total_pair_cost - v7.7.1)
   - **Logic Layer**: BlacklistManager provides stateless judgment logic
-  - **Auto-Update**: Statistics updated automatically in Pairs.on_position_filled()
+  - **Auto-Update**: Statistics accumulated automatically in Pairs.on_position_filled()
 - **Architecture** (v7.7.0): Single-file module (79% code reduction from v7.6.0)
-  - **BlacklistManager.py** (90 lines): Stateless manager for blacklist logic
+  - **BlacklistManager.py** (160 lines - v7.7.1): Stateless manager for blacklist logic with weighted average calculation
   - **No data storage**: Reads from Pairs objects on-demand
   - **Configuration**: All thresholds from config.trade_analysis
 - **Key Methods**:
   - `get_blacklist()`: Returns Set[Tuple[str, str]] of blacklisted pairs (immediate query from all Pairs)
   - `is_blacklisted(pair_id)`: O(1) check if specific pair is blacklisted
-  - `get_stats(pair_id)`: Returns diagnostic info (count, wins, total_pnl) for logging
-  - `_should_blacklist(pair)`: Private method - checks if Pairs object meets blacklist criteria
+  - `get_stats(pair_id)`: Returns diagnostic info (count, wins, total_pnl) - calculates weighted average (v7.7.1)
+  - `_should_blacklist(pair)`: Private method - checks if Pairs object meets blacklist criteria using weighted average (v7.7.1)
 - **Blacklist Criteria** (configurable in config.trade_analysis):
   - **min_trades**: Minimum trade count (default: 3)
   - **pnl_threshold**: Maximum cumulative return (default: 0%)
-  - Formula: `trade_count >= 3 AND total_pnl_pct < 0`
+  - **Formula** (v7.7.1): `trade_count >= 3 AND (total_pnl_dollars / total_pair_cost) * 100 < 0`
 - **Integration Points**:
   - **Initialization** (main.py): `BlacklistManager(algorithm, config.trade_analysis)` → Injected to PairSelector
   - **Pair Selection** (PairSelector): Calls `blacklist_manager.get_blacklist()` to filter bad pairs
-  - **Data Update** (Pairs): Statistics auto-updated in `on_position_filled()` after every closing trade
+  - **Data Update** (Pairs): Statistics accumulated in `on_position_filled()` after every closing trade
   - **No manual calls**: Removed all `analyze_trade()` calls from ExecutionManager
-- **Trade Statistics** (stored in Pairs.py):
+- **Trade Statistics** (stored in Pairs.py - v7.7.1):
   - `trade_count`: Total historical trades for this pair
-  - `win_count`: Number of profitable trades (pnl_pct > 0)
-  - `total_pnl_pct`: Cumulative return across all trades
-  - **Update Timing**: Calculated in `_update_trade_stats()` called by `on_position_filled()`
-- **Benefits** (v7.7.0 refactor):
+  - `win_count`: Number of profitable trades (pnl_dollars > 0)
+  - `total_pnl_dollars`: Cumulative dollar PnL (numerator for weighted average)
+  - `total_pair_cost`: Cumulative margin cost (denominator for weighted average)
+  - **Cumulative Return**: Calculated as `(total_pnl_dollars / total_pair_cost) * 100` (weighted average, not simple addition)
+  - **Update Timing**: Accumulated in `_update_trade_stats()` called by `on_position_filled()`
+- **v7.7.1 Bug Fix**:
+  - **Problem**: v7.7.0 used simple percentage addition (`total_pnl_pct += pnl_pct`), ignoring cost differences
+  - **Solution**: Store cumulative dollars and costs separately, calculate weighted average on query
+  - **Impact**: Mathematically correct blacklist filtering, prevents incorrect pair exclusion/inclusion
+- **Benefits** (v7.7.0 → v7.7.1):
   - **Code reduction**: 79% (658 → 135 lines), 50% file reduction (4 → 2 files)
   - **OOP design**: Data cohesion - trade history as intrinsic property of Pairs
   - **Zero overhead**: No separate data structures, no manual update calls
   - **Immediate query**: No caching, direct read from Pairs objects
+  - **Mathematical correctness**: Weighted average properly accounts for varying trade costs (v7.7.1)
   - **Log reduction**: Eliminated backtest statistics logging (delegated to backtest-analyst agent)
 
 ## Trading Execution Flow (OnData)
@@ -765,9 +774,10 @@ zscore = (log_residual - residual_mean) / residual_std
 
 ## Version History
 
-**Current Version**: v7.7.0 (2025-02-06)
+**Current Version**: v7.7.1 (2025-02-10)
 
 **Recent Major Updates**:
+- **v7.7.1** (Feb 2025): Math bug fix - weighted average cumulative return calculation (fixes v7.7.0 simple percentage addition error)
 - **v7.7.0** (Feb 2025): Trade module OOP refactor - face-to-face OOP design with 79% code reduction
 - **v7.6.1** (Feb 2025): Architecture optimization - unified dependency injection pattern + blacklist filtering encapsulation
 - **v7.6.0** (Feb 2025): Pair-level historical feedback mechanism - blacklist filtering + pnl_pct calculation fix
