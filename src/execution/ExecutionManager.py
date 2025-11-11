@@ -166,6 +166,7 @@ class ExecutionManager:
                 # v7.7.0: 统计由Pairs.on_position_filled自动更新,无需手动调用
             else:
                 # v7.8.3: 删除过程日志(只保留核心交易事件)
+                pass  # 执行失败,跳过
 
         # 无论成功与否,都激活cooldown（防止继续交易）
         risk_manager.activate_cooldown_for_portfolio(triggered_rule)
@@ -224,6 +225,7 @@ class ExecutionManager:
 
             else:
                 # v7.8.3: 删除过程日志(只保留核心交易事件)
+                pass  # 执行失败,跳过
 
         # 激活触发规则的cooldown（只为成功执行的Intent激活）
         if executed_pair_ids:
@@ -231,6 +233,7 @@ class ExecutionManager:
             # v7.8.3: 删除过程日志(只保留核心交易事件)
         else:
             # v7.8.3: 删除过程日志(只保留核心交易事件)
+            pass  # 无配对成功执行,无需激活cooldown
 
 
     def cleanup_remaining_positions(self):
@@ -286,8 +289,10 @@ class ExecutionManager:
 
         if cleanup_count > 0:
             # v7.8.3: 删除过程日志(只保留核心交易事件)
+            pass  # 清理完成
         else:
             # v7.8.3: 删除过程日志(只保留核心交易事件)
+            pass  # 无残留持仓需要清理
 
 
     # ===== 正常交易执行方法 =====
@@ -505,5 +510,6 @@ class ExecutionManager:
             else:
                 skip_stats['execute_failed'] += 1
                 # v7.8.1: 删除失败日志(已在总结的skip_stats中体现)
+                pass  # 统计已记录在skip_stats中
 
         # v7.8.3: 删除过程日志(只保留核心交易事件)
