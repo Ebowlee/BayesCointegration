@@ -427,6 +427,7 @@ class ExecutionManager:
         # v7.8.1: 只在有候选时输出统计(无候选时的信号分布没有分析价值)
         if candidates:
             # v7.8.3: 删除过程日志(只保留核心交易事件)
+            pass  # 统计日志已删除
 
         return candidates
 
