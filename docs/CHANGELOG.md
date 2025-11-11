@@ -5,6 +5,73 @@
 ---
 
 
+## [v7.9.0_two-level-logging-architecture@20250206]
+
+### 版本概述
+**架构升级** - 搭建两级日志系统基础设施,支持生产模式(10-30年)和调试模式(1年)。
+
+### 设计目标
+应对QuantConnect 10MB日志限制:
+- **Level 0 (生产模式)**: 核心交易事件,适用于10-30年长期回测
+- **Level 1 (调试模式)**: 包含Level 0 + 详细过程日志,适用于1年短期调试
+
+**关键设计**: Level 1 **包含** Level 0 (层级包含关系,非互斥)
+
+### 代码修改
+
+**1. main.py Debug方法扩展** (Line 81-103):
+```python
+# 修改前:
+def Debug(self, message: str):
+    if self.debug_mode:
+        QCAlgorithm.Debug(self, message)
+
+# 修改后:
+def Debug(self, message: str, level: int = 0):
+    """
+    Args:
+        level: 0=核心交易(生产), 1=详细调试(调试)
+
+    设计:
+        - log_level=0: 仅输出 level=0 日志
+        - log_level=1: 输出 level=0 AND level=1 日志 (包含关系)
+        - 使用 level <= log_level 实现层级包含
+    """
+    log_level = self.config.main.get('log_level', 0)
+    if self.debug_mode and level <= log_level:
+        QCAlgorithm.Debug(self, message)
+```
+
+**2. config.py 配置参数** (Line 27):
+```python
+'debug_mode': True,           # 主开关
+'log_level': 0                # 0=生产(核心), 1=调试(全部)
+```
+
+### 向后兼容性
+- **默认参数**: `level=0` 确保现有132个调用点无需修改
+- **渐进迁移**: 未来逐步为调试日志添加 `level=1` 参数
+
+### 使用示例
+```python
+# 核心交易日志 (生产模式,长期回测必需)
+self.Debug(f"[开仓] {pair_id} 分配=${amount:.2f}")  # level=0 (默认)
+
+# 详细调试日志 (调试模式,短期分析使用)
+self.Debug(f"[调试] 中间变量: {value}", level=1)     # 显式指定
+```
+
+### 架构状态
+- ✅ 统一入口点 (100%)
+- ✅ 层级包含逻辑 (100%)
+- ✅ 配置参数 (100%)
+- ⏸️ 调用站点迁移 (0%, 计划未来渐进实施)
+
+**当前阶段**: 保持日志简洁,架构就绪但暂不启用分层输出。
+
+---
+
+
 ## [v7.8.8_fix-missing-method@20251111]
 
 ### 版本概述
