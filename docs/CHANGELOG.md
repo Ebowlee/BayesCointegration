@@ -5,6 +5,92 @@
 ---
 
 
+## [v7.8.8_fix-missing-method@20251111]
+
+### 版本概述
+**修复运行时错误** - 清理v7.8.6遗留的死代码调用和空类定义。
+
+### 问题背景
+v7.8.6删除了`log_selection_summary()`方法,但遗漏了两处清理:
+1. `_select_fine()`中仍调用`self.logger.log_selection_summary()`
+2. `SelectionLogger`类定义保留但已为空壳
+
+**运行时错误**:
+```
+AttributeError: 'SelectionLogger' object has no attribute 'log_selection_summary'
+  at _select_fine, line 210
+```
+
+### 修复内容
+
+**删除调用** (UniverseSelection.py Line 210-213):
+```python
+# 删除前:
+self.logger.log_selection_summary(
+    self.fine_selection_count, len(fine), len(volatility_filtered),
+    financial_stats, volatility_stats, volatility_filtered
+)
+
+# 删除后:
+# (调用完全移除)
+```
+
+**删除空类** (UniverseSelection.py Line 96-112):
+```python
+# 删除前:
+class SelectionLogger:
+    """选股日志记录器"""
+    def __init__(self, algorithm):
+        self.algorithm = algorithm
+
+# 删除后:
+# (类定义完全移除)
+```
+
+**删除实例化** (UniverseSelection.py Line 136):
+```python
+# 删除前:
+self.logger = SelectionLogger(algorithm)
+
+# 删除后:
+# (实例化语句移除)
+```
+
+### 影响统计
+- **删除行数**: 25行
+- **修复错误**: 1处运行时错误
+- **清理项**: 3项 (方法调用 + 类定义 + 实例化)
+
+### 技术要点
+
+**v7.8.6遗留问题的根源**:
+- v7.8.6只删除了`log_selection_summary()`**方法定义**
+- 但未删除**方法调用**和**空类定义**
+- 导致运行时AttributeError
+
+**完整清理检查清单**:
+1. ✅ 删除方法定义 (v7.8.6完成)
+2. ✅ 删除方法调用 (v7.8.8补充)
+3. ✅ 删除类定义 (v7.8.8补充)
+4. ✅ 删除实例化 (v7.8.8补充)
+
+### 验证方法
+```bash
+# 确认SelectionLogger不再存在
+grep -r "SelectionLogger" src/
+# 输出: 无匹配
+
+# 确认log_selection_summary不再被调用
+grep -r "log_selection_summary" src/
+# 输出: 无匹配
+```
+
+### 关联版本
+- **v7.8.6**: 清理死代码 (不完整 - 遗留调用)
+- **v7.8.8**: 修复v7.8.6遗留问题 (本版本)
+
+---
+
 ## [v7.8.7_remove-version-comments@20251111]
 
 ### 版本概述
