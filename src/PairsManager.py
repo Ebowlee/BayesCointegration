@@ -122,18 +122,15 @@ class PairsManager:
                 # 已存在的配对:调用 update_params 并检查返回值
                 old_pair = self.all_pairs[pair_id]
                 old_pair.update_params(new_pair)
-                # v7.8.0: 删除逐个更新日志(月度噪音,可从统计汇总推断)
             else:
                 # 新配对:直接添加
                 self.all_pairs[pair_id] = new_pair
-                # v7.8.0: 删除逐个添加日志(月度噪音,可从统计汇总推断)
 
         # 第一点五步:协整复查预警（方案A - 监控失去协整性但仍有持仓的配对）
         for pair_id in self.cointegrated_ids:  # 上一轮是cointegrated
             if pair_id not in current_pair_ids:  # 本轮未通过协整检验
                 pair = self.all_pairs[pair_id]
                 if pair.has_position():
-                    # v7.8.4: 简化协整复查警告(移除持仓天数细节)
                     self.algorithm.Debug(f"[协整复查] {pair_id} 失去协整性但仍有持仓")
 
         # 第二步:重新分类所有配对
@@ -262,5 +259,4 @@ class PairsManager:
 
     def log_statistics(self):
         """输出统计信息 - 使用 get_statistics()"""
-        # v7.8.4: 删除更新完成统计(月度过程日志,可从[协整分析]推断)
         pass

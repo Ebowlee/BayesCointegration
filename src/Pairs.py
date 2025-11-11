@@ -95,7 +95,6 @@ class Pairs:
         """
         # 持仓检查:有持仓时不更新
         if self.has_position():
-            # v7.8.0: 删除参数冻结日志(月度噪音,机制已验证稳定)
             return False
 
         # 无持仓时:更新所有贝叶斯模型参数

@@ -147,14 +147,12 @@ class ExecutionManager:
         5. 记录成功执行的配对数量
         6. 无论成功与否，调用risk_manager激活cooldown（防止继续交易）
         """
-        # v7.8.3: 删除过程日志(只保留核心交易事件)
 
         executed_count = 0  # 记录成功执行的配对数量
 
         for intent in intents:
             # 订单锁定检查（防止重复下单）
             if self.tickets_manager.is_pair_locked(intent.pair_id):
-                # v7.8.3: 删除过程日志(只保留核心交易事件)
                 continue
 
             # 通过order_executor执行平仓Intent (自动注册到TicketsManager)
@@ -165,7 +163,6 @@ class ExecutionManager:
         # 无论成功与否,都激活cooldown（防止继续交易）
         risk_manager.activate_cooldown_for_portfolio(triggered_rule)
 
-        # v7.8.3: 删除过程日志(只保留核心交易事件)
 
 
     def handle_pair_risk_intents(self, intents: List[CloseIntent], risk_manager) -> None:
@@ -195,14 +192,12 @@ class ExecutionManager:
         if not intents:
             return
 
-        # v7.8.3: 删除过程日志(只保留核心交易事件)
 
         executed_pair_ids = []  # 记录成功执行的pair_id
 
         for intent in intents:
             # 订单锁定检查（防止重复下单）
             if self.tickets_manager.is_pair_locked(intent.pair_id):
-                # v7.8.3: 删除过程日志(只保留核心交易事件)
                 continue
 
             # 通过order_executor执行平仓Intent (自动注册到TicketsManager)
@@ -251,7 +246,6 @@ class ExecutionManager:
         if not pairs_with_position:
             return  # 没有残留持仓,无需清理
 
-        # v7.8.3: 删除过程日志(只保留核心交易事件)
 
         cleanup_count = 0
         for pair in pairs_with_position.values():
@@ -302,7 +296,6 @@ class ExecutionManager:
 
             # 处理平仓信号
             if signal == TradingSignal.CLOSE:
-                # v7.8.3: 增强平仓日志 - 增加PnL、累计收益率、交易次数
                 current_pnl = pair.get_pair_pnl()
                 current_cost = pair.get_pair_cost()
                 current_pnl_pct = (current_pnl / current_cost * 100) if (current_pnl and current_cost and current_cost > 0) else 0
@@ -325,7 +318,6 @@ class ExecutionManager:
                     self.order_executor.execute_close(intent)  # 自动注册到TicketsManager
 
             elif signal == TradingSignal.STOP_LOSS:
-                # v7.8.3: 增强止损日志 - 增加PnL、累计收益率、交易次数
                 current_pnl = pair.get_pair_pnl()
                 current_cost = pair.get_pair_cost()
                 current_pnl_pct = (current_pnl / current_cost * 100) if (current_pnl and current_cost and current_cost > 0) else 0
@@ -370,14 +362,12 @@ class ExecutionManager:
             - 调用 pair.get_signal() 等业务逻辑是执行器的职责
             - PairsManager 只负责存储和分类，不应调用业务逻辑
         """
-        # v7.8.1: 删除"开始"日志(每bar触发,高频噪音)
 
         candidates = []
 
         for pair in pairs_without_position.values():
             signal = pair.get_signal(data)
 
-            # v7.8.0: 删除逐个候选日志(高频噪音,统计汇总已足够)
 
             if signal in [TradingSignal.LONG_SPREAD, TradingSignal.SHORT_SPREAD]:
                 planned_pct = pair.get_planned_allocation_pct()
@@ -415,18 +405,14 @@ class ExecutionManager:
         # Step 1: 获取开仓候选(已按质量降序)
         entry_candidates = self.get_entry_candidates(pairs_without_position, data)
         if not entry_candidates:
-            # v7.8.1: 删除Step日志(高频噪音,可从最终统计推断)
             return
 
-        # v7.8.1: 删除Step日志(高频噪音,可从最终统计推断)
 
         # Step 2: 使用MarginAllocator分配资金
         allocations = self.margin_allocator.allocate_margin(entry_candidates)
         if not allocations:
-            # v7.8.1: 删除Step日志(高频噪音,可从最终统计推断)
             return  # 无可分配资金或候选配对
 
-        # v7.8.1: 删除Step日志(高频噪音,可从最终统计推断)
 
         # Step 3: 逐个开仓
         for pair_id, amount_allocated in allocations.items():
@@ -434,26 +420,21 @@ class ExecutionManager:
 
             # 检查1: 订单锁定检查
             if self.tickets_manager.is_pair_locked(pair_id):
-                # v7.8.1: 删除跳过日志(已在总结的skip_stats中体现)
                 continue
 
             # 检查2: 风险冷却期检查
             if self.is_pair_in_risk_cooldown(pair_id):
-                # v7.8.1: 删除跳过日志(已在总结的skip_stats中体现)
                 continue
 
             # 检查3: 普通交易冷却期检查
             if self.is_pair_in_normal_cooldown(pair):
-                # v7.8.1: 删除跳过日志(已在总结的skip_stats中体现)
                 continue
 
             # 执行开仓并注册订单追踪
             intent = pair.get_open_intent(amount_allocated, data)
             if not intent:
-                # v7.8.1: 删除跳过日志(已在总结的skip_stats中体现)
                 continue
 
             success = self.order_executor.execute_open(intent)  # 自动注册到TicketsManager
             if success:
-                # v7.8.3: 简化标签 - 去掉"成功"二字
                 self.algorithm.Debug(f"[开仓] {pair_id} 分配=${amount_allocated:.2f}")

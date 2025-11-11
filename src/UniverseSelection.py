@@ -141,7 +141,6 @@ class SectorBasedUniverseSelection(FineFundamentalUniverseSelectionModel):
     # ========== 公开方法 ==========
     def trigger_selection(self):
         """触发新一轮选股"""
-        # v7.8.3: 增强可见性 - 使用分隔线格式
         msg = f"触发第{self.fine_selection_count + 1}次选股 ({self.algorithm.Time.strftime('%Y-%m-%d')})"
         padding = (80 - len(msg)) // 2
         self.algorithm.Debug(f"{'='*padding}{msg}{'='*padding}")

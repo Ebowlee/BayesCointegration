@@ -114,7 +114,6 @@ class BayesianCointegrationStrategy(QCAlgorithm):
                 added_count += 1
 
         # 简化日志: 只打印数量,不打印ticker列表
-        # v7.8.3: 删除过程日志(只保留核心交易事件)
 
         # 移除旧股票（过滤掉所有benchmark）
         removed_symbols = [s.Symbol for s in changes.RemovedSecurities
@@ -181,14 +180,12 @@ class BayesianCointegrationStrategy(QCAlgorithm):
 
         # === 步骤7: 交给PairsManager管理 ===
         self.pairs_manager.update_pairs(new_pairs_dict)
-        # v7.8.3: 删除过程日志(只保留核心交易事件)
     
 
 
     def OnData(self, data: Slice):
         """处理实时数据 - OnData架构的核心"""
 
-        # v7.8.0: 删除OnData触发日志(每bar都触发,噪音极大)
 
         # 如果正在分析，跳过
         if self.is_analyzing:
@@ -205,7 +202,6 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # Intent Pattern - 返回List[CloseIntent]和触发的规则
         portfolio_intents, triggered_rule = self.risk_manager.check_portfolio_risks()
         if portfolio_intents and triggered_rule:
-            # v7.8.3: 删除过程日志(只保留核心交易事件)
             # 传递triggered_rule用于激活cooldown
             self.execution_manager.handle_portfolio_risk_intents(
                 portfolio_intents, triggered_rule, self.risk_manager
@@ -216,13 +212,11 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         if not self.pairs_manager.has_tradeable_pairs():
             return
 
-        # v7.8.0: 删除交易流程日志(高频噪音)
 
         # 分类获取配对
         pairs_with_position = self.pairs_manager.get_pairs_with_position()
         pairs_without_position = self.pairs_manager.get_pairs_without_position()
 
-        # v7.8.0: 删除配对状态日志(高频噪音,可从开仓/平仓日志推断)
 
         # === Pair层面风控检查 ===
         # 直接循环检查每个配对
@@ -243,7 +237,6 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         if pairs_without_position:
             # 市场条件检查（高波动时阻止开仓，但允许平仓）
             if not self.risk_manager.is_safe_to_open_positions():
-                # v7.8.3: 删除过程日志(只保留核心交易事件)
                 return  # 市场高波动，跳过开仓逻辑
 
             self.execution_manager.handle_normal_open_intents(pairs_without_position, data)
@@ -254,5 +247,4 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # 委托给TicketsManager处理
         self.tickets_manager.on_order_event(event)
 
-        # v7.8.3: 删除过程日志(只保留核心交易事件)
         # 异常配对检查移至风控模块处理

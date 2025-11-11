@@ -116,7 +116,6 @@ class TicketsManager:
             if ticket is not None:
                 self.order_to_pair[ticket.OrderId] = pair_id
 
-        # v7.8.0: 删除订单注册日志(高频噪音,可从开仓/平仓日志推断)
 
 
     def is_pair_locked(self, pair_id: str) -> bool:
@@ -173,7 +172,6 @@ class TicketsManager:
 
         # 只在异常时打印日志（减少噪音）
         if current_status == "ANOMALY":
-            # v7.8.3: 删除过程日志(只保留核心交易事件)
             # 异常订单也需要清理映射
             self._cleanup_order_to_pair(pair_id)
 

@@ -78,7 +78,6 @@ class BayesianModeler:
             return result
 
         except Exception as e:
-            # v7.8.0: 条件化日志(建模失败极少见,仅debug模式输出)
             if self.algorithm.debug_mode:
                 self.algorithm.Debug(f"[BayesianModeler] 建模失败: {str(e)}")
             return None
@@ -115,7 +114,6 @@ class BayesianModeler:
 
         # 安全检查
         if A <= 0 or B <= 0:
-            # v7.8.0: 条件化日志(降级场景极少见,仅debug模式输出)
             if self.algorithm.debug_mode:
                 self.algorithm.Debug(f"[BayesianModeler] Beta矩匹配失败 (A={A:.3f}, B={B:.3f}), 降级到Beta(2,2)")
             return (2.0, 2.0)
@@ -326,7 +324,6 @@ class BayesianModeler:
             return stats
 
         except Exception as e:
-            # v7.8.0: 条件化日志(联合建模失败极少见,仅debug模式输出)
             if self.algorithm.debug_mode:
                 self.algorithm.Debug(f"[BayesianModeler] 联合建模失败: {str(e)}")
             return {
@@ -372,7 +369,6 @@ class BayesianModeler:
         historical_posterior = statistics.get('historical_posterior_modeling', 0)
         uninformed = statistics.get('uninformed_modeling', 0)
 
-        # v7.8.4: 删除建模完成统计(月度过程日志,可从[协整分析]+[PairsManager]推断)
 
 
     # ===== 辅助方法 =====
@@ -396,4 +392,3 @@ class BayesianModeler:
         for pair_key in pairs_to_remove:
             del self.historical_posteriors[pair_key]
 
-        # v7.8.4: 删除历史后验清理日志(内部维护操作,无分析价值)

@@ -59,7 +59,6 @@ class MarketCondition:
         self.hist_vol_threshold = mc_config['spy_volatility_threshold']
         self.window_size = mc_config['spy_volatility_window']
 
-        # v7.8.2: 删除初始化日志(一次性噪音,无分析价值)
 
 
     def is_safe_to_open_positions(self) -> bool:

@@ -97,7 +97,6 @@ class PairSelector:
                 self.quality_weights['mean_reversion_certainty'] * mean_reversion_score
             )
 
-            # v7.8.4: 删除配对评分详情(月度过程日志,入场tag已包含质量分数)
 
             # 更新质量分数到model_result(保留原有字段)
             model_result['quality_score'] = quality_score
@@ -130,7 +129,6 @@ class PairSelector:
             if p['quality_score'] > min_threshold  # 严格大于（不包含等于）
         ]
 
-        # v7.8.4: 删除质量阈值过滤统计(月度过程日志,可从[协整分析]+[PairsManager]推断)
 
         # Step 2: [v7.6.0 → v7.6.1封装] 黑名单过滤
         qualified_pairs = self._filter_by_blacklist(qualified_pairs)
@@ -187,7 +185,6 @@ class PairSelector:
             else:
                 non_blacklist_pairs.append(pair)
 
-        # v7.8.4: 删除黑名单过滤详情(月度过程日志,trade_xxx.jsonl已包含历史记录)
 
         return non_blacklist_pairs
 

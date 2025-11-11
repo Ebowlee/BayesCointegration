@@ -72,7 +72,6 @@ class CointegrationAnalyzer:
 
         statistics['cointegrated_pairs_found'] = len(all_cointegrated_pairs)
 
-        # v7.8.4: 删除协整分析统计(月度过程日志,可从PairsManager状态推断)
 
         return {
             'raw_pairs': all_cointegrated_pairs,
@@ -129,7 +128,6 @@ class CointegrationAnalyzer:
             except Exception:
                 failed_tests.append((symbol1, symbol2, 'unknown_error'))
 
-        # v7.8.0: 删除测试失败日志(可从协整对数量推断失败率,无需逐项记录)
         return cointegrated_pairs
 
 
@@ -181,7 +179,6 @@ class CointegrationAnalyzer:
             except Exception:
                 failed_symbols.append((symbol, 'unknown_error'))
 
-        # v7.8.0: 删除分组失败日志(可从最终分组数量推断失败率)
 
         # 步骤2: 按子行业分组
         for info in stock_info:
@@ -206,9 +203,7 @@ class CointegrationAnalyzer:
             # 提取symbols
             valid_groups[str(ig_code)] = [s['symbol'] for s in top_stocks]
 
-            # v7.8.0: 删除逐个子行业日志(月度噪音,可从协整对数量推断)
 
-        # v7.8.0: 删除跳过子行业详情(月度噪音,可从最终分组数推断)
 
         return valid_groups
 
