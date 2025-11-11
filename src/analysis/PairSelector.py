@@ -97,15 +97,7 @@ class PairSelector:
                 self.quality_weights['mean_reversion_certainty'] * mean_reversion_score
             )
 
-            # v7.8.0: 只输出通过质量阈值的配对(失败配对可从选股统计推断)
-            if quality_score > self.min_quality_threshold:
-                half_life_str = f"{half_life_days:.1f}" if half_life_days is not None else "N/A"
-                self.algorithm.Debug(
-                    f"[PairScore] ({symbol1.Value:4s}, {symbol2.Value:4s}): "
-                    f"Q={quality_score:.3f} | "
-                    f"Half={half_life_score:.3f}(days={half_life_str}) | "
-                    f"MeanRev={mean_reversion_score:.3f}(SNR_κ={snr_kappa:.2f})"
-                )
+            # v7.8.4: 删除配对评分详情(月度过程日志,入场tag已包含质量分数)
 
             # 更新质量分数到model_result(保留原有字段)
             model_result['quality_score'] = quality_score
@@ -138,12 +130,7 @@ class PairSelector:
             if p['quality_score'] > min_threshold  # 严格大于（不包含等于）
         ]
 
-        # 诊断日志：记录淘汰的配对数量
-        rejected_count = len(scored_pairs) - len(qualified_pairs)
-        if rejected_count > 0:
-            self.algorithm.Debug(
-                f"[PairSelector] 质量阈值过滤: {rejected_count}个配对 <= {min_threshold:.2f}分"
-            )
+        # v7.8.4: 删除质量阈值过滤统计(月度过程日志,可从[协整分析]+[PairsManager]推断)
 
         # Step 2: [v7.6.0 → v7.6.1封装] 黑名单过滤
         qualified_pairs = self._filter_by_blacklist(qualified_pairs)
@@ -200,20 +187,7 @@ class PairSelector:
             else:
                 non_blacklist_pairs.append(pair)
 
-        # 诊断日志
-        if blacklist_rejected:
-            self.algorithm.Debug(
-                f"[PairSelector] 黑名单过滤: {len(blacklist_rejected)}个配对被排除 "
-                f"(黑名单规模={len(blacklist)})"
-            )
-            # 输出前3个被排除配对的统计信息
-            for pair_id in blacklist_rejected[:3]:
-                stats = self.blacklist_manager.get_stats(pair_id)
-                if stats:
-                    self.algorithm.Debug(
-                        f"  - {pair_id}: {stats['count']}笔交易, "
-                        f"累计收益={stats['total_pnl']:.2f}%"
-                    )
+        # v7.8.4: 删除黑名单过滤详情(月度过程日志,trade_xxx.jsonl已包含历史记录)
 
         return non_blacklist_pairs
 

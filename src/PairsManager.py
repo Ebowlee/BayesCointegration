@@ -133,11 +133,8 @@ class PairsManager:
             if pair_id not in current_pair_ids:  # 本轮未通过协整检验
                 pair = self.all_pairs[pair_id]
                 if pair.has_position():
-                    holding_days = pair.get_pair_holding_days()
-                    self.algorithm.Debug(
-                        f"[协整复查] {pair_id} 失去协整性但仍有持仓 "
-                        f"(持仓{holding_days}天,进入增强监控)"
-                    )
+                    # v7.8.4: 简化协整复查警告(移除持仓天数细节)
+                    self.algorithm.Debug(f"[协整复查] {pair_id} 失去协整性但仍有持仓")
 
         # 第二步:重新分类所有配对
         self.reclassify_pairs(current_pair_ids)
@@ -265,11 +262,5 @@ class PairsManager:
 
     def log_statistics(self):
         """输出统计信息 - 使用 get_statistics()"""
-        stats = self.get_statistics()
-        self.algorithm.Debug(
-            f"[PairsManager] 第{stats['update_count']}轮更新完成: "
-            f"协整={stats['cointegrated_count']}, "
-            f"遗留={stats['legacy_count']}, "
-            f"归档={stats['archived_count']}, "
-            f"总计={stats['total_count']}"
-        )
+        # v7.8.4: 删除更新完成统计(月度过程日志,可从[协整分析]推断)
+        pass

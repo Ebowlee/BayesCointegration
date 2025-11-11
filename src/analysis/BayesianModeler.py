@@ -372,10 +372,7 @@ class BayesianModeler:
         historical_posterior = statistics.get('historical_posterior_modeling', 0)
         uninformed = statistics.get('uninformed_modeling', 0)
 
-        self.algorithm.Debug(
-            f"[BayesianModeler] 建模完成: 成功{successful}对, 失败{failed}对 "
-            f"(历史后验{historical_posterior}对, 无信息先验{uninformed}对)"
-        )
+        # v7.8.4: 删除建模完成统计(月度过程日志,可从[协整分析]+[PairsManager]推断)
 
 
     # ===== 辅助方法 =====
@@ -399,7 +396,4 @@ class BayesianModeler:
         for pair_key in pairs_to_remove:
             del self.historical_posteriors[pair_key]
 
-        if pairs_to_remove:
-            self.algorithm.Debug(
-                f"[BayesianModeler] 清理了{len(pairs_to_remove)}个过期的历史后验记录"
-            )
+        # v7.8.4: 删除历史后验清理日志(内部维护操作,无分析价值)

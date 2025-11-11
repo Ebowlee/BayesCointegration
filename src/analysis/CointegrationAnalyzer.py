@@ -72,12 +72,7 @@ class CointegrationAnalyzer:
 
         statistics['cointegrated_pairs_found'] = len(all_cointegrated_pairs)
 
-        # 输出统计
-        if all_cointegrated_pairs:
-            self.algorithm.Debug(
-                f"[协整分析] 发现{len(all_cointegrated_pairs)}个协整对 "
-                f"(测试{statistics['total_pairs_tested']}对，来自{len(industry_groups)}个子行业)"
-            )
+        # v7.8.4: 删除协整分析统计(月度过程日志,可从PairsManager状态推断)
 
         return {
             'raw_pairs': all_cointegrated_pairs,
