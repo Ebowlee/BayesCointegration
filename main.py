@@ -110,8 +110,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
                 added_count += 1
 
         # 简化日志: 只打印数量,不打印ticker列表
-        if added_count > 0:
-            self.Debug(f"[证券变更] 新增{added_count}只股票,触发配对分析")
+        # v7.8.3: 删除过程日志(只保留核心交易事件)
 
         # 移除旧股票（过滤掉所有benchmark）
         removed_symbols = [s.Symbol for s in changes.RemovedSecurities
@@ -178,7 +177,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
 
         # === 步骤7: 交给PairsManager管理 ===
         self.pairs_manager.update_pairs(new_pairs_dict)
-        self.Debug(f"[配对分析] 完成: 创建{len(new_pairs_dict)}个新配对, 共管理{len(self.pairs_manager.all_pairs)}个配对")
+        # v7.8.3: 删除过程日志(只保留核心交易事件)
     
 
 
@@ -202,7 +201,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # Intent Pattern - 返回List[CloseIntent]和触发的规则
         portfolio_intents, triggered_rule = self.risk_manager.check_portfolio_risks()
         if portfolio_intents and triggered_rule:
-            self.Debug(f"[Portfolio风控] {triggered_rule}")  # 保留:关键风控事件
+            # v7.8.3: 删除过程日志(只保留核心交易事件)
             # 传递triggered_rule用于激活cooldown
             self.execution_manager.handle_portfolio_risk_intents(
                 portfolio_intents, triggered_rule, self.risk_manager
@@ -240,7 +239,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         if pairs_without_position:
             # 市场条件检查（高波动时阻止开仓，但允许平仓）
             if not self.risk_manager.is_safe_to_open_positions():
-                self.Debug(f"[OnData] 跳过开仓 - 市场高波动")
+                # v7.8.3: 删除过程日志(只保留核心交易事件)
                 return  # 市场高波动，跳过开仓逻辑
 
             self.execution_manager.handle_normal_open_intents(pairs_without_position, data)
@@ -251,11 +250,8 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # 委托给TicketsManager处理
         self.tickets_manager.on_order_event(event)
 
-        # 检查是否有异常配对需要处理
-        anomaly_pairs = self.tickets_manager.get_anomaly_pairs()
-        if anomaly_pairs:
-            for pair_id in anomaly_pairs:
-                self.Debug(f"[订单异常] {pair_id} 检测到单腿失败,已标记异常")
+        # v7.8.3: 删除过程日志(只保留核心交易事件)
+        # 异常配对检查移至风控模块处理
 
 
     def OnEndOfAlgorithm(self):

@@ -173,9 +173,7 @@ class TicketsManager:
 
         # 只在异常时打印日志（减少噪音）
         if current_status == "ANOMALY":
-            self.algorithm.Debug(
-                f"[OOE异常] {pair_id} OrderId={order_id} "
-                f"Status={event.Status} 需风控介入")
+            # v7.8.3: 删除过程日志(只保留核心交易事件)
             # 异常订单也需要清理映射
             self._cleanup_order_to_pair(pair_id)
 

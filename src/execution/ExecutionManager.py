@@ -147,39 +147,30 @@ class ExecutionManager:
         5. 记录成功执行的配对数量
         6. 无论成功与否，调用risk_manager激活cooldown（防止继续交易）
         """
-        self.algorithm.Debug(f"[Portfolio风控] 触发Intent执行: 共{len(intents)}个配对需要平仓")
+        # v7.8.3: 删除过程日志(只保留核心交易事件)
 
         executed_count = 0  # 记录成功执行的配对数量
 
         for intent in intents:
             # 订单锁定检查（防止重复下单）
             if self.tickets_manager.is_pair_locked(intent.pair_id):
-                self.algorithm.Debug(
-                    f"[Portfolio风控] {intent.pair_id} 订单处理中,跳过"
-                )
+                # v7.8.3: 删除过程日志(只保留核心交易事件)
                 continue
 
             # 通过order_executor执行平仓Intent (自动注册到TicketsManager)
             success = self.order_executor.execute_close(intent)
             if success:
                 executed_count += 1
-                self.algorithm.Debug(
-                    f"[Portfolio风控] {intent.pair_id} 平仓订单已提交 (reason={intent.reason})"
-                )
+                # v7.8.3: 删除过程日志(只保留核心交易事件)
 
                 # v7.7.0: 统计由Pairs.on_position_filled自动更新,无需手动调用
             else:
-                self.algorithm.Error(
-                    f"[Portfolio风控] {intent.pair_id} 平仓失败 (无持仓)"
-                )
+                # v7.8.3: 删除过程日志(只保留核心交易事件)
 
         # 无论成功与否,都激活cooldown（防止继续交易）
         risk_manager.activate_cooldown_for_portfolio(triggered_rule)
 
-        # 执行结果汇报
-        self.algorithm.Debug(
-            f"[Portfolio风控] 完成: 成功平仓{executed_count}/{len(intents)}个配对"
-        )
+        # v7.8.3: 删除过程日志(只保留核心交易事件)
 
 
     def handle_pair_risk_intents(self, intents: List[CloseIntent], risk_manager) -> None:
@@ -209,25 +200,21 @@ class ExecutionManager:
         if not intents:
             return
 
-        self.algorithm.Debug(f"[Pair风控] 触发Intent执行: 共{len(intents)}个配对需要平仓")
+        # v7.8.3: 删除过程日志(只保留核心交易事件)
 
         executed_pair_ids = []  # 记录成功执行的pair_id
 
         for intent in intents:
             # 订单锁定检查（防止重复下单）
             if self.tickets_manager.is_pair_locked(intent.pair_id):
-                self.algorithm.Debug(
-                    f"[Pair风控] {intent.pair_id} 订单处理中,跳过"
-                )
+                # v7.8.3: 删除过程日志(只保留核心交易事件)
                 continue
 
             # 通过order_executor执行平仓Intent (自动注册到TicketsManager)
             success = self.order_executor.execute_close(intent)
             if success:
                 executed_pair_ids.append(intent.pair_id)
-                self.algorithm.Debug(
-                    f"[Pair风控] {intent.pair_id} 平仓订单已提交 (reason={intent.reason})"
-                )
+                # v7.8.3: 删除过程日志(只保留核心交易事件)
 
                 # 记录交易统计 (Pair风控无data, exit_zscore=None)
                 # v7.7.0: 统计由Pairs.on_position_filled自动更新,无需手动调用
@@ -236,18 +223,14 @@ class ExecutionManager:
                 risk_manager.cleanup_pair_hwm(intent.pair_id)
 
             else:
-                self.algorithm.Error(
-                    f"[Pair风控] {intent.pair_id} 平仓失败 (无持仓)"
-                )
+                # v7.8.3: 删除过程日志(只保留核心交易事件)
 
         # 激活触发规则的cooldown（只为成功执行的Intent激活）
         if executed_pair_ids:
             risk_manager.activate_cooldown_for_pairs(executed_pair_ids)
-            self.algorithm.Debug(
-                f"[Pair风控] 完成: 成功平仓{len(executed_pair_ids)}/{len(intents)}个配对"
-            )
+            # v7.8.3: 删除过程日志(只保留核心交易事件)
         else:
-            self.algorithm.Debug(f"[Pair风控] 所有配对平仓失败或被跳过")
+            # v7.8.3: 删除过程日志(只保留核心交易事件)
 
 
     def cleanup_remaining_positions(self):
@@ -283,9 +266,7 @@ class ExecutionManager:
         if not pairs_with_position:
             return  # 没有残留持仓,无需清理
 
-        self.algorithm.Debug(
-            f"[Cooldown清理] 检测到{len(pairs_with_position)}个残留持仓,开始清理"
-        )
+        # v7.8.3: 删除过程日志(只保留核心交易事件)
 
         cleanup_count = 0
         for pair in pairs_with_position.values():
@@ -299,20 +280,14 @@ class ExecutionManager:
                 success = self.order_executor.execute_close(intent)
                 if success:
                     cleanup_count += 1
-                    self.algorithm.Debug(
-                        f"[Cooldown清理] {pair.pair_id} 已提交平仓订单"
-                    )
+                    # v7.8.3: 删除过程日志(只保留核心交易事件)
 
                     # v7.7.0: 统计由Pairs.on_position_filled自动更新,无需手动调用
 
         if cleanup_count > 0:
-            self.algorithm.Debug(
-                f"[Cooldown清理] 本轮提交{cleanup_count}个平仓订单"
-            )
+            # v7.8.3: 删除过程日志(只保留核心交易事件)
         else:
-            self.algorithm.Debug(
-                f"[Cooldown清理] 所有残留持仓订单处理中,等待下一轮"
-            )
+            # v7.8.3: 删除过程日志(只保留核心交易事件)
 
 
     # ===== 正常交易执行方法 =====
@@ -350,7 +325,24 @@ class ExecutionManager:
 
             # 处理平仓信号
             if signal == TradingSignal.CLOSE:
-                self.algorithm.Debug(f"[平仓] {pair.pair_id} Z-score回归")
+                # v7.8.3: 增强平仓日志 - 增加PnL、累计收益率、交易次数
+                current_pnl = pair.get_pair_pnl()
+                current_cost = pair.get_pair_cost()
+                current_pnl_pct = (current_pnl / current_cost * 100) if (current_pnl and current_cost and current_cost > 0) else 0
+
+                # 计算累计收益率 (包括本次交易)
+                cumulative_pnl = pair.total_pnl_dollars + (current_pnl if current_pnl else 0)
+                cumulative_cost = pair.total_pair_cost + (current_cost if current_cost else 0)
+                total_pnl_pct = (cumulative_pnl / cumulative_cost * 100) if cumulative_cost > 0 else 0
+
+                trade_num = pair.trade_count + 1  # 平仓时尚未递增
+
+                self.algorithm.Debug(
+                    f"[平仓] {pair.pair_id} Z-score回归 | "
+                    f"PnL=${current_pnl:.2f} ({current_pnl_pct:+.1f}%) | "
+                    f"累计{total_pnl_pct:+.1f}% | 第{trade_num}次交易"
+                )
+
                 intent = pair.get_close_intent(reason='CLOSE')
                 if intent:
                     success = self.order_executor.execute_close(intent)  # 自动注册到TicketsManager
@@ -359,7 +351,24 @@ class ExecutionManager:
                         pass
 
             elif signal == TradingSignal.STOP_LOSS:
-                self.algorithm.Debug(f"[止损] {pair.pair_id} Z-score超限")
+                # v7.8.3: 增强止损日志 - 增加PnL、累计收益率、交易次数
+                current_pnl = pair.get_pair_pnl()
+                current_cost = pair.get_pair_cost()
+                current_pnl_pct = (current_pnl / current_cost * 100) if (current_pnl and current_cost and current_cost > 0) else 0
+
+                # 计算累计收益率 (包括本次交易)
+                cumulative_pnl = pair.total_pnl_dollars + (current_pnl if current_pnl else 0)
+                cumulative_cost = pair.total_pair_cost + (current_cost if current_cost else 0)
+                total_pnl_pct = (cumulative_pnl / cumulative_cost * 100) if cumulative_cost > 0 else 0
+
+                trade_num = pair.trade_count + 1  # 平仓时尚未递增
+
+                self.algorithm.Debug(
+                    f"[平仓] {pair.pair_id} Z-score超限 | "
+                    f"PnL=${current_pnl:.2f} ({current_pnl_pct:+.1f}%) | "
+                    f"累计{total_pnl_pct:+.1f}% | 第{trade_num}次交易"
+                )
+
                 intent = pair.get_close_intent(reason='STOP_LOSS')
                 if intent:
                     success = self.order_executor.execute_close(intent)  # 自动注册到TicketsManager
@@ -412,11 +421,7 @@ class ExecutionManager:
 
         # v7.8.1: 只在有候选时输出统计(无候选时的信号分布没有分析价值)
         if candidates:
-            self.algorithm.Debug(
-                f"[候选筛选] 完成: {len(candidates)}个开仓候选 | "
-                f"信号分布: LONG={signal_stats['LONG_SPREAD']}, SHORT={signal_stats['SHORT_SPREAD']}, "
-                f"WAIT={signal_stats['WAIT']}, NO_DATA={signal_stats['NO_DATA']}"
-            )
+            # v7.8.3: 删除过程日志(只保留核心交易事件)
 
         return candidates
 
@@ -495,15 +500,10 @@ class ExecutionManager:
             success = self.order_executor.execute_open(intent)  # 自动注册到TicketsManager
             if success:
                 actual_opened += 1
-                self.algorithm.Debug(f"[开仓成功] {pair_id} 分配=${amount_allocated:.2f}")
+                # v7.8.3: 简化标签 - 去掉"成功"二字
+                self.algorithm.Debug(f"[开仓] {pair_id} 分配=${amount_allocated:.2f}")
             else:
                 skip_stats['execute_failed'] += 1
                 # v7.8.1: 删除失败日志(已在总结的skip_stats中体现)
 
-        # Step 4: 完成总结
-        self.algorithm.Debug(
-            f"[开仓流程] 完成: 成功开仓{actual_opened}/{len(allocations)}个配对 | "
-            f"跳过统计: 锁定={skip_stats['locked']}, 风险冷却={skip_stats['risk_cooldown']}, "
-            f"交易冷却={skip_stats['normal_cooldown']}, Intent失败={skip_stats['intent_failed']}, "
-            f"执行失败={skip_stats['execute_failed']}"
-        )
+        # v7.8.3: 删除过程日志(只保留核心交易事件)
