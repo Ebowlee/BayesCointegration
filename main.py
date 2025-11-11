@@ -78,20 +78,28 @@ class BayesianCointegrationStrategy(QCAlgorithm):
 
 
 
-    def Debug(self, message: str):
+    def Debug(self, message: str, level: int = 0):
         """
-        统一的Debug输出方法
+        分层日志输出
 
-        设计目的:
-        - 提供统一的日志输出接口
-        - 预留未来日志过滤/格式化扩展点
-        - 受debug_mode控制(config.py中配置)
+        Args:
+            message: 日志内容
+            level: 日志级别
+                - 0: 核心交易事件 (生产模式, 10-30年回测)
+                - 1: 详细调试信息 (调试模式, 1年回测)
+
+        设计:
+            - log_level=0: 仅输出 level=0 日志 (生产)
+            - log_level=1: 输出 level=0 AND level=1 日志 (调试, 包含关系)
+            - 使用 level <= log_level 实现层级包含逻辑
 
         历史:
-        - v7.8.3: 删除SecurityChanges日志,过滤逻辑已无用
-        - v7.8.5: 移除死代码,简化为纯wrapper
+            - v7.8.3: 删除SecurityChanges日志,过滤逻辑已无用
+            - v7.8.5: 移除死代码,简化为纯wrapper
+            - v7.9.0: 添加level参数支持两级日志架构
         """
-        if self.debug_mode:
+        log_level = self.config.main.get('log_level', 0)
+        if self.debug_mode and level <= log_level:
             QCAlgorithm.Debug(self, message)
 
 
