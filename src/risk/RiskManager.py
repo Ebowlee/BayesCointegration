@@ -116,16 +116,7 @@ class RiskManager:
         # pair_id → Rule实例的映射(用于Intent执行后激活cooldown)
         self._pair_intent_to_rule_map = {}
 
-        # 调试信息
-        if self.enabled:
-            self.algorithm.Debug(
-                f"[RiskManager] 初始化完成: "
-                f"Portfolio规则={len(self.portfolio_rules)}, "
-                f"Pair规则={len(self.pair_rules)}, "
-                f"MarketCondition已启用"
-            )
-        else:
-            self.algorithm.Debug("[RiskManager] 全局禁用")
+        # v7.8.2: 删除初始化日志(一次性噪音,无分析价值)
 
 
     def _register_portfolio_rules(self) -> List[RiskRule]:
@@ -170,10 +161,7 @@ class RiskManager:
                     try:
                         rule_instance = rule_class(self.algorithm, rule_config)
                         rules.append(rule_instance)
-                        self.algorithm.Debug(
-                            f"[RiskManager] 注册Portfolio规则: {rule_class.__name__} "
-                            f"(priority={rule_instance.priority})"
-                        )
+                        # v7.8.2: 删除规则注册日志(一次性噪音,无分析价值)
                     except Exception as e:
                         self.algorithm.Debug(
                             f"[RiskManager] 注册规则失败 {rule_name}: {str(e)}"
@@ -229,10 +217,7 @@ class RiskManager:
                     try:
                         rule_instance = rule_class(self.algorithm, rule_config)
                         rules.append(rule_instance)
-                        self.algorithm.Debug(
-                            f"[RiskManager] 注册Pair规则: {rule_class.__name__} "
-                            f"(priority={rule_instance.priority})"
-                        )
+                        # v7.8.2: 删除规则注册日志(一次性噪音,无分析价值)
                     except Exception as e:
                         self.algorithm.Debug(
                             f"[RiskManager] 注册规则失败 {rule_name}: {str(e)}"

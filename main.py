@@ -77,7 +77,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         self.margin_allocator = MarginAllocator(self, self.config)
         self.execution_manager = ExecutionManager(self, self.pairs_manager, self.risk_manager, self.tickets_manager, self.order_executor, self.margin_allocator)
 
-        self.Debug("[Initialize] 策略初始化完成")
+        # v7.8.2: 删除初始化日志(一次性噪音,无分析价值)
 
 
     def Debug(self, message: str):

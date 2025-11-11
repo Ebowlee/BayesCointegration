@@ -67,11 +67,7 @@ class PortfolioDrawdownRule(RiskRule):
         # 初始化最高水位为初始资金
         self.high_water_mark = algorithm.config.main['cash']
 
-        # Debug日志
-        if algorithm.config.main.get('debug_mode', False):
-            self.algorithm.Debug(
-                f"[PortfolioDrawdown] 初始化: HWM=${self.high_water_mark:,.0f}"
-            )
+        # v7.8.2: 删除初始化日志(一次性噪音,无分析价值)
 
 
     def check(self, **kwargs) -> Tuple[bool, str]:
@@ -104,11 +100,7 @@ class PortfolioDrawdownRule(RiskRule):
 
         # 更新最高水位
         if portfolio_value > self.high_water_mark:
-            if self.algorithm.config.main.get('debug_mode', False):
-                self.algorithm.Debug(
-                    f"[PortfolioDrawdown] 更新HWM: "
-                    f"${self.high_water_mark:,.0f} -> ${portfolio_value:,.0f}"
-                )
+            # v7.8.2: 删除HWM更新日志(高频噪音,约21次/20年回测)
             self.high_water_mark = portfolio_value
 
         # 计算回撤比例

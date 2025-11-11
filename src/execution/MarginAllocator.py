@@ -68,12 +68,7 @@ class MarginAllocator:
         # 最小投资额(从config直接计算: initial_cash × min_investment_ratio)
         self.min_investment_amount = (config.main['cash'] * config.pairs_trading['min_investment_ratio'])
 
-        self.algorithm.Debug(
-            f"[MarginAllocator] 初始化完成: "
-            f"初始保证金=${self.initial_available_fund:,.0f}, "
-            f"固定Buffer=${self.fixed_buffer:,.0f} ({(1-self.margin_usage_ratio)*100:.0f}%), "
-            f"最小投资=${self.min_investment_amount:,.0f}"
-        )
+        # v7.8.2: 删除初始化日志(一次性噪音,无分析价值)
 
 
     def get_available_margin(self) -> float:

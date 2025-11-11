@@ -59,11 +59,7 @@ class MarketCondition:
         self.hist_vol_threshold = mc_config['spy_volatility_threshold']
         self.window_size = mc_config['spy_volatility_window']
 
-        self.algorithm.Debug(
-            f"[MarketCondition] 初始化: "
-            f"enabled={self.enabled}, VIX阈值={self.vix_threshold}, "
-            f"HistVol阈值={self.hist_vol_threshold*100:.0f}%, 窗口={self.window_size}天"
-        )
+        # v7.8.2: 删除初始化日志(一次性噪音,无分析价值)
 
 
     def is_safe_to_open_positions(self) -> bool:
