@@ -5,6 +5,80 @@
 ---
 
 
+## [v7.8.7_remove-version-comments@20251111]
+
+### 版本概述
+**删除版本注释** - 批量删除55处v7.8.x版本注释,保持代码整洁。
+
+### 问题背景
+v7.8.0-v7.8.6系列日志优化中,留下了大量历史记录注释:
+- `# v7.8.0: 删除xxx日志` (35处)
+- `# v7.8.1: 删除xxx日志` (8处)
+- `# v7.8.2: 删除xxx日志` (7处)
+- `# v7.8.3: 删除xxx日志` (15处)
+- `# v7.8.4: 删除xxx日志` (5处)
+
+这些注释纯粹记录历史操作,不提供设计意图,增加了代码噪音。
+
+### 清理策略
+
+**删除原则**:
+- 删除纯历史记录注释 (如"删除xxx日志")
+- 保留设计意图注释 (如"增强xxx"、"简化xxx")
+
+**批量处理**:
+使用Python脚本`cleanup_comments.py`自动扫描和删除:
+```python
+# 匹配模式: ^\s*#\s*v7\.8\.
+# 删除满足模式的完整注释行
+```
+
+### 清理统计
+
+**分布统计**:
+- main.py: 8行
+- ExecutionManager.py: 19行
+- BayesianModeler.py: 5行
+- CointegrationAnalyzer.py: 5行
+- PairsManager.py: 4行
+- PairSelector.py: 3行
+- RiskManager.py: 3行
+- PortfolioDrawdown.py: 2行
+- TicketsManager.py: 2行
+- 其他: 4行
+
+**总计**: 55行注释
+
+### 文件变更
+13个文件,共删除55行注释:
+- main.py
+- src/Pairs.py
+- src/PairsManager.py
+- src/TicketsManager.py
+- src/UniverseSelection.py
+- src/analysis/BayesianModeler.py
+- src/analysis/CointegrationAnalyzer.py
+- src/analysis/PairSelector.py
+- src/execution/ExecutionManager.py
+- src/execution/MarginAllocator.py
+- src/risk/MarketCondition.py
+- src/risk/PortfolioDrawdown.py
+- src/risk/RiskManager.py
+
+### 影响范围
+- **代码行数**: -55行
+- **可读性**: ✅ 提升 (消除历史噪音)
+- **功能影响**: ✅ 无影响 (纯注释删除)
+- **Git历史**: ✅ 保留 (可从commit历史追溯)
+
+### 后续计划
+**阶段3 (v7.9.0, 可选)**: 统一debug调用模式
+- 修改91处`self.algorithm.Debug()`为`self.Debug()`
+- 需要较大工作量,待评估必要性
+
+---
+
+
 ## [v7.8.6_cleanup-dead-code@20251111]
 
 ### 版本概述
