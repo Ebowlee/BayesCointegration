@@ -161,12 +161,6 @@ class ExecutionManager:
             success = self.order_executor.execute_close(intent)
             if success:
                 executed_count += 1
-                # v7.8.3: 删除过程日志(只保留核心交易事件)
-
-                # v7.7.0: 统计由Pairs.on_position_filled自动更新,无需手动调用
-            else:
-                # v7.8.3: 删除过程日志(只保留核心交易事件)
-                pass  # 执行失败,跳过
 
         # 无论成功与否,都激活cooldown（防止继续交易）
         risk_manager.activate_cooldown_for_portfolio(triggered_rule)
@@ -215,25 +209,13 @@ class ExecutionManager:
             success = self.order_executor.execute_close(intent)
             if success:
                 executed_pair_ids.append(intent.pair_id)
-                # v7.8.3: 删除过程日志(只保留核心交易事件)
-
-                # 记录交易统计 (Pair风控无data, exit_zscore=None)
-                # v7.7.0: 统计由Pairs.on_position_filled自动更新,无需手动调用
 
                 # 清理该配对的HWM状态（PairDrawdownRule）
                 risk_manager.cleanup_pair_hwm(intent.pair_id)
 
-            else:
-                # v7.8.3: 删除过程日志(只保留核心交易事件)
-                pass  # 执行失败,跳过
-
         # 激活触发规则的cooldown（只为成功执行的Intent激活）
         if executed_pair_ids:
             risk_manager.activate_cooldown_for_pairs(executed_pair_ids)
-            # v7.8.3: 删除过程日志(只保留核心交易事件)
-        else:
-            # v7.8.3: 删除过程日志(只保留核心交易事件)
-            pass  # 无配对成功执行,无需激活cooldown
 
 
     def cleanup_remaining_positions(self):
@@ -283,16 +265,6 @@ class ExecutionManager:
                 success = self.order_executor.execute_close(intent)
                 if success:
                     cleanup_count += 1
-                    # v7.8.3: 删除过程日志(只保留核心交易事件)
-
-                    # v7.7.0: 统计由Pairs.on_position_filled自动更新,无需手动调用
-
-        if cleanup_count > 0:
-            # v7.8.3: 删除过程日志(只保留核心交易事件)
-            pass  # 清理完成
-        else:
-            # v7.8.3: 删除过程日志(只保留核心交易事件)
-            pass  # 无残留持仓需要清理
 
 
     # ===== 正常交易执行方法 =====
@@ -350,10 +322,7 @@ class ExecutionManager:
 
                 intent = pair.get_close_intent(reason='CLOSE')
                 if intent:
-                    success = self.order_executor.execute_close(intent)  # 自动注册到TicketsManager
-                    if success:
-                        # v7.7.0: 统计由Pairs.on_position_filled自动更新,无需手动调用
-                        pass
+                    self.order_executor.execute_close(intent)  # 自动注册到TicketsManager
 
             elif signal == TradingSignal.STOP_LOSS:
                 # v7.8.3: 增强止损日志 - 增加PnL、累计收益率、交易次数
@@ -376,10 +345,7 @@ class ExecutionManager:
 
                 intent = pair.get_close_intent(reason='STOP_LOSS')
                 if intent:
-                    success = self.order_executor.execute_close(intent)  # 自动注册到TicketsManager
-                    if success:
-                        # v7.7.0: 统计由Pairs.on_position_filled自动更新,无需手动调用
-                        pass
+                    self.order_executor.execute_close(intent)  # 自动注册到TicketsManager
 
 
     def get_entry_candidates(self, pairs_without_position: dict, data) -> list:
@@ -407,13 +373,9 @@ class ExecutionManager:
         # v7.8.1: 删除"开始"日志(每bar触发,高频噪音)
 
         candidates = []
-        signal_stats = {'LONG_SPREAD': 0, 'SHORT_SPREAD': 0, 'WAIT': 0, 'NO_DATA': 0, 'HOLD': 0}
 
         for pair in pairs_without_position.values():
             signal = pair.get_signal(data)
-
-            # 统计信号分布
-            signal_stats[signal] = signal_stats.get(signal, 0) + 1
 
             # v7.8.0: 删除逐个候选日志(高频噪音,统计汇总已足够)
 
@@ -423,11 +385,6 @@ class ExecutionManager:
 
         # 按质量分数降序排序
         candidates.sort(key=lambda x: x[2], reverse=True)
-
-        # v7.8.1: 只在有候选时输出统计(无候选时的信号分布没有分析价值)
-        if candidates:
-            # v7.8.3: 删除过程日志(只保留核心交易事件)
-            pass  # 统计日志已删除
 
         return candidates
 
@@ -472,45 +429,31 @@ class ExecutionManager:
         # v7.8.1: 删除Step日志(高频噪音,可从最终统计推断)
 
         # Step 3: 逐个开仓
-        actual_opened = 0
-        skip_stats = {'locked': 0, 'risk_cooldown': 0, 'normal_cooldown': 0, 'intent_failed': 0, 'execute_failed': 0}
-
         for pair_id, amount_allocated in allocations.items():
             pair = self.pairs_manager.get_pair_by_id(pair_id)
 
             # 检查1: 订单锁定检查
             if self.tickets_manager.is_pair_locked(pair_id):
-                skip_stats['locked'] += 1
                 # v7.8.1: 删除跳过日志(已在总结的skip_stats中体现)
                 continue
 
             # 检查2: 风险冷却期检查
             if self.is_pair_in_risk_cooldown(pair_id):
-                skip_stats['risk_cooldown'] += 1
                 # v7.8.1: 删除跳过日志(已在总结的skip_stats中体现)
                 continue
 
             # 检查3: 普通交易冷却期检查
             if self.is_pair_in_normal_cooldown(pair):
-                skip_stats['normal_cooldown'] += 1
                 # v7.8.1: 删除跳过日志(已在总结的skip_stats中体现)
                 continue
 
             # 执行开仓并注册订单追踪
             intent = pair.get_open_intent(amount_allocated, data)
             if not intent:
-                skip_stats['intent_failed'] += 1
                 # v7.8.1: 删除跳过日志(已在总结的skip_stats中体现)
                 continue
 
             success = self.order_executor.execute_open(intent)  # 自动注册到TicketsManager
             if success:
-                actual_opened += 1
                 # v7.8.3: 简化标签 - 去掉"成功"二字
                 self.algorithm.Debug(f"[开仓] {pair_id} 分配=${amount_allocated:.2f}")
-            else:
-                skip_stats['execute_failed'] += 1
-                # v7.8.1: 删除失败日志(已在总结的skip_stats中体现)
-                pass  # 统计已记录在skip_stats中
-
-        # v7.8.3: 删除过程日志(只保留核心交易事件)

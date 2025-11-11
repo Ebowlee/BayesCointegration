@@ -111,25 +111,6 @@ class SelectionLogger:
         self.algorithm = algorithm                         # QuantConnect算法实例
 
 
-    def log_selection_summary(self, round_num: int, initial_count: int,
-                              final_count: int, financial_stats: Dict[str, int],
-                              volatility_stats: Dict[str, int], final_stocks: List[FineFundamental]):
-        """
-        输出选股流程的完整统计信息 (v7.8.0优化: 删除选股详情)
-
-        Args:
-            round_num: 选股轮次
-            initial_count: 粗选数量
-            final_count: 最终数量
-            financial_stats: 财务筛选统计
-            volatility_stats: 波动率筛选统计
-            final_stocks: 最终选中的股票列表
-        """
-        # v7.8.0: 删除选股详情日志(月度噪音,可从最终配对数推断)
-        pass
-
-
-
 class SectorBasedUniverseSelection(FineFundamentalUniverseSelectionModel):
     """
     贝叶斯协整策略的股票选择模型

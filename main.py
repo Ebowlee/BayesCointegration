@@ -256,8 +256,3 @@ class BayesianCointegrationStrategy(QCAlgorithm):
 
         # v7.8.3: 删除过程日志(只保留核心交易事件)
         # 异常配对检查移至风控模块处理
-
-
-    def OnEndOfAlgorithm(self):
-        """回测结束时调用 (v7.7.0: 删除trade_analyzer日志)"""
-        pass
