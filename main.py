@@ -38,13 +38,12 @@ class BayesianCointegrationStrategy(QCAlgorithm):
 
 
         # === 初始化选股模块 ===
-        # 选股模块（按26个子行业分组）
-        self.universe_selector = SectorBasedUniverseSelection(self)             # 在此处做插拔替换
+        self.universe_selector = SectorBasedUniverseSelection(self)           
         self.SetUniverseSelection(self.universe_selector)
         self.symbols = []
 
         # 选股触发调度器
-        # v7.5.15: 传入market_benchmark确保在首个交易日触发(而非日历月首)
+        # 传入market_benchmark确保在首个交易日触发(而非日历月首)
         date_rule = getattr(self.DateRules, self.config.main['schedule_frequency'])(self.market_benchmark)
         time_rule = self.TimeRules.At(*self.config.main['schedule_time'])
         self.Schedule.On(date_rule, time_rule, Action(self.universe_selector.trigger_selection))
@@ -54,7 +53,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         self.cointegration_analyzer = CointegrationAnalyzer(self, self.config.cointegration_analyzer)
         self.bayesian_modeler = BayesianModeler(self, self.config.analysis_shared, self.config.bayesian_modeler)
 
-        # v7.7.0: blacklist_manager需在pair_selector之前初始化(依赖注入)
+        # blacklist_manager需在pair_selector之前初始化(依赖注入)
         self.blacklist_manager = BlacklistManager(self, self.config.trade_analysis)
         self.pair_selector = PairSelector(self, self.config.analysis_shared, self.config.pair_selector, self.blacklist_manager)
 
@@ -77,17 +76,22 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         self.margin_allocator = MarginAllocator(self, self.config)
         self.execution_manager = ExecutionManager(self, self.pairs_manager, self.risk_manager, self.tickets_manager, self.order_executor, self.margin_allocator)
 
-        # v7.8.2: 删除初始化日志(一次性噪音,无分析价值)
 
 
     def Debug(self, message: str):
-        """统一的Debug输出方法（自动过滤SecurityChanges噪音）"""
-        if self.debug_mode:
-            # 过滤QC框架自动生成的SecurityChanges日志
-            # 特征: "SecurityChanges: Added:" 或 "SecurityChanges: Removed:"
-            if "SecurityChanges:" in message:
-                return  # 完全过滤，不打印
+        """
+        统一的Debug输出方法
 
+        设计目的:
+        - 提供统一的日志输出接口
+        - 预留未来日志过滤/格式化扩展点
+        - 受debug_mode控制(config.py中配置)
+
+        历史:
+        - v7.8.3: 删除SecurityChanges日志,过滤逻辑已无用
+        - v7.8.5: 移除死代码,简化为纯wrapper
+        """
+        if self.debug_mode:
             QCAlgorithm.Debug(self, message)
 
 

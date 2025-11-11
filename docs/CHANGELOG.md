@@ -5,6 +5,93 @@
 ---
 
 
+## [v7.8.5_simplify-debug-wrapper@20251111]
+
+### 版本概述
+**简化Debug包装器** - 移除无用的SecurityChanges过滤逻辑,保留wrapper作为架构扩展点。
+
+### 问题背景
+用户质疑: "main.py的Debug()方法还有用吗?"
+
+分析发现:
+- **SecurityChanges过滤已成死代码**: v7.8.3删除了OnSecuritiesChanged()中的所有日志,if "SecurityChanges:" 分支永远不会执行
+- **调用模式混乱**: 存在`self.Debug()`和`self.algorithm.Debug()`两种方式(3:1比例)
+- **debug_mode控制失效**: 18次直接调用`self.algorithm.Debug()`绕过控制
+
+### 核心变更
+
+#### 删除SecurityChanges过滤逻辑
+
+**修改位置**: `main.py` (第81-95行)
+
+**删除内容**:
+```python
+# Before (第84-87行):
+# 过滤QC框架自动生成的SecurityChanges日志
+# 特征: "SecurityChanges: Added:" 或 "SecurityChanges: Removed:"
+if "SecurityChanges:" in message:
+    return  # 完全过滤,不打印
+```
+
+**保留内容**:
+```python
+# After:
+def Debug(self, message: str):
+    """
+    统一的Debug输出方法
+    
+    设计目的:
+    - 提供统一的日志输出接口
+    - 预留未来日志过滤/格式化扩展点
+    - 受debug_mode控制(config.py中配置)
+    
+    历史:
+    - v7.8.3: 删除SecurityChanges日志,过滤逻辑已无用
+    - v7.8.5: 移除死代码,简化为纯wrapper
+    """
+    if self.debug_mode:
+        QCAlgorithm.Debug(self, message)
+```
+
+### 设计决策
+
+#### 为何保留Debug()方法而非完全删除?
+
+**保留理由**:
+1. **架构扩展点**: 未来可能需要统一添加日志格式化、分级、时间戳等功能
+2. **最小改动**: 删除9行死代码 vs 修改16个文件91处调用
+3. **务实原则**: 当前日志已极简(~25行/年),debug_mode控制重要性下降
+4. **清晰注释**: 新增完善的docstring说明设计目的和历史演变
+
+**不处理的问题**:
+- **18次绕过debug_mode的调用**: 这些都是核心日志(开仓/平仓/风控),不应受debug_mode=False屏蔽
+- **调用方式混乱**: 工作量大(91处修改)且收益低,暂不统一
+
+### 技术细节
+
+**代码变更**:
+- 删除: 4行过滤逻辑 + 1行空行
+- 新增: 11行docstring
+- 净变化: +6行(文档化 > 代码简化)
+
+**验证**:
+- ✅ Python语法检查通过
+- ✅ 无破坏性变更
+- ✅ 保持原有debug_mode控制逻辑
+
+### 技术影响
+
+- **兼容性**: ✅ 无破坏性变更,所有调用保持不变
+- **性能影响**: ✅ 微小提升(减少1次字符串检查)
+- **可维护性**: ✅ 删除死代码,增加清晰文档
+- **未来扩展**: ✅ 保留wrapper为日志系统升级预留空间
+
+### 相关文件
+- `main.py`: 简化Debug()方法,删除SecurityChanges过滤逻辑
+
+---
+
+
 ## [v7.8.4_analysis-layer-silencing@20251111]
 
 ### 版本概述
