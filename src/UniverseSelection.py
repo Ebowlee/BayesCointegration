@@ -93,24 +93,6 @@ class FinancialValidator:
 
 
 
-class SelectionLogger:
-    """
-    选股日志记录器
-
-    职责: 统一管理选股过程的日志输出
-    优势: 单一职责、格式统一、易于维护
-    """
-
-    def __init__(self, algorithm):
-        """
-        初始化日志记录器
-
-        Args:
-            algorithm: QuantConnect算法实例
-        """
-        self.algorithm = algorithm                         # QuantConnect算法实例
-
-
 class SectorBasedUniverseSelection(FineFundamentalUniverseSelectionModel):
     """
     贝叶斯协整策略的股票选择模型
@@ -133,7 +115,6 @@ class SectorBasedUniverseSelection(FineFundamentalUniverseSelectionModel):
 
         # 辅助类实例
         self.financial_validator = FinancialValidator(self.config)
-        self.logger = SelectionLogger(algorithm)
 
         super().__init__(self._select_coarse, self._select_fine)
 
@@ -205,12 +186,6 @@ class SectorBasedUniverseSelection(FineFundamentalUniverseSelectionModel):
 
         # 步骤4: 缓存结果（不分组，输出所有通过筛选的股票）
         self.last_fine_selected_symbols = [x.Symbol for x in volatility_filtered]
-
-        # 步骤5: 输出统计 (使用SelectionLogger)
-        self.logger.log_selection_summary(
-            self.fine_selection_count, len(fine), len(volatility_filtered),
-            financial_stats, volatility_stats, volatility_filtered
-        )
 
         return self.last_fine_selected_symbols
 
