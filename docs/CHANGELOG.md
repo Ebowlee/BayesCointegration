@@ -5,6 +5,65 @@
 ---
 
 
+## [v7.8.6_cleanup-dead-code@20251111]
+
+### 版本概述
+**清理死代码** - 删除v7.8.3日志优化遗留的空代码块和未使用变量,提升代码可读性。
+
+### 问题背景
+v7.8.3大规模删除过程日志后,遗留了大量空`pass`块和未使用的统计变量:
+- 9个空`else: pass`块
+- 2个空方法(完全无实现)
+- 2个未使用的统计变量
+
+这些死代码增加了维护负担,降低了代码可读性。
+
+### 核心变更
+
+#### 1. ExecutionManager.py清理 (11处)
+
+**删除9个空pass块** + **删除2个未使用变量**:
+- Portfolio风控`else`块 (Line 167-169)
+- Pair风控两个pass块 (Line 226-228, 234-236)
+- cleanup_remaining_positions两个pass块 (Line 290-295)
+- CLOSE和STOP_LOSS的pass块 (Line 354-356, 380-382)
+- get_entry_candidates的pass块 (Line 428-430)
+- handle_normal_open_intents的else块 (Line 512-514)
+- `signal_stats`未使用变量 (Line 396)
+- `skip_stats`和`actual_opened`未使用变量 (Line 464, 476)
+
+**影响**: 删除约40行代码
+
+#### 2. UniverseSelection.py清理 (1处)
+
+**删除空方法**: `log_selection_summary()` (Line 114-129)
+
+**影响**: 删除16行代码
+
+#### 3. main.py清理 (1处)
+
+**删除空方法**: `OnEndOfAlgorithm()` (Line 261-263)
+
+**影响**: 删除3行代码
+
+### 总计删除
+- **代码行数**: 约60行
+- **死代码数量**: 13处
+- **涉及文件**: 3个
+
+### 设计原则
+- 空pass块: 完全删除if-else分支或简化为单分支
+- 空方法: 完全删除方法定义
+- 未使用变量: 删除声明和所有赋值语句
+- 保留历史注释作为上下文参考
+
+### 后续计划
+- **阶段2 (v7.8.7)**: 删除35处v7.8.x版本注释
+- **阶段3 (可选)**: 统一debug调用模式
+
+---
+
+
 ## [v7.8.5_simplify-debug-wrapper@20251111]
 
 ### 版本概述
