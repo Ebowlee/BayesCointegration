@@ -36,10 +36,6 @@ class StrategyConfig:
             'min_volume': 5e6,                        # 最低日均成交量（股数）
             'min_days_since_ipo': 360,                # IPO最短时间（天）
 
-            # 风险指标
-            'max_volatility': 0.5,                    # 年化波动率上限
-            'annualization_factor': 252,              # 年化因子（交易日数）
-
             # 财务筛选器配置
             'financial_filters': {
                 'pe_ratio': {
@@ -106,8 +102,8 @@ class StrategyConfig:
             'min_quality_threshold': 0.60,              # 最低质量分数阈值
 
             'quality_weights': {
-                'half_life': 0.60,                      # 均值回归速度 (最独立+预测力最强,准确率57%)
-                'mean_reversion_certainty': 0.40        # AR(1)显著性 (理论核心,预测力中等50%)
+                'half_life': 0.50,                      # 均值回归速度 
+                'mean_reversion_certainty': 0.50        # AR(1)显著性 
             },
 
             'scoring_thresholds': {
@@ -130,7 +126,7 @@ class StrategyConfig:
 
         # 4. 贝叶斯建模模块
         self.bayesian_modeler = {
-            'mcmc_chains': 2,                           # MCMC链数
+            'mcmc_chains': 4,                           # MCMC链数
 
             # 先验配置
             'bayesian_priors': {
@@ -138,7 +134,8 @@ class StrategyConfig:
                     'alpha_sigma': 10,                  # 截距项标准差
                     'beta_sigma': 5,                    # 斜率项标准差
                     'sigma_sigma': 5.0,                 # 噪声项标准差
-                    # v7.5.20: ρ的无信息Beta先验
+
+                    # ρ的无信息Beta先验
                     'rho_alpha': 2,                     # Beta(2,2) ≈ 弱信息Uniform
                     'rho_beta': 2
                 },
@@ -153,8 +150,8 @@ class StrategyConfig:
                 },
                 'joint_single_stage': {                 # 单阶段联合模型配置
                     'sigma_eta_prior': 0.1,             # AR(1)创新噪声η的HalfNormal先验参数(σ_η ~ HalfNormal(0.1), 预期小噪声, log价差残差通常0.01-0.10)
-                    'mcmc_warmup': 1000,                # MCMC预热样本数（所有先验统一使用）
-                    'mcmc_draws': 1000,                 # MCMC后验样本数（所有先验统一使用）
+                    'mcmc_warmup': 2000,                # MCMC预热样本数（所有先验统一使用）
+                    'mcmc_draws': 2000,                 # MCMC后验样本数（所有先验统一使用）
                     'enable': True                      # 是否启用联合模型(默认启用)
                 }
             }
@@ -224,7 +221,7 @@ class StrategyConfig:
                 'pair_anomaly': {
                     'enabled': True,                     
                     'priority': 100,                         # 最高优先级：异常必须立即处理
-                    'cooldown_days': 60                 
+                    'cooldown_days': 999999                 
                 },
                 'pair_drawdown': {
                     'enabled': True,
@@ -236,7 +233,7 @@ class StrategyConfig:
                 'holding_timeout': {
                     'enabled': True,
                     'priority': 80,
-                    'max_days': 30,                          # 最大持仓天数
+                    'max_days': 60,                          # 最大持仓天数
                     'cooldown_days': 60                     
                 }
             }
