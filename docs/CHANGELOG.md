@@ -5,6 +5,140 @@
 ---
 
 
+## [v7.10.2_add-zscore-to-logs@20251113]
+
+### 版本概述
+**日志增强** - 在开仓和平仓日志中添加Z-score信息,可视化三阶段Z-score追踪数据。
+
+### 问题背景
+
+**用户需求**: "目前我们的开仓，平仓 打印需要增加 开仓的zscore 以及平仓的zscore"
+
+**用户指定格式**:
+```
+[开仓] (CTRA, CVE) 分配=$23888.55 | Z-score=1.45σ
+[平仓] (CNP, D) Z-score回归 | PnL=$-1043.08 (-4.3%) | 累计-4.3% | 1.45σ → 0.25σ | 第1次交易
+```
+
+**设计目标**:
+- 在开仓日志中显示信号触发时的Z-score（决策质量）
+- 在平仓日志中显示开仓→平仓的Z-score变化轨迹（执行质量）
+- 采用简洁格式，使用绝对值和箭头符号提高可读性
+
+### 代码修改
+
+**修改文件**: `src/execution/ExecutionManager.py`（3处修改）
+
+#### 修改1 - 开仓日志（Line 440）
+
+```python
+# 修改前:
+self.algorithm.Debug(f"[开仓] {pair_id} 分配=${amount_allocated:.2f}")
+
+# 修改后:
+entry_z = pair.entry_zscore if pair.entry_zscore is not None else 0.0
+self.algorithm.Debug(
+    f"[开仓] {pair_id} 分配=${amount_allocated:.2f} | "
+    f"Z-score={abs(entry_z):.2f}σ"
+)
+```
+
+#### 修改2 - 平仓日志 CLOSE（Line 310-318）
+
+```python
+# 修改前:
+self.algorithm.Debug(
+    f"[平仓] {pair.pair_id} Z-score回归 | "
+    f"PnL=${current_pnl:.2f} ({current_pnl_pct:+.1f}%) | "
+    f"累计{total_pnl_pct:+.1f}% | 第{trade_num}次交易"
+)
+
+# 修改后:
+entry_z = pair.entry_zscore if pair.entry_zscore is not None else 0.0
+close_z = pair.fill_zscore_close if pair.fill_zscore_close is not None else 0.0
+self.algorithm.Debug(
+    f"[平仓] {pair.pair_id} Z-score回归 | "
+    f"PnL=${current_pnl:.2f} ({current_pnl_pct:+.1f}%) | "
+    f"累计{total_pnl_pct:+.1f}% | "
+    f"{abs(entry_z):.2f}σ → {abs(close_z):.2f}σ | "
+    f"第{trade_num}次交易"
+)
+```
+
+#### 修改3 - 平仓日志 STOP_LOSS（Line 336-344）
+
+```python
+# 修改前:
+self.algorithm.Debug(
+    f"[平仓] {pair.pair_id} Z-score超限 | "
+    f"PnL=${current_pnl:.2f} ({current_pnl_pct:+.1f}%) | "
+    f"累计{total_pnl_pct:+.1f}% | 第{trade_num}次交易"
+)
+
+# 修改后:
+entry_z = pair.entry_zscore if pair.entry_zscore is not None else 0.0
+close_z = pair.fill_zscore_close if pair.fill_zscore_close is not None else 0.0
+self.algorithm.Debug(
+    f"[平仓] {pair.pair_id} Z-score超限 | "
+    f"PnL=${current_pnl:.2f} ({current_pnl_pct:+.1f}%) | "
+    f"累计{total_pnl_pct:+.1f}% | "
+    f"{abs(entry_z):.2f}σ → {abs(close_z):.2f}σ | "
+    f"第{trade_num}次交易"
+)
+```
+
+### 设计洞察
+
+**Insight: Z-score可视化提升交易分析效率**
+
+通过在日志中添加Z-score信息，实现了三阶段Z-score追踪的可视化：
+
+**数据来源**（v7.10.0已实现）:
+- `entry_zscore`: 信号触发时记录（`get_signal()`方法）
+- `fill_zscore_open`: 开仓成交时记录（`on_position_filled(OPEN)`方法）
+- `fill_zscore_close`: 平仓成交时记录（`on_position_filled(CLOSE)`方法）
+
+**格式设计**:
+1. **绝对值显示**: 使用 `abs()` 移除正负号，简化显示（符号信息已在LONG_SPREAD/SHORT_SPREAD中体现）
+2. **箭头表示法**: `1.45σ → 0.25σ` 直观展示Z-score回归轨迹
+3. **字段顺序**: 将Z-score信息置于"第X次交易"之前，保持逻辑连贯性
+
+**价值**:
+- **交易决策分析**: 开仓日志显示信号触发时的Z-score强度
+- **执行质量分析**: 平仓日志显示Z-score从开仓到平仓的变化，评估均值回归效果
+- **滑点分析基础**: 虽然日志中未显示 `fill_zscore_open`，但数据已记录在Pair对象中供后续分析
+
+### 日志示例
+
+**开仓日志**:
+```
+[开仓] (AAPL, MSFT) 分配=$5000.00 | Z-score=1.35σ
+```
+
+**平仓日志（Z-score回归）**:
+```
+[平仓] (AAPL, MSFT) Z-score回归 | PnL=$123.45 (+2.5%) | 累计+5.3% | 1.35σ → 0.18σ | 第2次交易
+```
+
+**平仓日志（Z-score超限）**:
+```
+[平仓] (GOOGL, META) Z-score超限 | PnL=$-234.56 (-3.1%) | 累计+2.2% | 1.42σ → 2.65σ | 第3次交易
+```
+
+### 代码影响
+
+**新增功能**:
+- 开仓日志增加1个字段: `Z-score=1.45σ`
+- 平仓日志增加1个字段: `1.45σ → 0.25σ`
+
+**技术细节**:
+- 空值防御: 使用三元表达式处理 None 值 (`pair.entry_zscore if pair.entry_zscore is not None else 0.0`)
+- 格式精度: `.2f` 保留2位小数
+- 单位标记: `σ` 明确表示标准差单位
+
+---
+
+
 ## [v7.10.1_docstring-cleanup@20251113]
 
 ### 版本概述
