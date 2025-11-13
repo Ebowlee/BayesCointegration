@@ -64,7 +64,9 @@ class Pairs:
         self.last_close_reason = None                                          # 最后一次平仓原因 ('CLOSE', 'STOP_LOSS', etc.) - v7.2.21
 
         # === 交易质量追踪(用于事后分析) ===
-        self.entry_zscore = None                                               # 开仓时Z-score(分析入场时机质量)
+        self.entry_zscore = None                                               # 信号触发时Z-score(分析决策质量)
+        self.fill_zscore_open = None                                           # 开仓成交时Z-score(分析执行滑点) - v7.10.0
+        self.fill_zscore_close = None                                          # 平仓成交时Z-score(分析退出质量) - v7.10.0
 
         # === 持仓追踪(OrderTicket-based,避免Portfolio全局查询混淆) ===
         self.tracked_qty1 = 0                                                  # 配对专属持仓追踪(symbol1)
@@ -182,27 +184,47 @@ class Pairs:
         if action == OrderAction.OPEN:
             self.pair_opened_time = fill_time
 
+            # 提取成交价格（用于计算fill_zscore）
+            fill_price1 = None
+            fill_price2 = None
+
             # 从OrderTicket提取实际成交数量和均价
             for ticket in tickets:
                 if ticket is not None and ticket.Status == OrderStatus.Filled:
                     if ticket.Symbol == self.symbol1:
                         self.tracked_qty1 = ticket.QuantityFilled
                         self.entry_price1 = ticket.AverageFillPrice
+                        fill_price1 = ticket.AverageFillPrice  # v7.10.0: 用于计算fill_zscore
                     elif ticket.Symbol == self.symbol2:
                         self.tracked_qty2 = ticket.QuantityFilled
                         self.entry_price2 = ticket.AverageFillPrice
+                        fill_price2 = ticket.AverageFillPrice  # v7.10.0: 用于计算fill_zscore
+
+            # v7.10.0: 计算开仓成交时的Z-score（用于滑点分析）
+            if fill_price1 and fill_price2:
+                self.fill_zscore_open = self.get_zscore(fill_price1, fill_price2)
 
         elif action == OrderAction.CLOSE:
             self.pair_closed_time = fill_time
             self.last_close_reason = reason  # v7.2.21: 存储平仓原因(用于动态冷却期)
+
+            # 提取成交价格（用于计算fill_zscore）
+            fill_price1 = None
+            fill_price2 = None
 
             # 记录平仓价格（用于后续PnL计算）
             for ticket in tickets:
                 if ticket is not None and ticket.Status == OrderStatus.Filled:
                     if ticket.Symbol == self.symbol1:
                         self.exit_price1 = ticket.AverageFillPrice
+                        fill_price1 = ticket.AverageFillPrice  # v7.10.0: 用于计算fill_zscore
                     elif ticket.Symbol == self.symbol2:
                         self.exit_price2 = ticket.AverageFillPrice
+                        fill_price2 = ticket.AverageFillPrice  # v7.10.0: 用于计算fill_zscore
+
+            # v7.10.0: 计算平仓成交时的Z-score（用于滑点分析）
+            if fill_price1 and fill_price2:
+                self.fill_zscore_close = self.get_zscore(fill_price1, fill_price2)
 
             # v7.7.0: 更新交易历史统计 (黑名单系统)
             self._update_trade_stats()
@@ -549,29 +571,52 @@ class Pairs:
 
     # ===== 4. 交易信号生成(依赖第2/3层) =====
 
-    def get_zscore(self, data) -> Optional[float]:
+    def get_zscore(self, price1: float, price2: float) -> Optional[float]:
         """
-        计算Z-score,包含spread计算
-        需要传入data来获取最新价格,返回Z-score值或None
-        使用对数价格计算: log(price1) = alpha + beta * log(price2) + residual
+        计算配对的Z-score (通用方法)
+
+        职责: 纯计算逻辑，不涉及数据获取
+
+        参数:
+            price1: symbol1的价格
+            price2: symbol2的价格
+
+        返回:
+            Z-score值 或 None (计算失败时)
+
+        使用场景:
+            # 场景1: 信号生成时
+            prices = self.get_price(data)
+            if prices:
+                zscore = self.get_zscore(prices[0], prices[1])
+
+            # 场景2: 订单成交时
+            fill_zscore = self.get_zscore(ticket1.AverageFillPrice, ticket2.AverageFillPrice)
+
+        历史:
+            v7.10.0前: 接受data参数，内部调用get_price()
+            v7.10.0后: 接受价格参数，职责更单一
         """
-        # 获取价格
-        prices = self.get_price(data)
-        if prices is None:
+        # 价格有效性检查
+        if price1 <= 0 or price2 <= 0:
             return None
 
-        price1, price2 = prices
+        # 安全检查
+        if self.residual_std <= 0:
+            return None
 
-        # 计算对数空间的残差(与贝叶斯模型一致)
-        log_residual = np.log(price1) - (self.alpha_mean + self.beta_mean * np.log(price2))
+        try:
+            # 计算对数空间的残差(与贝叶斯模型一致)
+            log_residual = np.log(price1) - (self.alpha_mean + self.beta_mean * np.log(price2))
 
-        # 计算Z-score
-        if self.residual_std > 0:
+            # 计算Z-score
             zscore = (log_residual - self.residual_mean) / self.residual_std
-        else:
-            zscore = 0
 
-        return zscore
+            return zscore
+
+        except (ValueError, ZeroDivisionError, OverflowError):
+            # 处理极端情况（如price<=0导致np.log失败）
+            return None
 
 
     def get_signal(self, data):
@@ -579,8 +624,15 @@ class Pairs:
         获取交易信号 (cooldown检查在ExecutionManager中进行)
         一步到位的接口,内部自动计算所需信息
         """
-        # 内部计算zscore
-        zscore = self.get_zscore(data)
+        # 获取价格（数据获取在调用者）
+        prices = self.get_price(data)
+        if prices is None:
+            return TradingSignal.NO_DATA
+
+        price1, price2 = prices
+
+        # 计算zscore（使用通用方法）
+        zscore = self.get_zscore(price1, price2)
         if zscore is None:
             return TradingSignal.NO_DATA
 
