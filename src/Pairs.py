@@ -44,6 +44,14 @@ class Pairs:
         self.residual_std = model_data['residual_std']                          # 残差标准差(对数空间)
         self.quality_score = model_data['quality_score']                        # 配对质量分数
 
+        # 诊断日志: Beta符号检查 (v7.10.4 - 逆向盈利问题诊断)
+        self.algorithm.Debug(
+            f"[配对创建] {self.pair_id} | "
+            f"beta={self.beta_mean:.4f} | "
+            f"alpha={self.alpha_mean:.4f}",
+            level=1
+        )
+
         # === 交易阈值 (改良C方案 - 从pairs_trading统一读取) ===
         self.entry_threshold_lower = config['entry_threshold_lower']  # 1.2σ
         self.entry_threshold_upper = config['entry_threshold_upper']  # 1.8σ
@@ -300,6 +308,18 @@ class Pairs:
             f"{abs(entry_z):.2f}σ → {abs(close_z):.2f}σ | "
             f"第{trade_num}次交易"
         )
+
+        # 诊断日志: 分腿PnL分解 (v7.10.4 - 逆向盈利问题诊断)
+        if self.entry_price1 and self.exit_price1 and self.entry_price2 and self.exit_price2:
+            leg1_pnl = self.tracked_qty1 * (self.exit_price1 - self.entry_price1)
+            leg2_pnl = self.tracked_qty2 * (self.exit_price2 - self.entry_price2)
+
+            self.algorithm.Debug(
+                f"[平仓详情] {self.pair_id} | "
+                f"symbol1: ${self.entry_price1:.2f}→${self.exit_price1:.2f} PnL=${leg1_pnl:.2f} | "
+                f"symbol2: ${self.entry_price2:.2f}→${self.exit_price2:.2f} PnL=${leg2_pnl:.2f}",
+                level=1
+            )
 
     def _update_trade_stats(self):
         """
@@ -807,6 +827,19 @@ class Pairs:
         # - fill_zscore_open: 在on_position_filled()中记录(订单成交时)
         # - fill_zscore_close: 在on_position_filled()中记录(平仓成交时)
         # 设计理由: 分离决策质量(entry)与执行质量(fill), 支持滑点分析和入场阈值优化
+
+        # 诊断日志: 交易方向和Beta关系检查 (v7.10.4 - 逆向盈利问题诊断)
+        signal_text = 'SHORT_SPREAD' if signal == TradingSignal.SHORT_SPREAD else 'LONG_SPREAD'
+        qty1_action = '卖出' if qty1 < 0 else '买入'
+        qty2_action = '卖出' if qty2 < 0 else '买入'
+
+        self.algorithm.Debug(
+            f"[开仓详情] {self.pair_id} | "
+            f"Signal={signal_text} | Beta={self.beta_mean:.4f} | "
+            f"symbol1: {qty1_action}{abs(qty1):.0f}股 | "
+            f"symbol2: {qty2_action}{abs(qty2):.0f}股",
+            level=1
+        )
 
         # 构建意图对象
         return OpenIntent(

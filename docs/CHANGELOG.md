@@ -5,6 +5,164 @@
 ---
 
 
+## [v7.10.4_add-diagnostic-logs@20251113]
+
+### 版本概述
+**诊断版本** - 添加 level=1 诊断日志用于追踪"逆向盈利"问题根因（Beta符号不一致假设验证）。
+
+### 问题背景
+
+**异常现象**: 发现2个逆向盈利案例 - Z-score扩大却盈利，违反均值回归策略的基本逻辑
+
+```
+案例1: ('EXC', 'PNM')  - 1.35σ → 2.25σ, 盈利 +3.0% ❌
+案例2: ('CTRA', 'SLB') - 1.34σ → 2.54σ, 盈利 +9.6% ❌
+
+对照组（正常止损）:
+('CTRA', 'WMB') - 1.24σ → 2.44σ, 亏损 -3.3% ✓
+('S', 'SNOW')   - 1.77σ → 3.29σ, 亏损 -2.9% ✓
+```
+
+**根本原因假设**: **Beta符号不一致导致交易方向错误**
+
+当 `beta_mean < 0` (负相关关系) 时:
+- Z-score计算使用**带符号的** `beta_mean` ([Pairs.py:677](src/Pairs.py#L677))
+- 仓位分配使用**绝对值** `abs(beta_mean)` ([Pairs.py:913](src/Pairs.py#L913))
+- 两者不一致 → 交易信号判断方向可能与实际持仓方向相反
+- 结果: "止损"时反而盈利（持仓方向恰好正确）
+
+### 诊断方案
+
+**目标**: 收集 beta 值、交易方向、分腿 PnL 数据，验证"符号不一致"假设
+
+**策略**: 添加 3 处 level=1 诊断日志，启用 log_level=1 运行 1 年回测
+
+### 代码修改
+
+**修改文件**:
+- `src/Pairs.py` - 添加 3 处 level=1 诊断日志
+- `src/config.py` - 临时启用 log_level=1
+
+#### 修改1 - 配对创建时记录 Beta（Pairs.py, Line 47-53）
+
+```python
+# 在 __init__() 的贝叶斯参数赋值后添加
+self.algorithm.Debug(
+    f"[配对创建] {self.pair_id} | "
+    f"beta={self.beta_mean:.4f} | "
+    f"alpha={self.alpha_mean:.4f}",
+    level=1  # 调试日志
+)
+```
+
+**用途**: 确认每个配对的 beta 符号
+
+#### 修改2 - 开仓时记录交易方向（Pairs.py, Line 819-830）
+
+```python
+# 在 get_open_intent() 返回前添加
+signal_text = 'SHORT_SPREAD' if signal == TradingSignal.SHORT_SPREAD else 'LONG_SPREAD'
+qty1_action = '卖出' if qty1 < 0 else '买入'
+qty2_action = '卖出' if qty2 < 0 else '买入'
+
+self.algorithm.Debug(
+    f"[开仓详情] {self.pair_id} | "
+    f"Signal={signal_text} | Beta={self.beta_mean:.4f} | "
+    f"symbol1: {qty1_action}{abs(qty1):.0f}股 | "
+    f"symbol2: {qty2_action}{abs(qty2):.0f}股",
+    level=1
+)
+```
+
+**用途**:
+- 验证交易信号与 beta 符号的关系
+- 确认实际持仓数量和方向
+
+#### 修改3 - 平仓时记录分腿 PnL（Pairs.py, Line 312-322）
+
+```python
+# 在 _log_close_completion() 的现有日志后添加
+if self.entry_price1 and self.exit_price1 and self.entry_price2 and self.exit_price2:
+    leg1_pnl = self.tracked_qty1 * (self.exit_price1 - self.entry_price1)
+    leg2_pnl = self.tracked_qty2 * (self.exit_price2 - self.entry_price2)
+
+    self.algorithm.Debug(
+        f"[平仓详情] {self.pair_id} | "
+        f"symbol1: ${self.entry_price1:.2f}→${self.exit_price1:.2f} PnL=${leg1_pnl:.2f} | "
+        f"symbol2: ${self.entry_price2:.2f}→${self.exit_price2:.2f} PnL=${leg2_pnl:.2f}",
+        level=1
+    )
+```
+
+**用途**:
+- 分析价格变化与 PnL 的关系
+- 验证"做空腿盈利"的假设
+
+#### 修改4 - 启用调试日志（config.py, Line 27）
+
+```python
+# 修改前:
+'log_level': 0  # 0=生产模式(核心日志,10-30年), 1=调试模式(全部日志,1年)
+
+# 修改后:
+'log_level': 1  # 0=生产模式(核心日志,10-30年), 1=调试模式(全部日志,1年) - v7.10.4 临时启用诊断日志
+```
+
+**注意**: 回测完成后需恢复为 `log_level: 0`
+
+### 预期诊断输出
+
+**正常案例** (beta > 0，Z-score扩大且亏损):
+```
+[配对创建] ('CTRA', 'WMB') | beta=0.8523 | alpha=-0.1234
+[开仓详情] ('CTRA', 'WMB') | Signal=SHORT_SPREAD | Beta=0.8523 | symbol1: 卖出150股 | symbol2: 买入200股
+[平仓详情] ('CTRA', 'WMB') | symbol1: $80.00→$85.00 PnL=$-750.00 | symbol2: $50.00→$49.50 PnL=$-100.00
+```
+- 做空 symbol1（qty1 < 0）+ symbol1 上涨 → 亏损 ✓
+- 做多 symbol2（qty2 > 0）+ symbol2 下跌 → 亏损 ✓
+
+**异常案例** (beta < 0 假设，Z-score扩大却盈利):
+```
+[配对创建] ('EXC', 'PNM') | beta=-0.7234 | alpha=2.3456
+[开仓详情] ('EXC', 'PNM') | Signal=SHORT_SPREAD | Beta=-0.7234 | symbol1: 卖出200股 | symbol2: 买入150股
+[平仓详情] ('EXC', 'PNM') | symbol1: $42.00→$40.00 PnL=$+400.00 | symbol2: $35.00→$32.50 PnL=$-375.00
+```
+- **关键**: 做空 symbol1（qty1 < 0）+ symbol1 下跌 → 盈利 ✓ (方向正确!)
+- 做多 symbol2（qty2 > 0）+ symbol2 下跌 → 亏损 ✓
+- 但 symbol1 跌幅更大 → 净盈利 +$25 (与实际 +$737 的数量级需验证)
+
+### 后续行动
+
+**如果 beta < 0 被确认**:
+1. 修复 `calculate_leg_values()` 中的符号处理逻辑
+2. 或在协整分析阶段强制 beta > 0（交换 symbol 顺序）
+
+**如果 beta > 0**:
+3. 排除"符号不一致"假设
+4. 需要进一步分析价格数据和 PnL 计算逻辑
+
+### 技术细节
+
+**日志分级设计**:
+- `level=0` (生产模式): 仅核心交易日志（开仓、平仓、风险事件）
+- `level=1` (调试模式): 包含 level=0 + 诊断详情日志
+
+**性能影响**:
+- 每个配对仅增加 3 条 level=1 日志
+- 预计日志大小增加 10-20%（仅 1 年回测）
+
+### 版本性质
+
+**诊断版本** - 临时版本，用于数据收集，不用于生产环境
+
+**回测后操作**:
+1. 分析诊断结果
+2. 恢复 `log_level: 0`
+3. 根据分析结果实施修复方案
+
+---
+
+
 ## [v7.10.3_fix-zscore-timing-bug@20251113]
 
 ### 版本概述
