@@ -45,14 +45,14 @@ class Pairs:
         self.quality_score = model_data['quality_score']                        # 配对质量分数
 
         # === 交易阈值 (改良C方案 - 从pairs_trading统一读取) ===
-        self.entry_threshold_lower = config['entry_threshold_lower']  # 1.2σ
-        self.entry_threshold_upper = config['entry_threshold_upper']  # 1.8σ
-        self.exit_threshold = config['exit_threshold']                # 0.3σ
-        self.stop_loss_threshold = config['stop_loss_threshold']      # 2.3σ
+        self.entry_threshold_lower = config['entry_threshold_lower']            # 1.2σ
+        self.entry_threshold_upper = config['entry_threshold_upper']            # 1.8σ
+        self.exit_threshold = config['exit_threshold']                          # 0.3σ
+        self.stop_loss_threshold = config['stop_loss_threshold']                # 2.3σ
 
         # === 控制设置 (双冷却期机制: 正常退出10天, 止损退出30天) ===
-        self.cooldown_days_for_exit = config['pair_cooldown_days_for_exit']   # 正常回归: 10天
-        self.cooldown_days_for_stop = config['pair_cooldown_days_for_stop']   # 止损: 30天
+        self.cooldown_days_for_exit = config['pair_cooldown_days_for_exit']     # 正常回归: 10天
+        self.cooldown_days_for_stop = config['pair_cooldown_days_for_stop']     # 止损: 30天
 
         # === 保证金参数 ===
         self.margin_long = config['margin_requirement_long']
@@ -63,11 +63,10 @@ class Pairs:
         self.reactivation_count = 0                                            # 重新激活次数(配对消失又出现)
 
         # === 交易历史统计 (黑名单系统 - 加权平均修正) ===
-        self.trade_count = 0           # 历史总交易次数
-        self.win_count = 0             # 历史盈利次数
-        self.total_pnl_dollars = 0.0   # 累计美元PnL (加权平均分子)
-        self.total_pair_cost = 0.0     # 累计保证金成本 (加权平均分母)
-        # 累计收益率 = (total_pnl_dollars / total_pair_cost) * 100 (加权平均,非简单相加)
+        self.trade_count = 0                                                   # 历史总交易次数
+        self.win_count = 0                                                     # 历史盈利次数
+        self.total_pnl_dollars = 0.0                                           # 累计美元PnL (加权平均分子)
+        self.total_pair_cost = 0.0                                             # 累计保证金成本 (加权平均分母)
 
         # === 时间追踪 ===
         self.pair_opened_time = None                                           # 配对开仓时间(双腿都成交的时刻)
@@ -78,7 +77,6 @@ class Pairs:
         self.entry_zscore = None                                               # 信号触发时Z-score(分析决策质量)
         self.fill_zscore_open = None                                           # 开仓成交时Z-score(分析执行滑点)
         self.fill_zscore_close = None                                          # 平仓成交时Z-score(分析退出质量)
-        # 三阶段设计: entry_zscore反映信号触发时刻, fill_zscore_*反映实际成交时刻, 两者差异即执行滑点
 
         # === 持仓追踪(OrderTicket-based,避免Portfolio全局查询混淆) ===
         self.tracked_qty1 = 0                                                  # 配对专属持仓追踪(symbol1)
