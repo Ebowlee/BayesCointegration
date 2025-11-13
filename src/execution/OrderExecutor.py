@@ -1,7 +1,7 @@
 # region imports
 from AlgorithmImports import *
 from .OrderIntent import OpenIntent, CloseIntent
-from src.constants import OrderAction
+# v7.10.6: 常量已移至config.constants统一管理，不再需要constants.py
 # endregion
 
 
@@ -83,7 +83,7 @@ class OrderExecutor:
         if ticket1 and ticket2:
             # 自动注册到TicketsManager
             tickets = [ticket1, ticket2]
-            self.tickets_manager.register_tickets(intent.pair_id, tickets, OrderAction.OPEN)
+            self.tickets_manager.register_tickets(intent.pair_id, tickets, 'OPEN')
             return True
 
         return False
@@ -134,7 +134,7 @@ class OrderExecutor:
         # 如果有订单提交,自动注册到TicketsManager (v7.2.21: 传递reason)
         if tickets:
             self.tickets_manager.register_tickets(
-                intent.pair_id, tickets, OrderAction.CLOSE, reason=intent.reason
+                intent.pair_id, tickets, 'CLOSE', reason=intent.reason
             )
             return True
 

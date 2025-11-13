@@ -164,8 +164,7 @@ class StrategyConfig:
             'exit_threshold': 0.3,                  # 出场Z-score阈值 (保持不变,避免假回归)
             'stop_loss_threshold': 2.3,             # 止损Z-score阈值 (配合1.8上限,留0.5σ缓冲)
 
-            'pair_cooldown_days_for_exit': 15,      # 正常回归平仓后的冷却期(天) - Z-score收敛
-            'pair_cooldown_days_for_stop': 60,      # 止损平仓后的冷却期(天) - Z-score超限
+            # v7.10.6: 冷却天数已移至config.constants.close_reasons统一管理
 
             # 仓位管理参数
             'min_investment_ratio': 0.05,           # 质量最低(0.0分)配对投资比例: 5%,同时作为绝对门槛
@@ -199,43 +198,161 @@ class StrategyConfig:
             },
 
             # ========== Portfolio层面规则 ==========
+            # v7.10.6: 冷却天数已移至config.constants.close_reasons统一管理
             'portfolio_rules': {
                 'account_blowup': {
-                    'enabled': True,                     
+                    'enabled': True,
                     'priority': 100,
-                    'threshold': 0.15,                   
-                    'cooldown_days': 365,                
+                    'threshold': 0.15,
                     'action': 'portfolio_liquidate_all'
                 },
                 'portfolio_drawdown': {
-                    'enabled': True,                     
+                    'enabled': True,
                     'priority': 90,
-                    'threshold': 0.075,                  
-                    'cooldown_days': 60,                 
+                    'threshold': 0.075,
                     'action': 'portfolio_liquidate_all'      # 全仓清算
                 }
             },
 
             # ========== Pair层面规则 ==========
+            # v7.10.6: 冷却天数已移至config.constants.close_reasons统一管理
             'pair_rules': {
                 'pair_anomaly': {
-                    'enabled': True,                     
-                    'priority': 100,                         # 最高优先级：异常必须立即处理
-                    'cooldown_days': 999999                 
+                    'enabled': True,
+                    'priority': 100                          # 最高优先级：异常必须立即处理
                 },
                 'pair_drawdown': {
                     'enabled': True,
                     'priority': 90,
-                    'threshold': 0.05,                       # 统一回撤阈值
-                    'cooldown_days_for_profit': 15,          # 盈利前提下平仓后冷却期
-                    'cooldown_days_for_loss': 60             # 亏损前提下平仓后冷却期
+                    'threshold': 0.05                        # 统一回撤阈值
                 },
                 'holding_timeout': {
                     'enabled': True,
                     'priority': 80,
-                    'max_days': 60,                          # 最大持仓天数
-                    'cooldown_days': 60                     
+                    'max_days': 60                           # 最大持仓天数
                 }
+            }
+        }
+
+
+        # ========== 常量定义区（v7.10.6: 统一管理所有常量、显示文本、冷却天数）==========
+        # 替代文件: src/constants.py, src/industry_mapping.py
+        # 设计原则: 单一真相源，零冗余，零硬编码
+
+        self.constants = {
+            # === 1. 交易信号 ===
+            'trading_signals': {
+                'LONG_SPREAD': 'LONG_SPREAD',
+                'SHORT_SPREAD': 'SHORT_SPREAD',
+                'CLOSE': 'CLOSE',
+                'PAIR_BREAK': 'PAIR_BREAK',  # v7.10.6: 原STOP_LOSS重命名
+                'HOLD': 'HOLD',
+                'WAIT': 'WAIT',
+                'COOLDOWN': 'COOLDOWN',
+                'NO_DATA': 'NO_DATA'
+            },
+
+            # === 2. 持仓模式 ===
+            'position_modes': {
+                'NONE': 'NONE',
+                'LONG_SPREAD': 'LONG_SPREAD',
+                'SHORT_SPREAD': 'SHORT_SPREAD',
+                'PARTIAL_LEG1': 'PARTIAL_LEG1',
+                'PARTIAL_LEG2': 'PARTIAL_LEG2',
+                'ANOMALY_SAME': 'ANOMALY_SAME'
+            },
+
+            # === 3. 订单动作 ===
+            'order_actions': {
+                'OPEN': 'OPEN',
+                'CLOSE': 'CLOSE'
+            },
+
+            # === 4. 平仓原因（常量+显示文本+冷却天数 统一管理）===
+            'close_reasons': {
+                # 正常平仓
+                'CLOSE': {
+                    'display': 'Z-score回归',
+                    'cooldown_days': 15
+                },
+                'PAIR_BREAK': {
+                    'display': '协整破裂',
+                    'cooldown_days': 60
+                },
+
+                # Pair级风控
+                'DRAWDOWN_PROFIT': {
+                    'display': '风控平仓(回撤-盈利)',
+                    'cooldown_days': 15
+                },
+                'DRAWDOWN_LOSS': {
+                    'display': '风控平仓(回撤-亏损)',
+                    'cooldown_days': 60
+                },
+                'TIMEOUT': {
+                    'display': '风控平仓(超时)',
+                    'cooldown_days': 60
+                },
+                'ANOMALY': {
+                    'display': '风控平仓(单腿异常)',
+                    'cooldown_days': 999999
+                },
+
+                # Portfolio级风控
+                'PORTFOLIO_DRAWDOWN': {
+                    'display': '组合风控(回撤)',
+                    'cooldown_days': 60
+                },
+                'ACCOUNT_BLOWUP': {
+                    'display': '组合风控(爆仓)',
+                    'cooldown_days': 365
+                }
+            },
+
+            # === 5. Morningstar行业映射（完整55个）===
+            'industry_names': {
+                # 基础材料 (101xx)
+                10110: '农业', 10120: '建材', 10130: '化工',
+                10140: '林产品', 10150: '金属矿业', 10160: '钢铁',
+
+                # 消费周期 (102xx)
+                10200: '汽车及零部件', 10220: '家具装置', 10230: '房建',
+                10240: '服装制造', 10250: '包装容器', 10260: '个人服务',
+                10270: '餐厅', 10280: '周期零售', 10290: '旅游休闲',
+
+                # 金融 (103xx)
+                10310: '资产管理', 10320: '银行', 10330: '资本市场',
+                10340: '保险', 10350: '多元金融', 10360: '信贷服务',
+
+                # 房地产 (104xx)
+                10410: '房地产', 10420: 'REITs',
+
+                # 消费防御 (205xx)
+                20510: '酒精饮料', 20520: '非酒精饮料', 20525: '消费品',
+                20540: '教育', 20550: '防御零售', 20560: '烟草',
+
+                # 医疗保健 (206xx-207xx)
+                20610: '生物科技', 20620: '制药', 20630: '医疗计划',
+                20645: '医疗服务', 20650: '医疗器械仪器',
+                20660: '医疗诊断研究', 20670: '医疗分销',
+                20710: '独立电力', 20720: '公用事业',
+
+                # 通信服务 (308xx)
+                30810: '电信服务', 30820: '多元媒体', 30830: '互动媒体',
+
+                # 能源 (309xx)
+                30910: '油气', 30920: '其他能源',
+
+                # 工业 (310xx)
+                31010: '航空国防', 31020: '商业服务', 31030: '企业集团',
+                31040: '建筑', 31050: '重型机械', 31060: '工业分销',
+                31070: '工业产品', 31080: '运输', 31090: '废物管理',
+
+                # 科技 (311xx)
+                31110: '软件', 31120: '硬件', 31130: '半导体',
+
+                # 特殊
+                0: '未分类'
             }
         }
 

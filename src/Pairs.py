@@ -3,7 +3,7 @@ from AlgorithmImports import *
 import numpy as np
 from typing import Dict, Optional, Tuple
 from src.execution import OpenIntent, CloseIntent
-from src.constants import TradingSignal, PositionMode, OrderAction
+# v7.10.6: 常量已移至config.constants统一管理，不再需要constants.py
 # endregion
 
 
@@ -50,9 +50,7 @@ class Pairs:
         self.exit_threshold = config['exit_threshold']                          # 0.3σ
         self.stop_loss_threshold = config['stop_loss_threshold']                # 2.3σ
 
-        # === 控制设置 (双冷却期机制: 正常退出10天, 止损退出30天) ===
-        self.cooldown_days_for_exit = config['pair_cooldown_days_for_exit']     # 正常回归: 10天
-        self.cooldown_days_for_stop = config['pair_cooldown_days_for_stop']     # 止损: 30天
+        # v7.10.6: 冷却天数已移至config.constants.close_reasons，通过get_cooldown_days()动态查询
 
         # === 保证金参数 ===
         self.margin_long = config['margin_requirement_long']
@@ -195,7 +193,7 @@ class Pairs:
             - ticket.QuantityFilled: 实际成交数量
             - ticket.AverageFillPrice: 平均成交价格
         """
-        if action == OrderAction.OPEN:
+        if action == 'OPEN':
             self.pair_opened_time = fill_time
 
             # 提取成交价格(用于计算fill_zscore)
@@ -218,7 +216,7 @@ class Pairs:
             if fill_price1 and fill_price2:
                 self.fill_zscore_open = self.get_zscore(fill_price1, fill_price2)
 
-        elif action == OrderAction.CLOSE:
+        elif action == 'CLOSE':
             self.pair_closed_time = fill_time
             self.last_close_reason = reason  # 存储平仓原因(用于动态冷却期判断)
 
@@ -285,18 +283,17 @@ class Pairs:
         entry_z = self.entry_zscore if self.entry_zscore is not None else 0.0
         close_z = self.fill_zscore_close if self.fill_zscore_close is not None else 0.0
 
-        # 根据平仓原因输出不同日志
-        if reason == 'STOP_LOSS':
-            reason_text = "Z-score超限"
-        else:
-            reason_text = "Z-score回归"
+        # v7.10.6: 从config.constants动态读取显示文本
+        close_reasons = self.algorithm.config.constants['close_reasons']
+        reason_text = close_reasons.get(reason, {}).get('display', '未知原因')
 
         self.algorithm.Debug(
             f"[平仓] {self.pair_id} {reason_text} | "
             f"PnL=${current_pnl:.2f} ({current_pnl_pct:+.1f}%) | "
             f"累计{total_pnl_pct:+.1f}% | "
             f"{entry_z:+.2f}σ → {close_z:+.2f}σ | "
-            f"第{trade_num}次交易"
+            f"第{trade_num}次交易",
+            level=0
         )
 
     def _update_trade_stats(self):
@@ -388,19 +385,19 @@ class Pairs:
 
         # 统一判断持仓模式(整合状态+方向)
         if qty1 == 0 and qty2 == 0:
-            position_mode = PositionMode.NONE
+            position_mode = 'NONE'
         elif qty1 > 0 and qty2 < 0:
-            position_mode = PositionMode.LONG_SPREAD
+            position_mode = 'LONG_SPREAD'
         elif qty1 < 0 and qty2 > 0:
-            position_mode = PositionMode.SHORT_SPREAD
+            position_mode = 'SHORT_SPREAD'
         elif qty1 != 0 and qty2 == 0:
-            position_mode = PositionMode.PARTIAL_LEG1
+            position_mode = 'PARTIAL_LEG1'
             self.algorithm.Debug(f"[持仓异常] {self.pair_id} 单边持仓LEG1: qty1={qty1:+.0f}")
         elif qty1 == 0 and qty2 != 0:
-            position_mode = PositionMode.PARTIAL_LEG2
+            position_mode = 'PARTIAL_LEG2'
             self.algorithm.Debug(f"[持仓异常] {self.pair_id} 单边持仓LEG2: qty2={qty2:+.0f}")
         else:  # 同向持仓
-            position_mode = PositionMode.ANOMALY_SAME
+            position_mode = 'ANOMALY_SAME'
             self.algorithm.Debug(f"[持仓异常] {self.pair_id} 同向持仓: qty1={qty1:+.0f}, qty2={qty2:+.0f}")
 
         return {'position_mode': position_mode, 'qty1': qty1, 'qty2': qty2, 'value1': value1, 'value2': value2}
@@ -467,18 +464,14 @@ class Pairs:
 
     def get_cooldown_days(self) -> int:
         """
-        根据最后一次平仓原因返回对应的冷却期天数 (双冷却期机制)
-
-        逻辑:
-        - STOP_LOSS平仓: 30天 (配对关系可能已破坏,需更长观察期)
-        - 其他原因平仓: 10天 (正常回归或超时,允许较快重入)
+        v7.10.6: 从config.constants动态读取冷却天数（支持细化平仓原因）
 
         设计理由:
-        - STOP_LOSS: 配对偏离过大,可能存在结构性变化,需要更长冷静期
-        - CLOSE/TIMEOUT/RISK_TRIGGER: 配对关系仍健康,允许较快重新进入
+        - 不同平仓原因需要不同冷却期（15/60/999999天）
+        - 配置化管理，易于调整策略参数
 
         Returns:
-            冷却期天数 (10 或 30)
+            冷却期天数（从config.constants.close_reasons读取）
 
         使用示例:
             # ExecutionManager.is_pair_in_normal_cooldown() 中
@@ -486,10 +479,15 @@ class Pairs:
             cooldown_days = pair.get_cooldown_days()   # 需要的冷却天数
             in_cooldown = frozen_days < cooldown_days  # 判断是否仍在冷却期
         """
-        if self.last_close_reason == 'STOP_LOSS':
-            return self.cooldown_days_for_stop  # 30天
+        reason = self.last_close_reason
+        close_reasons = self.algorithm.config.constants['close_reasons']
+
+        # 从config读取对应原因的冷却天数
+        if reason and reason in close_reasons:
+            return close_reasons[reason]['cooldown_days']
         else:
-            return self.cooldown_days_for_exit  # 10天 (CLOSE/TIMEOUT/RISK_TRIGGER/None)
+            # 默认值（从未平仓或未知原因）
+            return close_reasons['CLOSE']['cooldown_days']  # 15天
 
 
     def get_pair_pnl(self) -> Optional[float]:
@@ -615,17 +613,17 @@ class Pairs:
 
     def has_position(self) -> bool:
         """检查是否有持仓（优化后：使用 @property）"""
-        return self.position_mode != PositionMode.NONE
+        return self.position_mode != 'NONE'
 
 
     def has_normal_position(self) -> bool:
         """检查是否有正常持仓（优化后：使用 @property）"""
-        return self.position_mode in [PositionMode.LONG_SPREAD, PositionMode.SHORT_SPREAD]
+        return self.position_mode in ['LONG_SPREAD', 'SHORT_SPREAD']
 
 
     def has_anomaly_position(self) -> bool:
         """检查是否有异常持仓"""
-        return self.position_mode in [PositionMode.PARTIAL_LEG1, PositionMode.PARTIAL_LEG2, PositionMode.ANOMALY_SAME]
+        return self.position_mode in ['PARTIAL_LEG1', 'PARTIAL_LEG2', 'ANOMALY_SAME']
 
 
     def get_pair_position_value(self) -> float:
@@ -692,14 +690,14 @@ class Pairs:
         # 获取价格（数据获取在调用者）
         prices = self.get_price(data)
         if prices is None:
-            return TradingSignal.NO_DATA
+            return 'NO_DATA'
 
         price1, price2 = prices
 
         # 计算zscore（使用通用方法）
         zscore = self.get_zscore(price1, price2)
         if zscore is None:
-            return TradingSignal.NO_DATA
+            return 'NO_DATA'
 
         # 内部检查持仓
         has_position = self.has_normal_position()
@@ -713,23 +711,23 @@ class Pairs:
                 # Z-score高,spread偏高,做空
                 if zscore > 0:
                     self.entry_zscore = zscore  # 信号触发时记录entry_zscore(而非get_open_intent()时,避免市场波动导致不一致)
-                    return TradingSignal.SHORT_SPREAD
+                    return 'SHORT_SPREAD'
                 # Z-score低,spread偏低,做多
                 else:
                     self.entry_zscore = zscore  # 信号触发时记录entry_zscore(而非get_open_intent()时,避免市场波动导致不一致)
-                    return TradingSignal.LONG_SPREAD
+                    return 'LONG_SPREAD'
             else:
                 # 区间外: |zscore| < 1.2σ (信号弱) 或 > 1.8σ (留0.5σ缓冲给止损)
-                return TradingSignal.WAIT
+                return 'WAIT'
         else:
             # 有持仓时的出场信号 (止损阈值2.3σ,配合1.8σ上限,留0.5σ缓冲,避免即开即止)
             if abs(zscore) > self.stop_loss_threshold:
-                return TradingSignal.STOP_LOSS
+                return 'PAIR_BREAK'  # v7.10.6: 原STOP_LOSS重命名
 
             if abs(zscore) < self.exit_threshold:
-                return TradingSignal.CLOSE
+                return 'CLOSE'
 
-            return TradingSignal.HOLD
+            return 'HOLD'
 
 
     # ===== 5. 意图生成(依赖第2/3/4层) =====
@@ -772,7 +770,7 @@ class Pairs:
         # 自动检测信号
         signal = self.get_signal(data)
 
-        if signal not in [TradingSignal.LONG_SPREAD, TradingSignal.SHORT_SPREAD]:
+        if signal not in ['LONG_SPREAD', 'SHORT_SPREAD']:
             return None  # 无开仓信号
 
         # 计算目标市值
@@ -787,7 +785,7 @@ class Pairs:
         price1, price2 = prices
 
         # 计算数量
-        if signal == TradingSignal.LONG_SPREAD:
+        if signal == 'LONG_SPREAD':
             # 做多spread = 买入symbol1,卖出symbol2
             qty1 = int(value1 / price1)
             qty2 = -int(value2 / price2)
@@ -810,7 +808,7 @@ class Pairs:
             qty1=qty1,
             qty2=qty2,
             signal=signal,
-            tag=self.create_order_tag(OrderAction.OPEN)
+            tag=self.create_order_tag('OPEN')
         )
 
 
@@ -861,7 +859,7 @@ class Pairs:
             qty1=qty1,
             qty2=qty2,
             reason=reason,
-            tag=self.create_order_tag(OrderAction.CLOSE, reason)
+            tag=self.create_order_tag('CLOSE', reason)
         )
 
 
@@ -915,7 +913,7 @@ class Pairs:
 
         beta = abs(self.beta_mean) if abs(self.beta_mean) != 0 else 1
 
-        if signal == TradingSignal.LONG_SPREAD:
+        if signal == 'LONG_SPREAD':
             # A做多(margin_long=0.5), B做空(margin_short=1.5)
             # 正确公式: x₁ = βA/(β+3), x₂ = 3A/(β+3)
             denominator = beta + 3
@@ -966,7 +964,7 @@ class Pairs:
         """
         timestamp = self.algorithm.Time.strftime('%Y%m%d_%H%M%S')
 
-        if action == OrderAction.CLOSE and reason:
+        if action == 'CLOSE' and reason:
             # 平仓时包含reason
             return f"{self.pair_id}_{action}_{reason}_{timestamp}"
         else:

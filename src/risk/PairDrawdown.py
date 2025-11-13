@@ -148,26 +148,28 @@ class PairDrawdownRule(RiskRule):
         return False, ""
 
 
-    def get_cooldown_days(self, pair) -> int:
+    def get_cooldown_days(self, pair) -> tuple:
         """
-        根据配对PnL状态确定冷却期天数（v7.3.1: 动态冷却期机制）
+        v7.10.6: 根据配对PnL状态确定平仓原因和冷却期天数（从config.constants读取）
 
         设计原理:
-        - 盈利配对 (pnl > 0): 协整关系可能仍然有效,快速恢复交易 (20天)
-        - 亏损配对 (pnl <= 0): 协整关系可能已破坏,需要更长观察期 (40天)
+        - 盈利配对 (pnl > 0): 协整关系可能仍然有效,快速恢复交易 → DRAWDOWN_PROFIT (15天)
+        - 亏损配对 (pnl <= 0): 协整关系可能已破坏,需要更长观察期 → DRAWDOWN_LOSS (60天)
 
         触发场景:
         - 在RiskManager.activate_cooldown_for_pairs()中调用
-        - 配对回撤触发后,根据平仓时的PnL状态决定冷却期长度
+        - 配对回撤触发后,根据平仓时的PnL状态决定平仓原因和冷却期长度
 
         Args:
             pair: Pairs对象,用于获取PnL状态
 
         Returns:
-            int: 冷却期天数 (20或40)
+            tuple: (close_reason, cooldown_days)
+            - close_reason: 'DRAWDOWN_PROFIT' 或 'DRAWDOWN_LOSS'
+            - cooldown_days: 对应的冷却天数 (从config.constants读取)
 
         容错处理:
-        - 如果无法获取PnL (pair.get_pair_pnl()返回None): 使用loss模式 (40天)
+        - 如果无法获取PnL (pair.get_pair_pnl()返回None): 使用loss模式 (DRAWDOWN_LOSS, 60天)
         - 保守策略: 宁可多观察,不急于重新交易
 
         使用示例:
@@ -175,21 +177,24 @@ class PairDrawdownRule(RiskRule):
         # 在RiskManager.activate_cooldown_for_pairs()中:
         triggered, desc = pair_drawdown_rule.check(pair)
         if triggered:
-            cooldown_days = pair_drawdown_rule.get_cooldown_days(pair)
+            reason, cooldown_days = pair_drawdown_rule.get_cooldown_days(pair)
+            intent = pair.get_close_intent(reason=reason)
+            # ...执行平仓...
             pair_drawdown_rule.activate_cooldown(pair.pair_id, days=cooldown_days)
         ```
         """
         pnl = pair.get_pair_pnl()
+        close_reasons = self.algorithm.config.constants['close_reasons']
 
-        # 容错处理: 无法获取PnL时使用保守策略 (40天)
-        if pnl is None:
-            return self.config['cooldown_days_for_loss']
-
-        # 根据PnL状态返回对应冷却期
-        if pnl > 0:
-            return self.config['cooldown_days_for_profit']  # 20天
+        # 根据PnL状态返回对应的平仓原因和冷却期
+        if pnl is not None and pnl > 0:
+            reason = 'DRAWDOWN_PROFIT'
         else:
-            return self.config['cooldown_days_for_loss']    # 40天
+            # 容错处理: pnl=None 或 pnl<=0 都使用loss模式
+            reason = 'DRAWDOWN_LOSS'
+
+        cooldown_days = close_reasons[reason]['cooldown_days']
+        return reason, cooldown_days
 
 
     def on_pair_closed(self, pair_id: tuple):

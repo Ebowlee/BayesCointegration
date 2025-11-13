@@ -1,7 +1,7 @@
 # region imports
 from .RiskBaseRule import RiskRule
 from typing import Tuple
-from src.constants import PositionMode
+# v7.10.6: 常量已移至config.constants统一管理，不再需要constants.py
 # endregion
 
 
@@ -97,11 +97,11 @@ class PairAnomalyRule(RiskRule):
         qty2 = info['qty2']
 
         # 5. 根据异常类型生成描述
-        if mode == PositionMode.PARTIAL_LEG1:
+        if mode == 'PARTIAL_LEG1':
             description = (f"单边持仓LEG1: {pair.symbol1}={qty1:+.0f}, " f"{pair.symbol2}=0")
-        elif mode == PositionMode.PARTIAL_LEG2:
+        elif mode == 'PARTIAL_LEG2':
             description = (f"单边持仓LEG2: {pair.symbol1}=0, " f"{pair.symbol2}={qty2:+.0f}")
-        elif mode == PositionMode.ANOMALY_SAME:
+        elif mode == 'ANOMALY_SAME':
             description = (f"同向持仓: {pair.symbol1}={qty1:+.0f}, " f"{pair.symbol2}={qty2:+.0f}")
         else:
             # 防御性编程: 理论上不应该到达这里

@@ -1,7 +1,7 @@
 # region imports
 from AlgorithmImports import *
 from typing import Dict, List, Set
-from src.constants import OrderAction  # v7.2.21: 修复导入遗漏
+# v7.10.6: 常量已移至config.constants统一管理，不再需要constants.py
 # endregion
 
 
@@ -91,9 +91,9 @@ class TicketsManager:
         Args:
             pair_id: 配对ID,格式如 "(AAPL, MSFT)"
             tickets: OrderTicket列表,通常包含2个元素(long + short)
-            action: OrderAction.OPEN 或 OrderAction.CLOSE
-            reason: 平仓原因 (仅当action=CLOSE时有效) - v7.2.21
-                   例: 'CLOSE', 'STOP_LOSS', 'TIMEOUT', 'RISK_TRIGGER'
+            action: 'OPEN' 或 'CLOSE'
+            reason: 平仓原因 (仅当action='CLOSE'时有效) - v7.2.21
+                   例: 'CLOSE', 'PAIR_BREAK', 'TIMEOUT', 'DRAWDOWN_PROFIT', etc.
 
         注意:
             - 如果tickets为空,不做任何操作
@@ -108,7 +108,7 @@ class TicketsManager:
         self.pair_actions[pair_id] = action
 
         # v7.2.21: 存储平仓原因(仅对CLOSE动作有效)
-        if action == OrderAction.CLOSE and reason:
+        if action == 'CLOSE' and reason:
             self._pair_close_reasons[pair_id] = reason
 
         # 建立OrderId→pair_id映射
@@ -199,7 +199,7 @@ class TicketsManager:
                     self.algorithm.risk_manager.cleanup_pair_hwm(pair_id)
 
                 # v7.2.21: 清理平仓原因存储(防止内存泄漏)
-                if action == OrderAction.CLOSE:
+                if action == 'CLOSE':
                     self._pair_close_reasons.pop(pair_id, None)
 
             # 清理已完成订单的映射（防止内存泄漏）

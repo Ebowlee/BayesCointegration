@@ -15,7 +15,7 @@ ExecutionManager - 统一执行器 (Intent模式)
 """
 
 from AlgorithmImports import *
-from src.constants import OrderAction, TradingSignal
+# v7.10.6: 常量已移至config.constants统一管理，不再需要constants.py
 from src.execution.OrderIntent import CloseIntent
 from typing import List
 
@@ -295,13 +295,13 @@ class ExecutionManager:
             signal = pair.get_signal(data)
 
             # 处理平仓信号
-            if signal == TradingSignal.CLOSE:
+            if signal == 'CLOSE':
                 intent = pair.get_close_intent(reason='CLOSE')
                 if intent:
                     self.order_executor.execute_close(intent)  # 自动注册到TicketsManager
 
-            elif signal == TradingSignal.STOP_LOSS:
-                intent = pair.get_close_intent(reason='STOP_LOSS')
+            elif signal == 'PAIR_BREAK':  # v7.10.6: 原STOP_LOSS重命名
+                intent = pair.get_close_intent(reason='PAIR_BREAK')
                 if intent:
                     self.order_executor.execute_close(intent)  # 自动注册到TicketsManager
 
@@ -335,7 +335,7 @@ class ExecutionManager:
             signal = pair.get_signal(data)
 
 
-            if signal in [TradingSignal.LONG_SPREAD, TradingSignal.SHORT_SPREAD]:
+            if signal in ['LONG_SPREAD', 'SHORT_SPREAD']:
                 planned_pct = pair.get_planned_allocation_pct()
                 candidates.append((pair, signal, pair.quality_score, planned_pct))
 
