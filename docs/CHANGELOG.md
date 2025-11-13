@@ -5,6 +5,184 @@
 ---
 
 
+## [v7.10.6_centralize-constants-and-cooldowns@20251113]
+
+### 版本概述
+**架构优化** - 统一常量管理 + 细化平仓原因 + 动态冷却期机制，删除冗余文件，减少代码行数179行。
+
+### 核心变更
+
+#### 1. 统一常量管理 (config.constants)
+**新增配置块** (`src/config.py:243-362`):
+```python
+self.constants = {
+    'trading_signals': {...},      # 8种交易信号
+    'position_modes': {...},       # 6种持仓模式
+    'order_actions': {...},        # 2种订单动作
+    'close_reasons': {             # 8种平仓原因（含冷却天数）
+        'CLOSE': {'display': 'Z-score回归', 'cooldown_days': 15},
+        'PAIR_BREAK': {'display': '协整破裂', 'cooldown_days': 60},
+        'DRAWDOWN_PROFIT': {'display': '风控平仓(回撤-盈利)', 'cooldown_days': 15},
+        'DRAWDOWN_LOSS': {'display': '风控平仓(回撤-亏损)', 'cooldown_days': 60},
+        'TIMEOUT': {'display': '风控平仓(超时)', 'cooldown_days': 60},
+        'ANOMALY': {'display': '风控平仓(单腿异常)', 'cooldown_days': 999999},
+        'PORTFOLIO_DRAWDOWN': {'display': '组合风控(回撤)', 'cooldown_days': 60},
+        'ACCOUNT_BLOWUP': {'display': '组合风控(爆仓)', 'cooldown_days': 365}
+    },
+    'industry_names': {...}        # 55个Morningstar行业映射
+}
+```
+
+#### 2. 删除冗余文件
+- **src/constants.py** (44行): TradingSignal/PositionMode/OrderAction类常量已废弃
+- **src/industry_mapping.py** (135行): INDUSTRY_GROUP_NAMES已移至config.constants.industry_names
+- **代码减少**: 179行 (44+135)
+
+#### 3. 删除冗余配置参数
+**config.pairs_trading** (删除2行):
+- `pair_cooldown_days_for_exit`: 已移至close_reasons['CLOSE']['cooldown_days']
+- `pair_cooldown_days_for_stop`: 已移至close_reasons['PAIR_BREAK']['cooldown_days']
+
+**config.risk_management.portfolio_rules** (删除2行):
+- `account_blowup.cooldown_days`: 已移至close_reasons['ACCOUNT_BLOWUP']['cooldown_days']
+- `portfolio_drawdown.cooldown_days`: 已移至close_reasons['PORTFOLIO_DRAWDOWN']['cooldown_days']
+
+**config.risk_management.pair_rules** (删除5行):
+- `pair_anomaly.cooldown_days`: 已移至close_reasons['ANOMALY']['cooldown_days']
+- `pair_drawdown.cooldown_days_for_profit`: 已移至close_reasons['DRAWDOWN_PROFIT']['cooldown_days']
+- `pair_drawdown.cooldown_days_for_loss`: 已移至close_reasons['DRAWDOWN_LOSS']['cooldown_days']
+- `holding_timeout.cooldown_days`: 已移至close_reasons['TIMEOUT']['cooldown_days']
+
+#### 4. 核心文件修改
+
+**src/Pairs.py** (全面字符串化):
+- 删除 `from src.constants import ...` 导入
+- 所有常量改为字符串: `TradingSignal.CLOSE` → `'CLOSE'`, `PositionMode.LONG_SPREAD` → `'LONG_SPREAD'`
+- `get_cooldown_days()`: 从 `config.constants.close_reasons` 动态读取冷却天数
+- `on_position_filled()`: 从 `config.constants.close_reasons` 动态读取显示文本
+- `STOP_LOSS` 重命名为 `PAIR_BREAK`（更准确描述协整破裂）
+
+**src/risk/PairDrawdown.py**:
+- `get_cooldown_days()`: 返回值从 `int` 改为 `tuple: (reason, cooldown_days)`
+  - 盈利配对: `('DRAWDOWN_PROFIT', 15)`
+  - 亏损配对: `('DRAWDOWN_LOSS', 60)`
+- 从 `config.constants.close_reasons` 读取配置
+
+**src/risk/PairAnomaly.py**:
+- 删除 `from src.constants import PositionMode`
+- `PositionMode.PARTIAL_LEG1` → `'PARTIAL_LEG1'` 等
+
+**src/execution/ExecutionManager.py**:
+- 删除 `from src.constants import OrderAction, TradingSignal`
+- `TradingSignal.CLOSE` → `'CLOSE'`
+- `TradingSignal.STOP_LOSS` → `'PAIR_BREAK'`
+
+**src/TicketsManager.py**:
+- 删除 `from src.constants import OrderAction`
+- `OrderAction.OPEN` → `'OPEN'`, `OrderAction.CLOSE` → `'CLOSE'`
+
+**src/execution/OrderExecutor.py**:
+- 删除 `from src.constants import OrderAction`
+- `OrderAction.OPEN` → `'OPEN'`, `OrderAction.CLOSE` → `'CLOSE'`
+
+### 架构优势
+
+#### 1. 统一管理
+- **单一数据源**: 所有常量/配置/显示文本集中在 `config.constants`
+- **易于维护**: 新增平仓原因只需修改一处配置
+- **防止冲突**: 避免配置分散导致的不一致
+
+#### 2. 细化平仓原因
+**v7.10.5及之前** (4种):
+- `CLOSE`, `STOP_LOSS`, `TIMEOUT`, `RISK_TRIGGER`
+
+**v7.10.6** (8种):
+- 正常交易: `CLOSE` (15天), `PAIR_BREAK` (60天)
+- Pair风控: `DRAWDOWN_PROFIT` (15天), `DRAWDOWN_LOSS` (60天), `TIMEOUT` (60天), `ANOMALY` (999999天)
+- Portfolio风控: `PORTFOLIO_DRAWDOWN` (60天), `ACCOUNT_BLOWUP` (365天)
+
+#### 3. 动态冷却期
+- **配置驱动**: 冷却天数从配置读取，无需修改代码
+- **灵活调整**: 不同平仓原因对应不同冷却期
+- **精准控制**: 盈利/亏损回撤区分处理（15天 vs 60天）
+
+#### 4. 代码简化
+- **删除冗余文件**: 179行 (constants.py 44行 + industry_mapping.py 135行)
+- **删除冗余配置**: 9个硬编码冷却天数参数
+- **字符串常量**: 无需维护常量类，直接使用字符串
+
+### 重构理由
+
+#### 问题1: 配置分散
+**v7.10.5** 冷却天数分散在3处:
+- `config.pairs_trading`: `pair_cooldown_days_for_exit/stop`
+- `config.risk_management.pair_rules`: `cooldown_days`, `cooldown_days_for_profit/loss`
+- `config.risk_management.portfolio_rules`: `cooldown_days`
+
+**v7.10.6** 统一在 `config.constants.close_reasons`:
+```python
+'CLOSE': {'cooldown_days': 15},
+'PAIR_BREAK': {'cooldown_days': 60},
+...
+```
+
+#### 问题2: 显示文本硬编码
+**v7.10.5** 在 `Pairs.py:on_position_filled()`:
+```python
+if reason == 'STOP_LOSS':
+    reason_text = "Z-score超限"
+else:
+    reason_text = "Z-score回归"
+```
+
+**v7.10.6** 从配置读取:
+```python
+close_reasons = self.algorithm.config.constants['close_reasons']
+reason_text = close_reasons.get(reason, {}).get('display', '未知原因')
+```
+
+#### 问题3: 常量类冗余
+**v7.10.5** 需要维护3个常量类 (`constants.py`):
+```python
+class TradingSignal:
+    LONG_SPREAD = 'LONG_SPREAD'
+    ...
+```
+
+**v7.10.6** 直接使用字符串:
+```python
+if signal == 'LONG_SPREAD':
+    ...
+```
+
+### Breaking Changes
+❌ **不兼容变更**:
+1. `src/constants.py` 已删除，所有 `from src.constants import ...` 导入将报错
+2. `src/industry_mapping.py` 已删除，`from src.industry_mapping import ...` 导入将报错
+3. `TradingSignal.STOP_LOSS` 已重命名为 `PAIR_BREAK`
+4. `PairDrawdownRule.get_cooldown_days()` 返回值从 `int` 改为 `tuple: (reason, cooldown_days)`
+5. 配置参数删除: `pair_cooldown_days_for_exit/stop`, `account_blowup.cooldown_days`, 等
+
+✅ **迁移指南**:
+```python
+# 旧代码 (v7.10.5)
+from src.constants import TradingSignal, PositionMode, OrderAction
+if signal == TradingSignal.CLOSE:
+    ...
+
+# 新代码 (v7.10.6)
+# 删除 import，直接使用字符串
+if signal == 'CLOSE':
+    ...
+```
+
+### 版本信息
+- **版本号**: v7.10.6
+- **发布日期**: 2025-02-13
+- **类型**: 架构优化 + 配置重构
+- **影响范围**: 全局（9个文件修改，2个文件删除）
+
+
 ## [v7.10.5_fix-hedging-formula@20250206]
 
 ### 版本概述
