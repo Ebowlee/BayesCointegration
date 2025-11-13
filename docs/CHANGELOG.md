@@ -5,6 +5,186 @@
 ---
 
 
+## [v7.10.0_fill-zscore-calculation@20251113]
+
+### 版本概述
+**交易质量追踪** - 新增成交Z-score计算,用于分析信号触发与实际执行之间的滑点差异。
+
+### 问题背景
+
+**用户需求**: "我想知道我们有没有可能做到计算开仓zscore 和平仓zscore, 我理解我们现在有信号zscore, 但是会滑点，所以我想知道前两个的zscore情况。"
+
+**设计目标**:
+- 区分三种Z-score: 信号触发时(signal) → 开仓成交时(fill_open) → 平仓成交时(fill_close)
+- 分析执行滑点对交易质量的影响
+- 为未来优化入场阈值提供数据支撑
+
+**架构决策**:
+- 用户建议: 重构 `get_zscore()` 为通用方法(接受价格参数),而非创建多个专用方法
+- 设计优势: 单一职责(纯计算) + 数据获取上移至调用者 + 代码复用性强
+
+### 代码修改
+
+**修改1 - 重构 get_zscore() 方法** ([Pairs.py:552-597](../src/Pairs.py#L552-L597)):
+```python
+# 修改前 - 依赖data注入:
+def get_zscore(self, data) -> Optional[float]:
+    prices = self.get_price(data)
+    if prices is None:
+        return None
+    price1, price2 = prices
+    # 计算逻辑...
+
+# 修改后 - 接受价格参数(通用方法):
+def get_zscore(self, price1: float, price2: float) -> Optional[float]:
+    """
+    计算配对的Z-score (通用方法)
+
+    职责: 纯计算逻辑，不涉及数据获取
+
+    使用场景:
+        # 场景1: 信号生成时
+        prices = self.get_price(data)
+        if prices:
+            zscore = self.get_zscore(prices[0], prices[1])
+
+        # 场景2: 订单成交时
+        fill_zscore = self.get_zscore(ticket1.AverageFillPrice, ticket2.AverageFillPrice)
+    """
+    # 价格有效性检查 + 安全检查
+    if price1 <= 0 or price2 <= 0 or self.residual_std <= 0:
+        return None
+
+    try:
+        log_residual = np.log(price1) - (self.alpha_mean + self.beta_mean * np.log(price2))
+        zscore = (log_residual - self.residual_mean) / self.residual_std
+        return zscore
+    except (ValueError, ZeroDivisionError, OverflowError):
+        return None
+```
+
+**修改2 - 调整 get_signal() 价格获取** ([Pairs.py:600-618](../src/Pairs.py#L600-L618)):
+```python
+def get_signal(self, data):
+    """获取交易信号"""
+    # 数据获取上移至调用者
+    prices = self.get_price(data)
+    if prices is None:
+        return TradingSignal.NO_DATA
+
+    price1, price2 = prices
+
+    # 使用通用方法计算zscore
+    zscore = self.get_zscore(price1, price2)
+    if zscore is None:
+        return TradingSignal.NO_DATA
+    # ... rest of signal logic
+```
+
+**修改3 - 新增属性** ([Pairs.py:67-69](../src/Pairs.py#L67-L69)):
+```python
+# === 交易质量追踪(用于事后分析) ===
+self.entry_zscore = None                # 信号触发时Z-score(分析决策质量)
+self.fill_zscore_open = None           # 开仓成交时Z-score(分析执行滑点)
+self.fill_zscore_close = None          # 平仓成交时Z-score(分析退出质量)
+```
+
+**修改4 - on_position_filled() OPEN分支** ([Pairs.py:184-205](../src/Pairs.py#L184-L205)):
+```python
+if action == OrderAction.OPEN:
+    # 提取成交价格
+    fill_price1 = None
+    fill_price2 = None
+
+    for ticket in tickets:
+        if ticket is not None and ticket.Status == OrderStatus.Filled:
+            if ticket.Symbol == self.symbol1:
+                self.tracked_qty1 = ticket.QuantityFilled
+                self.entry_price1 = ticket.AverageFillPrice
+                fill_price1 = ticket.AverageFillPrice  # 用于计算fill_zscore
+            elif ticket.Symbol == self.symbol2:
+                self.tracked_qty2 = ticket.QuantityFilled
+                self.entry_price2 = ticket.AverageFillPrice
+                fill_price2 = ticket.AverageFillPrice  # 用于计算fill_zscore
+
+    # 计算开仓成交时的Z-score（用于滑点分析）
+    if fill_price1 and fill_price2:
+        self.fill_zscore_open = self.get_zscore(fill_price1, fill_price2)
+```
+
+**修改5 - on_position_filled() CLOSE分支** ([Pairs.py:207-230](../src/Pairs.py#L207-L230)):
+```python
+elif action == OrderAction.CLOSE:
+    # 提取成交价格
+    fill_price1 = None
+    fill_price2 = None
+
+    for ticket in tickets:
+        if ticket is not None and ticket.Status == OrderStatus.Filled:
+            if ticket.Symbol == self.symbol1:
+                self.exit_price1 = ticket.AverageFillPrice
+                fill_price1 = ticket.AverageFillPrice  # 用于计算fill_zscore
+            elif ticket.Symbol == self.symbol2:
+                self.exit_price2 = ticket.AverageFillPrice
+                fill_price2 = ticket.AverageFillPrice  # 用于计算fill_zscore
+
+    # 计算平仓成交时的Z-score（用于滑点分析）
+    if fill_price1 and fill_price2:
+        self.fill_zscore_close = self.get_zscore(fill_price1, fill_price2)
+```
+
+### 设计洞察
+
+**Insight: 通用方法优于专用方法**
+
+用户观察到 `get_zscore()` 可以重构为通用计算方法,而不是创建多个专用方法:
+
+**设计对比**:
+- **方案A** (初始): 保留 `get_zscore(data)` + 新增 `_calculate_fill_zscore(price1, price2)` → 代码重复
+- **方案B** (作者建议): 三层架构 - 核心方法 + 两个包装器 → 过度设计(50行代码)
+- **方案D** (用户建议): 重构为通用方法 `get_zscore(price1, price2)` → 简洁优雅(35行代码)
+
+**用户建议优势**:
+1. **单一职责**: `get_zscore()` 负责计算, 调用者负责数据获取
+2. **代码复用**: 1个通用方法 vs 3个专用方法
+3. **更Pythonic**: "显式优于隐式" - 清晰的方法签名
+4. **可扩展性**: 未来任何场景都可直接复用(如回测分析,可视化)
+
+**关键引用**:
+- 用户: "我理解你完全可以把 get_zscore 修改成不依赖与 data 注入的形式，而是依赖 price1 price2"
+- 用户: "为什么要新增方法，而不是用同一个普适的方法？"
+
+### 代码影响
+
+**新增功能**:
+- 三层Z-score追踪: `entry_zscore` (信号) → `fill_zscore_open` (开仓成交) → `fill_zscore_close` (平仓成交)
+- 通用Z-score计算方法: 可用于信号生成、成交分析、未来扩展
+
+**架构优化**:
+- 职责分离: 数据获取(调用者) vs 计算逻辑(方法)
+- 代码减少: 35行通用方法 vs 50行三层架构
+- 可测试性: 纯函数设计,易于单元测试
+
+**未来应用**:
+- 滑点分析: 比较 `entry_zscore` vs `fill_zscore_open` 评估执行质量
+- 阈值优化: 根据 `fill_zscore_open` 分布调整入场阈值
+- 退出分析: 通过 `fill_zscore_close` 评估平仓时机
+
+### 技术细节
+
+**OrderTicket API 使用**:
+```python
+ticket.AverageFillPrice  # 获取实际成交均价
+ticket.QuantityFilled    # 获取实际成交数量
+ticket.Status            # 验证订单状态(Filled)
+```
+
+**回调链路**:
+`QCAlgorithm.OnOrderEvent()` → `TicketsManager.on_order_event()` → `Pairs.on_position_filled()` → 计算 `fill_zscore_*`
+
+---
+
+
 ## [v7.9.4_docstring-cleanup@20251113]
 
 ### 版本概述
