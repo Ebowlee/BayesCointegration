@@ -5,6 +5,52 @@
 ---
 
 
+## [v7.9.2_remove-unused-imports@20250206]
+
+### 版本概述
+**代码清理** - 移除未使用的导入语句,提升代码整洁度。
+
+### 问题背景
+IDE显示暗色代码(未被引用),表明以下导入从未使用:
+- `src/UniverseSelection.py` Line 8: `from src.industry_mapping import get_industry_display`
+- `src/analysis/CointegrationAnalyzer.py` Line 9: 同样的导入
+
+**历史原因**:
+- v7.8.x 日志简化前,该函数用于格式化行业名称日志
+- 日志简化后,行业显示功能被移除
+- 导入语句作为遗留代码保留至今
+
+### 修改内容
+
+**删除未使用导入** (2个文件):
+```python
+# 删除前:
+from src.industry_mapping import get_industry_display
+
+# 删除后:
+# (导入完全移除)
+```
+
+### 用户疑问解答
+
+**Q1: IDE暗色代码是什么意思?**
+- 表示导入的符号在当前文件中从未被引用
+- 属于静态代码分析的"未使用变量"警告
+
+**Q2: `coarse = list(coarse)` 为什么需要?**
+- QuantConnect传入的 `coarse` 是**迭代器(Iterator)**,不是列表
+- 迭代器只能遍历一次,转换为列表后可多次访问
+- 后续代码需要列表功能(长度计算、索引访问、重复遍历)
+- **必须保留**,删除会导致运行时错误
+
+### 清理结果
+- 移除 2 个未使用导入
+- 保留 1 个必要的类型转换 (`list(coarse)`)
+- 代码更整洁,无副作用
+
+---
+
+
 ## [v7.9.1_cleanup-obsolete-files@20250206]
 
 ### 版本概述
