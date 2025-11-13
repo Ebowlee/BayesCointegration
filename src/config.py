@@ -272,7 +272,7 @@ class StrategyConfig:
             'close_reasons': {
                 # 正常平仓
                 'CLOSE': {
-                    'display': 'Z-score回归',
+                    'display': '均值回归',
                     'cooldown_days': 15
                 },
                 'PAIR_BREAK': {
@@ -282,29 +282,29 @@ class StrategyConfig:
 
                 # Pair级风控
                 'DRAWDOWN_PROFIT': {
-                    'display': '风控平仓(回撤-盈利)',
+                    'display': '回撤盈利',
                     'cooldown_days': 15
                 },
                 'DRAWDOWN_LOSS': {
-                    'display': '风控平仓(回撤-亏损)',
+                    'display': '回撤亏损',
                     'cooldown_days': 60
                 },
                 'TIMEOUT': {
-                    'display': '风控平仓(超时)',
+                    'display': '持仓超时',
                     'cooldown_days': 60
                 },
                 'ANOMALY': {
-                    'display': '风控平仓(单腿异常)',
+                    'display': '单腿异常',
                     'cooldown_days': 999999
                 },
 
                 # Portfolio级风控
                 'PORTFOLIO_DRAWDOWN': {
-                    'display': '组合风控(回撤)',
+                    'display': '组合回撤',
                     'cooldown_days': 60
                 },
                 'ACCOUNT_BLOWUP': {
-                    'display': '组合风控(爆仓)',
+                    'display': '组合爆仓',
                     'cooldown_days': 365
                 }
             },

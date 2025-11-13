@@ -589,14 +589,14 @@ class RiskManager:
                     # 获取pair对象
                     pair = self.pairs_manager.get_pair_by_id(pair_id)
                     if pair:
-                        # 根据PnL状态动态确定冷却期
-                        cooldown_days = rule.get_cooldown_days(pair)
+                        # v7.10.7: 解包元组 (reason, cooldown_days)
+                        reason, cooldown_days = rule.get_cooldown_days(pair)
                         rule.activate_cooldown(pair_id=pair_id, days=cooldown_days)
 
-                        # 记录用于批量日志
+                        # 记录用于批量日志 (包含平仓原因)
                         if rule not in activated_rules:
                             activated_rules[rule] = []
-                        activated_rules[rule].append((pair_id, cooldown_days))
+                        activated_rules[rule].append((pair_id, cooldown_days, reason))
                     else:
                         # 容错: 找不到pair对象时使用默认值
                         rule.activate_cooldown(pair_id=pair_id)
@@ -616,9 +616,10 @@ class RiskManager:
         # 批量日志输出 (v7.3.1: 支持per-pair显示冷却期)
         for rule, pair_cooldowns in activated_rules.items():
             if rule.__class__.__name__ == 'PairDrawdownRule':
-                # PairDrawdownRule: 显示每个配对的冷却期(可能不同)
+                # PairDrawdownRule: 显示每个配对的冷却期和平仓原因 (v7.10.7)
                 pairs_str = ", ".join(
-                    f"{pair_id}({days}天)" for pair_id, days in pair_cooldowns
+                    f"{pair_id}({days}天,{reason})"
+                    for pair_id, days, reason in pair_cooldowns
                 )
                 self.algorithm.Debug(
                     f"[Pair风控] {rule.__class__.__name__} 激活{len(pair_cooldowns)}个配对的动态冷却期: {pairs_str}"
