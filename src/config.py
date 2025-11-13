@@ -142,10 +142,10 @@ class StrategyConfig:
                 'informed': {                           # 历史后验先验(强信息,重复建模时使用)
                     'sigma_multiplier': 2.0,            # sigma放大系数
                     'validity_days': 30,                # 历史后验有效期: 上次建模后30天内,复用后验加速收敛; 超过30天则协整关系可能漂移(v7.5.19: 从60天缩短至30天,匹配持仓周期),降级到uninformed prior重新建模
-                    # v7.5.20: ρ的Beta先验温度化参数
+                    # ρ的Beta先验温度化参数
                     'rho_variance_multiplier': 1.2,     # ρ方差放宽系数(τ)
                     'rho_variance_safety': 0.9,         # Beta方差安全边界(c)
-                    # v7.5.20: σ_η的HalfNormal先验放宽参数
+                    # σ_η的HalfNormal先验放宽参数
                     'sigma_eta_multiplier': 2.5         # σ_η标准差放宽系数
                 },
                 'joint_single_stage': {                 # 单阶段联合模型配置

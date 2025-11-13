@@ -296,53 +296,11 @@ class ExecutionManager:
 
             # 处理平仓信号
             if signal == TradingSignal.CLOSE:
-                current_pnl = pair.get_pair_pnl()
-                current_cost = pair.get_pair_cost()
-                current_pnl_pct = (current_pnl / current_cost * 100) if (current_pnl and current_cost and current_cost > 0) else 0
-
-                # 计算累计收益率 (包括本次交易)
-                cumulative_pnl = pair.total_pnl_dollars + (current_pnl if current_pnl else 0)
-                cumulative_cost = pair.total_pair_cost + (current_cost if current_cost else 0)
-                total_pnl_pct = (cumulative_pnl / cumulative_cost * 100) if cumulative_cost > 0 else 0
-
-                trade_num = pair.trade_count + 1  # 平仓时尚未递增
-
-                entry_z = pair.entry_zscore if pair.entry_zscore is not None else 0.0
-                close_z = pair.fill_zscore_close if pair.fill_zscore_close is not None else 0.0
-                self.algorithm.Debug(
-                    f"[平仓] {pair.pair_id} Z-score回归 | "
-                    f"PnL=${current_pnl:.2f} ({current_pnl_pct:+.1f}%) | "
-                    f"累计{total_pnl_pct:+.1f}% | "
-                    f"{abs(entry_z):.2f}σ → {abs(close_z):.2f}σ | "
-                    f"第{trade_num}次交易"
-                )
-
                 intent = pair.get_close_intent(reason='CLOSE')
                 if intent:
                     self.order_executor.execute_close(intent)  # 自动注册到TicketsManager
 
             elif signal == TradingSignal.STOP_LOSS:
-                current_pnl = pair.get_pair_pnl()
-                current_cost = pair.get_pair_cost()
-                current_pnl_pct = (current_pnl / current_cost * 100) if (current_pnl and current_cost and current_cost > 0) else 0
-
-                # 计算累计收益率 (包括本次交易)
-                cumulative_pnl = pair.total_pnl_dollars + (current_pnl if current_pnl else 0)
-                cumulative_cost = pair.total_pair_cost + (current_cost if current_cost else 0)
-                total_pnl_pct = (cumulative_pnl / cumulative_cost * 100) if cumulative_cost > 0 else 0
-
-                trade_num = pair.trade_count + 1  # 平仓时尚未递增
-
-                entry_z = pair.entry_zscore if pair.entry_zscore is not None else 0.0
-                close_z = pair.fill_zscore_close if pair.fill_zscore_close is not None else 0.0
-                self.algorithm.Debug(
-                    f"[平仓] {pair.pair_id} Z-score超限 | "
-                    f"PnL=${current_pnl:.2f} ({current_pnl_pct:+.1f}%) | "
-                    f"累计{total_pnl_pct:+.1f}% | "
-                    f"{abs(entry_z):.2f}σ → {abs(close_z):.2f}σ | "
-                    f"第{trade_num}次交易"
-                )
-
                 intent = pair.get_close_intent(reason='STOP_LOSS')
                 if intent:
                     self.order_executor.execute_close(intent)  # 自动注册到TicketsManager

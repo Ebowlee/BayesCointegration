@@ -5,6 +5,195 @@
 ---
 
 
+## [v7.10.3_fix-zscore-timing-bug@20251113]
+
+### 版本概述
+**Bug修复** - 修复平仓日志中close Z-score显示为0.00σ的时序问题，将日志输出移至数据计算完成后。
+
+### 问题背景
+
+**Bug现象**: v7.10.2中添加Z-score信息后，平仓日志中close Z-score显示为0.00σ
+
+```
+[平仓] ('EXC', 'NI') Z-score回归 | ... | 1.21σ → 0.00σ | 第1次交易  ❌
+[平仓] ('CTRA', 'WMB') Z-score超限 | ... | 1.24σ → 0.00σ | 第1次交易  ❌
+```
+
+**根本原因**: 时序问题 - 日志输出时`fill_zscore_close`尚未计算
+
+```
+T0: OnData() → ExecutionManager.handle_normal_close_intents()
+    → Debug log output (fill_zscore_close = None → 0.00σ) ❌
+    → order_executor.execute_close()
+
+T1-T3: QuantConnect处理订单
+
+T4: OnOrderEvent callback
+    → TicketsManager.on_order_event()
+    → Pairs.on_position_filled(CLOSE)
+    → fill_zscore_close = self.get_zscore(...) ✓
+```
+
+**为什么第二笔交易显示非零值**: `fill_zscore_close`变量保留了上一笔交易的值，显示的是过期数据。
+
+### 设计方案
+
+**解决思路**: 将日志输出从ExecutionManager移至Pairs.on_position_filled()，确保日志输出时所有数据已计算完成。
+
+**架构优化**:
+- **数据内聚**: 日志依赖的PnL、Z-score数据都在Pairs对象中，日志输出应位于同一位置
+- **时序保证**: 在`fill_zscore_close`计算完成后立即输出日志
+- **职责分离**: ExecutionManager负责执行协调，Pairs负责数据完整性和日志输出
+
+### 代码修改
+
+**修改文件**:
+- `src/Pairs.py`（新增方法 + 调用点）
+- `src/execution/ExecutionManager.py`（移除重复日志代码）
+
+#### 修改1 - 新增日志方法（Pairs.py, Line 259-302）
+
+```python
+def _log_close_completion(self, reason: str):
+    """
+    输出平仓完成日志
+
+    调用时机: on_position_filled(CLOSE) 中，在 fill_zscore_close 计算完成后
+
+    职责:
+    - 计算本次交易PnL和累计收益率
+    - 格式化日志输出(包含Z-score轨迹)
+    - 根据平仓原因输出不同消息("Z-score回归" vs "Z-score超限")
+
+    Args:
+        reason: 平仓原因 (CLOSE/STOP_LOSS/TIMEOUT/RISK_TRIGGER)
+    """
+    # 计算PnL和累计统计
+    current_pnl = self.get_pair_pnl()
+    current_cost = self.get_pair_cost()
+    current_pnl_pct = (current_pnl / current_cost * 100) if (current_pnl and current_cost and current_cost > 0) else 0
+
+    cumulative_pnl = self.total_pnl_dollars + (current_pnl if current_pnl else 0)
+    cumulative_cost = self.total_pair_cost + (current_cost if current_cost else 0)
+    total_pnl_pct = (cumulative_pnl / cumulative_cost * 100) if cumulative_cost > 0 else 0
+
+    trade_num = self.trade_count + 1  # 平仓时尚未递增
+
+    # 提取Z-score数据（此时fill_zscore_close已计算完成）
+    entry_z = self.entry_zscore if self.entry_zscore is not None else 0.0
+    close_z = self.fill_zscore_close if self.fill_zscore_close is not None else 0.0
+
+    # 根据平仓原因输出不同日志
+    reason_text = "Z-score超限" if reason == 'STOP_LOSS' else "Z-score回归"
+
+    self.algorithm.Debug(
+        f"[平仓] {self.pair_id} {reason_text} | "
+        f"PnL=${current_pnl:.2f} ({current_pnl_pct:+.1f}%) | "
+        f"累计{total_pnl_pct:+.1f}% | "
+        f"{abs(entry_z):.2f}σ → {abs(close_z):.2f}σ | "
+        f"第{trade_num}次交易"
+    )
+```
+
+#### 修改2 - 调用日志方法（Pairs.py, Line 245-246）
+
+```python
+# on_position_filled() CLOSE分支
+if fill_price1 and fill_price2:
+    self.fill_zscore_close = self.get_zscore(fill_price1, fill_price2)
+
+# 输出平仓日志(确保fill_zscore_close已计算完成)
+self._log_close_completion(reason)
+
+# 更新交易历史统计(黑名单系统)
+self._update_trade_stats()
+```
+
+#### 修改3 - 移除重复日志（ExecutionManager.py, Line 298-306）
+
+```python
+# 修改前（CLOSE分支）:
+if signal == TradingSignal.CLOSE:
+    current_pnl = pair.get_pair_pnl()
+    # ... 18行PnL计算和日志输出 ...
+    self.algorithm.Debug(f"[平仓] {pair.pair_id} Z-score回归 | ...")
+
+    intent = pair.get_close_intent(reason='CLOSE')
+    if intent:
+        self.order_executor.execute_close(intent)
+
+# 修改后:
+if signal == TradingSignal.CLOSE:
+    intent = pair.get_close_intent(reason='CLOSE')
+    if intent:
+        self.order_executor.execute_close(intent)  # 日志已移至Pairs.on_position_filled()
+```
+
+#### 修改4 - 移除重复日志（ExecutionManager.py, Line 303-306）
+
+```python
+# 修改前（STOP_LOSS分支）:
+elif signal == TradingSignal.STOP_LOSS:
+    current_pnl = pair.get_pair_pnl()
+    # ... 18行PnL计算和日志输出 ...
+    self.algorithm.Debug(f"[平仓] {pair.pair_id} Z-score超限 | ...")
+
+    intent = pair.get_close_intent(reason='STOP_LOSS')
+    if intent:
+        self.order_executor.execute_close(intent)
+
+# 修改后:
+elif signal == TradingSignal.STOP_LOSS:
+    intent = pair.get_close_intent(reason='STOP_LOSS')
+    if intent:
+        self.order_executor.execute_close(intent)  # 日志已移至Pairs.on_position_filled()
+```
+
+### 技术细节
+
+**执行时序修正**:
+
+修改前:
+```
+T0: ExecutionManager logs → fill_zscore_close = None (显示0.00σ) ❌
+T4: on_position_filled() → fill_zscore_close计算完成 ✓
+```
+
+修改后:
+```
+T0: ExecutionManager → 仅执行订单,不输出日志
+T4: on_position_filled() → fill_zscore_close计算 → _log_close_completion() ✓
+```
+
+**数据完整性保证**:
+- `entry_zscore`: 在`get_signal()`中记录（信号触发时）
+- `fill_zscore_close`: 在`on_position_filled()`中计算（订单成交后）
+- 日志输出: 在`fill_zscore_close`计算后立即执行
+
+**代码简化**:
+- **删除**: ExecutionManager中36行重复的PnL计算和日志代码（2个分支 × 18行）
+- **新增**: Pairs中1个44行的日志方法
+- **净减少**: 36 - 44 = -8行（代码更内聚，逻辑更清晰）
+
+### 预期效果
+
+修复后的日志输出:
+
+```
+[平仓] ('EXC', 'NI') Z-score回归 | PnL=$543.21 (+2.1%) | 累计+2.1% | 1.21σ → 0.38σ | 第1次交易 ✓
+[平仓] ('CTRA', 'WMB') Z-score超限 | PnL=$-312.45 (-1.5%) | 累计+0.6% | 1.24σ → 2.67σ | 第2次交易 ✓
+```
+
+所有交易都显示正确的close Z-score值，无论是第几笔交易。
+
+### 相关版本
+- **v7.10.0**: 引入三阶段Z-score追踪（entry/fill_open/fill_close）
+- **v7.10.2**: 在日志中添加Z-score显示（引入本Bug）
+- **v7.10.3**: 修复时序问题（本版本）
+
+---
+
+
 ## [v7.10.2_add-zscore-to-logs@20251113]
 
 ### 版本概述

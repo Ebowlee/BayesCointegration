@@ -242,6 +242,9 @@ class Pairs:
             if fill_price1 and fill_price2:
                 self.fill_zscore_close = self.get_zscore(fill_price1, fill_price2)
 
+            # 输出平仓日志(确保fill_zscore_close已计算完成)
+            self._log_close_completion(reason)
+
             # 更新交易历史统计(黑名单系统)
             self._update_trade_stats()
 
@@ -252,6 +255,51 @@ class Pairs:
             self.entry_price2 = None
             self.exit_price1 = None
             self.exit_price2 = None
+
+    def _log_close_completion(self, reason: str):
+        """
+        输出平仓完成日志
+
+        调用时机: on_position_filled(CLOSE) 中，在 fill_zscore_close 计算完成后
+
+        职责:
+        - 计算本次交易PnL和累计收益率
+        - 格式化日志输出(包含Z-score轨迹)
+        - 根据平仓原因输出不同消息("Z-score回归" vs "Z-score超限")
+
+        Args:
+            reason: 平仓原因 (CLOSE/STOP_LOSS/TIMEOUT/RISK_TRIGGER)
+        """
+        # 计算本次交易PnL
+        current_pnl = self.get_pair_pnl()
+        current_cost = self.get_pair_cost()
+        current_pnl_pct = (current_pnl / current_cost * 100) if (current_pnl and current_cost and current_cost > 0) else 0
+
+        # 计算累计收益率 (包括本次交易)
+        cumulative_pnl = self.total_pnl_dollars + (current_pnl if current_pnl else 0)
+        cumulative_cost = self.total_pair_cost + (current_cost if current_cost else 0)
+        total_pnl_pct = (cumulative_pnl / cumulative_cost * 100) if cumulative_cost > 0 else 0
+
+        # 交易序号(平仓时 trade_count 尚未递增)
+        trade_num = self.trade_count + 1
+
+        # 提取Z-score数据
+        entry_z = self.entry_zscore if self.entry_zscore is not None else 0.0
+        close_z = self.fill_zscore_close if self.fill_zscore_close is not None else 0.0
+
+        # 根据平仓原因输出不同日志
+        if reason == 'STOP_LOSS':
+            reason_text = "Z-score超限"
+        else:
+            reason_text = "Z-score回归"
+
+        self.algorithm.Debug(
+            f"[平仓] {self.pair_id} {reason_text} | "
+            f"PnL=${current_pnl:.2f} ({current_pnl_pct:+.1f}%) | "
+            f"累计{total_pnl_pct:+.1f}% | "
+            f"{abs(entry_z):.2f}σ → {abs(close_z):.2f}σ | "
+            f"第{trade_num}次交易"
+        )
 
     def _update_trade_stats(self):
         """

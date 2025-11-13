@@ -121,8 +121,6 @@ class BayesianCointegrationStrategy(QCAlgorithm):
                 self.symbols.append(security.Symbol)
                 added_count += 1
 
-        # 简化日志: 只打印数量,不打印ticker列表
-
         # 移除旧股票（过滤掉所有benchmark）
         removed_symbols = [s.Symbol for s in changes.RemovedSecurities
                           if s.Symbol not in self.benchmark_symbols]
@@ -193,8 +191,6 @@ class BayesianCointegrationStrategy(QCAlgorithm):
 
     def OnData(self, data: Slice):
         """处理实时数据 - OnData架构的核心"""
-
-
         # 如果正在分析，跳过
         if self.is_analyzing:
             return
