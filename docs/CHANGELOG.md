@@ -5,6 +5,40 @@
 ---
 
 
+## [v7.9.1_cleanup-obsolete-files@20250206]
+
+### 版本概述
+**代码库清理** - 删除过时文档和缓存文件,保持项目整洁。
+
+### 清理内容
+
+**1. 删除过时文档** (docs/ 目录):
+- ❌ TradeHistory_Architecture_Design.md (过时的架构设计)
+- ❌ v7.5.3_refactoring_summary.md (过时的重构总结)
+- ❌ 订单回调机制详解.md (过时的实现文档)
+- ❌ 如何读取回测报告.md (过时的操作指南)
+
+**保留文档**:
+- ✅ CHANGELOG.md (版本历史,持续更新)
+- ✅ architecture_books_recommendation.md (架构书籍推荐)
+
+**2. 清理Python缓存**:
+- 删除所有 `__pycache__` 目录 (6个目录)
+- 删除所有 `.pyc` 编译文件
+
+### 清理结果
+- docs/ 目录: 6个文件 → 2个文件 (减少67%)
+- Python缓存: 6个目录 → 0个目录
+- 删除代码行数: -2097 lines
+
+### 设计原则
+- **保留长期价值**: CHANGELOG持续记录,架构书籍保留参考价值
+- **删除实现细节**: 过时的设计文档和实现说明已被 CLAUDE.md 和代码注释取代
+- **清理临时文件**: Python缓存由解释器生成,无需版本控制
+
+---
+
+
 ## [v7.9.0_two-level-logging-architecture@20250206]
 
 ### 版本概述
