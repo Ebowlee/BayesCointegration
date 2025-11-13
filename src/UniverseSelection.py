@@ -98,7 +98,7 @@ class SectorBasedUniverseSelection(FineFundamentalUniverseSelectionModel):
     1. 粗选: 价格、成交量、IPO时间筛选
     2. 精选: 财务指标筛选 (PE, ROE, 负债率, 杠杆率)
 
-    注: v7.9.3移除波动率筛选(历史数据证明过滤效果<1%,成本高收益低)
+    注: 波动率筛选已移除(历史数据证明过滤效果<1%,成本高收益低)
     """
 
     def __init__(self, algorithm):
@@ -161,7 +161,7 @@ class SectorBasedUniverseSelection(FineFundamentalUniverseSelectionModel):
         精选阶段: 财务筛选
         流程: 财务筛选 -> 输出所有通过的股票
 
-        注: v7.9.3移除波动率筛选(历史数据显示过滤<1%股票,成本高收益低)
+        注: 波动率筛选已移除(历史数据显示过滤<1%股票,成本高收益低)
         """
         # 如果未触发选股, 返回上次结果
         if not self.selection_on:
