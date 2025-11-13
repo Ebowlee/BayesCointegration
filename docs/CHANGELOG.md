@@ -5,6 +5,90 @@
 ---
 
 
+## [v7.10.7_fix-drawdown-cooldown-tuple-unpack@20251113]
+
+### 版本概述
+**紧急修复** - 修复 v7.10.6 引入的类型错误,PairDrawdownRule 冷却期激活失败。
+
+### 问题诊断
+
+#### 错误信息
+```
+RuntimeError: '<=' not supported between instances of 'tuple' and 'int'
+  at activate_cooldown
+    if days is None or days <= 0:
+ in RiskBaseRule.py: line 183
+```
+
+#### 根本原因
+v7.10.6 修改了 `PairDrawdownRule.get_cooldown_days()` 返回值:
+- **修改前**: `return cooldown_days` (int)
+- **修改后**: `return reason, cooldown_days` (tuple)
+
+但调用方 `RiskManager.activate_cooldown_for_pairs()` 未适配:
+```python
+# 错误代码 (v7.10.6)
+cooldown_days = rule.get_cooldown_days(pair)  # 返回 tuple
+rule.activate_cooldown(days=cooldown_days)     # 期望 int,实际 tuple
+```
+
+### 修复内容
+
+#### 1. 核心修复 (RiskManager.py:593)
+```python
+# 修复前 (v7.10.6 - 错误)
+cooldown_days = rule.get_cooldown_days(pair)
+
+# 修复后 (v7.10.7 - 正确)
+reason, cooldown_days = rule.get_cooldown_days(pair)
+```
+
+#### 2. 日志增强 (RiskManager.py:599, 620-622)
+**记录平仓原因** (Line 599):
+```python
+# 修复前
+activated_rules[rule].append((pair_id, cooldown_days))
+
+# 修复后
+activated_rules[rule].append((pair_id, cooldown_days, reason))
+```
+
+**日志显示平仓原因** (Line 620-622):
+```python
+# 修复前
+pairs_str = ", ".join(
+    f"{pair_id}({days}天)" for pair_id, days in pair_cooldowns
+)
+
+# 修复后
+pairs_str = ", ".join(
+    f"{pair_id}({days}天,{reason})"
+    for pair_id, days, reason in pair_cooldowns
+)
+```
+
+**日志示例**:
+```
+[Pair风控] PairDrawdownRule 激活2个配对的动态冷却期:
+('AAPL','MSFT')(15天,DRAWDOWN_PROFIT), ('GOOGL','META')(60天,DRAWDOWN_LOSS)
+```
+
+### 影响范围
+- **受影响**: PairDrawdownRule 的冷却期激活逻辑
+- **不受影响**: 其他风控规则 (PairAnomaly, PairHoldingTimeout, Portfolio规则)
+
+### 测试验证
+✅ **盈利回撤**: PnL > 0 → `('DRAWDOWN_PROFIT', 15天)`
+✅ **亏损回撤**: PnL <= 0 → `('DRAWDOWN_LOSS', 60天)`
+✅ **容错处理**: PnL = None → `('DRAWDOWN_LOSS', 60天)`
+
+### 版本信息
+- **版本号**: v7.10.7
+- **发布日期**: 2025-02-13
+- **类型**: Bugfix (修复 v7.10.6 引入的回归错误)
+- **影响范围**: PairDrawdownRule 冷却期激活
+
+
 ## [v7.10.6_centralize-constants-and-cooldowns@20251113]
 
 ### 版本概述
