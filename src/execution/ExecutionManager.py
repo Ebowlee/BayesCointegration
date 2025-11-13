@@ -406,5 +406,5 @@ class ExecutionManager:
                 entry_z = pair.entry_zscore if pair.entry_zscore is not None else 0.0
                 self.algorithm.Debug(
                     f"[开仓] {pair_id} 分配=${amount_allocated:.2f} | "
-                    f"Z-score={abs(entry_z):.2f}σ"
+                    f"Z-score={entry_z:+.2f}σ"
                 )

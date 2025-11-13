@@ -305,7 +305,7 @@ class Pairs:
             f"[平仓] {self.pair_id} {reason_text} | "
             f"PnL=${current_pnl:.2f} ({current_pnl_pct:+.1f}%) | "
             f"累计{total_pnl_pct:+.1f}% | "
-            f"{abs(entry_z):.2f}σ → {abs(close_z):.2f}σ | "
+            f"{entry_z:+.2f}σ → {close_z:+.2f}σ | "
             f"第{trade_num}次交易"
         )
 
@@ -908,21 +908,26 @@ class Pairs:
 
     def calculate_leg_values(self, allocated_amount: float, signal: str, data):
         """
-        从分配资金计算两腿购买力,按beta数量配比
+        从分配资金计算两腿购买力,实现风险中性对冲 (v7.10.5修复)
 
-        核心公式:
-        1. X + Y = allocated_amount (资金约束)
-        2. Qty_A = beta × Qty_B (数量配比约束)
-           其中 Qty_A = (X/margin_rate_A)/Price_A
-                Qty_B = (Y/margin_rate_B)/Price_B
+        风险中性条件: 购买力比 = β
+        即: (x₁/m₁) = β × (x₂/m₂)
 
-        LONG_SPREAD (A做多0.5, B做空1.5):
-            (X/0.5)/Price_A = beta × (Y/1.5)/Price_B
-            => Y = allocated_amount × 3 × Price_B / (beta × Price_A + 3 × Price_B)
+        数学推导:
+        约束1: x₁ + x₂ = A (资金分配)
+        约束2: x₁/m₁ = β·x₂/m₂ (风险中性)
 
-        SHORT_SPREAD (A做空1.5, B做多0.5):
-            (X/1.5)/Price_A = beta × (Y/0.5)/Price_B
-            => Y = allocated_amount × Price_B / (beta × 3 × Price_A + Price_B)
+        LONG_SPREAD (多头1保证金率0.5, 空头2保证金率1.5):
+            x₁/0.5 = β·x₂/1.5
+            => x₁ = β·x₂/3
+            代入约束1: β·x₂/3 + x₂ = A
+            => x₂ = 3A/(β+3), x₁ = βA/(β+3)
+
+        SHORT_SPREAD (空头1保证金率1.5, 多头2保证金率0.5):
+            x₁/1.5 = β·x₂/0.5
+            => x₁ = 3β·x₂
+            代入约束1: 3β·x₂ + x₂ = A
+            => x₂ = A/(3β+1), x₁ = 3βA/(3β+1)
 
         参数:
             allocated_amount: 分配的投资资金金额
@@ -931,6 +936,10 @@ class Pairs:
 
         返回:
             (value_A, value_B): A和B的目标购买市值, 计算失败返回 (None, None)
+
+        关键修复 (v7.10.5):
+            - 旧公式错误地引入价格P₁,P₂,导致市值比≠β
+            - 新公式只依赖β和保证金率,保证风险中性
         """
         # 获取当前价格
         prices = self.get_price(data)
@@ -947,35 +956,31 @@ class Pairs:
 
         if signal == TradingSignal.LONG_SPREAD:
             # A做多(margin_long=0.5), B做空(margin_short=1.5)
-            # Y = allocated_amount × 3 × Price_B / (beta × Price_A + 3 × Price_B)
-            denominator = beta * price_A + 3 * price_B
-            if denominator <= 0:
-                return None, None
+            # 正确公式: x₁ = βA/(β+3), x₂ = 3A/(β+3)
+            denominator = beta + 3
 
-            Y = allocated_amount * 3 * price_B / denominator
-            X = allocated_amount - Y
+            x1 = allocated_amount * beta / denominator
+            x2 = allocated_amount * 3 / denominator
 
             # 市值 = 资金 / 保证金率
-            value_A = X / self.margin_long    # X / 0.5
-            value_B = Y / self.margin_short   # Y / 1.5
+            value_A = x1 / self.margin_long    # x1 / 0.5
+            value_B = x2 / self.margin_short   # x2 / 1.5
 
         else:  # SHORT_SPREAD
             # A做空(margin_short=1.5), B做多(margin_long=0.5)
-            # Y = allocated_amount × Price_B / (beta × 3 × Price_A + Price_B)
-            denominator = beta * 3 * price_A + price_B
-            if denominator <= 0:
-                return None, None
+            # 正确公式: x₁ = 3βA/(3β+1), x₂ = A/(3β+1)
+            denominator = 3 * beta + 1
 
-            Y = allocated_amount * price_B / denominator
-            X = allocated_amount - Y
+            x1 = allocated_amount * 3 * beta / denominator
+            x2 = allocated_amount / denominator
 
             # 市值
-            value_A = X / self.margin_short   # X / 1.5
-            value_B = Y / self.margin_long    # Y / 0.5
+            value_A = x1 / self.margin_short   # x1 / 1.5
+            value_B = x2 / self.margin_long    # x2 / 0.5
 
         # 安全检查: 资金分配合理性
-        if X <= 0 or Y <= 0:
-            self.algorithm.Debug(f"[计算失败] {self.pair_id} 资金分配异常: X={X:.2f}, Y={Y:.2f}")
+        if x1 <= 0 or x2 <= 0:
+            self.algorithm.Debug(f"[计算失败] {self.pair_id} 资金分配异常: x1={x1:.2f}, x2={x2:.2f}")
             return None, None
 
         return value_A, value_B
