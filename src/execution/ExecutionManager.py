@@ -307,10 +307,14 @@ class ExecutionManager:
 
                 trade_num = pair.trade_count + 1  # 平仓时尚未递增
 
+                entry_z = pair.entry_zscore if pair.entry_zscore is not None else 0.0
+                close_z = pair.fill_zscore_close if pair.fill_zscore_close is not None else 0.0
                 self.algorithm.Debug(
                     f"[平仓] {pair.pair_id} Z-score回归 | "
                     f"PnL=${current_pnl:.2f} ({current_pnl_pct:+.1f}%) | "
-                    f"累计{total_pnl_pct:+.1f}% | 第{trade_num}次交易"
+                    f"累计{total_pnl_pct:+.1f}% | "
+                    f"{abs(entry_z):.2f}σ → {abs(close_z):.2f}σ | "
+                    f"第{trade_num}次交易"
                 )
 
                 intent = pair.get_close_intent(reason='CLOSE')
@@ -329,10 +333,14 @@ class ExecutionManager:
 
                 trade_num = pair.trade_count + 1  # 平仓时尚未递增
 
+                entry_z = pair.entry_zscore if pair.entry_zscore is not None else 0.0
+                close_z = pair.fill_zscore_close if pair.fill_zscore_close is not None else 0.0
                 self.algorithm.Debug(
                     f"[平仓] {pair.pair_id} Z-score超限 | "
                     f"PnL=${current_pnl:.2f} ({current_pnl_pct:+.1f}%) | "
-                    f"累计{total_pnl_pct:+.1f}% | 第{trade_num}次交易"
+                    f"累计{total_pnl_pct:+.1f}% | "
+                    f"{abs(entry_z):.2f}σ → {abs(close_z):.2f}σ | "
+                    f"第{trade_num}次交易"
                 )
 
                 intent = pair.get_close_intent(reason='STOP_LOSS')
@@ -437,4 +445,8 @@ class ExecutionManager:
 
             success = self.order_executor.execute_open(intent)  # 自动注册到TicketsManager
             if success:
-                self.algorithm.Debug(f"[开仓] {pair_id} 分配=${amount_allocated:.2f}")
+                entry_z = pair.entry_zscore if pair.entry_zscore is not None else 0.0
+                self.algorithm.Debug(
+                    f"[开仓] {pair_id} 分配=${amount_allocated:.2f} | "
+                    f"Z-score={abs(entry_z):.2f}σ"
+                )
