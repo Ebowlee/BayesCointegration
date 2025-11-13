@@ -6,7 +6,6 @@ from typing import Dict, List
 from collections import defaultdict
 import itertools
 from statsmodels.tsa.stattools import coint
-from src.industry_mapping import get_industry_display
 # endregion
 
 

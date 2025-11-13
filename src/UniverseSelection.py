@@ -5,7 +5,6 @@ from typing import List, Dict, Tuple, Optional
 from collections import defaultdict
 from datetime import timedelta
 import numpy as np
-from src.industry_mapping import get_industry_display
 # endregion
 
 
@@ -17,7 +16,6 @@ class FinancialValidator:
     优势: 单一职责、可配置、易测试、易扩展
     """
 
-
     def __init__(self, config: dict):
         """
         初始化财务验证器
@@ -25,8 +23,8 @@ class FinancialValidator:
         Args:
             config: universe_selection配置字典
         """
-        self.config = config                               # universe_selection配置字典
-        self.filters = config.get('financial_filters', {}) # 财务筛选器规则配置
+        self.config = config                               
+        self.filters = config.get('financial_filters', {}) 
 
 
     def validate_stock(self, stock: FineFundamental) -> Tuple[bool, List[str]]:
@@ -102,7 +100,6 @@ class SectorBasedUniverseSelection(FineFundamentalUniverseSelectionModel):
     2. 精选: 财务指标、波动率筛选
     """
 
-
     def __init__(self, algorithm):
         """初始化选股模型"""
         self.algorithm = algorithm
@@ -148,11 +145,11 @@ class SectorBasedUniverseSelection(FineFundamentalUniverseSelectionModel):
         # 高效筛选: 短路求值优化
         selected = [
             x.Symbol for x in coarse
-            if x.HasFundamentalData                      # 排除ETF等
-            and x.Price > min_price                      # 价格筛选
-            and x.Volume > min_volume                    # 成交量筛选
+            if x.HasFundamentalData                                 # 排除ETF等
+            and x.Price > min_price                                 # 价格筛选
+            and x.Volume > min_volume                               # 成交量筛选
             and x.SecurityReference.IPODate is not None
-            and x.SecurityReference.IPODate <= min_ipo_date  # IPO时间
+            and x.SecurityReference.IPODate <= min_ipo_date         # IPO时间
         ]
 
         return selected
