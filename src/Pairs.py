@@ -8,7 +8,17 @@ from src.constants import TradingSignal, PositionMode, OrderAction
 
 
 class Pairs:
-    """配对交易的核心数据对象"""
+    """
+    配对交易的核心数据对象
+
+    核心职责:
+    - 数据提供者: 持仓追踪、价格计算、成本计算
+    - 信号生成器: Z-score计算、交易信号生成
+    - 意图生成器: 开仓/平仓意图编码
+    - 历史追踪者: 交易统计、Z-score追踪(信号/开仓/平仓三阶段)
+
+    不负责: 风险检查、资金分配、订单执行(由RiskManager/ExecutionManager/OrderExecutor负责)
+    """
 
     # ===== 1. 初始化与参数管理 =====
 
@@ -34,13 +44,13 @@ class Pairs:
         self.residual_std = model_data['residual_std']                          # 残差标准差(对数空间)
         self.quality_score = model_data['quality_score']                        # 配对质量分数
 
-        # === 交易阈值 (v7.5.21: 改良C方案 - 从pairs_trading统一读取) ===
+        # === 交易阈值 (改良C方案 - 从pairs_trading统一读取) ===
         self.entry_threshold_lower = config['entry_threshold_lower']  # 1.2σ
         self.entry_threshold_upper = config['entry_threshold_upper']  # 1.8σ
         self.exit_threshold = config['exit_threshold']                # 0.3σ
         self.stop_loss_threshold = config['stop_loss_threshold']      # 2.3σ
 
-        # === 控制设置 (v7.2.21: 双冷却期机制) ===
+        # === 控制设置 (双冷却期机制: 正常退出10天, 止损退出30天) ===
         self.cooldown_days_for_exit = config['pair_cooldown_days_for_exit']   # 正常回归: 10天
         self.cooldown_days_for_stop = config['pair_cooldown_days_for_stop']   # 止损: 30天
 
@@ -52,21 +62,23 @@ class Pairs:
         self.creation_time = algorithm.Time                                    # 首次创建时间
         self.reactivation_count = 0                                            # 重新激活次数(配对消失又出现)
 
-        # === 交易历史统计 (v7.7.0 → v7.7.1 黑名单系统) ===
+        # === 交易历史统计 (黑名单系统 - 加权平均修正) ===
         self.trade_count = 0           # 历史总交易次数
         self.win_count = 0             # 历史盈利次数
-        self.total_pnl_dollars = 0.0   # 累计美元PnL (v7.7.1: 修正加权平均收益率计算)
-        self.total_pair_cost = 0.0     # 累计保证金成本 (v7.7.1: 用于计算加权平均收益率)
+        self.total_pnl_dollars = 0.0   # 累计美元PnL (加权平均分子)
+        self.total_pair_cost = 0.0     # 累计保证金成本 (加权平均分母)
+        # 累计收益率 = (total_pnl_dollars / total_pair_cost) * 100 (加权平均,非简单相加)
 
         # === 时间追踪 ===
         self.pair_opened_time = None                                           # 配对开仓时间(双腿都成交的时刻)
         self.pair_closed_time = None                                           # 配对平仓时间(双腿都成交的时刻)
-        self.last_close_reason = None                                          # 最后一次平仓原因 ('CLOSE', 'STOP_LOSS', etc.) - v7.2.21
+        self.last_close_reason = None                                          # 最后平仓原因(CLOSE/STOP_LOSS/TIMEOUT/RISK_TRIGGER,用于动态冷却期判断)
 
-        # === 交易质量追踪(用于事后分析) ===
+        # === 交易质量追踪 (三阶段Z-score用于事后分析) ===
         self.entry_zscore = None                                               # 信号触发时Z-score(分析决策质量)
-        self.fill_zscore_open = None                                           # 开仓成交时Z-score(分析执行滑点) - v7.10.0
-        self.fill_zscore_close = None                                          # 平仓成交时Z-score(分析退出质量) - v7.10.0
+        self.fill_zscore_open = None                                           # 开仓成交时Z-score(分析执行滑点)
+        self.fill_zscore_close = None                                          # 平仓成交时Z-score(分析退出质量)
+        # 三阶段设计: entry_zscore反映信号触发时刻, fill_zscore_*反映实际成交时刻, 两者差异即执行滑点
 
         # === 持仓追踪(OrderTicket-based,避免Portfolio全局查询混淆) ===
         self.tracked_qty1 = 0                                                  # 配对专属持仓追踪(symbol1)
@@ -167,11 +179,15 @@ class Pairs:
 
         触发时机: TicketsManager检测到配对的所有订单都已Filled时
 
+        职责:
+        - OPEN: 记录开仓价格、数量、fill_zscore_open
+        - CLOSE: 记录平仓价格、平仓原因、fill_zscore_close、更新交易统计
+
         Args:
             action: OrderAction.OPEN 或 OrderAction.CLOSE
             fill_time: 最后一条腿成交的时间(确保两腿都已成交)
             tickets: List[OrderTicket] 成交的订单票据列表,用于提取实际成交数量
-            reason: 平仓原因 ('CLOSE', 'STOP_LOSS', 'TIMEOUT', etc.) - v7.2.21新增
+            reason: 平仓原因(仅CLOSE时有效, 可选值: CLOSE/STOP_LOSS/TIMEOUT/RISK_TRIGGER)
 
         技术说明:
             - OrderTicket: QuantConnect SDK 订单票据类
@@ -184,7 +200,7 @@ class Pairs:
         if action == OrderAction.OPEN:
             self.pair_opened_time = fill_time
 
-            # 提取成交价格（用于计算fill_zscore）
+            # 提取成交价格(用于计算fill_zscore)
             fill_price1 = None
             fill_price2 = None
 
@@ -194,39 +210,39 @@ class Pairs:
                     if ticket.Symbol == self.symbol1:
                         self.tracked_qty1 = ticket.QuantityFilled
                         self.entry_price1 = ticket.AverageFillPrice
-                        fill_price1 = ticket.AverageFillPrice  # v7.10.0: 用于计算fill_zscore
+                        fill_price1 = ticket.AverageFillPrice  # 用于计算fill_zscore
                     elif ticket.Symbol == self.symbol2:
                         self.tracked_qty2 = ticket.QuantityFilled
                         self.entry_price2 = ticket.AverageFillPrice
-                        fill_price2 = ticket.AverageFillPrice  # v7.10.0: 用于计算fill_zscore
+                        fill_price2 = ticket.AverageFillPrice  # 用于计算fill_zscore
 
-            # v7.10.0: 计算开仓成交时的Z-score（用于滑点分析）
+            # 计算开仓成交时的Z-score(用于滑点分析)
             if fill_price1 and fill_price2:
                 self.fill_zscore_open = self.get_zscore(fill_price1, fill_price2)
 
         elif action == OrderAction.CLOSE:
             self.pair_closed_time = fill_time
-            self.last_close_reason = reason  # v7.2.21: 存储平仓原因(用于动态冷却期)
+            self.last_close_reason = reason  # 存储平仓原因(用于动态冷却期判断)
 
-            # 提取成交价格（用于计算fill_zscore）
+            # 提取成交价格(用于计算fill_zscore)
             fill_price1 = None
             fill_price2 = None
 
-            # 记录平仓价格（用于后续PnL计算）
+            # 记录平仓价格(用于后续PnL计算)
             for ticket in tickets:
                 if ticket is not None and ticket.Status == OrderStatus.Filled:
                     if ticket.Symbol == self.symbol1:
                         self.exit_price1 = ticket.AverageFillPrice
-                        fill_price1 = ticket.AverageFillPrice  # v7.10.0: 用于计算fill_zscore
+                        fill_price1 = ticket.AverageFillPrice  # 用于计算fill_zscore
                     elif ticket.Symbol == self.symbol2:
                         self.exit_price2 = ticket.AverageFillPrice
-                        fill_price2 = ticket.AverageFillPrice  # v7.10.0: 用于计算fill_zscore
+                        fill_price2 = ticket.AverageFillPrice  # 用于计算fill_zscore
 
-            # v7.10.0: 计算平仓成交时的Z-score（用于滑点分析）
+            # 计算平仓成交时的Z-score(用于滑点分析)
             if fill_price1 and fill_price2:
                 self.fill_zscore_close = self.get_zscore(fill_price1, fill_price2)
 
-            # v7.7.0: 更新交易历史统计 (黑名单系统)
+            # 更新交易历史统计(黑名单系统)
             self._update_trade_stats()
 
             # 清零所有追踪变量
@@ -239,18 +255,21 @@ class Pairs:
 
     def _update_trade_stats(self):
         """
-        更新交易历史统计 (v7.7.0 → v7.7.1 修正累计收益率计算)
+        更新交易历史统计 (黑名单系统 - 加权平均修正)
 
         在平仓时调用,计算本次交易收益并更新累计统计
 
-        设计说明:
-        - 在清零追踪变量之前调用 (此时 exit_price 已记录,可计算 PnL)
-        - 使用 get_pair_pnl() 和 get_pair_cost() 获取美元PnL和成本
-        - 累加分子(total_pnl_dollars)和分母(total_pair_cost)用于计算加权平均收益率
+        计算逻辑:
+        - 本次交易PnL% = (pnl_dollars / pair_cost) * 100 (单次交易收益率)
+        - 累计美元PnL += pnl_dollars (分子累加)
+        - 累计保证金成本 += pair_cost (分母累加)
+        - 累计收益率 = (total_pnl_dollars / total_pair_cost) * 100 (加权平均,非简单相加)
 
-        v7.7.1 修正:
-        - 旧: total_pnl_pct += pnl_pct (简单相加,忽略成本差异)
-        - 新: 分别累加美元PnL和成本,外部计算加权平均 (total_pnl_dollars / total_pair_cost)
+        设计理由:
+        加权平均考虑不同交易的成本差异,避免简单百分比相加的数学错误
+
+        调用时机:
+        在清零追踪变量之前调用 (此时 exit_price 已记录,可计算 PnL)
         """
         # 计算本次交易的美元PnL和保证金成本
         pnl_dollars = self.get_pair_pnl()
@@ -261,9 +280,9 @@ class Pairs:
             # 数据不完整,跳过统计更新 (理论上不应发生,因为on_position_filled时数据应完整)
             return
 
-        # 累计美元PnL和保证金成本 (v7.7.1)
-        self.total_pnl_dollars += pnl_dollars
-        self.total_pair_cost += pair_cost
+        # 累积美元PnL和成本(用于加权平均计算)
+        self.total_pnl_dollars += pnl_dollars  # 分子: 累计盈亏
+        self.total_pair_cost += pair_cost      # 分母: 累计成本
 
         # 更新计数统计
         self.trade_count += 1
@@ -402,15 +421,15 @@ class Pairs:
 
     def get_cooldown_days(self) -> int:
         """
-        根据最后一次平仓原因返回对应的冷却期天数 (v7.2.21)
+        根据最后一次平仓原因返回对应的冷却期天数 (双冷却期机制)
 
-        设计原理:
-        - STOP_LOSS: 30天 - 触发止损说明配对关系可能出现问题,需要更长观察期
-        - 其他 (CLOSE/TIMEOUT/RISK_TRIGGER): 10天 - 正常退出或风控触发
+        逻辑:
+        - STOP_LOSS平仓: 30天 (配对关系可能已破坏,需更长观察期)
+        - 其他原因平仓: 10天 (正常回归或超时,允许较快重入)
 
-        冷却期哲学:
-        - 正常回归 (CLOSE): 配对关系仍健康,允许较快重新进入
-        - 止损退出 (STOP_LOSS): 配对偏离过大,可能存在结构性变化,需要更长冷静期
+        设计理由:
+        - STOP_LOSS: 配对偏离过大,可能存在结构性变化,需要更长冷静期
+        - CLOSE/TIMEOUT/RISK_TRIGGER: 配对关系仍健康,允许较快重新进入
 
         Returns:
             冷却期天数 (10 或 30)
@@ -575,7 +594,7 @@ class Pairs:
         """
         计算配对的Z-score (通用方法)
 
-        职责: 纯计算逻辑，不涉及数据获取
+        职责: 纯计算逻辑, 不涉及数据获取
 
         参数:
             price1: symbol1的价格
@@ -590,12 +609,12 @@ class Pairs:
             if prices:
                 zscore = self.get_zscore(prices[0], prices[1])
 
-            # 场景2: 订单成交时
+            # 场景2: 订单成交时(分析执行滑点)
             fill_zscore = self.get_zscore(ticket1.AverageFillPrice, ticket2.AverageFillPrice)
 
-        历史:
-            v7.10.0前: 接受data参数，内部调用get_price()
-            v7.10.0后: 接受价格参数，职责更单一
+        设计演进:
+            原设计: 接受data参数, 内部调用get_price()获取价格
+            新设计: 接受价格参数, 职责更单一, 支持多种价格来源(实时/成交/历史)
         """
         # 价格有效性检查
         if price1 <= 0 or price2 <= 0:
@@ -639,7 +658,7 @@ class Pairs:
         # 内部检查持仓
         has_position = self.has_normal_position()
 
-        # 生成信号 (v7.5.21: 改良C方案 [1.2σ, 1.8σ])
+        # 生成信号 (改良C方案[1.2σ, 1.8σ])
         if not has_position:
             abs_zscore = abs(zscore)
 
@@ -647,17 +666,17 @@ class Pairs:
             if self.entry_threshold_lower <= abs_zscore <= self.entry_threshold_upper:
                 # Z-score高,spread偏高,做空
                 if zscore > 0:
-                    self.entry_zscore = zscore  # 信号触发时立即记录(v7.2.16修复)
+                    self.entry_zscore = zscore  # 信号触发时记录entry_zscore(而非get_open_intent()时,避免市场波动导致不一致)
                     return TradingSignal.SHORT_SPREAD
                 # Z-score低,spread偏低,做多
                 else:
-                    self.entry_zscore = zscore  # 信号触发时立即记录(v7.2.16修复)
+                    self.entry_zscore = zscore  # 信号触发时记录entry_zscore(而非get_open_intent()时,避免市场波动导致不一致)
                     return TradingSignal.LONG_SPREAD
             else:
-                # 区间外: |zscore| < 1.2σ (信号弱) 或 > 1.8σ (留0.7σ缓冲给止损)
+                # 区间外: |zscore| < 1.2σ (信号弱) 或 > 1.8σ (留0.5σ缓冲给止损)
                 return TradingSignal.WAIT
         else:
-            # 有持仓时的出场信号 (v7.5.21: 止损阈值使用stop_loss_threshold=2.5σ)
+            # 有持仓时的出场信号 (止损阈值2.3σ,配合1.8σ上限,留0.5σ缓冲,避免即开即止)
             if abs(zscore) > self.stop_loss_threshold:
                 return TradingSignal.STOP_LOSS
 
@@ -735,8 +754,11 @@ class Pairs:
         if qty1 == 0 or qty2 == 0:
             return None  # 数量为0,无法开仓
 
-        # 注意: entry_zscore已在get_signal()中记录(v7.2.16修复)
-        # 不再在此处重新计算,避免市场价格波动导致记录值与触发值不一致
+        # 三阶段Z-score记录时机:
+        # - entry_zscore: 在get_signal()中记录(信号触发时)
+        # - fill_zscore_open: 在on_position_filled()中记录(订单成交时)
+        # - fill_zscore_close: 在on_position_filled()中记录(平仓成交时)
+        # 设计理由: 分离决策质量(entry)与执行质量(fill), 支持滑点分析和入场阈值优化
 
         # 构建意图对象
         return OpenIntent(
