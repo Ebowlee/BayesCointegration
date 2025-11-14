@@ -162,7 +162,7 @@ class MarketCondition:
 
         except Exception as e:
             # VIX数据异常时记录日志并返回None
-            if self.config.main.get('debug_mode', False):
+            if getattr(self.config.main, 'debug_mode', False):
                 self.algorithm.Debug(
                     f"[MarketCondition] VIX获取异常: {str(e)}"
                 )
@@ -213,7 +213,7 @@ class MarketCondition:
 
         except Exception as e:
             # 计算异常时记录日志并返回None（默认允许开仓）
-            if self.config.main.get('debug_mode', False):
+            if getattr(self.config.main, 'debug_mode', False):
                 self.algorithm.Debug(
                     f"[MarketCondition] 波动率计算异常: {str(e)}"
                 )

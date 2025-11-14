@@ -99,7 +99,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
             - v7.8.5: 移除死代码,简化为纯wrapper
             - v7.9.0: 添加level参数支持两级日志架构
         """
-        log_level = self.config.main.get('log_level', 0)
+        log_level = getattr(self.config.main, 'log_level', 0)  # dataclass使用getattr代替.get()
         if self.debug_mode and level <= log_level:
             QCAlgorithm.Debug(self, message)
 

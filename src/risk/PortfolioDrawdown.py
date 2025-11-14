@@ -88,7 +88,7 @@ class PortfolioDrawdownRule(RiskRule):
         """
         # 检查是否在冷却期内
         if self.is_in_cooldown():
-            if self.algorithm.config.main.get('debug_mode', False):
+            if getattr(self.algorithm.config.main, 'debug_mode', False):
                 self.algorithm.Debug(
                     f"[PortfolioDrawdown] 跳过: 冷却期至{self.cooldown_until}"
                 )
