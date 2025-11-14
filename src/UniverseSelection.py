@@ -20,10 +20,10 @@ class FinancialValidator:
         初始化财务验证器
 
         Args:
-            config: universe_selection配置字典
+            config: universe_selection配置对象 (UniverseConfig dataclass)
         """
-        self.config = config                               
-        self.filters = config.get('financial_filters', {}) 
+        self.config = config
+        self.filters = config.financial_filters 
 
 
     def validate_stock(self, stock: FineFundamental) -> Tuple[bool, List[str]]:
@@ -139,9 +139,9 @@ class SectorBasedUniverseSelection(FineFundamentalUniverseSelectionModel):
         coarse = list(coarse)  # 转换迭代器为列表
 
         # 预计算筛选阈值
-        min_ipo_date = self.algorithm.Time - timedelta(days=self.config['min_days_since_ipo'])
-        min_price = self.config['min_price']
-        min_volume = self.config['min_volume']
+        min_ipo_date = self.algorithm.Time - timedelta(days=self.config.min_days_since_ipo)
+        min_price = self.config.min_price
+        min_volume = self.config.min_volume
 
         # 高效筛选: 短路求值优化
         selected = [
