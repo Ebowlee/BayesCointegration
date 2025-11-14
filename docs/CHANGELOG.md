@@ -5,6 +5,85 @@
 ---
 
 
+## [v7.14.2_optimize-log-execution-order@20251114]
+
+### 版本概述
+**代码优化** - 反转 `_log_close_completion()` 和 `_update_trade_stats()` 执行顺序,消除临时变量计算,简化代码逻辑。
+
+### 核心优化
+
+#### 执行顺序反转
+
+**变更前** (v7.14.1):
+```python
+# on_position_filled(CLOSE) 方法
+self._log_close_completion(reason)   # 先记录日志
+self._update_trade_stats()           # 后更新统计
+```
+
+**变更后** (v7.14.2):
+```python
+# on_position_filled(CLOSE) 方法
+self._update_trade_stats()           # 先更新统计
+self._log_close_completion(reason)   # 后记录日志
+```
+
+**动机**: 让 `_log_close_completion()` 直接读取已更新的 `realized_pnl` 和 `realized_cost`,避免临时变量计算。
+
+---
+
+#### 代码简化
+
+**变更前** (v7.14.1):
+```python
+# _log_close_completion() 方法
+cumulative_pnl = self.realized_pnl + (current_pnl if current_pnl else 0)
+cumulative_cost = self.realized_cost + (current_cost if current_cost else 0)
+total_pnl_pct = (cumulative_pnl / cumulative_cost * 100) if cumulative_cost > 0 else 0
+```
+
+**变更后** (v7.14.2):
+```python
+# _log_close_completion() 方法
+total_pnl_pct = (self.realized_pnl / self.realized_cost * 100) if self.realized_cost > 0 else 0
+```
+
+**优化收益**:
+- 消除2个临时变量 (`cumulative_pnl`, `cumulative_cost`)
+- 减少4行代码 → 1行代码 (75%代码减少)
+- 语义更清晰: 日志显示"已更新"的累计值,而非"即将更新"的预测值
+
+---
+
+### 影响模块
+
+**Pairs.py** (2处修改)
+1. **Lines 255-259**: 反转方法调用顺序
+   - `_update_trade_stats()` 移至前 (先更新状态)
+   - `_log_close_completion()` 移至后 (读取已更新状态)
+
+2. **Lines 288-289**: 简化累计收益率计算
+   - 删除临时变量 `cumulative_pnl` 和 `cumulative_cost`
+   - 直接读取 `self.realized_pnl` 和 `self.realized_cost`
+
+---
+
+### 语义变更
+
+**日志时间点差异**:
+- **v7.14.1**: 日志显示 "即将变成" 的累计值 (历史 + 当前)
+- **v7.14.2**: 日志显示 "已经是" 的累计值 (已包含当前交易)
+
+**最终数值**: 两者完全一致,仅时间点语义不同。
+
+---
+
+### 向后兼容性
+**无Breaking Change** - 日志输出数值不变,仅内部实现优化。
+
+---
+
+
 ## [v7.14.1_rename-to-realized-pnl@20251114]
 
 ### 版本概述
