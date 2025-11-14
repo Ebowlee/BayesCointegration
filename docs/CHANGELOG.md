@@ -5,6 +5,84 @@
 ---
 
 
+## [v7.14.3_cleanup-docstrings-and-config@20251114]
+
+### 版本概述
+**文档清理与配置补全** - 补全缺失的close_reason配置,清理过时的docstring和冗余版本号注释。
+
+### 核心修复
+
+#### 1. 补全close_reason配置 (config.py)
+
+**问题**: 代码中使用了3个未定义的平仓原因,触发 `'未知原因'` fallback
+- `'CLOSE'`: `get_close_intent()` 的默认参数
+- `'RISK_TRIGGER'`: Portfolio风控使用
+- `'COOLDOWN_CLEANUP'`: 冷却期清理使用
+
+**解决**: 在 `config.constants['close_reasons']` 中新增定义
+```python
+'CLOSE': {'display': '正常平仓', 'cooldown_days': 10},
+'RISK_TRIGGER': {'display': '风险触发', 'cooldown_days': 30},
+'COOLDOWN_CLEANUP': {'display': '冷却清理', 'cooldown_days': 10}
+```
+
+---
+
+#### 2. 清理过时docstring (Pairs.py)
+
+**A. 删除废弃术语** (1处):
+- Line 313: `_update_trade_stats` docstring
+  - 删除: "黑名单系统" (v7.7.0已移除该系统)
+  - 改为: "加权平均累计"
+
+**B. 统一close_reason引用** (3处):
+- Lines 75, 200, 843: 删除硬编码枚举值
+- 改为: `参见 config.constants['close_reasons']`
+- 目的: 减少文档同步成本,单一真相来源
+
+**C. 删除冗余版本号** (4处):
+- Lines 298, 743, 888, 916-918: 删除实现细节的版本号注释
+- 保留: 架构变更和新增字段的版本号 (如Lines 6, 39, 47)
+
+**D. 优化术语** (1处):
+- Line 66: 注释标题
+  - 删除: "已实现PnL - 加权平均修正"
+  - 改为: "已平仓交易 - 加权平均累计" (更准确的中文表述)
+
+---
+
+### 修改文件清单
+
+1. **config.py** (新增3个定义)
+   - Lines 317-328: 新增 CLOSE, RISK_TRIGGER, COOLDOWN_CLEANUP 定义
+
+2. **Pairs.py** (11处修改)
+   - Line 66: 优化注释标题术语
+   - Line 75: 统一close_reason引用 (删除硬编码枚举)
+   - Line 200: 统一close_reason引用
+   - Line 298: 删除冗余版本号
+   - Line 313: 删除"黑名单系统"术语
+   - Line 743: 删除冗余版本号
+   - Line 843: 统一close_reason引用
+   - Lines 888, 916-918: 简化版本号提及
+
+---
+
+### 预期效果
+
+1. **消除日志fallback**: 所有实际使用的reason都有对应的显示文本,不再出现 `'未知原因'`
+2. **文档准确性提升**: 移除已废弃的"黑名单系统"术语
+3. **维护性提升**: close_reason枚举统一引用配置,降低文档同步成本
+4. **可读性优化**: 删除冗余版本号,保留关键架构变更说明
+
+---
+
+### 向后兼容性
+**无Breaking Change** - 纯文档清理与配置补全,不影响功能逻辑。
+
+---
+
+
 ## [v7.14.2_optimize-log-execution-order@20251114]
 
 ### 版本概述
