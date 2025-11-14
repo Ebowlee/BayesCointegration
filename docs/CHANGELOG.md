@@ -5,6 +5,87 @@
 ---
 
 
+## [v7.17.0_update-risk-execution-docs@20250206]
+
+### 版本概述
+**文档优化** - 清理risk和execution模块的过时注释和版本标注,提升文档可维护性。
+
+### 核心变更
+
+#### 指导原则
+- ✂️ 删除所有版本标注 (如 "v7.0.0:", "v7.13.0:" 等)
+- ✂️ 删除所有历史描述 (如 "移除XXX方法", "旧: ...", "改动:" 等)
+- ✅ 只描述当前状态 - docstring聚焦于"是什么"和"怎么用"
+- 📝 保持简洁专业 - 去除冗余后确保文档仍然清晰完整
+
+#### 1. risk模块更新 (8个文件,23处修改)
+
+**RiskManager.py** (6处修改):
+```python
+# Before:
+- check_portfolio_risks() → List[CloseIntent] (旧: (action, triggered_rules))
+- 返回值从(action, triggered_rules)改为List[CloseIntent]
+# v7.12.0改动: 移除PairDrawdownRule.get_cooldown_days()调用 (方法已删除)
+
+# After:
+- check_portfolio_risks() → List[CloseIntent]
+# (删除所有"旧:"/"移除..."注释块)
+# 冷却期统一由Pairs.get_cooldown_days()管理 (从config.close_reasons查询)
+```
+
+**RiskBaseRule.py** (2处修改):
+- 删除"移除get_action()方法"等历史改动描述
+- 删除activate_cooldown中冷却期建议列表和"v7.3.1:"标注
+
+**PortfolioAccountBlowup.py** (2处修改):
+- 删除历史改动描述
+- 修正reason示例: `'RISK_TRIGGER'` → `'ACCOUNT_BLOWUP'`
+- 更新配置: threshold=0.20, cooldown_days=999999
+
+**PortfolioDrawdown.py** (1处修改):
+- 修正reason示例: `'RISK_TRIGGER'` → `'PORTFOLIO_DRAWDOWN'`
+- 更新配置: threshold=0.10, cooldown_days=360
+
+**PairAnomaly.py** (2处修改):
+- 删除"v7.10.6: 常量已移至config"注释
+- 修正冷却期描述: "无需冷却期" → "支持per-pair冷却期 (默认999999天)"
+
+**PairHoldingTimeout.py** (3处修改):
+- 删除历史改动描述和"v7.11.0:"标注
+- 修正冷却期描述: "无需冷却期" → "支持per-pair冷却期 (默认10天)"
+- 更新动态公式描述: "基于半衰期分布的自适应公式 (half_life × 2.0)"
+
+#### 2. execution模块更新 (1个文件,1处修改)
+
+**OrderIntent.py** (reason枚举列表):
+```python
+# Before:
+reason: 平仓原因 ('NORMAL_EXIT', 'DRAWDOWN', 'ANOMALY', 'PORTFOLIO_DRAWDOWN', 'ACCOUNT_BLOWUP')
+
+# After:
+reason: 平仓原因 (必须匹配config.CLOSE_REASONS中的key):
+    - 'MEAN_REVERSION': 均值回归
+    - 'PAIR_BREAK': 协整破裂
+    - 'TIMEOUT': 持有超时
+    - 'DRAWDOWN': 回撤触发
+    - 'ANOMALY': 单腿异常
+    - 'PORTFOLIO_DRAWDOWN': 组合回撤
+    - 'ACCOUNT_BLOWUP': 组合爆仓
+```
+
+### 技术优势
+
+1. **可维护性提升**: 删除历史噪音后,新开发者更容易理解当前架构
+2. **文档一致性**: 所有模块采用统一的"只描述当前状态"标准
+3. **减少误导**: 修正P0错误注释(RiskManager.py:561)防止误导
+4. **完整性**: 补充缺失的reason枚举,确保API文档完整
+
+### 向后兼容性
+
+✅ **完全兼容** - 仅修改docstring和注释,不改变任何代码逻辑
+
+---
+
 ## [v7.16.0_unify-cooldown-checking@20250206]
 
 ### 版本概述
