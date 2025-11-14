@@ -5,6 +5,90 @@
 ---
 
 
+## [v7.20.0_fix-pairs-config-access-bug@20250206]
+
+### 版本概述
+**Bug修复** - 修正Pairs模块的config访问错误,统一使用dataclass属性访问模式。
+
+### 问题描述
+
+潜在运行时错误 (会在创建Pairs对象时触发):
+```
+'PairsTradingConfig' object is not subscriptable
+  at __init__
+    self.entry_threshold_lower = config['entry_threshold_lower']
+ in Pairs.py: line 51
+```
+
+### 根本原因
+
+main.py Line 195传递`self.config.pairs_trading` (PairsTradingConfig dataclass),
+但Pairs内部使用字典访问模式 (`config['key']`),导致类型不匹配。
+
+### 修复内容
+
+修改Pairs.py中所有config访问从字典模式改为属性模式 (8处修改):
+
+```python
+# Pairs.__init__ (Lines 51-60 - 交易阈值和保证金参数):
+# Before:
+self.entry_threshold_lower = config['entry_threshold_lower']
+self.entry_threshold_upper = config['entry_threshold_upper']
+self.exit_threshold = config['exit_threshold']
+self.stop_loss_threshold = config['stop_loss_threshold']
+self.margin_long = config['margin_requirement_long']
+self.margin_short = config['margin_requirement_short']
+
+# After:
+self.entry_threshold_lower = config.entry_threshold_lower
+self.entry_threshold_upper = config.entry_threshold_upper
+self.exit_threshold = config.exit_threshold
+self.stop_loss_threshold = config.stop_loss_threshold
+self.margin_long = config.margin_requirement_long
+self.margin_short = config.margin_requirement_short
+
+# get_planned_allocation_pct方法 (Lines 1001-1002):
+# Before:
+min_pct = self.config['min_investment_ratio']
+max_pct = self.config['max_investment_ratio']
+# After:
+min_pct = self.config.min_investment_ratio
+max_pct = self.config.max_investment_ratio
+
+# from_model_result类型注解和文档 (Line 126, 149):
+# Before:
+def from_model_result(cls, algorithm, model_result: Dict, config: Dict) -> 'Pairs':
+    config: 配对交易配置字典（src/config.py 的 pairs_trading 部分）
+# After:
+def from_model_result(cls, algorithm, model_result: Dict, config) -> 'Pairs':
+    config: 配对交易配置对象（PairsTradingConfig dataclass from src/config.py）
+```
+
+### 影响范围
+
+- 修改文件: src/Pairs.py (\_\_init\_\_, get_planned_allocation_pct, from_model_result)
+- 修复对象: config.pairs_trading的所有访问
+- 同类问题: 与v7.18.0(main.py)、v7.19.0(UniverseSelection.py)修复同源
+
+### 设计改进
+
+**统一配置访问模式** (v7.18.0 → v7.20.0):
+- main.config (顶层配置): dataclass对象 → 属性访问
+- 子模块config传递: 直接传递dataclass → 属性访问
+- 消除`get_module_config()`中间转换层 (简化架构)
+
+**架构清晰性**:
+- ✅ 类型明确: PairsTradingConfig dataclass (不是Dict)
+- ✅ IDE支持: 自动补全和类型检查
+- ✅ 代码一致性: 所有模块统一使用属性访问
+
+### 测试验证
+
+✅ Pairs对象创建不再报错 'PairsTradingConfig' object is not subscriptable
+✅ 交易阈值和保证金参数正确读取
+✅ 资金分配计算正常工作
+
+
 ## [v7.19.0_fix-universe-config-access-bug@20250206]
 
 ### 版本概述
