@@ -235,7 +235,8 @@ class StrategyConfig:
                 'pair_drawdown': {
                     'enabled': True,
                     'priority': 90,
-                    'threshold': 0.08                        # 统一回撤阈值
+                    'threshold': 0.08,                       # 统一回撤阈值 (单次+累计)
+                    'enable_cumulative_check': True          # v7.14.0: 启用累计历史回撤检测
                 },
                 'holding_timeout': {
                     'enabled': True,

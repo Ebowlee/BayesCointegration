@@ -6,45 +6,50 @@ from typing import Tuple
 
 class PairDrawdownRule(RiskRule):
     """
-    配对回撤风控规则 (v7.12.0: 简化冷却期逻辑)
+    配对回撤风控规则 (v7.14.0: 双层检测机制)
 
-    检测配对级别的回撤,如果浮亏超过阈值则触发平仓。
+    检测配对级别的回撤,包括单次交易回撤和累计历史回撤,任一超过阈值则触发平仓。
 
-    触发条件:
-    - 配对回撤 >= 阈值(默认5%)
-    - 回撤定义: (HWM - current_pair_value) / HWM
-    - pair_value = pnl + pair_cost (配对总价值 = 浮盈 + 保证金成本)
-    - 移除get_action()方法
-    - Rule只负责检测,RiskManager负责生成CloseIntent(reason='DRAWDOWN')
-    - v7.12.0: 统一DRAWDOWN原因,不再区分PROFIT/LOSS,统一180天冷却期
+    v7.14.0 双层检测机制:
+    - **Layer 2 (累计历史回撤)**: 检查累计收益率 total_pnl_dollars / total_pair_cost
+      - 触发条件: cumulative_return < -threshold (如 -0.11 < -0.08)
+      - 目标: 防止"每次亏一点点,累计亏很多"的温水煮青蛙配对
+      - 无最小交易次数限制 (只要有历史交易就检查)
+      - 优先级: 高于Layer 1 (先检查)
+
+    - **Layer 1 (单次交易回撤)**: 检查当前持仓回撤 (HWM - current_value) / HWM
+      - 触发条件: drawdown >= threshold (如 0.10 >= 0.08)
+      - 目标: 防止单次交易大幅浮亏
+      - HWM追踪: 自动更新配对价值峰值
+
+    - **统一阈值**: 两层共用threshold = 0.08 (8%)
+    - **触发任一**: Layer 2或Layer 1任一触发即平仓
 
     设计特点:
+    - 双层防护: 同时捕获短期风险和长期结构性问题
+    - 统一阈值: 简化配置,单次和累计共用threshold参数
+    - 优先级分层: Layer 2先检查,累计问题更严重
     - 配对专属计算: 使用tracked_qty和entry_price,避免Portfolio全局查询混淆
-    - HWM自动追踪: 调用pair.get_pair_drawdown()时自动更新
-    - 无需冷却期: 订单锁机制(tickets_manager.is_pair_locked)已防止重复提交
-    - 最低优先级: priority=50,在PositionAnomaly(100)和HoldingTimeout(60)之后
+    - HWM自动追踪: Layer 1使用Rule.pair_hwm_dict追踪峰值
+    - 订单锁保护: tickets_manager.is_pair_locked防止重复提交
 
-    与PortfolioDrawdownRule的对比:
-    - 层面: Pair vs Portfolio
-    - HWM存储: Rule.pair_hwm_dict vs Rule.high_water_mark
-    - HWM初始值: pair_cost(开仓时) vs initial_capital
-    - 计算基础: pair_value(pnl+cost) vs TotalPortfolioValue
-    - 触发动作: pair_close vs portfolio_liquidate_all
-    - 冷却期: 无 vs 30天
-    - 回撤公式: 相同 (HWM - current_value) / HWM
-
-    配置示例:
+    配置示例 (v7.14.0):
     {
         'enabled': True,
-        'priority': 50,
-        'threshold': 0.05  # 5%回撤 (v7.12.0当前值)
+        'priority': 90,
+        'threshold': 0.08,                    # 统一阈值: 单次+累计
+        'enable_cumulative_check': True       # 启用Layer 2累计检测
     }
 
     使用场景:
-    1. OnData循环检查所有pairs → PairDrawdownRule检测 → RiskManager生成Intent
+    1. OnData循环检查所有pairs → PairDrawdownRule检测 (双层) → RiskManager生成Intent
     2. ExecutionManager执行平仓 → 清理回撤配对
     3. HWM在on_pair_closed()时自动清理
-    4. v7.12.0: 冷却期由Pairs.get_cooldown_days()统一管理(DRAWDOWN→180天)
+    4. 冷却期由Pairs.get_cooldown_days()统一管理(DRAWDOWN→180天)
+
+    示例触发日志:
+    - Layer 2: "配对回撤-累计: -11.5% <= -8.0% (5笔历史)"
+    - Layer 1: "配对回撤-单次: 10.5% >= 8.0% (当前价值: $8,950, HWM: $10,000, ...)"
     """
 
     def __init__(self, algorithm, config: dict):
@@ -64,40 +69,41 @@ class PairDrawdownRule(RiskRule):
 
     def check(self, pair) -> Tuple[bool, str]:
         """
-        检查配对是否触发回撤风控
+        检查配对是否触发回撤风控 (v7.14.0: 双层检测)
 
         检查流程:
         1. 检查规则是否启用
         2. 检查该配对是否在冷却期
-        3. 获取配对当前 PnL 和保证金成本 (调用 pair.get_pair_pnl() 和 pair.get_pair_cost())
-        4. 计算配对总价值: pair_value = pnl + pair_cost
-        5. 更新该配对的 HWM (追踪 pair_value 峰值)
-        6. 计算标准回撤: (HWM - current_pair_value) / HWM
-        7. 与阈值比较
+        3. **Layer 2 (累计历史回撤检测)**: 检查累计收益率是否低于阈值
+        4. **Layer 1 (单次交易回撤检测)**: 检查当前持仓回撤是否超过阈值
 
         Args:
-            pair: Pairs对象,必须实现 get_pair_pnl() 和 get_pair_cost() 方法
+            pair: Pairs对象,必须实现 get_pair_pnl(), get_pair_cost(), total_pnl_dollars, total_pair_cost 属性
 
         Returns:
             (is_triggered, description)
             - is_triggered: True表示触发风控,False表示正常
-            - description: 详细描述(包含回撤比例、pair_value、HWM)
+            - description: 详细描述(区分Layer 1/Layer 2触发)
 
-        标准回撤公式:
-            drawdown = (HWM - current_value) / HWM
-            - HWM: 历史最高配对价值 (pnl + pair_cost 的峰值)
-            - current_value: 当前配对价值 (pnl + pair_cost)
-            - 初始HWM: 开仓时的 pair_cost (此时pnl=0)
+        v7.14.0 双层检测机制:
+        - **Layer 2 (累计)**: 检查历史累计收益率 total_pnl_dollars / total_pair_cost
+          - 触发条件: cumulative_return < -threshold (如 -0.11 < -0.08)
+          - 目标: 防止"每次亏一点点,累计亏很多"的温水煮青蛙配对
+          - 无最小交易次数限制 (只要有历史交易就检查)
 
-        与Portfolio回撤的对比:
-            - Portfolio: (HWM_portfolio - TotalPortfolioValue) / HWM_portfolio
-            - Pair: (HWM_pair_value - current_pair_value) / HWM_pair_value
-            - 公式结构完全一致,只是追踪对象不同
-            - 新增per-pair cooldown检查,防止同一配对短期内重复触发
+        - **Layer 1 (单次)**: 检查当前持仓回撤 (HWM - current_value) / HWM
+          - 触发条件: drawdown >= threshold (如 0.10 >= 0.08)
+          - 目标: 防止单次交易大幅浮亏
+
+        - **优先级**: Layer 2 > Layer 1 (累计问题更严重,先检查先返回)
+        - **统一阈值**: 两层共用config['threshold'] = 0.08
 
         示例:
-            triggered, desc = rule.check(pair=pair_obj)
-            # 返回: (True, "配对回撤: 16.5% >= 15.0% (当前价值: $8,350, HWM: $10,000)")
+            # Layer 2触发:
+            (True, "配对回撤-累计: -11.5% <= -8.0% (5笔历史)")
+
+            # Layer 1触发:
+            (True, "配对回撤-单次: 10.5% >= 8.0% (当前价值: $8,950, HWM: $10,000, ...)")
         """
         # 1. 检查是否启用
         if not self.enabled:
@@ -107,7 +113,25 @@ class PairDrawdownRule(RiskRule):
         if self.is_in_cooldown(pair_id=pair.pair_id):
             return False, ""
 
-        # 3. 获取当前 PnL 和保证金成本 (Pairs 提供数据)
+        # 3. Layer 2: 累计历史回撤检测 (v7.14.0)
+        if self.config.get('enable_cumulative_check', False):
+            # 前置条件: 必须有历史交易数据
+            if pair.trade_count > 0 and pair.total_pair_cost > 0:
+                # 计算累计收益率 (小数形式,如 -0.11 代表 -11%)
+                cumulative_return = pair.total_pnl_dollars / pair.total_pair_cost
+
+                # 判断累计亏损是否超过阈值 (使用统一阈值)
+                threshold = self.config['threshold']
+                if cumulative_return < -threshold:
+                    # 触发Layer 2: 累计亏损超过阈值
+                    description = (
+                        f"配对回撤-累计: {cumulative_return*100:.1f}% <= "
+                        f"-{threshold*100:.1f}% ({pair.trade_count}笔历史)"
+                    )
+                    return True, description
+
+        # 4. Layer 1: 单次交易回撤检测 (现有逻辑)
+        # 获取当前 PnL 和保证金成本 (Pairs 提供数据)
         pnl = pair.get_pair_pnl()
         pair_cost = pair.get_pair_cost()
 
@@ -134,13 +158,13 @@ class PairDrawdownRule(RiskRule):
         # 6. 计算标准回撤
         drawdown = (hwm - pair_value) / hwm
 
-        # 7. 判断是否触发
+        # 7. 判断是否触发 Layer 1
         threshold = self.config['threshold']
         if drawdown >= threshold:
-            # v7.3.1: 添加PnL状态到描述中(用于日志分析)
+            # v7.14.0: 区分Layer 1触发日志
             pnl_status = "盈利" if pnl > 0 else "亏损"
             description = (
-                f"配对回撤: {drawdown*100:.1f}% >= {threshold*100:.1f}% "
+                f"配对回撤-单次: {drawdown*100:.1f}% >= {threshold*100:.1f}% "
                 f"(当前价值: ${pair_value:,.2f}, HWM: ${hwm:,.2f}, "
                 f"PnL: ${pnl:,.2f}, 成本: ${pair_cost:,.2f}, 状态: {pnl_status})"
             )
