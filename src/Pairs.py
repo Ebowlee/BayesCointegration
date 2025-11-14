@@ -63,7 +63,7 @@ class Pairs:
         self.creation_time = algorithm.Time                                    # 首次创建时间
         self.reactivation_count = 0                                            # 重新激活次数(配对消失又出现)
 
-        # === 交易历史统计 (已实现PnL - 加权平均修正) ===
+        # === 交易历史统计 (已平仓交易 - 加权平均累计) ===
         self.trade_count = 0                                                   # 历史总交易次数
         self.win_count = 0                                                     # 历史盈利次数
         self.realized_pnl = 0.0                                                # 已实现PnL (已平仓交易累计,加权平均分子)
@@ -72,7 +72,7 @@ class Pairs:
         # === 时间追踪 ===
         self.pair_opened_time = None                                           # 配对开仓时间(双腿都成交的时刻)
         self.pair_closed_time = None                                           # 配对平仓时间(双腿都成交的时刻)
-        self.last_close_reason = None                                          # 最后平仓原因(v7.12.0统一: NORMAL_EXIT/DRAWDOWN/ANOMALY/PORTFOLIO_DRAWDOWN/ACCOUNT_BLOWUP)
+        self.last_close_reason = None                                          # 最后平仓原因 (参见 config.constants['close_reasons'])
 
         # === 交易质量追踪 (三阶段Z-score用于事后分析) ===
         self.entry_zscore = None                                               # 信号触发时Z-score(分析决策质量)
@@ -197,7 +197,7 @@ class Pairs:
             action: OrderAction.OPEN 或 OrderAction.CLOSE
             fill_time: 最后一条腿成交的时间(确保两腿都已成交)
             tickets: List[OrderTicket] 成交的订单票据列表,用于提取实际成交数量
-            reason: 平仓原因(仅CLOSE时有效, v7.12.0统一: NORMAL_EXIT/DRAWDOWN/ANOMALY/PORTFOLIO_DRAWDOWN/ACCOUNT_BLOWUP)
+            reason: 平仓原因 (仅CLOSE时有效, 参见 config.constants['close_reasons'])
 
         技术说明:
             - OrderTicket: QuantConnect SDK 订单票据类
@@ -295,7 +295,7 @@ class Pairs:
         entry_z = self.entry_zscore if self.entry_zscore is not None else 0.0
         close_z = self.fill_zscore_close if self.fill_zscore_close is not None else 0.0
 
-        # v7.10.6: 从config.constants动态读取显示文本
+        # 从config.constants动态读取显示文本
         close_reasons = self.algorithm.config.constants['close_reasons']
         reason_text = close_reasons.get(reason, {}).get('display', '未知原因')
 
@@ -310,7 +310,7 @@ class Pairs:
 
     def _update_trade_stats(self):
         """
-        更新交易历史统计 (黑名单系统 - 加权平均修正)
+        更新交易历史统计 (加权平均累计)
 
         在平仓时调用,计算本次交易收益并更新累计统计
 
@@ -740,7 +740,7 @@ class Pairs:
         else:
             # 有持仓时的出场信号 (止损阈值2.3σ,配合1.8σ上限,留0.5σ缓冲,避免即开即止)
             if abs(zscore) > self.stop_loss_threshold:
-                return 'PAIR_BREAK'  # v7.10.6: 原STOP_LOSS重命名
+                return 'PAIR_BREAK'  # 协整破裂 (Z-score超限)
 
             if abs(zscore) < self.exit_threshold:
                 return 'CLOSE'
@@ -840,8 +840,7 @@ class Pairs:
         - 如果无持仓,返回None
 
         Args:
-            reason: 平仓原因 (默认 'CLOSE')
-                   可选值: 'CLOSE', 'STOP_LOSS', 'TIMEOUT', 'RISK_TRIGGER'
+            reason: 平仓原因 (参见 config.constants['close_reasons'], 默认='CLOSE')
 
         Returns:
             CloseIntent对象 或 None(无持仓)
@@ -885,7 +884,7 @@ class Pairs:
 
     def calculate_leg_values(self, allocated_amount: float, signal: str, data):
         """
-        从分配资金计算两腿购买力,实现风险中性对冲 (v7.10.5修复)
+        从分配资金计算两腿购买力,实现风险中性对冲
 
         风险中性条件: 购买力比 = β
         即: (x₁/m₁) = β × (x₂/m₂)
@@ -914,9 +913,9 @@ class Pairs:
         返回:
             (value_A, value_B): A和B的目标购买市值, 计算失败返回 (None, None)
 
-        关键修复 (v7.10.5):
-            - 旧公式错误地引入价格P₁,P₂,导致市值比≠β
-            - 新公式只依赖β和保证金率,保证风险中性
+        关键设计:
+            - 公式只依赖β和保证金率,保证风险中性 (市值比 = β)
+            - 避免引入价格P₁,P₂,防止计算偏差
         """
         # 获取当前价格
         prices = self.get_price(data)
