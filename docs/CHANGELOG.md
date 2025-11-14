@@ -5,6 +5,99 @@
 ---
 
 
+## [v7.12.2_fix-missing-half-life-attribute@20251114]
+
+### 版本概述
+**Bug修复** - 修复Pairs对象缺少half_life属性导致的运行时错误。
+
+### 问题描述
+
+**错误现象**:
+```
+Runtime Error: 'Pairs' object has no attribute 'half_life'
+  at PairHoldingTimeout.py:92
+    max_days = pair.half_life * self.max_halflife_multiplier
+               ^^^^^^^^^^^^^^
+```
+
+**根本原因**:
+- v7.11.0引入自适应持仓超时功能,`PairHoldingTimeoutRule`需要访问`pair.half_life`属性
+- `PairSelector.calculate_quality_score()`计算了`half_life_days`,但未写入`model_result`
+- `Pairs.__init__()`初始化时无法从`model_data`获取`half_life`属性
+- 导致`PairHoldingTimeout.check()`访问不存在的属性时抛出`AttributeError`
+
+### 修复内容
+
+#### 1. PairSelector数据传递补全
+
+**src/analysis/PairSelector.py**:
+```python
+# Line 102: 添加half_life到model_result
+model_result['half_life'] = half_life_days  # v7.11.0: 供PairHoldingTimeoutRule使用
+```
+
+**修复逻辑**:
+- `_calculate_half_life_score()`已经计算了`half_life_days`
+- 但只写入了`half_life_score`,未写入`half_life_days`本身
+- 补全数据传递链: BayesianModeler → PairSelector → Pairs
+
+#### 2. Pairs属性补全
+
+**src/Pairs.py**:
+```python
+# Line 47: 读取half_life属性
+self.half_life = model_data.get('half_life')  # v7.11.0: 半衰期天数(供自适应持仓超时使用)
+```
+
+**修复逻辑**:
+- 使用`.get()`方法防御性读取 (兼容旧版本model_data)
+- 如果缺失返回None,不会影响其他功能 (仅PairHoldingTimeout受影响)
+
+### 影响分析
+
+#### 功能影响
+- **修复v7.11.0功能**: 自适应持仓超时现在可以正常工作
+- **无副作用**: 仅补全缺失的数据传递,不改变任何逻辑
+
+#### 数据流完整性
+```
+BayesianModeler (rho_mean)
+    ↓
+PairSelector._calculate_half_life_score() (计算 half_life = -ln(2)/ln(rho))
+    ↓
+PairSelector.calculate_quality_score() (写入 model_result['half_life'])  ← 修复点1
+    ↓
+Pairs.__init__() (读取 self.half_life = model_data.get('half_life'))     ← 修复点2
+    ↓
+PairHoldingTimeoutRule.check() (访问 pair.half_life)                      ✓ 可用
+```
+
+### 技术细节
+
+#### 半衰期计算公式
+```python
+# 公式: half_life = -ln(2) / ln(ρ)
+# 其中 ρ 是AR(1)自回归系数 (0 < ρ < 1)
+# 含义: 价差偏离均值后,回归到半程所需的天数
+```
+
+#### 自适应持仓超时逻辑 (v7.11.0)
+```python
+# PairHoldingTimeout.py:92
+max_days = pair.half_life * self.max_halflife_multiplier  # multiplier = 2.5
+# 示例: half_life=8天 → max_days=20天
+```
+
+### 测试验证
+
+**验证方法**:
+1. 运行回测,确认无`AttributeError`
+2. 检查日志,确认`PairHoldingTimeout`正常触发
+3. 验证持仓时间计算符合预期 (max_days = half_life × 2.5)
+
+---
+
+
 ## [v7.12.1_cleanup-post-freeze-simplification@20251114]
 
 ### 版本概述
