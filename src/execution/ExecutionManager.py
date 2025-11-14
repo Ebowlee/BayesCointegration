@@ -61,71 +61,55 @@ class ExecutionManager:
 
     # ===== Cooldown检查方法 =====
 
-    def is_pair_in_risk_cooldown(self, pair_id: tuple) -> bool:
+    def is_pair_in_cooldown(self, pair) -> bool:
         """
-        检查配对是否在风险冷却期
+        统一的配对冷却期检查 (v7.16.0: 合并risk + normal cooldown)
 
-        风险冷却期由风险规则激活(30天):
-        - PairDrawdownRule: 配对回撤触发
-        - PairHoldingTimeoutRule: 持仓超时触发
-        - PairAnomalyRule: 仓位异常触发
+        检查逻辑:
+        1. 检查Rule cooldown (风控触发的冷却: TIMEOUT/DRAWDOWN/ANOMALY)
+        2. 检查Pairs cooldown (正常交易的冷却: MEAN_REVERSION/PAIR_BREAK)
+        3. 任一生效则返回True
 
-        实现原理:
-        - 遍历RiskManager的所有Pair规则
-        - 调用每个规则的is_in_cooldown(pair_id)检查
-        - 任一规则返回True,则该配对不可开仓
+        冷却期分类 (基于config.CLOSE_REASONS的category字段):
+        - NORMAL_SIGNAL: 信号触发 (MEAN_REVERSION, PAIR_BREAK)
+          - 冷却期: 10天
+          - 管理: Pairs对象 (pair_closed_time + last_close_reason)
 
-        Args:
-            pair_id: 配对标识符
+        - PAIR_RISK: Pair风控触发 (TIMEOUT, DRAWDOWN, ANOMALY)
+          - 冷却期: 10天/180天/永久
+          - 管理: Rule对象 + Pairs对象 (双重同步)
 
-        Returns:
-            True: 在冷却期
-            False: 不在冷却期
-
-        设计特点:
-        - 依赖注入: 通过self.risk_manager访问规则列表
-        - 统一接口: 与is_portfolio_in_risk_cooldown()对称
-        - 决策集中: cooldown判断逻辑集中在ExecutionManager
-        """
-        for rule in self.risk_manager.pair_rules:
-            if rule.is_in_cooldown(pair_id=pair_id):
-                return True
-        return False
-
-
-    def is_pair_in_normal_cooldown(self, pair) -> bool:
-        """
-        检查配对是否在普通交易冷却期 (v7.2.21: 支持动态冷却期)
-
-        冷却期长度动态决定:
-        - CLOSE (正常回归): 10天 - 配对关系健康,允许较快重入
-        - STOP_LOSS (止损退出): 30天 - 配对可能出现问题,需要更长观察期
-
-        实现原理:
-        - Pairs对象存储 pair_closed_time 和 last_close_reason
-        - get_pair_frozen_days() 查询已冷却天数
-        - get_cooldown_days() 根据 last_close_reason 动态返回需要的冷却期
-        - 如果 frozen_days < cooldown_days, 则仍在冷却期
+        - PORTFOLIO_RISK: Portfolio风控触发 (PORTFOLIO_DRAWDOWN, ACCOUNT_BLOWUP)
+          - 冷却期: 360天/永久
+          - 管理: 全局cooldown (不参与per-pair检查)
 
         Args:
             pair: Pairs对象
 
         Returns:
-            True: 在冷却期
-            False: 不在冷却期或无冷却期数据
+            True: 在冷却期 (任一Rule或Pairs cooldown生效)
+            False: 不在冷却期
 
-        设计特点:
-        - 数据所有权: Pairs拥有数据 (pair_closed_time, last_close_reason)
-        - 决策职责: ExecutionManager负责判断逻辑
-        - 动态策略: 根据退出原因自动调整冷却期长度
+        设计理由 (v7.16.0):
+        - Rule cooldown和Pairs cooldown已通过RiskManager同步,无需分开检查
+        - 统一接口简化调用逻辑,消除重复检查
+        - 单一检查点,降低数据不一致风险
         """
-        frozen_days = pair.get_pair_frozen_days()
-        if frozen_days is None:
-            return False  # 无冷却期数据,允许开仓
+        pair_id = pair.pair_id
 
-        # v7.2.21: 使用动态冷却期 (根据 last_close_reason 返回 10 或 30)
-        cooldown_days = pair.get_cooldown_days()
-        return frozen_days < cooldown_days
+        # 检查1: Rule层面cooldown (TIMEOUT/DRAWDOWN/ANOMALY风控)
+        for rule in self.risk_manager.pair_rules:
+            if rule.is_in_cooldown(pair_id=pair_id):
+                return True
+
+        # 检查2: Pairs层面cooldown (MEAN_REVERSION/PAIR_BREAK信号)
+        frozen_days = pair.get_pair_frozen_days()
+        if frozen_days is not None:
+            cooldown_days = pair.get_cooldown_days()
+            if frozen_days < cooldown_days:
+                return True
+
+        return False
 
 
     # ===== 风控执行方法 =====
@@ -403,12 +387,8 @@ class ExecutionManager:
             if self.tickets_manager.is_pair_locked(pair_id):
                 continue
 
-            # 检查2: 风险冷却期检查
-            if self.is_pair_in_risk_cooldown(pair_id):
-                continue
-
-            # 检查3: 普通交易冷却期检查
-            if self.is_pair_in_normal_cooldown(pair):
+            # 检查2: 统一冷却期检查 (v7.16.0: 合并risk + normal cooldown)
+            if self.is_pair_in_cooldown(pair):
                 continue
 
             # 执行开仓并注册订单追踪

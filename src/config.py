@@ -178,40 +178,47 @@ class Constants:
         'CLOSE': 'CLOSE'
     }
 
-    # === 4. 平仓原因（常量+显示文本+冷却天数）===
+    # === 4. 平仓原因（常量+显示文本+冷却天数+分类）===
     CLOSE_REASONS = {
-        # 正常交易周期结束 - 三分类（统一10天冷却期）
+        # === 组1: 正常交易信号触发 (Pairs cooldown only) ===
         'MEAN_REVERSION': {
             'display': '均值回归',
-            'cooldown_days': 10
+            'cooldown_days': 10,
+            'category': 'NORMAL_SIGNAL'  # 信号触发,非风控
         },
         'PAIR_BREAK': {
             'display': '协整破裂',
-            'cooldown_days': 10
-        },
-        'TIMEOUT': {
-            'display': '持有超时',
-            'cooldown_days': 10
+            'cooldown_days': 10,
+            'category': 'NORMAL_SIGNAL'  # 信号触发,非风控
         },
 
-        # 风险触发
+        # === 组2: Pair级风控触发 (Rule cooldown + Pairs cooldown同步) ===
+        'TIMEOUT': {
+            'display': '持有超时',
+            'cooldown_days': 10,
+            'category': 'PAIR_RISK'  # Pair风控触发
+        },
         'DRAWDOWN': {
             'display': '回撤触发',
-            'cooldown_days': 180
+            'cooldown_days': 180,
+            'category': 'PAIR_RISK'  # Pair风控触发
         },
         'ANOMALY': {
             'display': '单腿异常',
-            'cooldown_days': 999999
+            'cooldown_days': 999999,
+            'category': 'PAIR_RISK'  # Pair风控触发
         },
 
-        # Portfolio级风控
+        # === 组3: Portfolio级风控 (全局cooldown only) ===
         'PORTFOLIO_DRAWDOWN': {
             'display': '组合回撤',
-            'cooldown_days': 360
+            'cooldown_days': 360,
+            'category': 'PORTFOLIO_RISK'  # Portfolio风控触发
         },
         'ACCOUNT_BLOWUP': {
             'display': '组合爆仓',
-            'cooldown_days': 999999
+            'cooldown_days': 999999,
+            'category': 'PORTFOLIO_RISK'  # Portfolio风控触发
         }
     }
 
