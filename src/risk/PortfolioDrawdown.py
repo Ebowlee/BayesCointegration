@@ -17,26 +17,26 @@ class PortfolioDrawdownRule(RiskRule):
 
     功能:
     - 追踪账户净值的历史最高水位(high water mark)
-    - 检测当前回撤是否超过阈值(默认15%)
+    - 检测当前回撤是否超过阈值(默认10%)
     - 触发后由RiskManager生成所有持仓的CloseIntent
-    - 支持30天冷却期(可恢复交易)
+    - 支持360天冷却期
 
     配置参数:
     - enabled: 是否启用(默认True)
     - priority: 优先级(默认90,仅次于AccountBlowup的100)
-    - threshold: 回撤阈值(默认0.15,即15%)
-    - cooldown_days: 冷却期天数(默认30,可恢复)
+    - threshold: 回撤阈值(默认0.10,即10%)
+    - cooldown_days: 冷却期天数(默认360天)
 
     与AccountBlowupRule的区别:
     - 触发条件: 回撤(动态HWM) vs 亏损(固定initial_capital)
-    - 冷却期: 30天(可恢复) vs 36500天(永久)
+    - 冷却期: 360天 vs 999999天(永久)
     - HWM重置: 触发时重置HWM为当前净值,避免冷却期后重复触发
 
     触发后行为:
     1. RiskManager生成所有持仓的CloseIntent
     2. 重置HWM为当前净值(避免冷却期后因回撤持续而重复触发)
-    3. ExecutionManager执行Intent后激活30天冷却期
-    4. 30天后,如果净值未继续下跌,不会再次触发
+    3. ExecutionManager执行Intent后激活360天冷却期
+    4. 360天后,如果净值未继续下跌,不会再次触发
 
     使用示例:
     ```python
@@ -48,7 +48,7 @@ class PortfolioDrawdownRule(RiskRule):
     if triggered:
         # RiskManager生成所有持仓的CloseIntent
         pairs = self.pairs_manager.get_pairs_with_position()
-        intents = [pair.get_close_intent(reason='RISK_TRIGGER') for pair in pairs.values()]
+        intents = [pair.get_close_intent(reason='PORTFOLIO_DRAWDOWN') for pair in pairs.values()]
         # ExecutionManager执行Intent后激活cooldown
         # HWM已在check()中自动重置
     ```

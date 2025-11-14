@@ -22,11 +22,8 @@ class AccountBlowupRule(RiskRule):
     配置参数:
     - enabled: 是否启用（默认True）
     - priority: 优先级（默认100，最高优先级）
-    - threshold: 亏损阈值（默认0.25，即25%）
-    - cooldown_days: 冷却期天数（默认36500，约100年，相当于永久）
-    - 移除get_action()方法
-    - Rule只负责检测,RiskManager负责生成Intent
-    - Cooldown由RiskManager在Intent执行后激活
+    - threshold: 亏损阈值（默认0.20，即20%）
+    - cooldown_days: 冷却期天数（默认999999天，永久）
 
     使用示例:
     ```python
@@ -38,7 +35,7 @@ class AccountBlowupRule(RiskRule):
     if triggered:
         # RiskManager生成所有持仓的CloseIntent
         pairs = self.pairs_manager.get_pairs_with_position()
-        intents = [pair.get_close_intent(reason='RISK_TRIGGER') for pair in pairs.values()]
+        intents = [pair.get_close_intent(reason='ACCOUNT_BLOWUP') for pair in pairs.values()]
         # ExecutionManager执行Intent后激活cooldown
     ```
     """

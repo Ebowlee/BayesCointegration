@@ -12,21 +12,19 @@ class PairHoldingTimeoutRule(RiskRule):
     如果持仓超过max_days仍未回归,说明协整关系可能失效,应止损退出。
 
     触发条件:
-    - 持仓天数 > max_days (从pair.pair_opened_time到当前时间)
-    - 移除get_action()方法
-    - Rule只负责检测,RiskManager负责生成CloseIntent(reason='TIMEOUT')
-    - cooldown由RiskManager在Intent执行后激活
+    - 持仓天数 > max_days (动态计算: half_life × max_halflife_multiplier)
 
     设计特点:
-    - 无需冷却期: 订单锁机制(tickets_manager.is_pair_locked)已防止重复提交
+    - 支持per-pair冷却期: 默认10天
+    - 动态持有时间: 基于半衰期分布的自适应公式 (half_life × 2.0)
     - 简单高效: 只需检查时间差,不涉及PnL计算
-    - 优先级中等: priority=60,介于PairAnomaly(100)和PairDrawdown(50)之间
+    - 优先级中等: priority=80
 
     配置示例:
     {
         'enabled': True,
-        'priority': 60,
-        'max_days': 30
+        'priority': 80,
+        'max_halflife_multiplier': 2.0
     }
 
     使用示例:
@@ -40,19 +38,19 @@ class PairHoldingTimeoutRule(RiskRule):
 
     def __init__(self, algorithm, config: dict):
         """
-        初始化持仓超时规则 (v7.11.0: 动态持有时间)
+        初始化持仓超时规则
 
         Args:
             algorithm: QCAlgorithm实例
             config: 规则配置字典,必须包含'max_halflife_multiplier'字段
         """
         super().__init__(algorithm, config)
-        self.max_halflife_multiplier = config['max_halflife_multiplier']  # v7.11.0: 动态倍数(默认2.0)
+        self.max_halflife_multiplier = config['max_halflife_multiplier']
 
 
     def check(self, pair) -> Tuple[bool, str]:
         """
-        检查配对是否触发持仓超时 (v7.11.0: 动态持有时间)
+        检查配对是否触发持仓超时
 
         检查流程:
         1. 检查规则是否启用

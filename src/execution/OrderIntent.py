@@ -60,12 +60,19 @@ class CloseIntent:
         symbol2: 第二只股票的Symbol对象
         qty1: 第一只股票的当前持仓数量(需要平仓的数量)
         qty2: 第二只股票的当前持仓数量(需要平仓的数量)
-        reason: 平仓原因 (v7.12.0统一: 'NORMAL_EXIT', 'DRAWDOWN', 'ANOMALY', 'PORTFOLIO_DRAWDOWN', 'ACCOUNT_BLOWUP')
+        reason: 平仓原因 (必须匹配config.CLOSE_REASONS中的key):
+            - 'MEAN_REVERSION': 均值回归
+            - 'PAIR_BREAK': 协整破裂
+            - 'TIMEOUT': 持有超时
+            - 'DRAWDOWN': 回撤触发
+            - 'ANOMALY': 单腿异常
+            - 'PORTFOLIO_DRAWDOWN': 组合回撤
+            - 'ACCOUNT_BLOWUP': 组合爆仓
         tag: 订单标签,用于追踪和分析(包含reason信息)
 
     使用场景:
         # Pairs生成意图
-        intent = pair.get_close_intent(reason='STOP_LOSS')
+        intent = pair.get_close_intent(reason='MEAN_REVERSION')
 
         # OrderExecutor执行意图
         tickets = order_executor.execute_close(intent)

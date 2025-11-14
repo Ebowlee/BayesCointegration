@@ -1,13 +1,12 @@
 # region imports
 from .RiskBaseRule import RiskRule
 from typing import Tuple
-# v7.10.6: 常量已移至config.constants统一管理，不再需要constants.py
 # endregion
 
 
 class PairAnomalyRule(RiskRule):
     """
-    配对异常风控规则 
+    配对异常风控规则
 
     检测配对持仓的异常状态,包括单边持仓和同向持仓。
     这些异常通常由订单部分成交、取消或拒绝导致。
@@ -16,13 +15,10 @@ class PairAnomalyRule(RiskRule):
     - PARTIAL_LEG1: 只有第一腿有持仓,第二腿无持仓
     - PARTIAL_LEG2: 只有第二腿有持仓,第一腿无持仓
     - ANOMALY_SAME: 两腿持仓方向相同(都是多头或都是空头)
-    - 移除get_action()方法
-    - Rule只负责检测,RiskManager负责生成CloseIntent(reason='ANOMALY')
-    - cooldown由RiskManager在Intent执行后激活
 
     设计特点:
     - 最高优先级: priority=100,异常持仓需要立即处理
-    - 无需冷却期: 订单锁机制(tickets_manager.is_pair_locked)已防止重复提交
+    - 支持per-pair冷却期: 默认999999天(永久禁用该配对)
     - 复用基础设施: 直接调用pair.has_anomaly_position()方法,避免重复实现
     - 与TicketsManager协同: TicketsManager.get_anomaly_pairs()提供初步检测
 

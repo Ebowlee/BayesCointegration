@@ -37,11 +37,11 @@ class RiskManager:
     - 延迟cooldown：Intent执行成功后再激活cooldown
     - 优先级排序：始终返回最高优先级规则的Intent
     - 分层检查：Portfolio和Pair分开调度，API完全对称
-    - check_portfolio_risks() → List[CloseIntent] (旧: (action, triggered_rules))
-    - check_pair_risks(pair) → Optional[CloseIntent] (旧: (action, triggered_rules))
-    - check_all_pair_risks() → List[CloseIntent] (旧: Dict[pair_id, (action, triggered)])
-    - activate_cooldown_for_portfolio(executed_pair_ids) (新增)
-    - activate_cooldown_for_pairs(executed_pair_ids) (新增)
+    - check_portfolio_risks() → List[CloseIntent]
+    - check_pair_risks(pair) → Optional[CloseIntent]
+    - check_all_pair_risks() → List[CloseIntent]
+    - activate_cooldown_for_portfolio(executed_pair_ids)
+    - activate_cooldown_for_pairs(executed_pair_ids)
 
     使用示例:
     ```python
@@ -82,7 +82,7 @@ class RiskManager:
         Args:
             algorithm: QuantConnect算法实例
             config: StrategyConfig配置对象
-            pairs_manager: PairsManager实例（v6.9.3新增，用于集中度分析）
+            pairs_manager: PairsManager实例（Dependency injection: 用于集中度分析）
         """
         self.algorithm = algorithm
         self.config = config
@@ -251,12 +251,6 @@ class RiskManager:
             Tuple[List[CloseIntent], Optional[RiskRule]]:
             - List[CloseIntent]: 需要平仓的Intent列表,空列表表示未触发
             - Optional[RiskRule]: 触发的规则实例,None表示未触发
-        - 返回值从(action, triggered_rules)改为List[CloseIntent]
-        - RiskManager负责生成Intent(不再依赖Rule.get_action())
-        - 返回值改为Tuple[List[CloseIntent], Optional[RiskRule]]
-        - 移除Intent→Rule映射机制(不再需要)
-        - 移除重复的cooldown检查(main.py已前置检查)
-        - 简化cooldown激活逻辑(直接传递触发的规则)
 
         使用示例:
             intents, triggered_rule = self.risk_manager.check_portfolio_risks()
@@ -338,11 +332,6 @@ class RiskManager:
             # 无论成功与否,都激活cooldown
             self.risk_manager.activate_cooldown_for_portfolio(triggered_rule)
         ```
-        - 参数从 List[Tuple] 改为 RiskRule
-        - 移除 pair_id→rule 映射查找逻辑
-        - 移除去重逻辑(单个规则实例,无需去重)
-        - 移除映射清理逻辑(不再维护映射)
-        - 无条件激活(不再依赖执行成功与否)
         """
         if triggered_rule is None:
             return  # 防御性检查
@@ -475,14 +464,8 @@ class RiskManager:
 
         示例:
         - (AAPL,MSFT)同时满足Anomaly+Timeout → 只触发Anomaly (priority=100)
-        - (AAPL,MSFT)触发Drawdown → 该配对30天内不再触发Drawdown
+        - (AAPL,MSFT)触发Drawdown → 该配对180天内不再触发Drawdown
         - (GOOGL,META)仍可触发Drawdown (不受影响)
-        - 返回类型从 (action, triggered_rules) 改为 Optional[CloseIntent]
-        - Rule不再提供get_action(),RiskManager统一生成Intent
-        - 触发时立即返回(最高优先级),不再收集所有触发规则
-        - 记录Intent→Rule映射,供activate_cooldown_for_pairs()使用
-        - Rule.check()内部检查per-pair cooldown (不再需要外部检查)
-        - 注释更新: 明确排他性作用域和cooldown作用域
 
         注意:
         - 本方法不修改任何状态,纯粹的检查和返回
@@ -541,7 +524,7 @@ class RiskManager:
 
     def activate_cooldown_for_pairs(self, executed_pair_ids: List[Tuple]) -> None:
         """
-        为已执行的Pair层Intent激活对应Rule的per-pair cooldown (v7.12.0: 简化逻辑)
+        为已执行的Pair层Intent激活对应Rule的per-pair cooldown
 
         触发时机:
         - ExecutionManager执行完Pair风控的CloseIntent后调用
@@ -552,15 +535,16 @@ class RiskManager:
         - Per-Pair Cooldown: rule.activate_cooldown(pair_id) 只冷却该配对
         - 不去重Rule: 同一Rule可能为多个配对激活cooldown
         - 容错: 如果pair_id不在映射中,跳过不报错
-        - v7.12.0: 统一冷却期管理,移除PairDrawdownRule的特殊处理
+        - 冷却期天数统一由Pairs.get_cooldown_days()管理
 
         Args:
             executed_pair_ids: 已成功执行的pair_id列表
 
-        v7.12.0改动:
-        - 移除PairDrawdownRule.get_cooldown_days()调用 (方法已删除)
-        - 冷却期统一由Pairs.get_cooldown_days()管理
-        - 简化日志输出,不再区分Rule类型
+
+        设计原则:
+        - 冷却期统一由Pairs.get_cooldown_days()管理 (从config.close_reasons查询)
+        - 所有Rule使用统一的激活接口 activate_cooldown(pair_id)
+        - 批量日志输出,减少日志噪音
         """
         activated_rules = {}  # {rule: [(pair_id, cooldown_days)]} 用于批量日志
 
@@ -569,22 +553,22 @@ class RiskManager:
             if pair_id in self._pair_intent_to_rule_map:
                 rule = self._pair_intent_to_rule_map[pair_id]
 
-                # v7.12.0: 所有Rule使用统一的默认cooldown_days激活
+                # 激活Rule层面的cooldown标记
                 rule.activate_cooldown(pair_id=pair_id)
 
-                # v7.13.1: 从Pairs对象查询真实冷却天数 (修复BUG 2)
+                # 从Pairs对象查询真实冷却天数 (用于日志显示)
                 pair_obj = self.pairs_manager.get_pair_by_id(pair_id)
                 if pair_obj:
                     cooldown_days = pair_obj.get_cooldown_days()  # 从config.close_reasons查询
                 else:
-                    cooldown_days = 10  # 默认10天 (NORMAL_EXIT类)
+                    cooldown_days = 10  # 默认10天
 
                 # 记录用于批量日志
                 if rule not in activated_rules:
                     activated_rules[rule] = []
                 activated_rules[rule].append((pair_id, cooldown_days))
 
-        # 批量日志输出 (v7.12.0: 统一格式)
+        # 批量日志输出
         for rule, pair_cooldowns in activated_rules.items():
             pair_ids = [pair_id for pair_id, _ in pair_cooldowns]
             cooldown_days = pair_cooldowns[0][1] if pair_cooldowns else 0
