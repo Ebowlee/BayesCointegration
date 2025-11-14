@@ -5,6 +5,51 @@
 ---
 
 
+## [v7.18.0_fix-config-access-bug@20250206]
+
+### 版本概述
+**Bug修复** - 修正config.main字典访问错误,解决策略初始化失败问题。
+
+### 问题描述
+
+运行时错误:
+```
+'MainConfig' object is not subscriptable
+  at Initialize
+    self.debug_mode = self.config.main['debug_mode']
+ in main.py: line 27
+```
+
+### 根本原因
+
+`MainConfig` 是 dataclass 对象,应该使用属性访问 (`.attribute`),
+而不是字典访问 (`['key']`)。
+
+### 修复内容
+
+修改main.py Initialize()方法中所有config.main访问 (9处修改):
+
+```python
+# Before (字典访问 - 错误):
+self.debug_mode = self.config.main['debug_mode']
+self.SetStartDate(*self.config.main['start_date'])
+
+# After (属性访问 - 正确):
+self.debug_mode = self.config.main.debug_mode
+self.SetStartDate(*self.config.main.start_date)
+```
+
+### 影响范围
+
+- 修改文件: main.py (Initialize方法,Lines 27-49)
+- 修复对象: config.main的所有访问
+
+### 测试验证
+
+✅ 策略初始化不再报错 'MainConfig' object is not subscriptable
+
+---
+
 ## [v7.17.0_update-risk-execution-docs@20250206]
 
 ### 版本概述
