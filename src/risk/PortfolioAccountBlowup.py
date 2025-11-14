@@ -51,7 +51,7 @@ class AccountBlowupRule(RiskRule):
         super().__init__(algorithm, config)
 
         # 获取初始资金（用于计算亏损比例）
-        self.initial_capital = algorithm.config.main['cash']
+        self.initial_capital = algorithm.config.main.cash
 
 
     def check(self, **kwargs) -> Tuple[bool, str]:

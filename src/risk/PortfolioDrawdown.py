@@ -65,7 +65,7 @@ class PortfolioDrawdownRule(RiskRule):
         super().__init__(algorithm, config)
 
         # 初始化最高水位为初始资金
-        self.high_water_mark = algorithm.config.main['cash']
+        self.high_water_mark = algorithm.config.main.cash
 
 
 
