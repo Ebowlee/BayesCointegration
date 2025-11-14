@@ -24,29 +24,29 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         """初始化策略"""
         # === 加载参数配置 ===
         self.config = StrategyConfig()
-        self.debug_mode = self.config.main['debug_mode']
-        self.SetStartDate(*self.config.main['start_date'])
-        self.SetEndDate(*self.config.main['end_date'])
-        self.SetCash(self.config.main['cash'])
-        self.UniverseSettings.Resolution = self.config.main['resolution']
-        self.SetBrokerageModel(self.config.main['brokerage_name'], self.config.main['account_type'])
+        self.debug_mode = self.config.main.debug_mode
+        self.SetStartDate(*self.config.main.start_date)
+        self.SetEndDate(*self.config.main.end_date)
+        self.SetCash(self.config.main.cash)
+        self.UniverseSettings.Resolution = self.config.main.resolution
+        self.SetBrokerageModel(self.config.main.brokerage_name, self.config.main.account_type)
 
         # === Benchmark symbols列表(需过滤，不参与选股) ===
         self.benchmark_symbols = []
-        self.market_benchmark = self.AddEquity("SPY", self.config.main['resolution']).Symbol
+        self.market_benchmark = self.AddEquity("SPY", self.config.main.resolution).Symbol
         self.benchmark_symbols.append(self.market_benchmark)
         self.SetBenchmark(self.market_benchmark)
 
 
         # === 初始化选股模块 ===
-        self.universe_selector = SectorBasedUniverseSelection(self)           
+        self.universe_selector = SectorBasedUniverseSelection(self)
         self.SetUniverseSelection(self.universe_selector)
         self.symbols = []
 
         # 选股触发调度器
         # 传入market_benchmark确保在首个交易日触发(而非日历月首)
-        date_rule = getattr(self.DateRules, self.config.main['schedule_frequency'])(self.market_benchmark)
-        time_rule = self.TimeRules.At(*self.config.main['schedule_time'])
+        date_rule = getattr(self.DateRules, self.config.main.schedule_frequency)(self.market_benchmark)
+        time_rule = self.TimeRules.At(*self.config.main.schedule_time)
         self.Schedule.On(date_rule, time_rule, Action(self.universe_selector.trigger_selection))
 
         # === 初始化分析工具 ===
