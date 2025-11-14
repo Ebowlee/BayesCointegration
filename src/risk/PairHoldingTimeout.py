@@ -109,12 +109,23 @@ class PairHoldingTimeoutRule(RiskRule):
             entry_time = getattr(pair, 'pair_opened_time', None)
             entry_time_str = entry_time.strftime('%Y-%m-%d') if entry_time else "未知"
 
-            description = (
-                f"持仓超时: 已持仓{holding_days}天 > "
-                f"上限{max_days:.1f}天 "
-                f"(半衰期{pair.half_life:.1f}天 × {self.max_halflife_multiplier}, "
-                f"开仓时间: {entry_time_str})"
-            )
+            # v7.13.1: 根据实际使用的公式动态生成日志
+            if pair.half_life_std > 0:
+                # 新公式: half_life + 2*std
+                description = (
+                    f"持仓超时: 已持仓{holding_days}天 > "
+                    f"上限{max_days:.1f}天 "
+                    f"(半衰期{pair.half_life:.1f}天 + 2×标准差{pair.half_life_std:.1f}天, "
+                    f"开仓时间: {entry_time_str})"
+                )
+            else:
+                # 旧公式: half_life × multiplier (兼容模式)
+                description = (
+                    f"持仓超时: 已持仓{holding_days}天 > "
+                    f"上限{max_days:.1f}天 "
+                    f"(半衰期{pair.half_life:.1f}天 × {self.max_halflife_multiplier}, "
+                    f"开仓时间: {entry_time_str})"
+                )
             return True, description
 
         return False, ""

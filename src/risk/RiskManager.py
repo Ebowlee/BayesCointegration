@@ -572,10 +572,16 @@ class RiskManager:
                 # v7.12.0: 所有Rule使用统一的默认cooldown_days激活
                 rule.activate_cooldown(pair_id=pair_id)
 
+                # v7.13.1: 从Pairs对象查询真实冷却天数 (修复BUG 2)
+                pair_obj = self.pairs_manager.get_pair_by_id(pair_id)
+                if pair_obj:
+                    cooldown_days = pair_obj.get_cooldown_days()  # 从config.close_reasons查询
+                else:
+                    cooldown_days = 10  # 默认10天 (NORMAL_EXIT类)
+
                 # 记录用于批量日志
                 if rule not in activated_rules:
                     activated_rules[rule] = []
-                cooldown_days = rule.config.get('cooldown_days', 0)
                 activated_rules[rule].append((pair_id, cooldown_days))
 
         # 批量日志输出 (v7.12.0: 统一格式)
