@@ -5,6 +5,85 @@
 ---
 
 
+## [v7.25.0_fix-marginallocator-config-access@20250206]
+
+### 版本概述
+**Bug修复** - 修复MarginAllocator初始化时访问PairsTradingConfig的配置访问错误(config系列Bug修复最终版)。
+
+### 问题描述
+
+运行时错误:
+```
+'PairsTradingConfig' object is not subscriptable
+  at __init__
+    self.margin_usage_ratio = pairs_config['margin_usage_ratio']
+ in MarginAllocator.py: line 60
+```
+
+### 根本原因
+
+MarginAllocator在初始化时需要读取margin_usage_ratio和min_investment_ratio,但仍使用字典访问模式访问PairsTradingConfig dataclass对象。
+
+### 修复内容
+
+修改MarginAllocator.py的`__init__`方法中的2处配置访问:
+
+```python
+# Line 60:
+# Before:
+self.margin_usage_ratio = pairs_config['margin_usage_ratio']
+# After:
+self.margin_usage_ratio = pairs_config.margin_usage_ratio
+
+# Line 69:
+# Before:
+self.min_investment_amount = (config.main['cash'] * config.pairs_trading['min_investment_ratio'])
+# After:
+self.min_investment_amount = (config.main.cash * config.pairs_trading.min_investment_ratio)
+```
+
+### 影响范围
+
+- 修改文件: src/execution/MarginAllocator.py
+- 修复对象: margin_usage_ratio参数读取, min_investment_amount计算
+- 触发时机: main.py Initialize()中创建MarginAllocator实例时
+
+### 全局验证结果
+
+执行以下验证命令,确认所有dataclass配置访问错误已修复:
+```bash
+grep -rn "config\.main\[" src/ main.py       # 无结果
+grep -rn "config\.universe_selection\[" src/ main.py  # 无结果
+grep -rn "config\.pairs_trading\[" src/ main.py      # 无结果
+grep -rn "\.config\..*\.get(" src/ main.py   # 仅剩getattr调用(正确)
+```
+
+剩余字典访问均为字典类型配置(risk_management, bayesian_modeler, analysis_shared),符合设计。
+
+### Config系列Bug修复总结
+
+从v7.18.0到v7.25.0,共修复8个版本,37处配置访问错误:
+
+| 版本 | 文件 | 修复数量 | 错误类型 |
+|------|------|----------|----------|
+| v7.18.0 | main.py | 9 | MainConfig字典访问 |
+| v7.19.0 | UniverseSelection.py | 4 | UniverseConfig字典访问 |
+| v7.20.0 | Pairs.py | 8 | PairsTradingConfig字典访问 |
+| v7.21.0 | PairSelector.py | 4 | PairSelectorConfig字典访问 |
+| v7.22.0 | CointegrationAnalyzer.py | 3 | CointegrationConfig字典访问 |
+| v7.23.0 | 4个文件 | 5 | .get()方法调用 |
+| v7.24.0 | 2个Portfolio规则 | 2 | MainConfig嵌套访问 |
+| v7.25.0 | MarginAllocator.py | 2 | PairsTradingConfig字典访问 |
+| **总计** | **11个文件** | **37处** | **全部修复** |
+
+**根本原因**: config.py从字典迁移到dataclass时,代码未同步更新访问模式。
+
+**影响范围**: 所有使用5个dataclass配置(MainConfig, UniverseConfig, PairsTradingConfig, CointegrationConfig, PairSelectorConfig)的模块。
+
+**验证方法**: 使用grep全局搜索,确认无残留错误模式。
+
+---
+
 ## [v7.24.0_fix-portfolio-rules-cash-access@20250206]
 
 ### 版本概述
