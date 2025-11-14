@@ -9,26 +9,26 @@ from src.analysis.PairData import PairData
 class PairSelector:
     """配对评估和筛选器 - 负责评估配对质量并筛选最佳配对"""
 
-    def __init__(self, algorithm, shared_config: dict, module_config: dict):
+    def __init__(self, algorithm, shared_config: dict, module_config):
         """
         初始化配对选择器 (v7.12.0: 移除blacklist_manager依赖)
 
         Args:
             algorithm: QCAlgorithm实例
-            shared_config: 共享配置(analysis_shared)
-            module_config: 模块配置(pair_selector)
+            shared_config: 共享配置字典(analysis_shared)
+            module_config: 模块配置对象(PairSelectorConfig dataclass)
         """
         self.algorithm = algorithm
 
-        # 从shared_config读取
+        # 从shared_config读取 (字典类型)
         self.lookback_days = shared_config['lookback_days']  # 252天,与BayesianModeler统一
 
-        # 从module_config读取
-        self.max_symbol_repeats = module_config['max_symbol_repeats']
+        # 从module_config读取 (dataclass类型)
+        self.max_symbol_repeats = module_config.max_symbol_repeats
         # v7.12.0: max_pairs已从config中删除
-        self.min_quality_threshold = module_config['min_quality_threshold']
-        self.quality_weights = module_config['quality_weights']
-        self.scoring_thresholds = module_config['scoring_thresholds']
+        self.min_quality_threshold = module_config.min_quality_threshold
+        self.quality_weights = module_config.quality_weights
+        self.scoring_thresholds = module_config.scoring_thresholds
 
 
     # ===== 公共方法 (Public Methods) =====
