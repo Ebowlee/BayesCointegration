@@ -5,6 +5,59 @@
 ---
 
 
+## [v7.14.1_rename-to-realized-pnl@20251114]
+
+### 版本概述
+**代码可读性改进** - 重命名交易统计变量,使用金融行业标准术语"已实现PnL"。
+
+### 重命名变更
+
+#### 变量名对照表
+
+| 旧名称 | 新名称 | 含义 |
+|--------|--------|------|
+| `total_pnl_dollars` | `realized_pnl` | 已实现PnL (已平仓交易的累计美元PnL) |
+| `total_pair_cost` | `realized_cost` | 已实现成本 (已平仓交易的累计保证金成本) |
+
+#### 重命名理由
+
+**问题**: 旧名称`total_pnl_dollars`存在歧义
+- 字面意思: "总计PnL" (容易误解为包含当前未平仓持仓)
+- 实际含义: "已平仓交易的累计PnL" (不包含当前持仓)
+
+**改进**: 使用金融行业标准术语
+- `realized_pnl`: 已实现PnL (Realized PnL) - 业界标准术语
+- `realized_cost`: 已实现成本 (Realized Cost) - 与realized_pnl配对
+- 明确表示"已平仓交易"状态,与"未实现PnL (Unrealized PnL, 当前持仓浮盈)"形成对比
+
+---
+
+### 影响模块
+
+1. **Pairs.py** (6处修改)
+   - 属性定义: Lines 69-70
+   - 日志计算: Lines 289-290
+   - 统计更新: Lines 341-342
+
+2. **PairDrawdown.py** (4处修改)
+   - Layer 2检测逻辑: Lines 119, 121
+   - 类文档字符串: Line 14
+   - check()方法文档: Lines 81, 89
+
+3. **IndustryQuotaManager.py** (5处修改)
+   - 字典定义: Lines 155-156
+   - 聚合逻辑: Lines 172-173
+   - 配额计算: Line 107
+   - 文档字符串: Lines 142-143, 151
+
+---
+
+### 向后兼容性
+**无Breaking Change** - 纯内部变量重命名,对外接口不变。
+
+---
+
+
 ## [v7.14.0_dual-layer-drawdown-detection@20251114]
 
 ### 版本概述
@@ -17,10 +70,10 @@
 **设计理念**: 同时捕获短期风险和长期结构性问题
 
 **Layer 2 (累计历史回撤)** - 优先检测
-- **检测对象**: 累计收益率 `total_pnl_dollars / total_pair_cost`
+- **检测对象**: 累计收益率 `realized_pnl / realized_cost` (v7.14.1重命名)
 - **触发条件**: `cumulative_return < -threshold` (如 -0.11 < -0.08)
 - **目标场景**: 防止"每次亏一点点,累计亏很多"的温水煮青蛙配对
-- **前置条件**: `trade_count > 0 and total_pair_cost > 0`
+- **前置条件**: `trade_count > 0 and realized_cost > 0` (v7.14.1重命名)
 - **无最小交易次数限制**: 只要有历史交易就检查 (用户明确要求)
 
 **Layer 1 (单次交易回撤)** - 现有逻辑保留
@@ -77,7 +130,7 @@
 
 **Layer 2计算** (累计):
 ```python
-cumulative_return = pair.total_pnl_dollars / pair.total_pair_cost  # 小数
+cumulative_return = pair.realized_pnl / pair.realized_cost  # 小数 (v7.14.1重命名)
 if cumulative_return < -threshold:  # -0.11 < -0.08
 ```
 
@@ -93,8 +146,8 @@ if drawdown >= threshold:  # 0.10 >= 0.08
 
 **Layer 2依赖** (来自Pairs对象):
 - `pair.trade_count`: 历史交易次数
-- `pair.total_pnl_dollars`: 累计美元PnL
-- `pair.total_pair_cost`: 累计保证金成本
+- `pair.realized_pnl`: 已实现PnL (v7.14.1重命名)
+- `pair.realized_cost`: 已实现成本 (v7.14.1重命名)
 
 **Layer 1依赖** (现有):
 - `pair.get_pair_pnl()`: 当前PnL
