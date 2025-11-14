@@ -108,12 +108,12 @@ class StrategyConfig:
 
             'scoring_thresholds': {
                 'half_life': {
-                    'peak_days': 8,                     # 峰值 (统计质量+timeout安全性最优平衡)
-                    'sigma_left': 3.5,                  # 左侧标准差 (4-8天区间,保证6天≈0.90)
-                    'sigma_right': 4.5,                 # 右侧标准差 (8-12天区间,保证10天≈0.85, 12天≈0.65)
+                    'peak_days': 8,                     # v7.11.0: 峰值8天 (资金效率最优)
+                    'sigma_left': 4.0,                  # v7.11.0: 左侧标准差 (4-8天区间,保证5-7天梯度)
+                    'sigma_right': 9.0,                 # v7.11.0: 右侧标准差 (8-20天区间,让12-20天缓慢下降)
                     'min_days': 4,                      # 软下界 (4天以下平滑惩罚,避免噪音)
-                    'decay_start': 12,                  # 远端衰减起点 (12天后快速排除)
-                    'decay_rate': 0.6                   # 衰减速率 (15天≈0.18)
+                    'decay_start': 20,                  # v7.11.0: 远端衰减起点 (20天后开始额外衰减)
+                    'decay_rate': 0.20                  # v7.11.0: 衰减速率 (放缓至0.20,让20天≈0.42)
                 },
                 'mean_reversion_certainty': {
                     'time_delta_days': 1.0,              # Δt（日频数据）
@@ -159,27 +159,25 @@ class StrategyConfig:
 
         # ========== Pairs/PairsManager 配置 ==========
         self.pairs_trading = {
-            'entry_threshold_lower': 1.2,           # 入场Z-score下限 (提高入场质量,过滤1.0-1.2弱信号)
-            'entry_threshold_upper': 1.8,           # 入场Z-score上限 (为止损留0.5σ缓冲,避免即开即止)
-            'exit_threshold': 0.3,                  # 出场Z-score阈值 (保持不变,避免假回归)
-            'stop_loss_threshold': 2.3,             # 止损Z-score阈值 (配合1.8上限,留0.5σ缓冲)
-
-            # v7.10.6: 冷却天数已移至config.constants.close_reasons统一管理
+            'entry_threshold_lower': 1.2,               # 入场Z-score下限 (提高入场质量,过滤1.0-1.2弱信号)
+            'entry_threshold_upper': 1.8,               # 入场Z-score上限 (为止损留0.5σ缓冲,避免即开即止)
+            'exit_threshold': 0.3,                      # 出场Z-score阈值 (保持不变,避免假回归)
+            'stop_loss_threshold': 2.3,                 # 止损Z-score阈值 (配合1.8上限,留0.5σ缓冲)
 
             # 仓位管理参数
-            'min_investment_ratio': 0.05,           # 质量最低(0.0分)配对投资比例: 5%,同时作为绝对门槛
-            'max_investment_ratio': 0.25,           # 质量最高(1.0分)配对投资比例: 25%
+            'min_investment_ratio': 0.05,               # 质量最低(0.0分)配对投资比例: 5%,同时作为绝对门槛
+            'max_investment_ratio': 0.25,               # 质量最高(1.0分)配对投资比例: 25%
 
             # 保证金管理 (美股规则)
-            'margin_requirement_long': 0.5,         # 多头保证金率: 50%
-            'margin_requirement_short': 1.5,        # 空头保证金率: 150% (100%借券+50%保证金)
-            'margin_usage_ratio': 0.98              # 保证金使用率: 98% (保留2%动态缓冲)
+            'margin_requirement_long': 0.5,             # 多头保证金率: 50%
+            'margin_requirement_short': 1.5,            # 空头保证金率: 150% (100%借券+50%保证金)
+            'margin_usage_ratio': 0.98                  # 保证金使用率: 98% (保留2%动态缓冲)
         }
 
         # ========== 交易分析配置 (v7.7.0 黑名单系统) ==========
         self.trade_analysis = {
-            'blacklist_min_trades': 3,              # 最少交易次数 (确保统计意义)
-            'blacklist_pnl_threshold': 0.0          # 累计收益阈值 (低于此值黑名单, 单位: %)
+            'blacklist_min_trades': 3,                  # 最少交易次数 (确保统计意义)
+            'blacklist_pnl_threshold': 0.0              # 累计收益阈值 (低于此值黑名单, 单位: %)
         }
 
         # ========== 风险管理配置 ==========
@@ -198,7 +196,6 @@ class StrategyConfig:
             },
 
             # ========== Portfolio层面规则 ==========
-            # v7.10.6: 冷却天数已移至config.constants.close_reasons统一管理
             'portfolio_rules': {
                 'account_blowup': {
                     'enabled': True,
@@ -215,7 +212,6 @@ class StrategyConfig:
             },
 
             # ========== Pair层面规则 ==========
-            # v7.10.6: 冷却天数已移至config.constants.close_reasons统一管理
             'pair_rules': {
                 'pair_anomaly': {
                     'enabled': True,
@@ -229,23 +225,20 @@ class StrategyConfig:
                 'holding_timeout': {
                     'enabled': True,
                     'priority': 80,
-                    'max_days': 60                           # 最大持仓天数
+                    'max_halflife_multiplier': 2.0           # v7.11.0: 动态持有时间 = 半衰期 × 2.0
                 }
             }
         }
 
 
         # ========== 常量定义区（v7.10.6: 统一管理所有常量、显示文本、冷却天数）==========
-        # 替代文件: src/constants.py, src/industry_mapping.py
-        # 设计原则: 单一真相源，零冗余，零硬编码
-
         self.constants = {
             # === 1. 交易信号 ===
             'trading_signals': {
                 'LONG_SPREAD': 'LONG_SPREAD',
                 'SHORT_SPREAD': 'SHORT_SPREAD',
                 'CLOSE': 'CLOSE',
-                'PAIR_BREAK': 'PAIR_BREAK',  # v7.10.6: 原STOP_LOSS重命名
+                'PAIR_BREAK': 'PAIR_BREAK',  
                 'HOLD': 'HOLD',
                 'WAIT': 'WAIT',
                 'COOLDOWN': 'COOLDOWN',
