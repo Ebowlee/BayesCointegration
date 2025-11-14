@@ -278,16 +278,24 @@ class StrategyConfig:
 
             # === 4. 平仓原因（常量+显示文本+冷却天数 统一管理）===
             'close_reasons': {
-                # 正常交易周期结束（统一10天）
-                'NORMAL_EXIT': {
-                    'display': '正常退出',
+                # v7.13.0: 正常交易周期结束 - 三分类（统一10天冷却期）
+                'MEAN_REVERSION': {
+                    'display': '均值回归',
+                    'cooldown_days': 10
+                },
+                'PAIR_BREAK': {
+                    'display': '协整破裂',
+                    'cooldown_days': 10
+                },
+                'TIMEOUT': {
+                    'display': '持有超时',
                     'cooldown_days': 10
                 },
 
                 # 风险触发
                 'DRAWDOWN': {
                     'display': '回撤触发',
-                    'cooldown_days': 180  
+                    'cooldown_days': 180
                 },
                 'ANOMALY': {
                     'display': '单腿异常',

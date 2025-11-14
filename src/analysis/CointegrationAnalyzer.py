@@ -67,6 +67,15 @@ class CointegrationAnalyzer:
             ig_pairs = self._find_cointegrated_pairs_in_group(ig_name, symbols, clean_data)
             all_cointegrated_pairs.extend(ig_pairs)
 
+            # v7.13.0: Level 1日志 - 行业配对情况(映射代码为中文名)
+            industry_names = self.algorithm.config.constants['industry_names']
+            industry_name = industry_names.get(int(ig_name), f'未知({ig_name})')
+            self.algorithm.Debug(
+                f"[协整分析] {industry_name}({ig_name}): "
+                f"{len(symbols)}只股票 → 检测{len(symbols)*(len(symbols)-1)//2}对 → "
+                f"通过{len(ig_pairs)}对", 1
+            )
+
             # 统计
             pairs_count = len(symbols) * (len(symbols) - 1) // 2
             statistics['industry_group_breakdown'][ig_name] = {

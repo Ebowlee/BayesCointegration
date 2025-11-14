@@ -294,14 +294,29 @@ class ExecutionManager:
             # 获取交易信号
             signal = pair.get_signal(data)
 
-            # 处理平仓信号
+            # v7.13.0: 处理平仓信号 - 三分类平仓原因
             if signal == 'CLOSE':
-                intent = pair.get_close_intent(reason='NORMAL_EXIT')  # v7.12.0: 统一平仓原因
+                # 计算当前zscore判断是否为正常回归
+                symbol1, symbol2 = pair.pair_id
+                if symbol1 in data and symbol2 in data:
+                    price1 = data[symbol1].Close
+                    price2 = data[symbol2].Close
+                    current_zscore = pair.get_zscore(price1, price2)
+
+                    # 判断平仓原因: |zscore| < 0.5 认为是均值回归, 否则可能被止损
+                    if current_zscore is not None and abs(current_zscore) < 0.5:
+                        reason = 'MEAN_REVERSION'  # 均值回归
+                    else:
+                        reason = 'PAIR_BREAK'  # Z-score仍然偏离(可能被止损)
+                else:
+                    reason = 'MEAN_REVERSION'  # 数据缺失时默认为正常回归
+
+                intent = pair.get_close_intent(reason=reason)
                 if intent:
                     self.order_executor.execute_close(intent)  # 自动注册到TicketsManager
 
             elif signal == 'PAIR_BREAK':  # v7.10.6: 原STOP_LOSS重命名
-                intent = pair.get_close_intent(reason='NORMAL_EXIT')  # v7.12.0: 统一平仓原因
+                intent = pair.get_close_intent(reason='PAIR_BREAK')  # v7.13.0: 协整破裂
                 if intent:
                     self.order_executor.execute_close(intent)  # 自动注册到TicketsManager
 

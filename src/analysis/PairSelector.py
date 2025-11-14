@@ -86,7 +86,8 @@ class PairSelector:
             symbol2 = model_result['symbol2']
 
             # 二维评分计算 (调用私有方法)
-            half_life_score, half_life_days = self._calculate_half_life_score(model_result)
+            # v7.13.0: _calculate_half_life_score返回三元组 (score, mean, std)
+            half_life_score, half_life_days, half_life_std = self._calculate_half_life_score(model_result)
             mean_reversion_score, snr_kappa = self._calculate_mean_reversion_certainty_score(model_result)
 
             # 综合质量分数（二维加权平均, v7.5.23: 移除BetaStab维度）
@@ -100,6 +101,7 @@ class PairSelector:
             model_result['quality_score'] = quality_score
             model_result['half_life_score'] = half_life_score
             model_result['half_life'] = half_life_days  # v7.11.0: 供PairHoldingTimeoutRule使用
+            model_result['half_life_std'] = half_life_std  # v7.13.0: 半衰期不确定性
             model_result['mean_reversion_score'] = mean_reversion_score
 
             scored_pairs.append(model_result)
@@ -257,8 +259,12 @@ class PairSelector:
             if rho_mean <= 0 or rho_mean >= 1:
                 return (0, None)
 
-            # 计算半衰期: half_life = -ln(2) / ln(ρ)
-            half_life = -np.log(2) / np.log(rho_mean)
+            # v7.13.0: 计算半衰期分布 (修正Jensen不等式问题)
+            # 正确方式: 对每个rho_sample计算half_life,然后求均值和标准差
+            # 错误方式 (v7.12.0及之前): half_life = -ln(2) / ln(mean(rho_samples))
+            half_life_samples = -np.log(2) / np.log(rho_samples)
+            half_life = float(np.mean(half_life_samples))  # 均值
+            half_life_std = float(np.std(half_life_samples))  # 标准差
 
             # 读取阈值
             peak_days = self.scoring_thresholds['half_life']['peak_days']       # 8天
@@ -286,11 +292,12 @@ class PairSelector:
                 decay = np.exp(-decay_rate * (half_life - decay_start))
                 score *= decay
 
-            return (float(score), half_life)
+            # v7.13.0: 返回三元组 (score, mean, std)
+            return (float(score), half_life, half_life_std)
 
         except Exception as e:
             self.algorithm.Debug(f"[PairSelector] 半衰期计算失败: {e}")
-            return (0, None)
+            return (0, None, None)
 
 
 

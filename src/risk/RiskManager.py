@@ -107,11 +107,12 @@ class RiskManager:
         }
 
         # v7.1.0 新增: Pair层映射机制(Intent Pattern)
+        # v7.13.0: 更新reason命名,对应config.constants['close_reasons']
         # Rule类名 → CloseIntent的reason字符串
         self._pair_rule_to_reason_map = {
-            'PairHoldingTimeoutRule': 'PAIR TIMEOUT',
-            'PairAnomalyRule': 'PAIR ANOMALY',
-            'PairDrawdownRule': 'PAIR DRAWDOWN',
+            'PairHoldingTimeoutRule': 'TIMEOUT',     # v7.13.0: 从'PAIR TIMEOUT'改名
+            'PairAnomalyRule': 'ANOMALY',            # v7.13.0: 从'PAIR ANOMALY'改名
+            'PairDrawdownRule': 'DRAWDOWN',          # v7.13.0: 从'PAIR DRAWDOWN'改名
         }
         # pair_id → Rule实例的映射(用于Intent执行后激活cooldown)
         self._pair_intent_to_rule_map = {}

@@ -108,11 +108,18 @@ class IndustryQuotaManager:
             quota = self._get_quota_by_return(weighted_return)
             industry_quotas[industry_code] = quota
 
-        # 日志输出 (简化版, 只显示非默认配额)
+        # v7.13.0: 日志输出 (映射行业代码为中文名)
         non_default = {k: v for k, v in industry_quotas.items() if v != self.default_quota}
         if non_default:
+            # 读取行业映射表
+            industry_names = self.algorithm.config.constants['industry_names']
+            # 格式化输出: {半导体:6, 医疗器械:3}
+            readable_quotas = {
+                industry_names.get(int(code), f'未知({code})'): quota
+                for code, quota in non_default.items()
+            }
             self.algorithm.Debug(
-                f"[行业配额] 本月动态配额 (非默认): {non_default}"
+                f"[行业配额] 本月动态配额 (非默认): {readable_quotas}"
             )
         else:
             self.algorithm.Debug(

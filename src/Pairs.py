@@ -45,6 +45,7 @@ class Pairs:
         self.residual_std = model_data['residual_std']                          # 残差标准差(对数空间)
         self.quality_score = model_data['quality_score']                        # 配对质量分数
         self.half_life = model_data.get('half_life')                            # v7.11.0: 半衰期天数(供自适应持仓超时使用)
+        self.half_life_std = model_data.get('half_life_std', 0)                 # v7.13.0: 半衰期不确定性(标准差)
 
         # === 交易阈值 (改良C方案 - 从pairs_trading统一读取) ===
         self.entry_threshold_lower = config['entry_threshold_lower']            # 1.2σ
@@ -477,46 +478,36 @@ class Pairs:
 
     def get_cooldown_days(self) -> int:
         """
-        v7.12.0: 简化冷却天数逻辑,映射旧原因到新原因
+        v7.13.0: 从config查询冷却天数,简化映射逻辑
 
         设计理由:
-        - v7.12.0统一为3种冷却期: NORMAL_EXIT(10天), DRAWDOWN(180天), ANOMALY(永久)
-        - 兼容v7.11.0及之前的旧原因代码(PAIR_BREAK/TIMEOUT/CLOSE等)
-        - 历史兼容性: 由于回测可能加载旧版本的持久化数据,需要映射旧原因名到新原因
+        - v7.13.0新增三分类: MEAN_REVERSION/PAIR_BREAK/TIMEOUT (统一10天)
+        - 直接从config.constants.close_reasons查询,无需中间映射
+        - 兼容历史版本原因(如NORMAL_EXIT/CLOSE)通过默认值兜底
 
         Returns:
             冷却期天数（从config.constants.close_reasons读取）
 
-        映射规则 (v7.12.0统一前的历史原因):
-            PAIR_BREAK/TIMEOUT/CLOSE → NORMAL_EXIT (10天)
-              - PAIR_BREAK: v7.10.6原STOP_LOSS重命名
-              - TIMEOUT: v7.11.0自适应持仓超时
-              - CLOSE: v7.2.21正常平仓
-            DRAWDOWN → DRAWDOWN (180天)
-              - 包含v7.12.0前的DRAWDOWN_PROFIT/DRAWDOWN_LOSS
-            ANOMALY → ANOMALY (999999天)
-              - 单腿持仓异常
-            其他 → NORMAL_EXIT (默认10天)
-              - None: 新配对未平仓过
-              - 未知原因: 防御性兜底
+        冷却期分类 (v7.13.0):
+            MEAN_REVERSION: 10天 (均值回归)
+            PAIR_BREAK: 10天 (协整破裂)
+            TIMEOUT: 10天 (持有超时)
+            DRAWDOWN: 180天 (回撤触发)
+            ANOMALY: 999999天 (单腿异常)
+            其他: 10天 (默认值,兼容历史原因如NORMAL_EXIT/CLOSE)
 
         注意:
-        - Portfolio级原因(PORTFOLIO_DRAWDOWN/ACCOUNT_BLOWUP)不参与映射
-        - 这些原因触发的是全局冷却期,由RiskManager管理,不影响per-pair冷却计算
+        - Portfolio级原因(PORTFOLIO_DRAWDOWN/ACCOUNT_BLOWUP)不参与per-pair冷却计算
+        - 如果last_close_reason在config中不存在,返回默认10天
         """
         close_reasons = self.algorithm.config.constants['close_reasons']
 
-        # v7.12.0: 映射旧原因到新原因
-        if self.last_close_reason in {'PAIR_BREAK', 'TIMEOUT', 'CLOSE'}:
-            reason = 'NORMAL_EXIT'
-        elif self.last_close_reason == 'DRAWDOWN':
-            reason = 'DRAWDOWN'
-        elif self.last_close_reason == 'ANOMALY':
-            reason = 'ANOMALY'
+        # v7.13.0: 直接查询,找不到时默认10天
+        if self.last_close_reason in close_reasons:
+            return close_reasons[self.last_close_reason]['cooldown_days']
         else:
-            reason = 'NORMAL_EXIT'  # 默认值 (None或其他未知原因)
-
-        return close_reasons[reason]['cooldown_days']
+            # 兼容历史原因(NORMAL_EXIT/CLOSE等) + None + 未知原因
+            return 10
 
 
     def get_pair_pnl(self) -> Optional[float]:

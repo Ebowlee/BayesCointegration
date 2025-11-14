@@ -88,8 +88,13 @@ class PairHoldingTimeoutRule(RiskRule):
         if self.is_in_cooldown(pair_id=pair.pair_id):
             return False, ""
 
-        # 3. v7.11.0: 动态计算该配对的最大持有时间
-        max_days = pair.half_life * self.max_halflife_multiplier
+        # 3. v7.13.0: 基于半衰期分布的动态超时公式
+        # 公式: max_days = half_life_mean + 2 * half_life_std (覆盖95%置信区间)
+        # 向后兼容: 如果half_life_std=0或不存在,退回到2.0x固定倍数
+        if pair.half_life_std > 0:
+            max_days = pair.half_life + 2 * pair.half_life_std
+        else:
+            max_days = pair.half_life * self.max_halflife_multiplier  # 兼容旧数据
 
         # 4. 获取实际持仓天数 (复用Pairs自带方法,避免时区问题)
         holding_days = pair.get_pair_holding_days()
