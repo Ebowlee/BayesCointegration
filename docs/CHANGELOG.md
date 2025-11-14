@@ -5,6 +5,137 @@
 ---
 
 
+## [v7.14.0_dual-layer-drawdown-detection@20251114]
+
+### 版本概述
+**功能增强** - PairDrawdown风控规则新增双层检测机制,同时检测单次交易回撤和累计历史回撤,防止温水煮青蛙式配对。
+
+### 核心功能
+
+#### 双层回撤检测机制
+
+**设计理念**: 同时捕获短期风险和长期结构性问题
+
+**Layer 2 (累计历史回撤)** - 优先检测
+- **检测对象**: 累计收益率 `total_pnl_dollars / total_pair_cost`
+- **触发条件**: `cumulative_return < -threshold` (如 -0.11 < -0.08)
+- **目标场景**: 防止"每次亏一点点,累计亏很多"的温水煮青蛙配对
+- **前置条件**: `trade_count > 0 and total_pair_cost > 0`
+- **无最小交易次数限制**: 只要有历史交易就检查 (用户明确要求)
+
+**Layer 1 (单次交易回撤)** - 现有逻辑保留
+- **检测对象**: 当前持仓回撤 `(HWM - current_value) / HWM`
+- **触发条件**: `drawdown >= threshold` (如 0.10 >= 0.08)
+- **目标场景**: 防止单次交易大幅浮亏
+- **HWM追踪**: 自动更新配对价值峰值
+
+**统一阈值**: 两层共用 `threshold = 0.08` (8%)
+
+**优先级**: Layer 2 > Layer 1 (累计问题更严重,先检查先返回)
+
+---
+
+### 配置变更
+
+#### config.py 新增参数
+```python
+'pair_drawdown': {
+    'enabled': True,
+    'priority': 90,
+    'threshold': 0.08,                    # 统一阈值 (单次+累计)
+    'enable_cumulative_check': True       # v7.14.0: 启用Layer 2
+}
+```
+
+**新增字段**:
+- `enable_cumulative_check`: 启用累计历史回撤检测 (默认True)
+
+**修改字段**:
+- `threshold`: 注释更新为"统一阈值 (单次+累计)"
+
+---
+
+### 日志输出示例
+
+**Layer 2触发** (累计回撤):
+```
+[Pair风控] PairDrawdownRule 触发: 配对回撤-累计: -11.5% <= -8.0% (5笔历史)
+```
+
+**Layer 1触发** (单次回撤):
+```
+[Pair风控] PairDrawdownRule 触发: 配对回撤-单次: 10.5% >= 8.0% (当前价值: $8,950.00, HWM: $10,000.00, PnL: $950.00, 成本: $8,000.00, 状态: 盈利)
+```
+
+---
+
+### 技术细节
+
+#### 量纲统一设计
+
+**配置参数**: `threshold = 0.08` (小数形式)
+
+**Layer 2计算** (累计):
+```python
+cumulative_return = pair.total_pnl_dollars / pair.total_pair_cost  # 小数
+if cumulative_return < -threshold:  # -0.11 < -0.08
+```
+
+**Layer 1计算** (单次):
+```python
+drawdown = (hwm - pair_value) / hwm  # 小数
+if drawdown >= threshold:  # 0.10 >= 0.08
+```
+
+**日志显示**: 仅在输出时转换为百分比 (`×100`),内部计算全程使用小数
+
+#### 数据依赖
+
+**Layer 2依赖** (来自Pairs对象):
+- `pair.trade_count`: 历史交易次数
+- `pair.total_pnl_dollars`: 累计美元PnL
+- `pair.total_pair_cost`: 累计保证金成本
+
+**Layer 1依赖** (现有):
+- `pair.get_pair_pnl()`: 当前PnL
+- `pair.get_pair_cost()`: 当前保证金成本
+- `self.pair_hwm_dict`: 配对HWM追踪字典
+
+---
+
+### 使用场景示例
+
+**场景1: 温水煮青蛙配对**
+- 历史5笔交易: -2%, -1.5%, -3%, -2%, -2.5%
+- 累计: -11% (超过-8%阈值)
+- 当前交易: -4% (未超过8%阈值)
+- **结果**: Layer 2触发平仓 ✅
+
+**场景2: 单次暴跌**
+- 历史2笔交易: +3%, +2%
+- 累计: +5% (健康)
+- 当前交易: -10% (超过8%阈值)
+- **结果**: Layer 1触发平仓 ✅
+
+**场景3: 新配对无历史**
+- 历史0笔交易
+- 当前交易: -6%
+- **结果**: Layer 2跳过,Layer 1未触发,继续持仓 ✅
+
+---
+
+### 影响范围
+- **风控逻辑**: PairDrawdownRule新增Layer 2累计检测
+- **配置文件**: config.py新增enable_cumulative_check参数
+- **日志输出**: 区分"配对回撤-单次"和"配对回撤-累计"
+
+### 影响模块
+- PairDrawdown.py: 新增Layer 2检测逻辑 (45行新增代码)
+- config.py: 新增enable_cumulative_check配置字段
+
+---
+
+
 ## [v7.13.1_fix-logging-display@20251114]
 
 ### 版本概述
