@@ -288,8 +288,8 @@ class Pairs:
         # 计算累计收益率 (直接读取已更新的realized_pnl/cost)
         total_pnl_pct = (self.realized_pnl / self.realized_cost * 100) if self.realized_cost > 0 else 0
 
-        # 交易序号(平仓时 trade_count 尚未递增)
-        trade_num = self.trade_count + 1
+        # 交易序号(此时 trade_count 已在 _update_trade_stats 中递增)
+        trade_num = self.trade_count
 
         # 提取Z-score数据
         entry_z = self.entry_zscore if self.entry_zscore is not None else 0.0
