@@ -14,23 +14,23 @@ class CointegrationAnalyzer:
     协整分析器 - 识别具有长期均衡关系的股票配对 (v7.12.0: 支持行业配额)
     """
 
-    def __init__(self, algorithm, module_config: dict, industry_quotas: Dict[str, int] = None):
+    def __init__(self, algorithm, module_config, industry_quotas: Dict[str, int] = None):
         """
         初始化协整分析器 (v7.12.0: 新增行业配额参数)
 
         Args:
             algorithm: QCAlgorithm实例
-            module_config: 模块配置字典
+            module_config: 模块配置对象 (CointegrationConfig dataclass)
             industry_quotas: 行业配额字典 {industry_code: quota}
                 - 如果为None或空字典,使用默认配额 (从config.industry_quota.default_quota读取)
                 - 如果提供,使用动态配额
         """
         self.algorithm = algorithm
-        self.pvalue_threshold = module_config['pvalue_threshold']
+        self.pvalue_threshold = module_config.pvalue_threshold
 
         # 子行业分组配置
-        self.min_stocks_per_group = module_config['min_stocks_per_group']
-        self.max_stocks_per_group = module_config['max_stocks_per_group']
+        self.min_stocks_per_group = module_config.min_stocks_per_group
+        self.max_stocks_per_group = module_config.max_stocks_per_group
 
         # v7.12.0: 行业配额
         self.industry_quotas = industry_quotas if industry_quotas else {}
