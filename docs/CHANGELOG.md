@@ -5,6 +5,50 @@
 ---
 
 
+## [v7.24.0_fix-portfolio-rules-cash-access@20250206]
+
+### 版本概述
+**Bug修复** - 修复Portfolio风控规则初始化时访问initial_capital的错误。
+
+### 问题描述
+
+运行时错误:
+```
+'MainConfig' object is not subscriptable
+  at __init__
+    self.initial_capital = algorithm.config.main['cash']
+ in PortfolioAccountBlowup.py: line 54
+```
+
+### 根本原因
+
+Portfolio风控规则在初始化时需要读取初始资金,但仍使用字典访问模式。
+
+### 修复内容
+
+修改2个Portfolio风控规则的`__init__`方法:
+
+```python
+# PortfolioAccountBlowup.py Line 54:
+# Before:
+self.initial_capital = algorithm.config.main['cash']
+# After:
+self.initial_capital = algorithm.config.main.cash
+
+# PortfolioDrawdown.py Line 68:
+# Before:
+self.high_water_mark = algorithm.config.main['cash']
+# After:
+self.high_water_mark = algorithm.config.main.cash
+```
+
+### 影响范围
+
+- 修改文件: PortfolioAccountBlowup.py, PortfolioDrawdown.py
+- 修复对象: 初始资金读取
+- 触发时机: RiskManager初始化时创建规则实例
+
+
 ## [v7.23.0_fix-all-getattr-for-dataclass@20250206]
 
 ### 版本概述
