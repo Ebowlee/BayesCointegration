@@ -5,6 +5,55 @@
 ---
 
 
+## [v7.13.1_fix-logging-display@20251114]
+
+### 版本概述
+**Bug修复** - 修复v7.13.0的两个日志显示BUG (持仓超时日志显示旧公式, 冷却期显示0天)
+
+### Bug修复
+
+#### BUG 1: 持仓超时日志显示旧公式
+
+**问题**: 日志显示`半衰期9.6天 × 2.0`,但实际计算已使用`half_life + 2*std`公式
+
+**示例**:
+```
+[Pair风控] PairHoldingTimeoutRule 触发: 持仓超时: 已持仓21天 > 上限20.7天 (半衰期9.6天 × 2.0, 开仓时间: 2023-10-05)
+```
+
+**根本原因**: PairHoldingTimeout.py:115 日志格式字符串未更新,计算逻辑已正确实现但日志永远显示旧格式
+
+**修复后示例**:
+```
+[Pair风控] PairHoldingTimeoutRule 触发: 持仓超时: 已持仓21天 > 上限20.7天 (半衰期9.6天 + 2×标准差5.5天, 开仓时间: 2023-10-05)
+```
+
+---
+
+#### BUG 2: 冷却期显示0天
+
+**问题**: 日志显示`激活1个配对的冷却期 (0天)`,但TIMEOUT原因应该是10天
+
+**根本原因**: RiskManager.py:578 错误从`rule.config`读取冷却天数,v7.13.0将冷却期统一到`config.constants.close_reasons`但RiskManager未更新查询逻辑
+
+**修复后示例**:
+```
+[Pair风控] PairHoldingTimeoutRule 激活1个配对的冷却期 (10天): [('HST', 'KIM')]
+```
+
+---
+
+### 影响范围
+- **功能影响**: 无 (纯日志显示问题,核心逻辑未变)
+- **日志影响**: 提升用户体验,准确反映实际计算方式
+
+### 影响模块
+- PairHoldingTimeout.py: 动态日志格式生成
+- RiskManager.py: 从Pairs对象查询冷却天数
+
+---
+
+
 ## [v7.13.0_close-reason-classification-halflife-distribution@20251114]
 
 ### 版本概述
