@@ -5,6 +5,93 @@
 ---
 
 
+## [v7.12.1_cleanup-post-freeze-simplification@20251114]
+
+### 版本概述
+**代码清理** - 移除v7.12.0简化冷却期后的死代码和过时引用,统一文档和注释。
+
+### 核心改进
+
+#### 1. 文档更新 (Documentation Update)
+
+**CLAUDE.md架构文档**:
+- 删除BlacklistManager模块文档 (v7.12.0已删除该模块)
+- 更新Analysis模块描述 (反映CointegrationAnalyzer配额应用和PairSelector风险过滤)
+- 新增IndustryQuotaManager模块文档
+- 更新Data Flow说明 (Industry Quota Flow, Risk Filtering Flow)
+- 更新Version History至v7.12.0
+- 更新File Organization (移除trade/目录)
+
+**代码注释统一**:
+```python
+# 统一平仓原因注释 (v7.12.0规范)
+OrderIntent.py:63    - CloseIntent.reason注释
+TicketsManager.py:96 - register_tickets()注释
+Pairs.py:73,198,279  - last_close_reason相关注释
+
+# 统一为: 'NORMAL_EXIT', 'DRAWDOWN', 'ANOMALY', 'PORTFOLIO_DRAWDOWN', 'ACCOUNT_BLOWUP'
+```
+
+#### 2. 代码规范 (Code Standardization)
+
+**ExecutionManager.py平仓原因统一**:
+```python
+# Line 299/304: 统一使用NORMAL_EXIT
+- intent = pair.get_close_intent(reason='CLOSE')
++ intent = pair.get_close_intent(reason='NORMAL_EXIT')
+
+- intent = pair.get_close_intent(reason='PAIR_BREAK')
++ intent = pair.get_close_intent(reason='NORMAL_EXIT')
+```
+
+**Pairs.get_cooldown_days()注释增强**:
+- 添加历史兼容性说明 (为何需要映射旧原因)
+- 详细映射规则注释 (PAIR_BREAK/TIMEOUT/CLOSE来源说明)
+- 说明Portfolio级原因不参与per-pair映射逻辑
+
+#### 3. 配置调整 (Config Tuning)
+
+**src/config.py参数微调**:
+- 清理冗余注释
+- 调整风险阈值和冷却期参数 (基于回测优化)
+
+### 影响分析
+
+#### 功能影响
+- **无功能性改动**: 纯文档和注释更新
+- **代码规范**: 平仓原因统一使用v7.12.0规范名称
+
+#### 文档影响
+- **架构清晰度提升**: CLAUDE.md完全反映v7.12.0架构
+- **注释一致性**: 所有平仓原因注释统一到v7.12.0规范
+- **历史兼容性说明**: get_cooldown_days()清晰说明旧原因映射逻辑
+
+### 技术细节
+
+#### 修改文件清单
+```
+CLAUDE.md                         - 架构文档更新 (删除blacklist,新增quota)
+src/Pairs.py                      - 注释统一 + get_cooldown_days()增强
+src/TicketsManager.py             - 注释统一
+src/execution/ExecutionManager.py - reason统一为NORMAL_EXIT
+src/execution/OrderIntent.py      - 注释统一
+src/config.py                     - 参数调整 + 注释清理
+```
+
+#### v7.12.0清理验证
+```bash
+# 验证BlacklistManager残留 (仅保留历史记录引用)
+grep -i "blacklist" CLAUDE.md
+# 结果: 仅2处提及v7.12.0删除该模块 ✓
+
+# 验证平仓原因统一
+grep "reason=" src/execution/ExecutionManager.py
+# 结果: 全部使用NORMAL_EXIT ✓
+```
+
+---
+
+
 ## [v7.12.0_simplified-freeze-industry-quota@20251114]
 
 ### 版本概述
