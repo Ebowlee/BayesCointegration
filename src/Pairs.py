@@ -44,6 +44,7 @@ class Pairs:
         self.residual_mean = model_data['residual_mean']                        # 残差均值(对数空间,理论上接近0)
         self.residual_std = model_data['residual_std']                          # 残差标准差(对数空间)
         self.quality_score = model_data['quality_score']                        # 配对质量分数
+        self.half_life = model_data.get('half_life')                            # v7.11.0: 半衰期天数(供自适应持仓超时使用)
 
         # === 交易阈值 (改良C方案 - 从pairs_trading统一读取) ===
         self.entry_threshold_lower = config['entry_threshold_lower']            # 1.2σ

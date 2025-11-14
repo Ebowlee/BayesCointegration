@@ -99,6 +99,7 @@ class PairSelector:
             # 更新质量分数到model_result(保留原有字段)
             model_result['quality_score'] = quality_score
             model_result['half_life_score'] = half_life_score
+            model_result['half_life'] = half_life_days  # v7.11.0: 供PairHoldingTimeoutRule使用
             model_result['mean_reversion_score'] = mean_reversion_score
 
             scored_pairs.append(model_result)
