@@ -5,6 +5,101 @@
 ---
 
 
+## [v7.23.0_fix-all-getattr-for-dataclass@20250206]
+
+### 版本概述
+**Bug修复** - 修复所有dataclass对象使用`.get()`方法的错误,统一使用`getattr()`。
+
+### 问题描述
+
+潜在运行时错误 (dataclass不支持`.get()`方法):
+```python
+# 错误写法:
+self.config.main.get('debug_mode', False)
+# AttributeError: 'MainConfig' object has no attribute 'get'
+```
+
+### 根本原因
+
+Dataclass对象不是字典,不支持`.get()`方法。应该使用`getattr(obj, 'attr', default)`。
+
+### 修复内容
+
+修改4个文件中的5处`.get()`调用 (v7.23.0):
+
+```python
+# Before (错误):
+self.config.main.get('debug_mode', False)
+self.config.main.get('log_level', 0)
+
+# After (正确):
+getattr(self.config.main, 'debug_mode', False)
+getattr(self.config.main, 'log_level', 0)
+```
+
+**修改文件**:
+1. main.py Line 102: Debug方法中的log_level读取
+2. src/risk/MarketCondition.py Line 165, 216: 异常处理中的debug_mode检查
+3. src/risk/PortfolioAccountBlowup.py Line 73: 冷却期日志中的debug_mode检查
+4. src/risk/PortfolioDrawdown.py Line 91: 冷却期日志中的debug_mode检查
+
+### 影响范围
+
+- 修改模块: main.py, MarketCondition, PortfolioAccountBlowup, PortfolioDrawdown
+- 修复场景: 异常处理日志、冷却期日志、调试模式检查
+- 风险: 低 (仅影响日志输出,不影响核心逻辑)
+
+
+## [v7.22.0_fix-cointegration-config-access-bug@20250206]
+
+### 版本概述
+**Bug修复** - 修正CointegrationAnalyzer模块的config访问错误。
+
+### 修复内容
+
+修改CointegrationAnalyzer.py中所有config访问 (3处):
+
+```python
+# Before:
+self.pvalue_threshold = module_config['pvalue_threshold']
+self.min_stocks_per_group = module_config['min_stocks_per_group']
+self.max_stocks_per_group = module_config['max_stocks_per_group']
+
+# After:
+self.pvalue_threshold = module_config.pvalue_threshold
+self.min_stocks_per_group = module_config.min_stocks_per_group
+self.max_stocks_per_group = module_config.max_stocks_per_group
+```
+
+**类型**: module_config从Dict标注改为CointegrationConfig dataclass
+
+
+## [v7.21.0_fix-pairselector-config-access-bug@20250206]
+
+### 版本概述
+**Bug修复** - 修正PairSelector模块的config访问错误。
+
+### 修复内容
+
+修改PairSelector.py中所有module_config访问 (4处):
+
+```python
+# Before:
+self.max_symbol_repeats = module_config['max_symbol_repeats']
+self.min_quality_threshold = module_config['min_quality_threshold']
+self.quality_weights = module_config['quality_weights']
+self.scoring_thresholds = module_config['scoring_thresholds']
+
+# After:
+self.max_symbol_repeats = module_config.max_symbol_repeats
+self.min_quality_threshold = module_config.min_quality_threshold
+self.quality_weights = module_config.quality_weights
+self.scoring_thresholds = module_config.scoring_thresholds
+```
+
+**类型**: module_config从Dict标注改为PairSelectorConfig dataclass
+
+
 ## [v7.20.0_fix-pairs-config-access-bug@20250206]
 
 ### 版本概述
