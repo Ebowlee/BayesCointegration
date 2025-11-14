@@ -48,16 +48,16 @@ class Pairs:
         self.half_life_std = model_data.get('half_life_std', 0)                 # v7.13.0: 半衰期不确定性(标准差)
 
         # === 交易阈值 (改良C方案 - 从pairs_trading统一读取) ===
-        self.entry_threshold_lower = config['entry_threshold_lower']            # 1.2σ
-        self.entry_threshold_upper = config['entry_threshold_upper']            # 1.8σ
-        self.exit_threshold = config['exit_threshold']                          # 0.3σ
-        self.stop_loss_threshold = config['stop_loss_threshold']                # 2.3σ
+        self.entry_threshold_lower = config.entry_threshold_lower              # 1.2σ
+        self.entry_threshold_upper = config.entry_threshold_upper              # 1.8σ
+        self.exit_threshold = config.exit_threshold                            # 0.3σ
+        self.stop_loss_threshold = config.stop_loss_threshold                  # 2.3σ
 
         # v7.10.6: 冷却天数已移至config.constants.close_reasons，通过get_cooldown_days()动态查询
 
         # === 保证金参数 ===
-        self.margin_long = config['margin_requirement_long']
-        self.margin_short = config['margin_requirement_short']
+        self.margin_long = config.margin_requirement_long
+        self.margin_short = config.margin_requirement_short
 
         # === 历史追踪 ===
         self.creation_time = algorithm.Time                                    # 首次创建时间
@@ -123,7 +123,7 @@ class Pairs:
 
 
     @classmethod
-    def from_model_result(cls, algorithm, model_result: Dict, config: Dict) -> 'Pairs':
+    def from_model_result(cls, algorithm, model_result: Dict, config) -> 'Pairs':
         """
         工厂方法：从贝叶斯建模结果创建 Pairs 对象
 
@@ -146,7 +146,7 @@ class Pairs:
                     'residual_mean': float, 'residual_std': float,
                     'quality_score': float, 'industry_group': str
                 }
-            config: 配对交易配置字典（src/config.py 的 pairs_trading 部分）
+            config: 配对交易配置对象（PairsTradingConfig dataclass from src/config.py）
 
         Returns:
             Pairs: 新创建的 Pairs 实例对象
@@ -998,6 +998,6 @@ class Pairs:
             计划分配比例 (min_investment_ratio 到 max_investment_ratio)
         """
         # 基于质量分数的线性插值计算
-        min_pct = self.config['min_investment_ratio']
-        max_pct = self.config['max_investment_ratio']
+        min_pct = self.config.min_investment_ratio
+        max_pct = self.config.max_investment_ratio
         return min_pct + self.quality_score * (max_pct - min_pct)
