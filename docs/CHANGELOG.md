@@ -5,6 +5,59 @@
 ---
 
 
+## [v7.19.0_fix-universe-config-access-bug@20250206]
+
+### 版本概述
+**Bug修复** - 修正UniverseSelection模块的config访问错误,解决选股初始化失败问题。
+
+### 问题描述
+
+运行时错误:
+```
+'UniverseConfig' object has no attribute 'get'
+  at __init__
+    self.filters = config.get('financial_filters', {})
+ in UniverseSelection.py: line 26
+```
+
+### 根本原因
+
+`UniverseConfig` 是 dataclass 对象,应该使用属性访问 (`.attribute`),
+而不是字典访问 (`['key']` 或 `.get()`)。
+
+### 修复内容
+
+修改UniverseSelection.py中所有config访问 (4处修改):
+
+```python
+# FinancialValidator.__init__ (Line 26):
+# Before:
+self.filters = config.get('financial_filters', {})
+# After:
+self.filters = config.financial_filters
+
+# _select_coarse方法 (Lines 142-144):
+# Before:
+min_ipo_date = self.algorithm.Time - timedelta(days=self.config['min_days_since_ipo'])
+min_price = self.config['min_price']
+min_volume = self.config['min_volume']
+# After:
+min_ipo_date = self.algorithm.Time - timedelta(days=self.config.min_days_since_ipo)
+min_price = self.config.min_price
+min_volume = self.config.min_volume
+```
+
+### 影响范围
+
+- 修改文件: src/UniverseSelection.py (FinancialValidator和SectorBasedUniverseSelection)
+- 修复对象: config.financial_filters和基础筛选参数访问
+- 同类问题: 与v7.18.0修复的main.py问题同源(dataclass vs dict混淆)
+
+### 测试验证
+
+✅ 选股模块初始化不再报错 'UniverseConfig' object has no attribute 'get'
+
+
 ## [v7.18.0_fix-config-access-bug@20250206]
 
 ### 版本概述
