@@ -5,6 +5,97 @@
 ---
 
 
+## [v7.15.1_cleanup-close-reasons-and-fix-portfolio-mapping@20251115]
+
+### 版本概述
+**清理配置冗余** - 删除3个无用close reasons,修复Portfolio风控reason映射错误。
+
+### 核心变更
+
+#### 1. 清理无用的close reasons (config.py)
+
+**删除项** (从10个减少到7个):
+```python
+# ❌ 删除 - 默认参数,从未使用
+'CLOSE': {'display': '正常平仓', 'cooldown_days': 10}
+
+# ❌ 删除 - Portfolio风控应使用专有reason
+'RISK_TRIGGER': {'display': '风险触发', 'cooldown_days': 30}
+
+# ❌ 删除 - 不需要在CLOSE_REASONS中定义
+'COOLDOWN_CLEANUP': {'display': '冷却清理', 'cooldown_days': 0}
+```
+
+**删除原因**:
+- `CLOSE`: get_close_intent()的默认参数,实际业务逻辑从未调用
+- `RISK_TRIGGER`: Portfolio风控应使用`ACCOUNT_BLOWUP`或`PORTFOLIO_DRAWDOWN`
+- `COOLDOWN_CLEANUP`:
+  - 用于ExecutionManager.cleanup_remaining_positions()生成CloseIntent
+  - **不会触发配对级cooldown激活**,只有全局Portfolio cooldown生效
+  - 不需要在CLOSE_REASONS中定义cooldown_days
+  - ExecutionManager直接使用字符串'COOLDOWN_CLEANUP'作为reason标记即可
+
+#### 2. 修复Portfolio reason映射 (RiskManager.py)
+
+**Before** (错误映射):
+```python
+self._portfolio_rule_to_reason_map = {
+    'AccountBlowupRule': 'PORTFOLIO BLOW UP',      # ❌ 有空格,不匹配config
+    'PortfolioDrawdownRule': 'PORTFOLIO DRAWDOWN', # ❌ 有空格,不匹配config
+}
+```
+
+**After** (正确映射):
+```python
+self._portfolio_rule_to_reason_map = {
+    'AccountBlowupRule': 'ACCOUNT_BLOWUP',         # ✅ 匹配config.CLOSE_REASONS
+    'PortfolioDrawdownRule': 'PORTFOLIO_DRAWDOWN', # ✅ 匹配config.CLOSE_REASONS
+}
+```
+
+**影响**:
+- Portfolio风控触发时的reason字符串现在正确匹配配置
+- 避免因reason不匹配导致冷却期读取失败
+
+### 架构澄清: Portfolio风控的Cooldown机制
+
+**关键理解**:
+1. **Portfolio风控只激活全局cooldown**,不激活配对级cooldown
+2. **cleanup_remaining_positions()持续重试**,不设置任何cooldown
+3. **COOLDOWN_CLEANUP不需要在CLOSE_REASONS中定义**,只是一个reason字符串标记
+
+**执行流程**:
+```
+Portfolio风控触发
+→ 生成所有配对的CloseIntent (reason='ACCOUNT_BLOWUP'或'PORTFOLIO_DRAWDOWN')
+→ ExecutionManager执行Intent
+→ 激活**全局cooldown** (360天或永久)
+→ main.py检测到全局cooldown
+→ 调用cleanup_remaining_positions()
+→ 生成CloseIntent (reason='COOLDOWN_CLEANUP')
+→ **不查询CLOSE_REASONS**,不激活配对级cooldown
+→ 每个OnData持续重试直到成功
+```
+
+### 影响范围
+
+**配置层**:
+- CLOSE_REASONS从10个减少到7个(删除3个无用项)
+
+**执行层**:
+- Portfolio风控reason映射修复,确保与config完全一致
+- cleanup_remaining_positions()可继续使用'COOLDOWN_CLEANUP'作为标记
+
+### 迁移指南
+
+**无需迁移** - 向后兼容
+- 删除的reasons从未被实际业务逻辑使用
+- Portfolio reason映射修复是内部实现细节
+- COOLDOWN_CLEANUP行为未变,只是配置更明确
+
+---
+
+
 ## [v7.15.0_config-architecture-refactor@20251114]
 
 ### 版本概述
