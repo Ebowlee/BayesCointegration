@@ -5,6 +5,142 @@
 ---
 
 
+## [v7.16.0_unify-cooldown-checking@20250206]
+
+### 版本概述
+**架构优化** - 统一冷却期检查机制,添加close reason分类字段,消除冗余检查函数。
+
+### 核心变更
+
+#### 1. 为CLOSE_REASONS添加category分类字段 (config.py)
+
+**新增字段** - 语义分类平仓原因的触发类型:
+```python
+CLOSE_REASONS = {
+    # === 组1: 正常交易信号触发 (Pairs cooldown only) ===
+    'MEAN_REVERSION': {
+        'display': '均值回归',
+        'cooldown_days': 10,
+        'category': 'NORMAL_SIGNAL'  # 新增
+    },
+    'PAIR_BREAK': {
+        'display': '协整破裂',
+        'cooldown_days': 10,
+        'category': 'NORMAL_SIGNAL'  # 新增
+    },
+
+    # === 组2: Pair级风控触发 (Rule cooldown + Pairs cooldown同步) ===
+    'TIMEOUT': {
+        'display': '持有超时',
+        'cooldown_days': 10,
+        'category': 'PAIR_RISK'  # 新增
+    },
+    'DRAWDOWN': {
+        'display': '回撤触发',
+        'cooldown_days': 180,
+        'category': 'PAIR_RISK'  # 新增
+    },
+    'ANOMALY': {
+        'display': '单腿异常',
+        'cooldown_days': 999999,
+        'category': 'PAIR_RISK'  # 新增
+    },
+
+    # === 组3: Portfolio级风控 (全局cooldown only) ===
+    'PORTFOLIO_DRAWDOWN': {
+        'display': '组合回撤',
+        'cooldown_days': 360,
+        'category': 'PORTFOLIO_RISK'  # 新增
+    },
+    'ACCOUNT_BLOWUP': {
+        'display': '组合爆仓',
+        'cooldown_days': 999999,
+        'category': 'PORTFOLIO_RISK'  # 新增
+    }
+}
+```
+
+**分类语义**:
+- `NORMAL_SIGNAL`: 信号触发的正常平仓 (均值回归, 协整破裂)
+- `PAIR_RISK`: Pair级风控触发 (超时, 回撤, 单腿异常)
+- `PORTFOLIO_RISK`: Portfolio级风控触发 (组合回撤, 组合爆仓)
+
+#### 2. 统一冷却期检查方法 (ExecutionManager.py)
+
+**Before** (两个独立函数):
+```python
+def is_pair_in_risk_cooldown(self, pair_id: tuple) -> bool:
+    """检查配对是否在风险冷却期 (Rule层面)"""
+    for rule in self.risk_manager.pair_rules:
+        if rule.is_in_cooldown(pair_id=pair_id):
+            return True
+    return False
+
+def is_pair_in_normal_cooldown(self, pair) -> bool:
+    """检查配对是否在普通交易冷却期 (Pairs层面)"""
+    frozen_days = pair.get_pair_frozen_days()
+    if frozen_days is None:
+        return False
+    cooldown_days = pair.get_cooldown_days()
+    return frozen_days < cooldown_days
+```
+
+**After** (统一函数):
+```python
+def is_pair_in_cooldown(self, pair) -> bool:
+    """
+    统一的配对冷却期检查 (v7.16.0: 合并risk + normal cooldown)
+
+    检查逻辑:
+    1. 检查Rule cooldown (风控触发的冷却: TIMEOUT/DRAWDOWN/ANOMALY)
+    2. 检查Pairs cooldown (正常交易的冷却: MEAN_REVERSION/PAIR_BREAK)
+    3. 任一生效则返回True
+    """
+    pair_id = pair.pair_id
+
+    # 检查1: Rule层面cooldown
+    for rule in self.risk_manager.pair_rules:
+        if rule.is_in_cooldown(pair_id=pair_id):
+            return True
+
+    # 检查2: Pairs层面cooldown
+    frozen_days = pair.get_pair_frozen_days()
+    if frozen_days is not None:
+        cooldown_days = pair.get_cooldown_days()
+        if frozen_days < cooldown_days:
+            return True
+
+    return False
+```
+
+**调用点简化**:
+```python
+# Before (两次独立检查)
+if self.is_pair_in_risk_cooldown(pair_id):
+    continue
+if self.is_pair_in_normal_cooldown(pair):
+    continue
+
+# After (一次统一检查)
+if self.is_pair_in_cooldown(pair):
+    continue
+```
+
+### 技术优势
+
+1. **消除冗余检查**: 两次独立检查合并为一次,减少代码重复
+2. **清晰分类语义**: category字段明确平仓原因的触发类型,便于理解和维护
+3. **降低不一致风险**: 单一检查点减少潜在的状态同步问题
+4. **简化调用逻辑**: 调用代码从6行减少到2行
+
+### 向后兼容性
+
+- ✅ **完全兼容**: 检查逻辑不变,只是代码重构
+- ✅ **行为一致**: 新方法返回值与原有两个方法的逻辑OR等价
+- ⚠️ **API变更**: 删除了两个旧方法,但为内部方法无外部依赖
+
+---
+
 ## [v7.15.1_cleanup-close-reasons-and-fix-portfolio-mapping@20251115]
 
 ### 版本概述
