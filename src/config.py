@@ -212,20 +212,6 @@ class Constants:
         'ACCOUNT_BLOWUP': {
             'display': '组合爆仓',
             'cooldown_days': 999999
-        },
-
-        # 其他常用平仓原因
-        'CLOSE': {
-            'display': '正常平仓',
-            'cooldown_days': 10
-        },
-        'RISK_TRIGGER': {
-            'display': '风险触发',
-            'cooldown_days': 30
-        },
-        'COOLDOWN_CLEANUP': {
-            'display': '冷却清理',
-            'cooldown_days': 10
         }
     }
 

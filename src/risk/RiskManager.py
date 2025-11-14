@@ -100,10 +100,10 @@ class RiskManager:
         # 初始化市场条件检查器（独立于风控规则）
         self.market_condition = MarketCondition(algorithm, config)
 
-        # Rule类名 → CloseIntent的reason字符串
+        # Rule类名 → CloseIntent的reason字符串 (v7.15.1: 修复映射,匹配config.constants)
         self._portfolio_rule_to_reason_map = {
-            'AccountBlowupRule': 'PORTFOLIO BLOW UP',
-            'PortfolioDrawdownRule': 'PORTFOLIO DRAWDOWN',
+            'AccountBlowupRule': 'ACCOUNT_BLOWUP',         # 匹配config CLOSE_REASONS
+            'PortfolioDrawdownRule': 'PORTFOLIO_DRAWDOWN', # 匹配config CLOSE_REASONS
         }
 
         # v7.1.0 新增: Pair层映射机制(Intent Pattern)
