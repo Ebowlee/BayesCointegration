@@ -5,6 +5,110 @@
 ---
 
 
+## [v7.13.0_close-reason-classification-halflife-distribution@20251114]
+
+### 版本概述
+**功能增强 + 统计学修正** - 平仓原因三分类, 半衰期分布计算, 动态持仓超时, 行业代码可读化。
+
+### 核心改进
+
+#### 1. 平仓原因三分类 (解决"未知原因"BUG)
+
+**问题背景**:
+- v7.12.0统一冷却期后,回测日志大量显示"[平仓] (XXX, YYY) 未知原因"
+- 根本原因: RiskManager使用旧命名('PAIR TIMEOUT'),config使用新命名('NORMAL_EXIT'),导致字典查询失败
+
+**改进设计**:
+```python
+# config.py - 新增三分类 (替代NORMAL_EXIT)
+'close_reasons': {
+    'MEAN_REVERSION': {'display': '均值回归', 'cooldown_days': 10},   # |zscore| < 0.5
+    'PAIR_BREAK': {'display': '协整破裂', 'cooldown_days': 10},       # |zscore| >= 0.5 或 STOP_LOSS
+    'TIMEOUT': {'display': '持有超时', 'cooldown_days': 10},          # PairHoldingTimeoutRule
+    'DRAWDOWN': {'display': '回撤触发', 'cooldown_days': 180},
+    'ANOMALY': {'display': '单腿异常', 'cooldown_days': 999999}
+}
+```
+
+**效果**: 回测日志显示"均值回归"/"协整破裂"/"持有超时",不再出现"未知原因"
+
+---
+
+#### 2. 半衰期分布计算 (统计学修正 - Jensen不等式)
+
+**问题背景**:
+- v7.12.0及之前: `half_life = -ln(2) / ln(mean(rho_samples))` (违反Jensen不等式)
+- 用户指出: λ (rho) 是点估计但应有分布,half_life也应有分布
+- 2.0x固定倍数忽略了后验不确定性
+
+**统计学原理**:
+```python
+# 错误方式 (v7.12.0及之前)
+rho_mean = mean(rho_samples)
+half_life = -ln(2) / ln(rho_mean)  # Jensen不等式违反
+
+# 正确方式 (v7.13.0)
+half_life_samples = -ln(2) / ln(rho_samples)
+half_life_mean = mean(half_life_samples)
+half_life_std = std(half_life_samples)  # NEW: 量化不确定性
+```
+
+**示例差异**: rho=[0.85,0.90,0.95] → 错误:6.6天 vs 正确:8.1±4.1天 (差异23%)
+
+---
+
+#### 3. 动态持仓超时 (基于95%置信区间)
+
+**改进设计**:
+```python
+# PairHoldingTimeout.py
+if pair.half_life_std > 0:
+    max_days = pair.half_life + 2 * pair.half_life_std  # 95% CI
+else:
+    max_days = pair.half_life * 2.0  # 向后兼容
+```
+
+**效果**: 不再使用固定倍数,改为统计分布的95%区间
+
+---
+
+#### 4. 行业代码可读化
+
+**改进**: 日志显示"半导体(31130)"而非"31130"
+**示例**:
+```
+[协整分析] 半导体(31130): 8只股票 → 检测28对 → 通过5对
+[行业配额] 本月动态配额 (非默认): {'半导体': 6, '生物科技': 3}
+```
+
+---
+
+### Bug修复
+- 修复"未知原因"显示BUG (reason传递链命名不一致)
+
+### 破坏性变更
+- **config.constants.close_reasons**: 移除`'NORMAL_EXIT'`,新增`'MEAN_REVERSION'/'PAIR_BREAK'/'TIMEOUT'`
+- **PairSelector._calculate_half_life_score()**: 返回值从二元组改为三元组
+
+### 向后兼容
+- **Pairs.half_life_std**: 默认值0兼容旧数据
+- **PairHoldingTimeout**: `half_life_std=0`时退回2.0x公式
+- **Pairs.get_cooldown_days()**: 旧reason通过默认值10天兜底
+
+### 测试建议
+1. 验证平仓日志显示三分类原因
+2. 比较v7.12.0与v7.13.0的持仓超时触发差异
+3. 检查Level 1日志的行业中文名显示
+4. 确认半衰期计算无NaN/Inf (正常范围: 4-20天)
+
+### 影响模块
+- config.py, ExecutionManager.py, RiskManager.py, Pairs.py
+- PairSelector.py, PairHoldingTimeout.py
+- IndustryQuotaManager.py, CointegrationAnalyzer.py
+
+---
+
+
 ## [v7.12.2_fix-missing-half-life-attribute@20251114]
 
 ### 版本概述
