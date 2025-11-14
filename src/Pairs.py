@@ -63,11 +63,11 @@ class Pairs:
         self.creation_time = algorithm.Time                                    # 首次创建时间
         self.reactivation_count = 0                                            # 重新激活次数(配对消失又出现)
 
-        # === 交易历史统计 (黑名单系统 - 加权平均修正) ===
+        # === 交易历史统计 (已实现PnL - 加权平均修正) ===
         self.trade_count = 0                                                   # 历史总交易次数
         self.win_count = 0                                                     # 历史盈利次数
-        self.total_pnl_dollars = 0.0                                           # 累计美元PnL (加权平均分子)
-        self.total_pair_cost = 0.0                                             # 累计保证金成本 (加权平均分母)
+        self.realized_pnl = 0.0                                                # 已实现PnL (已平仓交易累计,加权平均分子)
+        self.realized_cost = 0.0                                               # 已实现成本 (已平仓交易累计,加权平均分母)
 
         # === 时间追踪 ===
         self.pair_opened_time = None                                           # 配对开仓时间(双腿都成交的时刻)
@@ -286,8 +286,8 @@ class Pairs:
         current_pnl_pct = (current_pnl / current_cost * 100) if (current_pnl and current_cost and current_cost > 0) else 0
 
         # 计算累计收益率 (包括本次交易)
-        cumulative_pnl = self.total_pnl_dollars + (current_pnl if current_pnl else 0)
-        cumulative_cost = self.total_pair_cost + (current_cost if current_cost else 0)
+        cumulative_pnl = self.realized_pnl + (current_pnl if current_pnl else 0)
+        cumulative_cost = self.realized_cost + (current_cost if current_cost else 0)
         total_pnl_pct = (cumulative_pnl / cumulative_cost * 100) if cumulative_cost > 0 else 0
 
         # 交易序号(平仓时 trade_count 尚未递增)
@@ -338,8 +338,8 @@ class Pairs:
             return
 
         # 累积美元PnL和成本(用于加权平均计算)
-        self.total_pnl_dollars += pnl_dollars  # 分子: 累计盈亏
-        self.total_pair_cost += pair_cost      # 分母: 累计成本
+        self.realized_pnl += pnl_dollars  # 分子: 已实现PnL
+        self.realized_cost += pair_cost   # 分母: 已实现成本
 
         # 更新计数统计
         self.trade_count += 1

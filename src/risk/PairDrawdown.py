@@ -11,7 +11,7 @@ class PairDrawdownRule(RiskRule):
     检测配对级别的回撤,包括单次交易回撤和累计历史回撤,任一超过阈值则触发平仓。
 
     v7.14.0 双层检测机制:
-    - **Layer 2 (累计历史回撤)**: 检查累计收益率 total_pnl_dollars / total_pair_cost
+    - **Layer 2 (累计历史回撤)**: 检查累计收益率 realized_pnl / realized_cost
       - 触发条件: cumulative_return < -threshold (如 -0.11 < -0.08)
       - 目标: 防止"每次亏一点点,累计亏很多"的温水煮青蛙配对
       - 无最小交易次数限制 (只要有历史交易就检查)
@@ -78,7 +78,7 @@ class PairDrawdownRule(RiskRule):
         4. **Layer 1 (单次交易回撤检测)**: 检查当前持仓回撤是否超过阈值
 
         Args:
-            pair: Pairs对象,必须实现 get_pair_pnl(), get_pair_cost(), total_pnl_dollars, total_pair_cost 属性
+            pair: Pairs对象,必须实现 get_pair_pnl(), get_pair_cost(), realized_pnl, realized_cost 属性
 
         Returns:
             (is_triggered, description)
@@ -86,7 +86,7 @@ class PairDrawdownRule(RiskRule):
             - description: 详细描述(区分Layer 1/Layer 2触发)
 
         v7.14.0 双层检测机制:
-        - **Layer 2 (累计)**: 检查历史累计收益率 total_pnl_dollars / total_pair_cost
+        - **Layer 2 (累计)**: 检查历史累计收益率 realized_pnl / realized_cost
           - 触发条件: cumulative_return < -threshold (如 -0.11 < -0.08)
           - 目标: 防止"每次亏一点点,累计亏很多"的温水煮青蛙配对
           - 无最小交易次数限制 (只要有历史交易就检查)
@@ -116,9 +116,9 @@ class PairDrawdownRule(RiskRule):
         # 3. Layer 2: 累计历史回撤检测 (v7.14.0)
         if self.config.get('enable_cumulative_check', False):
             # 前置条件: 必须有历史交易数据
-            if pair.trade_count > 0 and pair.total_pair_cost > 0:
+            if pair.trade_count > 0 and pair.realized_cost > 0:
                 # 计算累计收益率 (小数形式,如 -0.11 代表 -11%)
-                cumulative_return = pair.total_pnl_dollars / pair.total_pair_cost
+                cumulative_return = pair.realized_pnl / pair.realized_cost
 
                 # 判断累计亏损是否超过阈值 (使用统一阈值)
                 threshold = self.config['threshold']

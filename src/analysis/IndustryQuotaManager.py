@@ -104,7 +104,7 @@ class IndustryQuotaManager:
         # 步骤3: 计算每个行业的配额
         industry_quotas = {}
         for industry_code, stats in industry_stats.items():
-            weighted_return = stats['total_pnl_dollars'] / stats['total_pair_cost']
+            weighted_return = stats['realized_pnl'] / stats['realized_cost']
             quota = self._get_quota_by_return(weighted_return)
             industry_quotas[industry_code] = quota
 
@@ -139,21 +139,21 @@ class IndustryQuotaManager:
         Returns:
             {
                 'industry_code': {
-                    'total_pnl_dollars': float,     # 累计美元PnL
-                    'total_pair_cost': float,       # 累计保证金成本
-                    'pair_count': int               # 配对数量 (用于调试)
+                    'realized_pnl': float,      # 已实现PnL (已平仓交易累计)
+                    'realized_cost': float,     # 已实现成本 (已平仓交易累计)
+                    'pair_count': int           # 配对数量 (用于调试)
                 }
             }
 
         实现步骤:
         1. 遍历pairs_manager.all_pairs (包含所有状态: COINTEGRATED/LEGACY/ARCHIVED)
         2. 检查pair.industry_code是否存在
-        3. 聚合total_pnl_dollars和total_pair_cost
+        3. 聚合realized_pnl和realized_cost
         4. 只统计至少有1笔历史交易的配对 (trade_count > 0)
         """
         industry_stats = defaultdict(lambda: {
-            'total_pnl_dollars': 0.0,
-            'total_pair_cost': 0.0,
+            'realized_pnl': 0.0,
+            'realized_cost': 0.0,
             'pair_count': 0
         })
 
@@ -169,8 +169,8 @@ class IndustryQuotaManager:
 
             # 聚合统计
             industry_code = str(pair.industry_code)
-            industry_stats[industry_code]['total_pnl_dollars'] += pair.total_pnl_dollars
-            industry_stats[industry_code]['total_pair_cost'] += pair.total_pair_cost
+            industry_stats[industry_code]['realized_pnl'] += pair.realized_pnl
+            industry_stats[industry_code]['realized_cost'] += pair.realized_cost
             industry_stats[industry_code]['pair_count'] += 1
 
         return industry_stats
