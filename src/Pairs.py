@@ -252,11 +252,11 @@ class Pairs:
             if fill_price1 and fill_price2:
                 self.fill_zscore_close = self.get_zscore(fill_price1, fill_price2)
 
-            # 输出平仓日志(确保fill_zscore_close已计算完成)
-            self._log_close_completion(reason)
-
-            # 更新交易历史统计(黑名单系统)
+            # 更新交易历史统计(先更新状态)
             self._update_trade_stats()
+
+            # 输出平仓日志(读取已更新的realized_pnl/cost)
+            self._log_close_completion(reason)
 
             # 清零所有追踪变量
             self.tracked_qty1 = 0
@@ -285,10 +285,8 @@ class Pairs:
         current_cost = self.get_pair_cost()
         current_pnl_pct = (current_pnl / current_cost * 100) if (current_pnl and current_cost and current_cost > 0) else 0
 
-        # 计算累计收益率 (包括本次交易)
-        cumulative_pnl = self.realized_pnl + (current_pnl if current_pnl else 0)
-        cumulative_cost = self.realized_cost + (current_cost if current_cost else 0)
-        total_pnl_pct = (cumulative_pnl / cumulative_cost * 100) if cumulative_cost > 0 else 0
+        # 计算累计收益率 (直接读取已更新的realized_pnl/cost)
+        total_pnl_pct = (self.realized_pnl / self.realized_cost * 100) if self.realized_cost > 0 else 0
 
         # 交易序号(平仓时 trade_count 尚未递增)
         trade_num = self.trade_count + 1
