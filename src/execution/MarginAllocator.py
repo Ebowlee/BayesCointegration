@@ -57,7 +57,7 @@ class MarginAllocator:
 
         # 从config提取关键参数
         pairs_config = config.pairs_trading
-        self.margin_usage_ratio = pairs_config['margin_usage_ratio']  # 0.95
+        self.margin_usage_ratio = pairs_config.margin_usage_ratio  # 0.95
 
         # 记录初始保证金(分配基准,整个回测周期固定)
         self.initial_available_fund = algorithm.Portfolio.MarginRemaining
@@ -66,7 +66,7 @@ class MarginAllocator:
         self.fixed_buffer = self.initial_available_fund * (1 - self.margin_usage_ratio)
 
         # 最小投资额(从config直接计算: initial_cash × min_investment_ratio)
-        self.min_investment_amount = (config.main['cash'] * config.pairs_trading['min_investment_ratio'])
+        self.min_investment_amount = (config.main.cash * config.pairs_trading.min_investment_ratio)
 
 
 
