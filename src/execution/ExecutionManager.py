@@ -296,12 +296,12 @@ class ExecutionManager:
 
             # 处理平仓信号
             if signal == 'CLOSE':
-                intent = pair.get_close_intent(reason='CLOSE')
+                intent = pair.get_close_intent(reason='NORMAL_EXIT')  # v7.12.0: 统一平仓原因
                 if intent:
                     self.order_executor.execute_close(intent)  # 自动注册到TicketsManager
 
             elif signal == 'PAIR_BREAK':  # v7.10.6: 原STOP_LOSS重命名
-                intent = pair.get_close_intent(reason='PAIR_BREAK')
+                intent = pair.get_close_intent(reason='NORMAL_EXIT')  # v7.12.0: 统一平仓原因
                 if intent:
                     self.order_executor.execute_close(intent)  # 自动注册到TicketsManager
 

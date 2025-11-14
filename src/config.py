@@ -96,7 +96,6 @@ class StrategyConfig:
         self.pair_selector = {
             # 筛选限制
             'max_symbol_repeats': 1,                    # 单股最多配对数(允许高质量股票参与多个配对)
-            # v7.12.0: 删除max_pairs硬性限制,改用资金约束自然限制实际开仓数量
 
             # 质量门槛
             'min_quality_threshold': 0.60,              # 最低质量分数阈值
@@ -166,7 +165,7 @@ class StrategyConfig:
 
             # 仓位管理参数
             'min_investment_ratio': 0.05,               # 质量最低(0.0分)配对投资比例: 5%,同时作为绝对门槛
-            'max_investment_ratio': 0.15,               # 质量最高(1.0分)配对投资比例: 25%
+            'max_investment_ratio': 0.15,               # 质量最高(1.0分)配对投资比例: 15%
 
             # 保证金管理 (美股规则)
             'margin_requirement_long': 0.5,             # 多头保证金率: 50%
@@ -216,13 +215,13 @@ class StrategyConfig:
                 'account_blowup': {
                     'enabled': True,
                     'priority': 100,
-                    'threshold': 0.15,
+                    'threshold': 0.20,
                     'action': 'portfolio_liquidate_all'
                 },
                 'portfolio_drawdown': {
                     'enabled': True,
                     'priority': 90,
-                    'threshold': 0.075,
+                    'threshold': 0.10,
                     'action': 'portfolio_liquidate_all'      # 全仓清算
                 }
             },
@@ -236,7 +235,7 @@ class StrategyConfig:
                 'pair_drawdown': {
                     'enabled': True,
                     'priority': 90,
-                    'threshold': 0.05                        # 统一回撤阈值
+                    'threshold': 0.08                        # 统一回撤阈值
                 },
                 'holding_timeout': {
                     'enabled': True,
@@ -278,7 +277,6 @@ class StrategyConfig:
             },
 
             # === 4. 平仓原因（常量+显示文本+冷却天数 统一管理）===
-            # v7.12.0: 简化冻结机制，统一NORMAL_EXIT
             'close_reasons': {
                 # 正常交易周期结束（统一10天）
                 'NORMAL_EXIT': {
@@ -289,7 +287,7 @@ class StrategyConfig:
                 # 风险触发
                 'DRAWDOWN': {
                     'display': '回撤触发',
-                    'cooldown_days': 180  # v7.12.0: 统一回撤风控，不分盈亏
+                    'cooldown_days': 180  
                 },
                 'ANOMALY': {
                     'display': '单腿异常',
@@ -299,11 +297,11 @@ class StrategyConfig:
                 # Portfolio级风控（不影响配对选择）
                 'PORTFOLIO_DRAWDOWN': {
                     'display': '组合回撤',
-                    'cooldown_days': 60
+                    'cooldown_days': 360
                 },
                 'ACCOUNT_BLOWUP': {
                     'display': '组合爆仓',
-                    'cooldown_days': 365
+                    'cooldown_days': 999999
                 }
             },
 

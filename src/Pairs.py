@@ -70,7 +70,7 @@ class Pairs:
         # === 时间追踪 ===
         self.pair_opened_time = None                                           # 配对开仓时间(双腿都成交的时刻)
         self.pair_closed_time = None                                           # 配对平仓时间(双腿都成交的时刻)
-        self.last_close_reason = None                                          # 最后平仓原因(CLOSE/STOP_LOSS/TIMEOUT/RISK_TRIGGER,用于动态冷却期判断)
+        self.last_close_reason = None                                          # 最后平仓原因(v7.12.0统一: NORMAL_EXIT/DRAWDOWN/ANOMALY/PORTFOLIO_DRAWDOWN/ACCOUNT_BLOWUP)
 
         # === 交易质量追踪 (三阶段Z-score用于事后分析) ===
         self.entry_zscore = None                                               # 信号触发时Z-score(分析决策质量)
@@ -195,7 +195,7 @@ class Pairs:
             action: OrderAction.OPEN 或 OrderAction.CLOSE
             fill_time: 最后一条腿成交的时间(确保两腿都已成交)
             tickets: List[OrderTicket] 成交的订单票据列表,用于提取实际成交数量
-            reason: 平仓原因(仅CLOSE时有效, 可选值: CLOSE/STOP_LOSS/TIMEOUT/RISK_TRIGGER)
+            reason: 平仓原因(仅CLOSE时有效, v7.12.0统一: NORMAL_EXIT/DRAWDOWN/ANOMALY/PORTFOLIO_DRAWDOWN/ACCOUNT_BLOWUP)
 
         技术说明:
             - OrderTicket: QuantConnect SDK 订单票据类
@@ -276,7 +276,7 @@ class Pairs:
         - 根据平仓原因输出不同消息("Z-score回归" vs "Z-score超限")
 
         Args:
-            reason: 平仓原因 (CLOSE/STOP_LOSS/TIMEOUT/RISK_TRIGGER)
+            reason: 平仓原因 (v7.12.0统一: NORMAL_EXIT/DRAWDOWN/ANOMALY/PORTFOLIO_DRAWDOWN/ACCOUNT_BLOWUP)
         """
         # 计算本次交易PnL
         current_pnl = self.get_pair_pnl()
@@ -481,15 +481,27 @@ class Pairs:
         设计理由:
         - v7.12.0统一为3种冷却期: NORMAL_EXIT(10天), DRAWDOWN(180天), ANOMALY(永久)
         - 兼容v7.11.0及之前的旧原因代码(PAIR_BREAK/TIMEOUT/CLOSE等)
+        - 历史兼容性: 由于回测可能加载旧版本的持久化数据,需要映射旧原因名到新原因
 
         Returns:
             冷却期天数（从config.constants.close_reasons读取）
 
-        映射规则:
+        映射规则 (v7.12.0统一前的历史原因):
             PAIR_BREAK/TIMEOUT/CLOSE → NORMAL_EXIT (10天)
+              - PAIR_BREAK: v7.10.6原STOP_LOSS重命名
+              - TIMEOUT: v7.11.0自适应持仓超时
+              - CLOSE: v7.2.21正常平仓
             DRAWDOWN → DRAWDOWN (180天)
+              - 包含v7.12.0前的DRAWDOWN_PROFIT/DRAWDOWN_LOSS
             ANOMALY → ANOMALY (999999天)
+              - 单腿持仓异常
             其他 → NORMAL_EXIT (默认10天)
+              - None: 新配对未平仓过
+              - 未知原因: 防御性兜底
+
+        注意:
+        - Portfolio级原因(PORTFOLIO_DRAWDOWN/ACCOUNT_BLOWUP)不参与映射
+        - 这些原因触发的是全局冷却期,由RiskManager管理,不影响per-pair冷却计算
         """
         close_reasons = self.algorithm.config.constants['close_reasons']
 

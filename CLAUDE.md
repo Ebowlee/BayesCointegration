@@ -144,7 +144,8 @@ git commit -m "docs: update CHANGELOG for v7.2.5"
   - ❌ **Does NOT**: Risk checking, HWM tracking, drawdown calculation, order execution
   - **Removed** (v6.9.4): `check_position_integrity()` (unused), `get_pair_drawdown()` (moved to PairDrawdownRule), `pair_hwm` attribute
   - **Removed** (v7.0.0): `open_position()`, `close_position()` (replaced by get_*_intent + OrderExecutor)
-  - **Added** (v7.7.0): Trade statistics attributes (trade_count, win_count, total_pnl_pct) for blacklist system
+  - **Added** (v7.7.0): Trade statistics attributes (trade_count, win_count, total_pnl_dollars, total_pair_cost) for performance tracking
+  - **Added** (v7.12.0): industry_code field for industry quota management
 - **Creation Pattern** (v6.9.2):
   - **Recommended**: Use classmethod factory `Pairs.from_model_result(algorithm, model_result, config)`
   - **Avoid**: Direct constructor `Pairs(algorithm, model_result, config)`
@@ -283,59 +284,21 @@ git commit -m "docs: update CHANGELOG for v7.2.5"
 
 ### 10. Analysis Modules (src/analysis/)
 - **DataProcessor**: Clean and prepare historical data (252-day lookback)
-- **CointegrationAnalyzer**: Engle-Granger cointegration tests (p-value < 0.05)
+- **CointegrationAnalyzer**: Engle-Granger cointegration tests (p-value < 0.05) + industry quota application (v7.12.0)
+  - **Industry Quota** (v7.12.0): Applies dynamic quotas at cointegration stage
+  - Selects TOP N pairs per industry by pvalue (N from IndustryQuotaManager)
 - **BayesianModeler**: PyMC MCMC parameter estimation (500 warmup + 500 samples, 2 chains)
-- **PairSelector**: Quality scoring using 2 weighted metrics (v7.5.23) + blacklist filtering (v7.6.0 → v7.7.0)
-  - **Dependency Injection** (v7.7.0): Constructor receives `blacklist_manager` for blacklist access (renamed from `trade_analyzer`)
+- **PairSelector**: Quality scoring using 2 weighted metrics (v7.5.23) + risk pair filtering (v7.12.0)
   - **Quality Metrics**:
     - **half_life** (60%): Mean reversion speed (most independent + highest predictive power 57%)
     - **mean_reversion_certainty** (40%): AR(1) significance (theoretical core + moderate predictive power 50%)
-  - **Blacklist Filtering** (v7.6.0 → v7.6.1): `_filter_by_blacklist()` private method encapsulates filtering logic
-
-### 11. trade/ - Blacklist Module (v7.7.0 → v7.7.1 OOP Refactor + Math Fix)
-- **Purpose**: Identify historically underperforming pairs to prevent repeated losses
-- **Design Principle** (v7.7.0): Face-to-Face OOP - Data belongs to Pairs, logic in BlacklistManager
-  - **Data Storage**: Trade history tracked in Pairs objects (trade_count, win_count, total_pnl_dollars, total_pair_cost - v7.7.1)
-  - **Logic Layer**: BlacklistManager provides stateless judgment logic
-  - **Auto-Update**: Statistics accumulated automatically in Pairs.on_position_filled()
-- **Architecture** (v7.7.0): Single-file module (79% code reduction from v7.6.0)
-  - **BlacklistManager.py** (160 lines - v7.7.1): Stateless manager for blacklist logic with weighted average calculation
-  - **No data storage**: Reads from Pairs objects on-demand
-  - **Configuration** (v7.7.2): All thresholds from `config.trade_analysis`
-    - Location: `src/config.py` → `StrategyConfig.trade_analysis`
-    - Parameters: `blacklist_min_trades`, `blacklist_pnl_threshold`
-- **Key Methods**:
-  - `get_blacklist()`: Returns Set[Tuple[str, str]] of blacklisted pairs (immediate query from all Pairs)
-  - `is_blacklisted(pair_id)`: O(1) check if specific pair is blacklisted
-  - `get_stats(pair_id)`: Returns diagnostic info (count, wins, total_pnl) - calculates weighted average (v7.7.1)
-  - `_should_blacklist(pair)`: Private method - checks if Pairs object meets blacklist criteria using weighted average (v7.7.1)
-- **Blacklist Criteria** (configurable in config.trade_analysis):
-  - **min_trades**: Minimum trade count (default: 3)
-  - **pnl_threshold**: Maximum cumulative return (default: 0%)
-  - **Formula** (v7.7.1): `trade_count >= 3 AND (total_pnl_dollars / total_pair_cost) * 100 < 0`
-- **Integration Points**:
-  - **Initialization** (main.py): `BlacklistManager(algorithm, config.trade_analysis)` → Injected to PairSelector
-  - **Pair Selection** (PairSelector): Calls `blacklist_manager.get_blacklist()` to filter bad pairs
-  - **Data Update** (Pairs): Statistics accumulated in `on_position_filled()` after every closing trade
-  - **No manual calls**: Removed all `analyze_trade()` calls from ExecutionManager
-- **Trade Statistics** (stored in Pairs.py - v7.7.1):
-  - `trade_count`: Total historical trades for this pair
-  - `win_count`: Number of profitable trades (pnl_dollars > 0)
-  - `total_pnl_dollars`: Cumulative dollar PnL (numerator for weighted average)
-  - `total_pair_cost`: Cumulative margin cost (denominator for weighted average)
-  - **Cumulative Return**: Calculated as `(total_pnl_dollars / total_pair_cost) * 100` (weighted average, not simple addition)
-  - **Update Timing**: Accumulated in `_update_trade_stats()` called by `on_position_filled()`
-- **v7.7.1 Bug Fix**:
-  - **Problem**: v7.7.0 used simple percentage addition (`total_pnl_pct += pnl_pct`), ignoring cost differences
-  - **Solution**: Store cumulative dollars and costs separately, calculate weighted average on query
-  - **Impact**: Mathematically correct blacklist filtering, prevents incorrect pair exclusion/inclusion
-- **Benefits** (v7.7.0 → v7.7.1):
-  - **Code reduction**: 79% (658 → 135 lines), 50% file reduction (4 → 2 files)
-  - **OOP design**: Data cohesion - trade history as intrinsic property of Pairs
-  - **Zero overhead**: No separate data structures, no manual update calls
-  - **Immediate query**: No caching, direct read from Pairs objects
-  - **Mathematical correctness**: Weighted average properly accounts for varying trade costs (v7.7.1)
-  - **Log reduction**: Eliminated backtest statistics logging (delegated to backtest-analyst agent)
+  - **Risk Filtering** (v7.12.0): `_filter_risk_pairs()` internal method filters DRAWDOWN/ANOMALY cooldown pairs
+  - **No Blacklist**: v7.12.0 removed BlacklistManager module, simplified to cooldown-based filtering
+- **IndustryQuotaManager** (v7.12.0): Dynamic industry-level quota system
+  - **Warmup Period**: First 180 days use default quota (1 pair per industry)
+  - **Dynamic Adjustment**: Monthly quota calculation based on weighted return
+  - **Quota Tiers**: 1/3/6/9 pairs per industry (based on performance)
+  - **Weighted Return**: sum(total_pnl_dollars) / sum(total_pair_cost) per industry
 
 ## Trading Execution Flow (OnData)
 
@@ -533,14 +496,15 @@ def is_pair_in_normal_cooldown(self, pair) -> bool:
 
 ### Data Flow
 1. **Universe Changes**: `OnSecuritiesChanged()` → triggers pair analysis
-2. **Analysis Pipeline**: DataProcessor → CointegrationAnalyzer → BayesianModeler → PairSelector (v7.7.0: uses blacklist_manager blacklist)
+2. **Analysis Pipeline**: DataProcessor → CointegrationAnalyzer (v7.12.0: applies industry quotas) → BayesianModeler → PairSelector (v7.12.0: filters risk pairs)
 3. **Pair Creation**: Direct Pairs object creation → PairsManager.update_pairs()
 4. **Trading Flow (Intent Pattern)**: OnData → Risk detection → Order lock check → Pairs.get_*_intent() → OrderExecutor.execute() → Trade execution
 5. **Order Tracking**: Pairs.get_*_intent() → Returns Intent → OrderExecutor.execute() → Returns tickets → TicketsManager.register_tickets() → Order lock activated
 6. **Order Events**: QCAlgorithm.OnOrderEvent() → TicketsManager.on_order_event() → Status update (PENDING/COMPLETED/ANOMALY)
 7. **State Updates**: PairsManager maintains pair lifecycle states (active/legacy/dormant)
 8. **Intent Flow** (v7.0.0): Pairs (generate intent) → OrderExecutor (execute intent) → TicketsManager (track orders)
-9. **Feedback Loop** (v7.6.0 → v7.7.0): Pairs (stores trade history) → BlacklistManager (reads & judges) → PairSelector (filters bad pairs via `_filter_by_blacklist()`)
+9. **Industry Quota Flow** (v7.12.0): IndustryQuotaManager.calculate_quotas() → CointegrationAnalyzer (applies quotas) → Selects TOP N pairs per industry
+10. **Risk Filtering Flow** (v7.12.0): PairSelector._filter_risk_pairs() → Checks last_close_reason (DRAWDOWN/ANOMALY) → Filters cooldown pairs
 
 ### State Management
 - **Pair States**: Active (tradeable), Legacy (position only), Dormant (inactive)
@@ -776,14 +740,14 @@ zscore = (log_residual - residual_mean) / residual_std
 
 ## Version History
 
-**Current Version**: v7.7.2 (2025-02-10)
+**Current Version**: v7.12.0 (2025-11-14)
 
 **Recent Major Updates**:
-- **v7.7.2** (Feb 2025): Config bug fix - added missing trade_analysis configuration block (fixes v7.7.0/v7.7.1 runtime crash)
-- **v7.7.1** (Feb 2025): Math bug fix - weighted average cumulative return calculation (fixes v7.7.0 simple percentage addition error)
-- **v7.7.0** (Feb 2025): Trade module OOP refactor - face-to-face OOP design with 79% code reduction
-- **v7.6.1** (Feb 2025): Architecture optimization - unified dependency injection pattern + blacklist filtering encapsulation
-- **v7.6.0** (Feb 2025): Pair-level historical feedback mechanism - blacklist filtering + pnl_pct calculation fix
+- **v7.12.0** (Nov 2025): Simplified freeze mechanism + industry dynamic quota system - unified cooldown (3 types), removed BlacklistManager, added IndustryQuotaManager
+- **v7.11.0** (Nov 2025): Adaptive holding timeout - dynamic holding time based on pair half-life
+- **v7.7.2** (Feb 2025): Config bug fix - added missing trade_analysis configuration block
+- **v7.7.1** (Feb 2025): Math bug fix - weighted average cumulative return calculation
+- **v7.7.0** (Feb 2025): Trade module OOP refactor - face-to-face OOP design (deprecated in v7.12.0)
 - **v7.5.23** (Feb 2025): Two-dimension quality scoring - removed Beta Stability and Residual Quality
 - **v7.0.0** (Jan 2025): Intent Pattern refactor - separated intent generation from order execution
 - **v6.4.4** (Jan 2025): Order lifecycle tracking - duplicate order prevention via locking mechanism
@@ -800,18 +764,21 @@ zscore = (log_residual - residual_mean) / residual_std
 ## Project File Organization
 
 - **src/**: Source code modules
-  - **analysis/**: Data processing and statistical analysis (DataProcessor, CointegrationAnalyzer, BayesianModeler, PairSelector)
+  - **analysis/**: Data processing and statistical analysis
+    - **DataProcessor**: Data cleaning and validation
+    - **CointegrationAnalyzer**: Cointegration testing with industry quota application (v7.12.0)
+    - **BayesianModeler**: PyMC MCMC parameter estimation
+    - **PairSelector**: Quality scoring and risk pair filtering (v7.12.0)
+    - **IndustryQuotaManager**: Dynamic industry quota system (v7.12.0)
   - **config.py**: Centralized configuration via StrategyConfig class
   - **UniverseSelection.py**: Multi-stage stock filtering
-  - **Pairs.py**: Pair trading object with signal generation, intent generation, and trade history tracking (v7.0.0 → v7.7.0)
+  - **Pairs.py**: Pair trading object with signal generation, intent generation, and trade history tracking
   - **OrderExecutor.py**: Order execution engine (unified order submission - v7.0.0)
   - **OrderIntent.py**: Intent value objects (OpenIntent, CloseIntent - v7.0.0)
   - **PairsManager.py**: Lifecycle management for all pairs
   - **ExecutionManager.py**: Execution coordinator (orchestrates intent generation and execution - v7.0.0)
   - **risk/RiskManager.py**: Two-tier risk detection system
   - **TicketsManager.py**: Order lifecycle tracking and duplicate order prevention (v6.4.4)
-  - **trade/**: Blacklist module (v7.7.0 OOP refactor)
-    - **BlacklistManager.py**: Stateless blacklist logic manager (reads from Pairs objects)
 - **docs/**: Documentation and version history
   - **CHANGELOG.md**: Complete version history with detailed change tracking
 - **research/**: Jupyter notebooks for strategy research and analysis

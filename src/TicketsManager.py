@@ -92,8 +92,8 @@ class TicketsManager:
             pair_id: 配对ID,格式如 "(AAPL, MSFT)"
             tickets: OrderTicket列表,通常包含2个元素(long + short)
             action: 'OPEN' 或 'CLOSE'
-            reason: 平仓原因 (仅当action='CLOSE'时有效) - v7.2.21
-                   例: 'CLOSE', 'PAIR_BREAK', 'TIMEOUT', 'DRAWDOWN_PROFIT', etc.
+            reason: 平仓原因 (仅当action='CLOSE'时有效) - v7.12.0统一
+                   例: 'NORMAL_EXIT', 'DRAWDOWN', 'ANOMALY', 'PORTFOLIO_DRAWDOWN', 'ACCOUNT_BLOWUP'
 
         注意:
             - 如果tickets为空,不做任何操作

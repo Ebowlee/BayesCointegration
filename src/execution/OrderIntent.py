@@ -60,7 +60,7 @@ class CloseIntent:
         symbol2: 第二只股票的Symbol对象
         qty1: 第一只股票的当前持仓数量(需要平仓的数量)
         qty2: 第二只股票的当前持仓数量(需要平仓的数量)
-        reason: 平仓原因 ('CLOSE', 'STOP_LOSS', 'TIMEOUT', 'RISK_TRIGGER')
+        reason: 平仓原因 (v7.12.0统一: 'NORMAL_EXIT', 'DRAWDOWN', 'ANOMALY', 'PORTFOLIO_DRAWDOWN', 'ACCOUNT_BLOWUP')
         tag: 订单标签,用于追踪和分析(包含reason信息)
 
     使用场景:
