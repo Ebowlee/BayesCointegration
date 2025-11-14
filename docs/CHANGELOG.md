@@ -5,6 +5,238 @@
 ---
 
 
+## [v7.15.0_config-architecture-refactor@20251114]
+
+### 版本概述
+**Config架构重构** - 引入dataclass类型安全,三层职责分组,提升可维护性和IDE智能支持。
+
+### 核心变更
+
+#### 1. 引入dataclass类型系统
+
+**重构范围**: 3个核心配置类
+```python
+@dataclass
+class MainConfig:             # 主程序配置
+    start_date: tuple = (2023, 9, 20)
+    cash: int = 100000
+    debug_mode: bool = True
+    # ... 10个字段
+
+@dataclass
+class UniverseConfig:         # 选股配置
+    min_price: float = 15
+    min_volume: float = 5e6
+    # ... 4个字段
+
+@dataclass
+class PairsTradingConfig:     # 配对交易配置
+    entry_threshold_lower: float = 1.2
+    margin_requirement_long: float = 0.5
+    # ... 9个字段
+
+@dataclass
+class CointegrationConfig:    # 协整分析配置
+    pvalue_threshold: float = 0.05
+    # ... 3个字段
+
+@dataclass
+class PairSelectorConfig:     # 配对选择配置
+    max_symbol_repeats: int = 1
+    # ... 3个字段
+```
+
+**收益**:
+- ✅ **IDE智能提示**: 属性访问支持自动补全
+- ✅ **类型检查**: 拼写错误编译时发现 (如 `entry_threshod` → IDE报错)
+- ✅ **显式默认值**: dataclass自带默认值机制,比注释更清晰
+- ✅ **向后兼容**: `get_module_config()` 自动转换为字典
+
+---
+
+#### 2. 三层职责分组
+
+**架构原则**: 按配置变更频率分层
+
+**第一层: 业务参数** (经常调整):
+- `MainConfig`: 回测时间/资金/日志级别
+- `UniverseConfig`: 股价/成交量/财务筛选阈值
+- `PairsTradingConfig`: 信号阈值/仓位比例/保证金率
+- `industry_quota`: 行业配额参数 (保持字典)
+
+**第二层: 算法参数** (学术研究确定后很少改动):
+- `CointegrationConfig`: 协整检验p值/分组参数
+- `PairSelectorConfig`: 质量评分权重/阈值
+- `bayesian_modeler`: 贝叶斯先验配置 (保持字典,嵌套复杂)
+
+**第三层: 常量枚举** (永久不变):
+- `Constants` 类: 提取所有枚举映射
+- `_init_constants()` 方法: 独立初始化,减少 `__init__` 视觉噪音
+
+---
+
+#### 3. Constants类独立化
+
+**重构前**:
+```python
+def __init__(self):
+    # ... 100行配置 ...
+    self.constants = {
+        'trading_signals': {...},  # 127行枚举
+        'position_modes': {...},
+        # ...
+    }
+```
+
+**重构后**:
+```python
+class Constants:
+    TRADING_SIGNALS = {...}
+    POSITION_MODES = {...}
+    CLOSE_REASONS = {...}
+    INDUSTRY_NAMES = {...}
+
+def __init__(self):
+    # ... 配置 ...
+    self.constants = self._init_constants()  # 调用独立方法
+```
+
+**收益**:
+- `__init__` 从381行 → 约250行 (33%视觉简化)
+- 常量定义集中管理,职责清晰
+
+---
+
+#### 4. 向后兼容机制
+
+**get_module_config() 增强**:
+```python
+def get_module_config(self, module_name):
+    config = getattr(self, module_name, {})
+
+    # 自动检测dataclass,转换为字典
+    if hasattr(config, '__dataclass_fields__'):
+        from dataclasses import asdict
+        return asdict(config)
+
+    return config
+```
+
+**保证**:
+- 现有调用代码无需修改
+- 新旧配置方式共存
+- 渐进迁移,零破坏性
+
+---
+
+### 代码变更
+
+#### config.py (450行,+18%代码量)
+- **新增**: 5个dataclass定义 (+70行)
+- **新增**: Constants类 (+130行)
+- **简化**: `__init__` 方法 (-127行常量定义)
+- **增强**: `get_module_config()` 向后兼容逻辑 (+10行)
+
+---
+
+### 使用示例
+
+**访问方式对比**:
+```python
+# 重构前: 字典访问,无类型提示
+threshold = config.pairs_trading['entry_threshold_lower']  # 拼错无提示
+
+# 重构后: 属性访问,IDE自动补全
+threshold = config.pairs_trading.entry_threshold_lower  # IDE提示: float
+```
+
+**类型安全**:
+```python
+# 运行前检查 (mypy/pylance)
+config.main.start_date = "2023-09-20"  # ❌ 类型错误: str != tuple
+config.pairs_trading.margin_usage_ratio = 1.5  # ⚠️  警告: 保证金率>1可能不合理
+```
+
+---
+
+### 破坏性变更
+**无** - 完全向后兼容,现有代码无需修改
+
+---
+
+### 后续优化建议
+1. 考虑迁移 `bayesian_modeler` 至dataclass (当前嵌套复杂,暂保持字典)
+2. 考虑迁移 `risk_management` 规则配置 (当前动态启用/禁用,暂保持字典)
+3. 逐步将现有调用从字典访问迁移到属性访问 (提升类型安全)
+
+---
+
+
+## [v7.14.4_fix-trade-count-display@20251114]
+
+### 版本概述
+**修复交易次数显示错误** - 修复v7.14.2引入的日志显示bug (首次交易显示"第2次")。
+
+### Bug分析
+
+**问题现象**:
+```
+[平仓] ('PATH', 'S') 回撤触发 | PnL=$1088.85 (+9.7%) | 累计+9.7% | ... | 第2次交易 ❌
+```
+
+**根源**: v7.14.2优化时颠倒了方法调用顺序
+```python
+# v7.14.2 执行顺序:
+self._update_trade_stats()      # trade_count: 0 → 1
+self._log_close_completion()    # trade_num = 1 + 1 = 2 ❌
+
+# 日志计算逻辑 (Pairs.py Line 292):
+trade_num = self.trade_count + 1  # 错误: trade_count已递增
+```
+
+**影响**: 所有平仓日志显示的交易序号比实际多1
+
+---
+
+### 核心修复
+
+#### Pairs.py Line 291-292
+
+**修改前**:
+```python
+# 交易序号(平仓时 trade_count 尚未递增)
+trade_num = self.trade_count + 1
+```
+
+**修改后**:
+```python
+# 交易序号(此时 trade_count 已在 _update_trade_stats 中递增)
+trade_num = self.trade_count
+```
+
+**理由**:
+- v7.14.2将 `_update_trade_stats()` 移到 `_log_close_completion()` 之前
+- `trade_count` 已在 `_update_trade_stats()` Line 343递增
+- 日志直接读取递增后的值,无需 `+1`
+
+---
+
+### 预期结果
+
+**修复后**:
+```
+[平仓] ('PATH', 'S') 回撤触发 | PnL=$1088.85 (+9.7%) | 累计+9.7% | ... | 第1次交易 ✅
+[平仓] ('AAPL', 'MSFT') 均值回归 | PnL=$523.10 (+4.2%) | ... | 第2次交易 ✅
+```
+
+---
+
+### 破坏性变更
+**无** - 仅修复日志显示,不影响业务逻辑
+
+---
+
+
 ## [v7.14.3_cleanup-docstrings-and-config@20251114]
 
 ### 版本概述
