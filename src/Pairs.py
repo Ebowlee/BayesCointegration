@@ -36,6 +36,7 @@ class Pairs:
         self.symbol2 = model_data['symbol2']
         self.pair_id = (self.symbol1.Value, self.symbol2.Value)
         self.industry_group = model_data['industry_group']
+        self.industry_code = None  # v7.12.0: MorningstarIndustryGroupCode (在from_model_result中填充)
 
         # === 统计参数(从贝叶斯建模获得) ===
         self.alpha_mean = model_data['alpha_mean']                              # 截距(对数空间)
@@ -166,7 +167,18 @@ class Pairs:
 
             优势：语义清晰、与项目其他值对象一致、便于扩展
         """
-        return cls(algorithm, model_result, config)
+        # 创建Pairs对象
+        pair = cls(algorithm, model_result, config)
+
+        # v7.12.0: 提取行业代码用于行业配额管理
+        symbol1 = model_result['symbol1']
+        try:
+            pair.industry_code = algorithm.Securities[symbol1].Fundamentals.AssetClassification.MorningstarIndustryGroupCode
+        except (AttributeError, KeyError):
+            algorithm.Debug(f"[Pairs] 警告: 无法获取{symbol1}的行业代码", 1)
+            pair.industry_code = None
+
+        return pair
 
 
     def on_position_filled(self, action: str, fill_time, tickets, reason: str = None):
@@ -464,30 +476,34 @@ class Pairs:
 
     def get_cooldown_days(self) -> int:
         """
-        v7.10.6: 从config.constants动态读取冷却天数（支持细化平仓原因）
+        v7.12.0: 简化冷却天数逻辑,映射旧原因到新原因
 
         设计理由:
-        - 不同平仓原因需要不同冷却期（15/60/999999天）
-        - 配置化管理，易于调整策略参数
+        - v7.12.0统一为3种冷却期: NORMAL_EXIT(10天), DRAWDOWN(180天), ANOMALY(永久)
+        - 兼容v7.11.0及之前的旧原因代码(PAIR_BREAK/TIMEOUT/CLOSE等)
 
         Returns:
             冷却期天数（从config.constants.close_reasons读取）
 
-        使用示例:
-            # ExecutionManager.is_pair_in_normal_cooldown() 中
-            frozen_days = pair.get_pair_frozen_days()  # 已冷却天数
-            cooldown_days = pair.get_cooldown_days()   # 需要的冷却天数
-            in_cooldown = frozen_days < cooldown_days  # 判断是否仍在冷却期
+        映射规则:
+            PAIR_BREAK/TIMEOUT/CLOSE → NORMAL_EXIT (10天)
+            DRAWDOWN → DRAWDOWN (180天)
+            ANOMALY → ANOMALY (999999天)
+            其他 → NORMAL_EXIT (默认10天)
         """
-        reason = self.last_close_reason
         close_reasons = self.algorithm.config.constants['close_reasons']
 
-        # 从config读取对应原因的冷却天数
-        if reason and reason in close_reasons:
-            return close_reasons[reason]['cooldown_days']
+        # v7.12.0: 映射旧原因到新原因
+        if self.last_close_reason in {'PAIR_BREAK', 'TIMEOUT', 'CLOSE'}:
+            reason = 'NORMAL_EXIT'
+        elif self.last_close_reason == 'DRAWDOWN':
+            reason = 'DRAWDOWN'
+        elif self.last_close_reason == 'ANOMALY':
+            reason = 'ANOMALY'
         else:
-            # 默认值（从未平仓或未知原因）
-            return close_reasons['CLOSE']['cooldown_days']  # 15天
+            reason = 'NORMAL_EXIT'  # 默认值 (None或其他未知原因)
+
+        return close_reasons[reason]['cooldown_days']
 
 
     def get_pair_pnl(self) -> Optional[float]:

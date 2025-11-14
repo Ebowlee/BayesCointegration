@@ -11,16 +11,19 @@ from statsmodels.tsa.stattools import coint
 
 class CointegrationAnalyzer:
     """
-    协整分析器 - 识别具有长期均衡关系的股票配对
+    协整分析器 - 识别具有长期均衡关系的股票配对 (v7.12.0: 支持行业配额)
     """
 
-    def __init__(self, algorithm, module_config: dict):
+    def __init__(self, algorithm, module_config: dict, industry_quotas: Dict[str, int] = None):
         """
-        初始化协整分析器
+        初始化协整分析器 (v7.12.0: 新增行业配额参数)
 
         Args:
             algorithm: QCAlgorithm实例
             module_config: 模块配置字典
+            industry_quotas: 行业配额字典 {industry_code: quota}
+                - 如果为None或空字典,使用默认配额 (从config.industry_quota.default_quota读取)
+                - 如果提供,使用动态配额
         """
         self.algorithm = algorithm
         self.pvalue_threshold = module_config['pvalue_threshold']
@@ -28,6 +31,10 @@ class CointegrationAnalyzer:
         # 子行业分组配置
         self.min_stocks_per_group = module_config['min_stocks_per_group']
         self.max_stocks_per_group = module_config['max_stocks_per_group']
+
+        # v7.12.0: 行业配额
+        self.industry_quotas = industry_quotas if industry_quotas else {}
+        self.default_quota = algorithm.config.industry_quota['default_quota']
 
 
     def cointegration_procedure(self, valid_symbols: List[Symbol], clean_data: Dict[Symbol, pd.DataFrame]) -> Dict:
@@ -80,7 +87,7 @@ class CointegrationAnalyzer:
 
     def _find_cointegrated_pairs_in_group(self, ig_name: str, symbols: List[Symbol], clean_data: Dict) -> List[Dict]:
         """
-        在单个子行业内查找协整配对
+        在单个子行业内查找协整配对 (v7.12.0: 应用行业配额)
 
         Args:
             ig_name: 子行业名称
@@ -88,12 +95,17 @@ class CointegrationAnalyzer:
             clean_data: 清洗后的价格数据
 
         Returns:
-            通过协整检验的配对列表
+            通过协整检验的配对列表 (v7.12.0: 应用配额后TOP N配对)
+
+        v7.12.0配额逻辑:
+        1. 执行所有配对的协整检验
+        2. 按pvalue排序 (从小到大,p值越小越显著)
+        3. 选取TOP N配对 (N = 该行业配额)
         """
         cointegrated_pairs = []
         failed_tests = []
 
-        # 生成所有可能的配对组合
+        # 步骤1: 生成所有可能的配对组合并检验
         for sym1, sym2 in itertools.combinations(symbols, 2):
             symbol1, symbol2 = sorted([sym1, sym2], key=lambda x: x.Value)
 
@@ -127,7 +139,17 @@ class CointegrationAnalyzer:
             except Exception:
                 failed_tests.append((symbol1, symbol2, 'unknown_error'))
 
-        return cointegrated_pairs
+        # 步骤2: v7.12.0 应用行业配额
+        # 获取该行业的配额 (如果industry_quotas为空,使用default_quota)
+        quota = self.industry_quotas.get(ig_name, self.default_quota)
+
+        # 按pvalue排序 (从小到大,p值越小协整关系越显著)
+        sorted_pairs = sorted(cointegrated_pairs, key=lambda x: x['pvalue'])
+
+        # 选取TOP N配对
+        selected_pairs = sorted_pairs[:quota]
+
+        return selected_pairs
 
 
     def _group_by_industry_group(self, symbols: List[Symbol]) -> Dict[str, List[Symbol]]:

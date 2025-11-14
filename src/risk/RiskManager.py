@@ -540,7 +540,7 @@ class RiskManager:
 
     def activate_cooldown_for_pairs(self, executed_pair_ids: List[Tuple]) -> None:
         """
-        为已执行的Pair层Intent激活对应Rule的per-pair cooldown
+        为已执行的Pair层Intent激活对应Rule的per-pair cooldown (v7.12.0: 简化逻辑)
 
         触发时机:
         - ExecutionManager执行完Pair风控的CloseIntent后调用
@@ -549,33 +549,17 @@ class RiskManager:
 
         设计原则:
         - Per-Pair Cooldown: rule.activate_cooldown(pair_id) 只冷却该配对
-        - 不去重Rule: 同一Rule可能为多个配对激活cooldown (例如: (AAPL,MSFT)和(GOOGL,META)都触发PairDrawdownRule)
-        - 容错: 如果pair_id不在映射中(理论上不应该),跳过不报错
-        - 批量日志: 按Rule汇总显示哪些配对被激活了cooldown
+        - 不去重Rule: 同一Rule可能为多个配对激活cooldown
+        - 容错: 如果pair_id不在映射中,跳过不报错
+        - v7.12.0: 统一冷却期管理,移除PairDrawdownRule的特殊处理
 
         Args:
             executed_pair_ids: 已成功执行的pair_id列表
-                              (ExecutionManager根据OrderTicket执行结果传入)
 
-        示例:
-        ```python
-        # ExecutionManager中:
-        intents = self.risk_manager.check_all_pair_risks(pairs_with_position)
-        if intents:
-            executed_pair_ids = []
-            for intent in intents:
-                tickets = self.executor.execute_close(intent)
-                if tickets:
-                    executed_pair_ids.append(intent.pair_id)
-            # 激活per-pair cooldown
-            self.risk_manager.activate_cooldown_for_pairs(executed_pair_ids)
-        ```
-        - 新增方法,替代原check_pair_risks()中的cooldown激活逻辑
-        - cooldown激活延后到Intent执行成功后,而非检测时
-        - 支持部分执行场景(只为成功执行的Intent激活cooldown)
-        - 从全局cooldown改为per-pair cooldown
-        - 移除Rule去重逻辑(同一Rule可对多个配对激活cooldown)
-        - 批量日志输出,按Rule汇总pair_id列表
+        v7.12.0改动:
+        - 移除PairDrawdownRule.get_cooldown_days()调用 (方法已删除)
+        - 冷却期统一由Pairs.get_cooldown_days()管理
+        - 简化日志输出,不再区分Rule类型
         """
         activated_rules = {}  # {rule: [(pair_id, cooldown_days)]} 用于批量日志
 
@@ -584,54 +568,23 @@ class RiskManager:
             if pair_id in self._pair_intent_to_rule_map:
                 rule = self._pair_intent_to_rule_map[pair_id]
 
-                # v7.3.1: PairDrawdownRule支持动态冷却期
-                if rule.__class__.__name__ == 'PairDrawdownRule':
-                    # 获取pair对象
-                    pair = self.pairs_manager.get_pair_by_id(pair_id)
-                    if pair:
-                        # v7.10.7: 解包元组 (reason, cooldown_days)
-                        reason, cooldown_days = rule.get_cooldown_days(pair)
-                        rule.activate_cooldown(pair_id=pair_id, days=cooldown_days)
+                # v7.12.0: 所有Rule使用统一的默认cooldown_days激活
+                rule.activate_cooldown(pair_id=pair_id)
 
-                        # 记录用于批量日志 (包含平仓原因)
-                        if rule not in activated_rules:
-                            activated_rules[rule] = []
-                        activated_rules[rule].append((pair_id, cooldown_days, reason))
-                    else:
-                        # 容错: 找不到pair对象时使用默认值
-                        rule.activate_cooldown(pair_id=pair_id)
-                        if rule not in activated_rules:
-                            activated_rules[rule] = []
-                        activated_rules[rule].append((pair_id, None))
-                else:
-                    # 其他Rule使用默认cooldown_days
-                    rule.activate_cooldown(pair_id=pair_id)
+                # 记录用于批量日志
+                if rule not in activated_rules:
+                    activated_rules[rule] = []
+                cooldown_days = rule.config.get('cooldown_days', 0)
+                activated_rules[rule].append((pair_id, cooldown_days))
 
-                    # 记录用于批量日志
-                    if rule not in activated_rules:
-                        activated_rules[rule] = []
-                    cooldown_days = rule.config.get('cooldown_days', 0)
-                    activated_rules[rule].append((pair_id, cooldown_days))
-
-        # 批量日志输出 (v7.3.1: 支持per-pair显示冷却期)
+        # 批量日志输出 (v7.12.0: 统一格式)
         for rule, pair_cooldowns in activated_rules.items():
-            if rule.__class__.__name__ == 'PairDrawdownRule':
-                # PairDrawdownRule: 显示每个配对的冷却期和平仓原因 (v7.10.7)
-                pairs_str = ", ".join(
-                    f"{pair_id}({days}天,{reason})"
-                    for pair_id, days, reason in pair_cooldowns
-                )
-                self.algorithm.Debug(
-                    f"[Pair风控] {rule.__class__.__name__} 激活{len(pair_cooldowns)}个配对的动态冷却期: {pairs_str}"
-                )
-            else:
-                # 其他Rule: 统一冷却期
-                pair_ids = [pair_id for pair_id, _ in pair_cooldowns]
-                cooldown_days = pair_cooldowns[0][1] if pair_cooldowns else 0
-                self.algorithm.Debug(
-                    f"[Pair风控] {rule.__class__.__name__} 激活{len(pair_ids)}个配对的冷却期 "
-                    f"({cooldown_days}天): {pair_ids}"
-                )
+            pair_ids = [pair_id for pair_id, _ in pair_cooldowns]
+            cooldown_days = pair_cooldowns[0][1] if pair_cooldowns else 0
+            self.algorithm.Debug(
+                f"[Pair风控] {rule.__class__.__name__} 激活{len(pair_ids)}个配对的冷却期 "
+                f"({cooldown_days}天): {pair_ids}"
+            )
 
         # 清空映射(防止下次OnData误用旧映射)
         self._pair_intent_to_rule_map.clear()

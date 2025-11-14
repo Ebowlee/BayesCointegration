@@ -6,17 +6,17 @@ from typing import Tuple
 
 class PairDrawdownRule(RiskRule):
     """
-    配对回撤风控规则 
+    配对回撤风控规则 (v7.12.0: 简化冷却期逻辑)
 
     检测配对级别的回撤,如果浮亏超过阈值则触发平仓。
 
     触发条件:
-    - 配对回撤 >= 阈值(默认15%)
+    - 配对回撤 >= 阈值(默认5%)
     - 回撤定义: (HWM - current_pair_value) / HWM
     - pair_value = pnl + pair_cost (配对总价值 = 浮盈 + 保证金成本)
     - 移除get_action()方法
     - Rule只负责检测,RiskManager负责生成CloseIntent(reason='DRAWDOWN')
-    - cooldown由RiskManager在Intent执行后激活
+    - v7.12.0: 统一DRAWDOWN原因,不再区分PROFIT/LOSS,统一180天冷却期
 
     设计特点:
     - 配对专属计算: 使用tracked_qty和entry_price,避免Portfolio全局查询混淆
@@ -37,13 +37,14 @@ class PairDrawdownRule(RiskRule):
     {
         'enabled': True,
         'priority': 50,
-        'threshold': 0.15  # 15%回撤
+        'threshold': 0.05  # 5%回撤 (v7.12.0当前值)
     }
 
     使用场景:
     1. OnData循环检查所有pairs → PairDrawdownRule检测 → RiskManager生成Intent
-    2. ExecutionManager执行平仓 → 清理亏损配对
+    2. ExecutionManager执行平仓 → 清理回撤配对
     3. HWM在on_pair_closed()时自动清理
+    4. v7.12.0: 冷却期由Pairs.get_cooldown_days()统一管理(DRAWDOWN→180天)
     """
 
     def __init__(self, algorithm, config: dict):
@@ -146,55 +147,6 @@ class PairDrawdownRule(RiskRule):
             return True, description
 
         return False, ""
-
-
-    def get_cooldown_days(self, pair) -> tuple:
-        """
-        v7.10.6: 根据配对PnL状态确定平仓原因和冷却期天数（从config.constants读取）
-
-        设计原理:
-        - 盈利配对 (pnl > 0): 协整关系可能仍然有效,快速恢复交易 → DRAWDOWN_PROFIT (15天)
-        - 亏损配对 (pnl <= 0): 协整关系可能已破坏,需要更长观察期 → DRAWDOWN_LOSS (60天)
-
-        触发场景:
-        - 在RiskManager.activate_cooldown_for_pairs()中调用
-        - 配对回撤触发后,根据平仓时的PnL状态决定平仓原因和冷却期长度
-
-        Args:
-            pair: Pairs对象,用于获取PnL状态
-
-        Returns:
-            tuple: (close_reason, cooldown_days)
-            - close_reason: 'DRAWDOWN_PROFIT' 或 'DRAWDOWN_LOSS'
-            - cooldown_days: 对应的冷却天数 (从config.constants读取)
-
-        容错处理:
-        - 如果无法获取PnL (pair.get_pair_pnl()返回None): 使用loss模式 (DRAWDOWN_LOSS, 60天)
-        - 保守策略: 宁可多观察,不急于重新交易
-
-        使用示例:
-        ```python
-        # 在RiskManager.activate_cooldown_for_pairs()中:
-        triggered, desc = pair_drawdown_rule.check(pair)
-        if triggered:
-            reason, cooldown_days = pair_drawdown_rule.get_cooldown_days(pair)
-            intent = pair.get_close_intent(reason=reason)
-            # ...执行平仓...
-            pair_drawdown_rule.activate_cooldown(pair.pair_id, days=cooldown_days)
-        ```
-        """
-        pnl = pair.get_pair_pnl()
-        close_reasons = self.algorithm.config.constants['close_reasons']
-
-        # 根据PnL状态返回对应的平仓原因和冷却期
-        if pnl is not None and pnl > 0:
-            reason = 'DRAWDOWN_PROFIT'
-        else:
-            # 容错处理: pnl=None 或 pnl<=0 都使用loss模式
-            reason = 'DRAWDOWN_LOSS'
-
-        cooldown_days = close_reasons[reason]['cooldown_days']
-        return reason, cooldown_days
 
 
     def on_pair_closed(self, pair_id: tuple):

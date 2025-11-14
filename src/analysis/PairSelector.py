@@ -9,25 +9,23 @@ from src.analysis.PairData import PairData
 class PairSelector:
     """配对评估和筛选器 - 负责评估配对质量并筛选最佳配对"""
 
-    def __init__(self, algorithm, shared_config: dict, module_config: dict, blacklist_manager):
+    def __init__(self, algorithm, shared_config: dict, module_config: dict):
         """
-        初始化配对选择器
+        初始化配对选择器 (v7.12.0: 移除blacklist_manager依赖)
 
         Args:
             algorithm: QCAlgorithm实例
             shared_config: 共享配置(analysis_shared)
             module_config: 模块配置(pair_selector)
-            blacklist_manager: 黑名单管理器实例(v7.7.0重命名)
         """
         self.algorithm = algorithm
-        self.blacklist_manager = blacklist_manager
 
         # 从shared_config读取
         self.lookback_days = shared_config['lookback_days']  # 252天,与BayesianModeler统一
 
         # 从module_config读取
         self.max_symbol_repeats = module_config['max_symbol_repeats']
-        self.max_pairs = module_config['max_pairs']
+        # v7.12.0: max_pairs已从config中删除
         self.min_quality_threshold = module_config['min_quality_threshold']
         self.quality_weights = module_config['quality_weights']
         self.scoring_thresholds = module_config['scoring_thresholds']
@@ -110,17 +108,18 @@ class PairSelector:
 
     def select_best(self, scored_pairs):
         """
-        筛选最佳配对
+        筛选最佳配对 (v7.12.0: 简化逻辑)
 
         流程:
         1. 过滤低于最低分数阈值的配对（质量门槛）
-        2. [NEW v7.6.0] 黑名单过滤
+        2. [v7.12.0] 风险配对过滤 (DRAWDOWN/ANOMALY冷却期检查)
         3. 按质量分数排序
         4. 确保单个股票不会出现在过多配对中
 
-        改动 (v7.6.0):
-        - 新增第2步：黑名单过滤
-        - 其他逻辑保持不变
+        改动 (v7.12.0):
+        - 移除黑名单过滤 (BlacklistManager模块已删除)
+        - 新增风险配对过滤 (检查DRAWDOWN/ANOMALY冷却期)
+        - 移除max_pairs硬性限制 (改用资金约束自然限制)
         """
         # Step 1: 最低质量门槛过滤（严格大于阈值）
         min_threshold = self.min_quality_threshold  # 从config读取
@@ -129,9 +128,8 @@ class PairSelector:
             if p['quality_score'] > min_threshold  # 严格大于（不包含等于）
         ]
 
-
-        # Step 2: [v7.6.0 → v7.6.1封装] 黑名单过滤
-        qualified_pairs = self._filter_by_blacklist(qualified_pairs)
+        # Step 2: [v7.12.0] 风险配对过滤
+        qualified_pairs = self._filter_risk_pairs(qualified_pairs)
 
         # Step 3: 按质量分数排序（从高到低）
         sorted_pairs = sorted(qualified_pairs, key=lambda x: x['quality_score'], reverse=True)
@@ -152,41 +150,68 @@ class PairSelector:
                 symbol_counts[symbol1] += 1
                 symbol_counts[symbol2] += 1
 
-                # 达到最大配对数
-                if len(selected) >= self.max_pairs:
-                    break
+                # v7.12.0: 移除max_pairs限制,改用资金约束自然限制
 
         return selected
 
 
     # ===== 私有评分方法 (Private Scoring Methods) =====
 
-    def _filter_by_blacklist(self, qualified_pairs):
+    def _filter_risk_pairs(self, qualified_pairs):
         """
-        黑名单过滤 (v7.6.0 → v7.6.1封装)
+        风险配对过滤 (v7.12.0: 简化黑名单逻辑)
 
-        将历史表现差的配对过滤掉,避免重复亏损。
-        黑名单标准: ≥3笔交易 AND 累计收益率<0%
+        剔除条件:
+        - last_close_reason = 'DRAWDOWN' 且仍在冻结期（180天内）
+        - last_close_reason = 'ANOMALY'（永久剔除）
+
+        设计理由:
+        - 简化黑名单逻辑: 不再依赖trade_count统计,直接检查平仓原因
+        - DRAWDOWN: 回撤触发,需要180天冷却期重新观察
+        - ANOMALY: 订单异常,永久剔除避免系统性问题
 
         Args:
             qualified_pairs: 已通过质量门槛的配对列表
 
         Returns:
-            list: 非黑名单配对列表
+            list: 非风险配对列表
         """
-        blacklist = self.blacklist_manager.get_blacklist()
-        blacklist_rejected = []
-        non_blacklist_pairs = []
+        risk_reasons = {'DRAWDOWN', 'ANOMALY'}
+        filtered_pairs = []
+        risk_rejected = []
 
-        for pair in qualified_pairs:
-            pair_id = (pair['symbol1'].Value, pair['symbol2'].Value)
-            if pair_id in blacklist:
-                blacklist_rejected.append(pair_id)
+        for pair_data in qualified_pairs:
+            pair_id = (pair_data['symbol1'].Value, pair_data['symbol2'].Value)
+
+            # 查询历史配对对象 (从PairsManager)
+            existing_pair = self.algorithm.pairs_manager.get_pair_by_id(pair_id)
+
+            # 如果是新配对,直接通过
+            if existing_pair is None:
+                filtered_pairs.append(pair_data)
+                continue
+
+            # 检查平仓原因
+            if existing_pair.last_close_reason not in risk_reasons:
+                filtered_pairs.append(pair_data)
+                continue
+
+            # 风险原因检查: DRAWDOWN需要检查冷却期, ANOMALY永久剔除
+            frozen_days = existing_pair.get_pair_frozen_days()
+            if frozen_days is None:
+                # 从未平仓,直接通过
+                filtered_pairs.append(pair_data)
+                continue
+
+            cooldown_days = existing_pair.get_cooldown_days()
+            if frozen_days >= cooldown_days:
+                # 冷却期已过,可以重新选择
+                filtered_pairs.append(pair_data)
             else:
-                non_blacklist_pairs.append(pair)
+                # 仍在冷却期,剔除
+                risk_rejected.append(pair_id)
 
-
-        return non_blacklist_pairs
+        return filtered_pairs
 
 
     def _calculate_half_life_score(self, model_result):

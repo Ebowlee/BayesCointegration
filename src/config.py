@@ -85,18 +85,18 @@ class StrategyConfig:
         # 2. 协整分析模块
         self.cointegration_analyzer = {
             # 统计检验
-            'pvalue_threshold': 0.01,                   # Engle-Granger p值阈值
+            'pvalue_threshold': 0.05,                   # Engle-Granger p值阈值
 
             # 子行业分组
             'min_stocks_per_group': 3,                  # 子行业最少股票数(不足则跳过)
-            'max_stocks_per_group': 30,                 # 子行业最多股票数(按市值选TOP)
+            'max_stocks_per_group': 50,                 # 子行业最多股票数(按市值选TOP)
         }
 
         # 3. 配对质量评估模块
         self.pair_selector = {
             # 筛选限制
             'max_symbol_repeats': 1,                    # 单股最多配对数(允许高质量股票参与多个配对)
-            'max_pairs': 20,                            # 最大配对数(配合max_symbol_repeats放宽)
+            # v7.12.0: 删除max_pairs硬性限制,改用资金约束自然限制实际开仓数量
 
             # 质量门槛
             'min_quality_threshold': 0.60,              # 最低质量分数阈值
@@ -150,8 +150,8 @@ class StrategyConfig:
                 },
                 'joint_single_stage': {                 # 单阶段联合模型配置
                     'sigma_eta_prior': 0.1,             # AR(1)创新噪声η的HalfNormal先验参数(σ_η ~ HalfNormal(0.1), 预期小噪声, log价差残差通常0.01-0.10)
-                    'mcmc_warmup': 2000,                # MCMC预热样本数（所有先验统一使用）
-                    'mcmc_draws': 2000,                 # MCMC后验样本数（所有先验统一使用）
+                    'mcmc_warmup': 1000,                # MCMC预热样本数（所有先验统一使用）
+                    'mcmc_draws': 1000,                 # MCMC后验样本数（所有先验统一使用）
                     'enable': True                      # 是否启用联合模型(默认启用)
                 }
             }
@@ -166,7 +166,7 @@ class StrategyConfig:
 
             # 仓位管理参数
             'min_investment_ratio': 0.05,               # 质量最低(0.0分)配对投资比例: 5%,同时作为绝对门槛
-            'max_investment_ratio': 0.25,               # 质量最高(1.0分)配对投资比例: 25%
+            'max_investment_ratio': 0.15,               # 质量最高(1.0分)配对投资比例: 25%
 
             # 保证金管理 (美股规则)
             'margin_requirement_long': 0.5,             # 多头保证金率: 50%
@@ -174,10 +174,26 @@ class StrategyConfig:
             'margin_usage_ratio': 0.98                  # 保证金使用率: 98% (保留2%动态缓冲)
         }
 
-        # ========== 交易分析配置 (v7.7.0 黑名单系统) ==========
-        self.trade_analysis = {
-            'blacklist_min_trades': 3,                  # 最少交易次数 (确保统计意义)
-            'blacklist_pnl_threshold': 0.0              # 累计收益阈值 (低于此值黑名单, 单位: %)
+        # ========== 行业配额配置 (v7.12.0 动态行业分组) ==========
+        self.industry_quota = {
+            'warmup_days': 180,                         # 预热期: 前180天使用默认配额
+            'default_quota': 1,                         # 默认配额: 每个行业最多1个配对
+
+            # 加权收益率分层阈值 (格式: 小数)
+            'tier_thresholds': {
+                'tier1': 0.05,                          # ≤5%: 1个配对
+                'tier2': 0.10,                          # ≤10%: 3个配对
+                'tier3': 0.20                           # ≤20%: 6个配对
+                                                        # >20%: 9个配对
+            },
+
+            # 各层配额数量
+            'tier_quotas': {
+                'tier1': 1,
+                'tier2': 3,
+                'tier3': 6,
+                'tier4': 9
+            }
         }
 
         # ========== 风险管理配置 ==========
@@ -262,36 +278,25 @@ class StrategyConfig:
             },
 
             # === 4. 平仓原因（常量+显示文本+冷却天数 统一管理）===
+            # v7.12.0: 简化冻结机制，统一NORMAL_EXIT
             'close_reasons': {
-                # 正常平仓
-                'CLOSE': {
-                    'display': '均值回归',
-                    'cooldown_days': 15
-                },
-                'PAIR_BREAK': {
-                    'display': '协整破裂',
-                    'cooldown_days': 60
+                # 正常交易周期结束（统一10天）
+                'NORMAL_EXIT': {
+                    'display': '正常退出',
+                    'cooldown_days': 10
                 },
 
-                # Pair级风控
-                'DRAWDOWN_PROFIT': {
-                    'display': '回撤盈利',
-                    'cooldown_days': 15
-                },
-                'DRAWDOWN_LOSS': {
-                    'display': '回撤亏损',
-                    'cooldown_days': 60
-                },
-                'TIMEOUT': {
-                    'display': '持仓超时',
-                    'cooldown_days': 60
+                # 风险触发
+                'DRAWDOWN': {
+                    'display': '回撤触发',
+                    'cooldown_days': 180  # v7.12.0: 统一回撤风控，不分盈亏
                 },
                 'ANOMALY': {
                     'display': '单腿异常',
                     'cooldown_days': 999999
                 },
 
-                # Portfolio级风控
+                # Portfolio级风控（不影响配对选择）
                 'PORTFOLIO_DRAWDOWN': {
                     'display': '组合回撤',
                     'cooldown_days': 60

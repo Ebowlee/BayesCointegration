@@ -5,6 +5,253 @@
 ---
 
 
+## [v7.12.0_simplified-freeze-industry-quota@20251114]
+
+### 版本概述
+**架构简化** - 统一冷却期机制,实现行业动态配额系统,移除复杂黑名单逻辑。
+
+### 核心改进
+
+#### 1. 简化冷却期机制 (Simplified Freeze Mechanism)
+
+**设计理念**:
+- 统一为3种冷却期类型,降低配置复杂度
+- 移除PROFIT/LOSS区分,简化风控决策流程
+- 冷却期由Pairs统一管理,避免多处重复实现
+
+**冷却期类型**:
+```python
+# v7.12.0: 3种冷却期 (从7种简化)
+NORMAL_EXIT: 10天    # 正常交易周期结束 (统一PAIR_BREAK/TIMEOUT/CLOSE)
+DRAWDOWN: 180天      # 回撤触发 (统一DRAWDOWN_PROFIT/DRAWDOWN_LOSS)
+ANOMALY: 999999天    # 订单异常 (永久剔除)
+```
+
+**代码变更**:
+
+**config.py (Lines 264-292)** - 简化close_reasons配置:
+```python
+# 删除: CLOSE, PAIR_BREAK, TIMEOUT, DRAWDOWN_PROFIT, DRAWDOWN_LOSS
+# 新增: NORMAL_EXIT, DRAWDOWN (简化后)
+'close_reasons': {
+    'NORMAL_EXIT': {'display': '正常退出', 'cooldown_days': 10},
+    'DRAWDOWN': {'display': '回撤触发', 'cooldown_days': 180},
+    'ANOMALY': {'display': '单腿异常', 'cooldown_days': 999999}
+}
+```
+
+**Pairs.py (Lines 477-506)** - 简化get_cooldown_days():
+```python
+# v7.12.0: 映射旧原因到新原因
+def get_cooldown_days(self) -> int:
+    if self.last_close_reason in {'PAIR_BREAK', 'TIMEOUT', 'CLOSE'}:
+        reason = 'NORMAL_EXIT'
+    elif self.last_close_reason == 'DRAWDOWN':
+        reason = 'DRAWDOWN'
+    elif self.last_close_reason == 'ANOMALY':
+        reason = 'ANOMALY'
+    else:
+        reason = 'NORMAL_EXIT'  # 默认值
+    return close_reasons[reason]['cooldown_days']
+```
+
+**PairDrawdown.py** - 删除get_cooldown_days()方法 (Lines 151-197):
+- 冷却期统一由Pairs.get_cooldown_days()管理
+- Rule只负责固定值激活,Pairs负责动态计算
+
+**RiskManager.py (Lines 541-587)** - 简化activate_cooldown_for_pairs():
+```python
+# 删除: PairDrawdownRule特殊处理逻辑
+# 简化: 所有Rule统一调用rule.activate_cooldown(pair_id)
+for pair_id in executed_pair_ids:
+    rule = self._pair_intent_to_rule_map[pair_id]
+    rule.activate_cooldown(pair_id=pair_id)  # 统一接口
+```
+
+#### 2. 行业动态配额系统 (Industry Dynamic Quota)
+
+**设计理念**:
+- 前180天预热期: 所有行业默认配额1个配对
+- 180天后: 根据加权收益率动态调整配额 (1/3/6/9档)
+- 配额应用点: CointegrationAnalyzer阶段,按pvalue排序选TOP N
+
+**配额分层**:
+```python
+加权收益率 ≤ 0.05 (5%)   → 1个配对
+加权收益率 ≤ 0.10 (10%)  → 3个配对
+加权收益率 ≤ 0.20 (20%)  → 6个配对
+加权收益率 > 0.20 (20%+) → 9个配对
+
+# 加权收益率 = sum(total_pnl_dollars) / sum(total_pair_cost)
+```
+
+**新增模块**: IndustryQuotaManager.py (Lines 1-226):
+```python
+class IndustryQuotaManager:
+    def calculate_quotas(self, pairs_manager) -> Dict[str, int]:
+        # 检查预热期
+        days_running = (self.algorithm.Time - self.algorithm.StartDate).days
+        if days_running < self.warmup_days:
+            return {}  # 使用default_quota
+
+        # 聚合行业统计
+        industry_stats = self._aggregate_industry_stats(pairs_manager)
+
+        # 计算配额
+        for industry_code, stats in industry_stats.items():
+            weighted_return = stats['total_pnl_dollars'] / stats['total_pair_cost']
+            quota = self._get_quota_by_return(weighted_return)
+            industry_quotas[industry_code] = quota
+
+        return industry_quotas
+```
+
+**config.py (Lines 177-197)** - 新增industry_quota配置:
+```python
+self.industry_quota = {
+    'warmup_days': 180,
+    'default_quota': 1,
+    'tier_thresholds': {'tier1': 0.05, 'tier2': 0.10, 'tier3': 0.20},
+    'tier_quotas': {'tier1': 1, 'tier2': 3, 'tier3': 6, 'tier4': 9}
+}
+```
+
+**CointegrationAnalyzer.py (Lines 17-37, 88-152)** - 应用配额:
+```python
+def __init__(self, algorithm, module_config, industry_quotas=None):
+    self.industry_quotas = industry_quotas if industry_quotas else {}
+    self.default_quota = algorithm.config.industry_quota['default_quota']
+
+def _find_cointegrated_pairs_in_group(self, ig_name, symbols, clean_data):
+    # ... 执行协整检验 ...
+
+    # 应用配额
+    quota = self.industry_quotas.get(ig_name, self.default_quota)
+    sorted_pairs = sorted(cointegrated_pairs, key=lambda x: x['pvalue'])
+    selected_pairs = sorted_pairs[:quota]  # TOP N
+    return selected_pairs
+```
+
+**Pairs.py (Lines 39, 173-180)** - 添加industry_code字段:
+```python
+# __init__
+self.industry_code = None  # v7.12.0: MorningstarIndustryGroupCode
+
+# from_model_result
+pair.industry_code = algorithm.Securities[symbol1].Fundamentals.\
+                     AssetClassification.MorningstarIndustryGroupCode
+```
+
+**main.py (Lines 55-59, 155-167)** - 集成配额管理器:
+```python
+# Initialize中
+self.industry_quota_manager = IndustryQuotaManager(self, self.config.industry_quota)
+
+# _analyze_and_create_pairs中
+industry_quotas = self.industry_quota_manager.calculate_quotas(self.pairs_manager)
+cointegration_analyzer = CointegrationAnalyzer(self, config, industry_quotas)
+```
+
+#### 3. 移除黑名单系统 (Remove Blacklist System)
+
+**设计理念**:
+- 黑名单逻辑过于复杂 (trade_count >= 3 AND cumulative_loss < 0)
+- 简化为风险配对过滤: 仅检查last_close_reason
+- 移除独立模块,内化到PairSelector._filter_risk_pairs()
+
+**删除模块**:
+- src/trade/BlacklistManager.py (全文135行)
+- src/trade/__init__.py (目录删除)
+- config.py: trade_analysis配置块 (Lines 178-181)
+
+**PairSelector.py (Lines 12-31, 162-216)** - 新增_filter_risk_pairs():
+```python
+def __init__(self, algorithm, shared_config, module_config):
+    # 删除: blacklist_manager参数
+    self.algorithm = algorithm
+
+def _filter_risk_pairs(self, qualified_pairs):
+    risk_reasons = {'DRAWDOWN', 'ANOMALY'}
+    for pair_data in qualified_pairs:
+        existing_pair = self.algorithm.pairs_manager.get_pair_by_id(pair_id)
+        if existing_pair and existing_pair.last_close_reason in risk_reasons:
+            # 检查冷却期
+            if existing_pair.get_pair_frozen_days() < existing_pair.get_cooldown_days():
+                continue  # 剔除
+        filtered_pairs.append(pair_data)
+    return filtered_pairs
+```
+
+**main.py (Lines 10, 15-16, 58-59)** - 删除blacklist_manager:
+```python
+# 删除导入
+# from src.trade import BlacklistManager
+
+# 删除初始化
+# self.blacklist_manager = BlacklistManager(self, self.config.trade_analysis)
+
+# 删除依赖注入
+self.pair_selector = PairSelector(self, ...)  # 不再传递blacklist_manager
+```
+
+#### 4. 配置简化 (Configuration Simplification)
+
+**config.py**:
+- **删除**: max_pairs硬性限制 (Line 99)
+- **删除**: trade_analysis配置块 (Lines 178-181)
+- **新增**: industry_quota配置块 (Lines 177-197)
+- **简化**: close_reasons从7种减至3种 (Lines 264-292)
+
+### 统计影响
+
+**代码减少**:
+- BlacklistManager.py: -135行
+- PairDrawdown.py: -47行 (get_cooldown_days方法)
+- RiskManager.py: -35行 (简化activate_cooldown_for_pairs)
+- **总计**: -217行代码
+
+**代码新增**:
+- IndustryQuotaManager.py: +226行
+- PairSelector._filter_risk_pairs(): +53行
+- **总计**: +279行代码
+
+**净增加**: +62行 (新增功能覆盖删除成本)
+
+### 破坏性变更
+
+1. **冷却期配置格式变更**: close_reasons从7种简化为3种
+2. **BlacklistManager删除**: 所有blacklist相关代码移除
+3. **PairSelector构造函数签名变更**: 删除blacklist_manager参数
+4. **CointegrationAnalyzer构造函数签名变更**: 新增industry_quotas参数
+
+### 升级指南
+
+**从v7.11.0升级到v7.12.0**:
+
+1. **更新config.py**:
+   - 删除trade_analysis配置块
+   - 新增industry_quota配置块
+   - 简化close_reasons为3种类型
+
+2. **更新main.py**:
+   - 删除blacklist_manager初始化
+   - 新增industry_quota_manager初始化
+   - 修改_analyze_and_create_pairs()传递industry_quotas
+
+3. **历史数据兼容**:
+   - 旧版last_close_reason自动映射到新版 (Pairs.get_cooldown_days)
+   - 无需手动迁移历史配对数据
+
+### 测试建议
+
+1. **冷却期映射测试**: 验证旧原因代码正确映射到新类型
+2. **行业配额测试**: 验证预热期/正常期配额计算正确性
+3. **风险过滤测试**: 验证DRAWDOWN/ANOMALY配对正确剔除
+4. **性能测试**: 验证无BlacklistManager后性能影响
+
+---
+
+
 ## [v7.11.0_adaptive-holding-timeout@20251114]
 
 ### 版本概述

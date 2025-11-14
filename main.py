@@ -7,12 +7,13 @@ from src.analysis.DataProcessor import DataProcessor
 from src.analysis.CointegrationAnalyzer import CointegrationAnalyzer
 from src.analysis.BayesianModeler import BayesianModeler
 from src.analysis.PairSelector import PairSelector
+from src.analysis.IndustryQuotaManager import IndustryQuotaManager  # v7.12.0
 from src.Pairs import Pairs
 from src.PairsManager import PairsManager
 from src.TicketsManager import TicketsManager
 from src.risk import RiskManager
 from src.execution import ExecutionManager, OrderExecutor, MarginAllocator
-from src.trade import BlacklistManager
+# v7.12.0: 删除BlacklistManager导入
 # endregion
 
 
@@ -50,12 +51,12 @@ class BayesianCointegrationStrategy(QCAlgorithm):
 
         # === 初始化分析工具 ===
         self.data_processor = DataProcessor(self, self.config.analysis_shared, self.config.data_processor)
-        self.cointegration_analyzer = CointegrationAnalyzer(self, self.config.cointegration_analyzer)
+        # v7.12.0: CointegrationAnalyzer不需要industry_quotas参数(在_analyze_and_create_pairs中动态传递)
+        self.industry_quota_manager = IndustryQuotaManager(self, self.config.industry_quota)
         self.bayesian_modeler = BayesianModeler(self, self.config.analysis_shared, self.config.bayesian_modeler)
 
-        # blacklist_manager需在pair_selector之前初始化(依赖注入)
-        self.blacklist_manager = BlacklistManager(self, self.config.trade_analysis)
-        self.pair_selector = PairSelector(self, self.config.analysis_shared, self.config.pair_selector, self.blacklist_manager)
+        # v7.12.0: 删除blacklist_manager,PairSelector不再需要依赖注入
+        self.pair_selector = PairSelector(self, self.config.analysis_shared, self.config.pair_selector)
 
         self.pairs_manager = PairsManager(self, self.config.pairs_trading)
 
@@ -141,7 +142,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
 
 
     def _analyze_and_create_pairs(self):
-        """执行配对分析流程（步骤1-5）"""
+        """执行配对分析流程（步骤1-5）(v7.12.0: 动态行业配额)"""
 
         # === 步骤1: 数据处理 ===
         data_result = self.data_processor.process(self.symbols)
@@ -151,8 +152,18 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         if len(valid_symbols) < 2:
             return
 
-        # === 步骤2: 协整检验 ===
-        cointegration_result = self.cointegration_analyzer.cointegration_procedure(valid_symbols, clean_data)
+        # === v7.12.0: 计算行业配额 ===
+        industry_quotas = self.industry_quota_manager.calculate_quotas(
+            pairs_manager=self.pairs_manager
+        )
+
+        # === 步骤2: 协整检验 (v7.12.0: 动态创建analyzer并传递配额) ===
+        cointegration_analyzer = CointegrationAnalyzer(
+            self,
+            self.config.cointegration_analyzer,
+            industry_quotas
+        )
+        cointegration_result = cointegration_analyzer.cointegration_procedure(valid_symbols, clean_data)
         raw_pairs = cointegration_result['raw_pairs']
 
         if not raw_pairs:
