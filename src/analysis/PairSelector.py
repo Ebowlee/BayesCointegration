@@ -56,17 +56,9 @@ class PairSelector:
         # 步骤2: 筛选最佳配对
         selected_pairs = self.select_best(scored_pairs)
 
-        # v7.28.3: 添加质量筛选统计日志（只在有淘汰时打印）
-        input_count = len([r for r in modeling_results if r is not None])
-        output_count = len(selected_pairs)
-        rejected_count = input_count - output_count
-
-        if rejected_count > 0:
-            self.algorithm.Debug(
-                f"[质量筛选] 输入{input_count}对 → "
-                f"通过{output_count}对 → 淘汰{rejected_count}对",
-                level=1
-            )
+        # v7.28.4: 删除质量筛选日志（避免与配对流程日志重叠）
+        # 配对流程日志已包含核心信息（"质量筛选N对"）
+        # 淘汰数可通过简单减法计算（贝叶斯成功数 - 质量筛选数）
 
         return selected_pairs
 
