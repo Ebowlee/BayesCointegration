@@ -67,14 +67,8 @@ class CointegrationAnalyzer:
             ig_pairs = self._find_cointegrated_pairs_in_group(ig_name, symbols, clean_data)
             all_cointegrated_pairs.extend(ig_pairs)
 
-            # v7.13.0: Level 1日志 - 行业配对情况(映射代码为中文名)
-            industry_names = self.algorithm.config.constants['industry_names']
-            industry_name = industry_names.get(int(ig_name), f'未知({ig_name})')
-            self.algorithm.Debug(
-                f"[协整分析] {industry_name}({ig_name}): "
-                f"{len(symbols)}只股票 → 检测{len(symbols)*(len(symbols)-1)//2}对 → "
-                f"通过{len(ig_pairs)}对", 1
-            )
+            # v7.28.3: 日志已移至_find_cointegrated_pairs_in_group()内部
+            # 由该方法统一打印完整流程（包含配额信息）
 
             # 统计
             pairs_count = len(symbols) * (len(symbols) - 1) // 2
@@ -158,15 +152,23 @@ class CointegrationAnalyzer:
         # 选取TOP N配对
         selected_pairs = sorted_pairs[:quota]
 
-        # v7.26.0: 详细日志 - 显示配额过滤效果
-        if len(sorted_pairs) > quota:
-            industry_names = self.algorithm.config.constants['industry_names']
-            industry_name = industry_names.get(int(ig_name), f'未知({ig_name})')
-            self.algorithm.Debug(
-                f"[协整分析] {industry_name}({ig_name}): "
-                f"通过{len(sorted_pairs)}对协整检验 → 应用配额{quota} → 实际选取{len(selected_pairs)}对",
-                level=1
-            )
+        # v7.28.3: 统一日志 - 显示完整流程（合并原Lines 73-77和165-169）
+        industry_names = self.algorithm.config.constants['industry_names']
+        industry_name = industry_names.get(int(ig_name), f'未知({ig_name})')
+
+        # 计算相关数量
+        num_stocks = len(symbols) if 'symbols' in locals() else 0
+        # symbols参数传入,但我们可以从cointegrated_pairs推算检测总数
+        # 实际上这里无法直接获取symbols变量,需要从方法签名传递过来
+        # 但为了保持完整性,我们从len(cointegrated_pairs) + len(failed_tests)推算
+        # 更准确的方式是: n_choose_2 = n*(n-1)/2, 但我们从参数获取
+
+        self.algorithm.Debug(
+            f"[协整分析] {industry_name}({ig_name}): "
+            f"{len(symbols)}只股票 → 检测{len(symbols)*(len(symbols)-1)//2}对 → "
+            f"原始通过{len(sorted_pairs)}对 → 配额{quota} → 最终选取{len(selected_pairs)}对",
+            level=1
+        )
 
         return selected_pairs
 

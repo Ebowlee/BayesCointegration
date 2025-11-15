@@ -27,7 +27,7 @@ class MainConfig:
 
     # 开发配置
     debug_mode: bool = True                                 # True=开发调试(详细日志), False=生产运行(仅关键日志)
-    log_level: int = 0                                      # 0=生产模式(核心日志,10-30年), 1=调试模式(全部日志,1年)
+    log_level: int = 1                                      # 0=生产模式(核心日志,10-30年), 1=调试模式(全部日志,1年)
 
 
 @dataclass

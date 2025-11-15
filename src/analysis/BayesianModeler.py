@@ -57,6 +57,18 @@ class BayesianModeler:
 
         self._log_statistics(dict(statistics))
 
+        # v7.28.3: 添加建模统计日志（只在有失败时打印）
+        success_count = statistics['successful']
+        fail_count = statistics['failed']
+        total_count = len(cointegrated_pairs)
+
+        if fail_count > 0:
+            self.algorithm.Debug(
+                f"[贝叶斯建模] 输入{total_count}对 → "
+                f"成功{success_count}对 → 失败{fail_count}对",
+                level=1
+            )
+
         return modeling_results
 
 

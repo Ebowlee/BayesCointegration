@@ -197,6 +197,20 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # === 步骤7: 交给PairsManager管理 ===
         self.pairs_manager.update_pairs(new_pairs_dict)
 
+        # v7.28.3: 配对流程审计日志（显示完整漏斗）
+        coint_count = len(raw_pairs)
+        model_count = len([r for r in modeling_results if r is not None])
+        select_count = len(selected_pairs)
+        created_count = len(new_pairs_dict)
+
+        self.Debug(
+            f"[配对流程] 协整通过{coint_count}对 → "
+            f"贝叶斯成功{model_count}对 → "
+            f"质量筛选{select_count}对 → "
+            f"最终创建{created_count}对",
+            level=1
+        )
+
         # v7.26.0: 详细日志 - 显示各行业配对创建统计
         from collections import defaultdict
         industry_pair_count = defaultdict(int)
