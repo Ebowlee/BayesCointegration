@@ -152,7 +152,7 @@ class PairDrawdownRule(RiskRule):
                 f"(当前价值: ${pair_value:,.2f}, HWM: ${hwm:,.2f}, "
                 f"PnL: ${pnl:,.2f}, 成本: ${pair_cost:,.2f}, 状态: {pnl_status})"
             )
-            self.algorithm.Debug(f"[Pair风控] PairDrawdownRule 触发! {description}")
+            # v7.28.2: 移除重复打印,统一由RiskManager打印
             return True, description
 
         # 接近阈值时打印警告(警告线到阈值之间)

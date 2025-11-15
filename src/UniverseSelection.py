@@ -123,6 +123,17 @@ class SectorBasedUniverseSelection(FineFundamentalUniverseSelectionModel):
         msg = f"触发第{self.fine_selection_count + 1}次选股 ({self.algorithm.Time.strftime('%Y-%m-%d')})"
         padding = (80 - len(msg)) // 2
         self.algorithm.Debug(f"{'='*padding}{msg}{'='*padding}")
+
+        # v7.28.2: 打印资金状态(可投资金/已占用资金)
+        available_margin = self.algorithm.Portfolio.MarginRemaining
+        total_margin_used = self.algorithm.Portfolio.TotalMarginUsed
+        total_value = self.algorithm.Portfolio.TotalPortfolioValue
+        self.algorithm.Debug(
+            f"[资金状态] 可投资金: ${available_margin:,.2f} | "
+            f"总价值: ${total_value:,.2f} | "
+            f"已占用资金: ${total_margin_used:,.2f}"
+        )
+
         self.selection_on = True
 
 
