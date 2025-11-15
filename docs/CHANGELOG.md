@@ -5,6 +5,115 @@
 ---
 
 
+## [v7.28.1_market-condition-vix-only@20250115]
+
+### 版本概述
+**重构优化** - MarketCondition 简化为 VIX-Only 前瞻指标，移除后置 HistVol，配置化警告线。
+
+### 核心改进
+
+#### 1. 移除 SPY 历史波动率（HistVol）
+**问题**：
+- HistVol 基于过去 20 天数据，是后置指标
+- 市场已恢复时，HistVol 仍高企，造成误阻
+- 双指标 OR 逻辑增加复杂度
+
+**解决**：
+- 完全移除 `_get_spy_annualized_volatility()` 方法
+- 删除 config 中的 `spy_volatility_threshold` 和 `spy_volatility_window`
+- 简化为 VIX-Only 前瞻逻辑
+
+#### 2. VIX 阈值调整
+**变更**：
+- **阻止开仓阈值**：30 → 35（放宽触发条件）
+- **新增警告线**：30（独立配置）
+
+**配置示例**：
+```python
+'market_condition': {
+    'enabled': True,
+    'vix_symbol': 'VIX',
+    'vix_resolution': Resolution.Daily,
+    'vix_threshold': 35,                # 阻止开仓阈值
+    'vix_warning_threshold': 30         # 警告阈值
+}
+```
+
+#### 3. VIX 无数据策略调整
+**变更**：保守阻止 → 激进允许
+- **之前**：VIX 和 HistVol 都无数据 → 阻止开仓
+- **现在**：VIX 无数据 → 允许开仓（假设市场正常）
+
+#### 4. 警告线配置化
+**改进**：
+- 从硬编码 `30` 改为配置参数 `vix_warning_threshold`
+- 支持独立调整警告灵敏度
+- 所有日志为 level 0（风控级别）
+
+### 文件修改
+
+#### src/risk/MarketCondition.py
+**删除**：
+- `_get_spy_annualized_volatility()` 方法（49 行）
+- `import numpy as np`（不再需要）
+- `self.hist_vol_threshold` 和 `self.window_size` 配置读取
+
+**修改**：
+- 新增 `self.vix_warning_threshold` 配置读取
+- 简化 `is_safe_to_open_positions()` 为单一 VIX 检查
+- VIX 无数据时返回 True（激进策略）
+
+**代码减少**：221 行 → 160 行（-27.6%）
+
+#### src/config.py
+**修改**：
+```python
+# 删除
+'spy_volatility_threshold': 0.25,
+'spy_volatility_window': 20
+
+# 修改
+'vix_threshold': 30 → 35
+
+# 新增
+'vix_warning_threshold': 30
+```
+
+### 预期效果
+
+| VIX 值 | v7.28.0 (双指标) | v7.28.1 (VIX-Only) |
+|--------|-----------------|-------------------|
+| 无数据 | ❌ 阻止（保守） | ✅ 允许（激进） |
+| VIX=20 | ✅ 允许 | ✅ 允许 |
+| VIX=28 | ✅ 允许 | ✅ 允许 |
+| VIX=32 | ❌ 阻止（超 30） | ⚠️ 警告 + 允许 |
+| VIX=37 | ❌ 阻止 | ❌ 阻止 |
+
+### 技术细节
+
+**逻辑简化**：
+```python
+# VIX 无数据 → 允许开仓
+if vix is None:
+    return True
+
+# VIX >= 35 → 阻止开仓
+if vix >= self.vix_threshold:
+    self.algorithm.Debug(...)
+    return False
+
+# 30 <= VIX < 35 → 警告 + 允许
+elif vix >= self.vix_warning_threshold:
+    self.algorithm.Debug(...)
+
+return True
+```
+
+### Breaking Changes
+无破坏性变更。配置向后兼容（旧配置的额外参数会被忽略）。
+
+---
+
 ## [v7.25.0_fix-marginallocator-config-access@20250206]
 
 ### 版本概述
