@@ -5,6 +5,78 @@
 ---
 
 
+## [v7.29.2_diagnostic-logs@20250206]
+
+### 版本概述
+**诊断日志增强** - 添加估值筛选统计和资金效率诊断日志(level=1),用于量化v7.29.0 OR逻辑效果并诊断低资金占用问题。
+
+### 核心改进
+
+#### 1. 估值筛选统计日志 (UniverseSelection.py)
+**新增**: 在`_apply_financial_filters()`中添加估值筛选详细统计 (Lines 277-285)
+
+**实现**:
+```python
+# v7.29.2: 估值筛选详细统计(level=1)
+if 'valuation_failed' in stats and stats['valuation_failed'] > 0:
+    fail_rate = (stats['valuation_failed'] / stats['total'] * 100) if stats['total'] > 0 else 0
+    self.algorithm.Debug(
+        f"[估值筛选] 输入{stats['total']}只 → "
+        f"通过{stats['passed']}只 → "
+        f"估值失败{stats['valuation_failed']}只 ({fail_rate:.1f}%)",
+        level=1
+    )
+```
+
+**作用**: 量化v7.29.0 OR逻辑(PE≤100 OR PS≤10)的过滤效果,评估是否有效保留高成长股票。
+
+#### 2. 资金效率诊断日志 (main.py)
+**新增**: 在OnSecuritiesChanged()配对创建流程后添加资金效率诊断 (Lines 214-231)
+
+**实现**:
+```python
+# v7.29.2: 资金效率诊断(level=1)
+tradeable_pairs = self.pairs_manager.get_tradeable_pairs()
+pairs_with_position = self.pairs_manager.get_pairs_with_position()
+total_pairs = len(tradeable_pairs)
+position_pairs = len(pairs_with_position)
+
+if total_pairs > 0:
+    opening_rate = (position_pairs / total_pairs) * 100
+    margin_used = self.Portfolio.TotalMarginUsed
+    total_value = self.Portfolio.TotalPortfolioValue
+    utilization = (margin_used / total_value) * 100 if total_value > 0 else 0
+
+    self.Debug(
+        f"[资金效率] 可交易配对{total_pairs}对 → "
+        f"已开仓{position_pairs}对 ({opening_rate:.1f}%) → "
+        f"保证金占用${margin_used:,.0f} ({utilization:.1f}%)",
+        level=1
+    )
+```
+
+**作用**: 诊断资金占用率低(平均3.7%)的根本原因:
+- **可交易配对数**: 配对创建数量是否充足
+- **已开仓比例**: 开仓率是否过低(信号触发困难/风控过严)
+- **保证金占用率**: 实际资金使用效率
+
+### 问题背景
+**发现**: v7.29.1回测显示资金占用率极低(平均3.7%, 12轮中8轮为$0)
+**假设**:
+1. 配对创建数不足(平均3.9对/轮)
+2. 开仓率低(配对创建但未触发开仓信号)
+3. 快速平仓导致冻结期过长(10天/30天)
+4. 多重严格筛选器限制有效配对数
+
+**诊断策略**: 添加日志量化关键指标,基于数据决定优化方向。
+
+### 修改文件
+- **src/UniverseSelection.py** (Lines 277-285): 估值筛选统计
+- **main.py** (Lines 214-231): 资金效率诊断
+
+---
+
+
 ## [v7.29.1_boundary-inclusive@20250206]
 
 ### 版本概述

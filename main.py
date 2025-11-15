@@ -211,6 +211,25 @@ class BayesianCointegrationStrategy(QCAlgorithm):
             level=1
         )
 
+        # v7.29.2: 资金效率诊断(level=1)
+        tradeable_pairs = self.pairs_manager.get_tradeable_pairs()
+        pairs_with_position = self.pairs_manager.get_pairs_with_position()
+        total_pairs = len(tradeable_pairs)
+        position_pairs = len(pairs_with_position)
+
+        if total_pairs > 0:
+            opening_rate = (position_pairs / total_pairs) * 100
+            margin_used = self.Portfolio.TotalMarginUsed
+            total_value = self.Portfolio.TotalPortfolioValue
+            utilization = (margin_used / total_value) * 100 if total_value > 0 else 0
+
+            self.Debug(
+                f"[资金效率] 可交易配对{total_pairs}对 → "
+                f"已开仓{position_pairs}对 ({opening_rate:.1f}%) → "
+                f"保证金占用${margin_used:,.0f} ({utilization:.1f}%)",
+                level=1
+            )
+
         # v7.26.0: 详细日志 - 显示各行业配对创建统计
         from collections import defaultdict
         industry_pair_count = defaultdict(int)

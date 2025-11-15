@@ -274,6 +274,16 @@ class SectorBasedUniverseSelection(FineFundamentalUniverseSelectionModel):
                 for reason in fail_reasons:
                     stats[reason] += 1
 
+        # v7.29.2: 估值筛选详细统计(level=1)
+        if 'valuation_failed' in stats and stats['valuation_failed'] > 0:
+            fail_rate = (stats['valuation_failed'] / stats['total'] * 100) if stats['total'] > 0 else 0
+            self.algorithm.Debug(
+                f"[估值筛选] 输入{stats['total']}只 → "
+                f"通过{stats['passed']}只 → "
+                f"估值失败{stats['valuation_failed']}只 ({fail_rate:.1f}%)",
+                level=1
+            )
+
         return filtered_stocks, stats
 
 
