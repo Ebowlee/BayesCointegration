@@ -63,21 +63,21 @@ class UniverseConfig:
         'roe': {
             'enabled': False,
             'path': 'OperationRatios.ROE.Value',
-            'operator': 'gt',
+            'operator': 'ge',  # v7.29.1: 改为 ≥ (包含边界)
             'threshold': 0,
             'fail_key': 'roe_failed'
         },
         'debt_ratio': {
             'enabled': True,
             'path': 'OperationRatios.DebtToAssets.Value',
-            'operator': 'lt',
+            'operator': 'le',  # v7.29.1: 改为 ≤ (包含边界)
             'threshold': 0.6,
             'fail_key': 'debt_failed'
         },
         'leverage': {
             'enabled': True,
             'path': 'OperationRatios.FinancialLeverage.Value',
-            'operator': 'lt',
+            'operator': 'le',  # v7.29.1: 改为 ≤ (包含边界)
             'threshold': 6,
             'fail_key': 'leverage_failed'
         }

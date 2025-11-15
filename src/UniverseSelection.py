@@ -65,11 +65,15 @@ class FinancialValidator:
             # 获取阈值
             threshold = filter_config['threshold']
 
-            # 比较操作
+            # 比较操作 (v7.29.1: 支持le/ge包含边界操作符)
             operator = filter_config['operator']
             if operator == 'lt' and value >= threshold:
                 fail_reasons.append(filter_config['fail_key'])
             elif operator == 'gt' and value <= threshold:
+                fail_reasons.append(filter_config['fail_key'])
+            elif operator == 'le' and value > threshold:  # v7.29.1新增: ≤
+                fail_reasons.append(filter_config['fail_key'])
+            elif operator == 'ge' and value < threshold:  # v7.29.1新增: ≥
                 fail_reasons.append(filter_config['fail_key'])
 
         return len(fail_reasons) == 0, fail_reasons

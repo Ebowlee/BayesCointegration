@@ -5,6 +5,63 @@
 ---
 
 
+## [v7.29.1_boundary-inclusive@20250206]
+
+### 版本概述
+**边界包含统一化** - 所有财务筛选器改为包含边界的比较操作符(≤/≥),与v7.29.0保持一致。
+
+### 核心改进
+
+#### 1. Operator统一化 (config.py)
+**变更**:
+- `roe`: `'gt'` → `'ge'` (> 改为 ≥)
+- `debt_ratio`: `'lt'` → `'le'` (< 改为 ≤)
+- `leverage`: `'lt'` → `'le'` (< 改为 ≤)
+
+**动机**: 与v7.29.0的valuation OR逻辑保持一致(使用`'le'`包含边界)
+
+**语义影响**:
+| 筛选器 | 旧逻辑 | 新逻辑 | 边界值行为变化 |
+|--------|--------|--------|----------------|
+| roe | ROE > 0 | ROE ≥ 0 | ROE=0现在**通过**(原本被过滤) |
+| debt_ratio | Debt < 0.6 | Debt ≤ 0.6 | Debt=0.6现在**通过**(原本被过滤) |
+| leverage | Lev < 6 | Lev ≤ 6 | Lev=6现在**通过**(原本被过滤) |
+
+**实际影响**: 边界值案例极少(如恰好ROE=0, Debt=0.6, Lev=6),对选股结果影响极小。
+
+#### 2. 代码层支持 (UniverseSelection.py)
+**新增**: validate_stock()方法添加`'le'`和`'ge'`处理逻辑 (Lines 74-77)
+
+**实现**:
+```python
+# 比较操作 (v7.29.1: 支持le/ge包含边界操作符)
+operator = filter_config['operator']
+if operator == 'lt' and value >= threshold:
+    fail_reasons.append(filter_config['fail_key'])
+elif operator == 'gt' and value <= threshold:
+    fail_reasons.append(filter_config['fail_key'])
+elif operator == 'le' and value > threshold:  # v7.29.1新增: ≤
+    fail_reasons.append(filter_config['fail_key'])
+elif operator == 'ge' and value < threshold:  # v7.29.1新增: ≥
+    fail_reasons.append(filter_config['fail_key'])
+```
+
+**逻辑验证**:
+- `operator='le'` (≤): 失败条件是 `value > threshold` ✅
+- `operator='ge'` (≥): 失败条件是 `value < threshold` ✅
+
+### 向后兼容性
+- ✅ 保持`'lt'`和`'gt'`的处理逻辑(未删除)
+- ✅ 新增`'le'`和`'ge'`作为扩展支持
+- ⚠️ **轻微行为变化**: 边界值现在通过筛选(影响极小,阈值本身通常定义为"合格线")
+
+### 修改文件
+- **src/config.py** (Lines 66, 73, 80): 三个operator改为包含边界
+- **src/UniverseSelection.py** (Lines 68, 74-77): 新增le/ge处理逻辑
+
+---
+
+
 ## [v7.29.0_valuation-or-logic@20250206]
 
 ### 版本概述
