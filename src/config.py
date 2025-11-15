@@ -41,12 +41,24 @@ class UniverseConfig:
 
     # 财务筛选器配置 (嵌套保留,因为逻辑上是一组)
     financial_filters: Dict = field(default_factory=lambda: {
-        'pe_ratio': {
+        # v7.29.0: 估值OR逻辑 (PE≤100 OR PS≤10)
+        # 目的: 避免抹杀高成长公司(如特斯拉等PS估值为主的科技公司)
+        'valuation': {
             'enabled': True,
-            'path': 'ValuationRatios.PERatio',
-            'operator': 'lt',
-            'threshold': 100,
-            'fail_key': 'pe_failed'
+            'type': 'or',  # OR逻辑标识(任意一条规则通过即可)
+            'rules': [
+                {
+                    'path': 'ValuationRatios.PERatio',
+                    'operator': 'le',  # ≤ 包含边界
+                    'threshold': 100
+                },
+                {
+                    'path': 'ValuationRatios.PSRatio',
+                    'operator': 'le',  # ≤ 包含边界
+                    'threshold': 10
+                }
+            ],
+            'fail_key': 'valuation_failed'
         },
         'roe': {
             'enabled': False,

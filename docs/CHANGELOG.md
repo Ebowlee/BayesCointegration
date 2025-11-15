@@ -5,6 +5,106 @@
 ---
 
 
+## [v7.29.0_valuation-or-logic@20250206]
+
+### 版本概述
+**估值筛选OR逻辑** - 从单一PE筛选改为`(PE≤100 OR PS≤10)`,避免抹杀高成长公司。
+
+### 核心改进
+
+#### 1. 估值OR逻辑 (config.py + UniverseSelection.py)
+**背景问题**：
+- 传统`PE < 100`单一筛选会误杀高成长公司
+- 特斯拉等科技公司主要用PS估值(PE可能为null或极高)
+- 金融股主要用PB估值
+- 不同行业估值指标不同,单一PE筛选过于僵化
+
+**解决方案**：
+- 引入统一OR逻辑: 满足**任意一个**估值指标即可通过
+- 规则: `PE≤100` **OR** `PS≤10`
+- 不按行业细分(保持简洁,避免过度复杂化)
+
+**配置变更** (src/config.py Lines 44-62):
+```python
+# 旧配置 (单一PE筛选)
+'pe_ratio': {
+    'enabled': True,
+    'path': 'ValuationRatios.PERatio',
+    'operator': 'lt',
+    'threshold': 100,
+    'fail_key': 'pe_failed'
+}
+
+# v7.29.0新配置 (估值OR逻辑)
+'valuation': {
+    'enabled': True,
+    'type': 'or',  # OR逻辑标识(任意一条规则通过即可)
+    'rules': [
+        {
+            'path': 'ValuationRatios.PERatio',
+            'operator': 'le',  # ≤ 包含边界
+            'threshold': 100
+        },
+        {
+            'path': 'ValuationRatios.PSRatio',
+            'operator': 'le',  # ≤ 包含边界
+            'threshold': 10
+        }
+    ],
+    'fail_key': 'valuation_failed'
+}
+```
+
+**实现细节** (src/UniverseSelection.py):
+- 新增`_validate_or_rules()`方法 (Lines 92-132): 处理OR逻辑筛选
+- 修改`validate_stock()`方法 (Lines 52-56): 检测`type='or'`分支调用OR逻辑验证
+
+**Null值处理**:
+QuantConnect对于无效估值指标返回null(而非负数):
+- `PE=null`: 亏损公司(EPS<0)或极端值(PE>10000或PE<0.001)
+- `PS=null`: 无收入公司(Sales≤0)
+- `PB=null`: 负净资产公司(BookValue≤0)
+
+**边界情况验证**:
+| PE | PS | 结果 | 原因 |
+|----|----|----|------|
+| 50 | null | ✅ 通过 | PE满足≤100 |
+| null | 5 | ✅ 通过 | PS满足≤10 |
+| 120 | 15 | ❌ 不通过 | 都不满足阈值 |
+| null | null | ❌ 不通过 | 都无效 |
+| 80 | 8 | ✅ 通过 | 两个都满足(OR短路) |
+
+**预期效果**:
+- 高成长公司(如特斯拉PS估值)不再被误杀
+- 传统盈利公司仍通过PE筛选
+- 双高公司(PE>100且PS>10)仍被过滤
+- 垃圾公司(PE=null且PS=null)仍被过滤
+
+#### 2. 架构扩展性
+**设计优势**:
+- `type='or'`字段标识OR逻辑筛选器(区别于传统AND逻辑)
+- `rules`数组支持未来扩展到3个或更多子规则
+  - 示例: 添加`PB≤3`用于金融股估值
+- 保持配置化架构,无需修改业务逻辑代码
+
+**短路求值优化**:
+- 任意一条规则通过就立即返回True
+- 避免检查后续规则(提升性能)
+
+### 修改文件
+- **src/config.py** (Lines 44-62): pe_ratio配置块改为valuation OR逻辑
+- **src/UniverseSelection.py** (Lines 39, 52-56, 92-132):
+  - validate_stock(): 支持OR逻辑分支
+  - 新增_validate_or_rules(): OR逻辑验证方法
+
+### 向后兼容性
+- ✅ 保持配置化架构
+- ✅ 传统AND逻辑筛选器(ROE, 负债率等)保持不变
+- ✅ OR逻辑作为可选扩展,不影响现有筛选器
+
+---
+
+
 ## [v7.28.4_log-refinement@20250206]
 
 ### 版本概述

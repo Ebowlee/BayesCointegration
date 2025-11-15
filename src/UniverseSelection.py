@@ -35,6 +35,8 @@ class FinancialValidator:
 
         Returns:
             (是否通过, 失败原因列表)
+
+        v7.29.0: 支持OR逻辑的估值筛选
         """
         # 基础数据检查
         if not stock.ValuationRatios or not stock.OperationRatios:
@@ -47,6 +49,13 @@ class FinancialValidator:
             if not filter_config.get('enabled', True):
                 continue
 
+            # v7.29.0: 检查是否为OR逻辑筛选器
+            if filter_config.get('type') == 'or':
+                if not self._validate_or_rules(stock, filter_config):
+                    fail_reasons.append(filter_config['fail_key'])
+                continue  # OR逻辑单独处理,跳过常规流程
+
+            # 常规AND逻辑筛选(保持原有逻辑)
             # 获取指标值
             value = self._get_metric_value(stock, filter_config['path'])
             if value is None:
@@ -87,6 +96,49 @@ class FinancialValidator:
             return value
         except (AttributeError, TypeError):
             return None
+
+
+    def _validate_or_rules(self, stock: FineFundamental, filter_config: dict) -> bool:
+        """
+        验证OR逻辑规则(任意一条通过即可) - v7.29.0
+
+        Args:
+            stock: 股票基本面数据
+            filter_config: OR筛选器配置(包含rules数组)
+
+        Returns:
+            是否通过(至少一条规则满足)
+
+        示例: (PE≤100 OR PS≤10)
+            - PE=50, PS=null → ✅ 通过(PE满足)
+            - PE=null, PS=5 → ✅ 通过(PS满足)
+            - PE=120, PS=15 → ❌ 不通过(都不满足)
+            - PE=null, PS=null → ❌ 不通过(都无效)
+
+        技术细节:
+            - QuantConnect返回null而非负数表示无效指标
+            - PE=null: 亏损公司(EPS<0或极端值)
+            - PS=null: 无收入公司(Sales≤0)
+        """
+        rules = filter_config.get('rules', [])
+
+        for rule in rules:
+            # 获取指标值
+            value = self._get_metric_value(stock, rule['path'])
+            if value is None:
+                continue  # 该指标无效,检查下一条规则
+
+            # 检查是否满足阈值
+            threshold = rule['threshold']
+            operator = rule['operator']
+
+            if operator == 'le' and value <= threshold:
+                return True  # 该条规则通过,整个OR逻辑通过
+            elif operator == 'ge' and value >= threshold:
+                return True
+
+        # 所有规则都未通过
+        return False
 
 
 
