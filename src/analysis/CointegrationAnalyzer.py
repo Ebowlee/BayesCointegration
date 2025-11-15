@@ -57,7 +57,7 @@ class CointegrationAnalyzer:
             'industry_group_breakdown': {}
         }
 
-        # 步骤1: 按26个子行业分组（包含过滤+排序+数量限制）
+        # 步骤1: 按子行业分组（包含过滤+排序+数量限制）
         industry_groups = self._group_by_industry_group(valid_symbols)
 
         # 步骤2: 每个子行业内部进行协整配对
@@ -157,6 +157,16 @@ class CointegrationAnalyzer:
 
         # 选取TOP N配对
         selected_pairs = sorted_pairs[:quota]
+
+        # v7.26.0: 详细日志 - 显示配额过滤效果
+        if len(sorted_pairs) > quota:
+            industry_names = self.algorithm.config.constants['industry_names']
+            industry_name = industry_names.get(int(ig_name), f'未知({ig_name})')
+            self.algorithm.Debug(
+                f"[协整分析] {industry_name}({ig_name}): "
+                f"通过{len(sorted_pairs)}对协整检验 → 应用配额{quota} → 实际选取{len(selected_pairs)}对",
+                level=1
+            )
 
         return selected_pairs
 

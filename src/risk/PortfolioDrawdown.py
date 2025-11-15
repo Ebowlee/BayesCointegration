@@ -19,13 +19,13 @@ class PortfolioDrawdownRule(RiskRule):
     - 追踪账户净值的历史最高水位(high water mark)
     - 检测当前回撤是否超过阈值(默认10%)
     - 触发后由RiskManager生成所有持仓的CloseIntent
-    - 支持360天冷却期
+    - 支持可配置冷却期(默认360天)
 
     配置参数:
     - enabled: 是否启用(默认True)
     - priority: 优先级(默认90,仅次于AccountBlowup的100)
     - threshold: 回撤阈值(默认0.10,即10%)
-    - cooldown_days: 冷却期天数(默认360天)
+    - cooldown_days: 冷却期天数(默认360天)  # v7.28.0新增
 
     与AccountBlowupRule的区别:
     - 触发条件: 回撤(动态HWM) vs 亏损(固定initial_capital)

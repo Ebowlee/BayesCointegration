@@ -1,49 +1,48 @@
 """
-MarketCondition - 市场条件检查器
+MarketCondition - 市场条件检查器 (v7.28.1 VIX-Only前瞻指标)
 
 检查市场环境是否适合开仓（不继承RiskRule基类）
 
 职责:
 - 获取VIX恐慌指数（前瞻性指标）
-- 计算SPY年化波动率（滞后性指标）
-- 使用OR逻辑判断是否允许开仓
+- 判断VIX是否超过阈值（35）
 - 不影响平仓逻辑
 
 特性:
 - 无冷却期（实时计算）
 - 返回bool而非(triggered, description)
-- 数据不足时默认允许开仓
-- OR逻辑：VIX > 30 或 HistVol > 25% 任一触发即阻止
+- VIX无数据时默认允许开仓（激进策略）
+- 单一指标：VIX >= 35 阻止开仓，VIX >= 30 警告
+- v7.28.1移除：HistVol后置指标（滞后，无预测价值）
 """
 
 from AlgorithmImports import *
 from typing import Optional
-import numpy as np
 
 
 class MarketCondition:
     """
-    市场条件检查器
+    市场条件检查器 (v7.28.1 VIX-Only)
 
     不继承RiskRule基类，使用独立接口
 
     设计原则:
     - 开仓前置条件：只影响新开仓，不影响平仓
     - 实时计算：无状态，无冷却期
-    - OR逻辑：领先指标(VIX) + 滞后指标(HistVol)
-    - 数据容错：数据不足时默认允许开仓
+    - VIX-Only前瞻指标：移除后置HistVol
+    - 数据容错：VIX无数据时默认允许开仓（激进策略）
 
     使用示例:
     ```python
     # 在main.py的OnData()中
-    if not self.risk_manager.is_safe_to_open_positions():
-        return  # 高波动时阻止开仓，但允许平仓继续
+    if not self.risk_manager.market_condition.is_safe_to_open_positions():
+        return  # VIX恐慌时阻止开仓，但允许平仓继续
     ```
     """
 
     def __init__(self, algorithm, config):
         """
-        初始化市场条件检查器
+        初始化市场条件检查器 (v7.28.1 简化配置)
 
         Args:
             algorithm: QuantConnect算法实例
@@ -55,37 +54,37 @@ class MarketCondition:
         # 从config.risk_management['market_condition']读取配置
         mc_config = config.risk_management['market_condition']
         self.enabled = mc_config['enabled']
-        self.vix_threshold = mc_config['vix_threshold']
-        self.hist_vol_threshold = mc_config['spy_volatility_threshold']
-        self.window_size = mc_config['spy_volatility_window']
+        self.vix_threshold = mc_config['vix_threshold']              # v7.28.1: 阻止开仓阈值=35
+        self.vix_warning_threshold = mc_config['vix_warning_threshold']  # v7.28.1: 警告阈值=30
 
 
 
     def is_safe_to_open_positions(self) -> bool:
         """
-        判断当前市场条件是否适合开仓
+        判断当前市场条件是否适合开仓 (v7.28.1 VIX-Only)
 
-        OR逻辑:
-        - VIX >= vix_threshold (默认30)
-        - HistVol >= hist_vol_threshold (默认0.25)
-        - 任一条件触发 → return False
+        单一指标逻辑:
+        - VIX >= vix_threshold (默认35): 阻止开仓
+        - vix_warning_threshold <= VIX < vix_threshold (默认30-35): 警告 + 允许开仓
+        - VIX < vix_warning_threshold (默认30): 正常开仓
+        - VIX无数据: 允许开仓（激进策略）
 
         Returns:
             True: 市场条件良好，允许开仓
-            False: 市场条件不佳，禁止开仓
+            False: 市场恐慌，禁止开仓
 
         逻辑流程:
         1. 检查enabled开关
         2. 获取VIX值
-        3. 计算SPY年化波动率
-        4. OR逻辑判断
-        5. 记录日志
-        6. 返回判断结果
+        3. VIX无数据 → 允许开仓
+        4. VIX >= vix_threshold → 阻止开仓（level 0日志）
+        5. vix_warning_threshold <= VIX < vix_threshold → 警告 + 允许开仓（level 0日志）
+        6. VIX < vix_warning_threshold → 正常开仓
 
         注意:
-        - 数据不足时默认返回True（允许开仓）
-        - 只在debug_mode=True时输出详细指标值
-        - 触发阻断时必然输出警告日志
+        - v7.28.1移除HistVol检查（后置指标无预测价值）
+        - 阈值和警告线均可配置（默认35和30）
+        - 所有日志为level 0（风控级别）
         """
         # 全局禁用时，直接允许
         if not self.enabled:
@@ -94,33 +93,26 @@ class MarketCondition:
         # 获取VIX值
         vix = self._get_vix_value()
 
-        # 获取历史波动率
-        hist_vol = self._get_spy_annualized_volatility()
+        # VIX无数据时，激进策略：允许开仓
+        if vix is None:
+            return True
 
-        # 数据完全不足时，保守起见阻止开仓
-        if vix is None and hist_vol is None:
-            self.algorithm.Debug(
-                f"[MarketCondition] VIX和HistVol数据均不足，保守起见阻止开仓"
-            )
-            return False
-
-        # 判断1：VIX恐慌触发
-        if vix is not None and vix >= self.vix_threshold:
+        # VIX >= vix_threshold: 阻止开仓（level 0日志）
+        if vix >= self.vix_threshold:
             self.algorithm.Debug(
                 f"[MarketCondition] VIX恐慌，暂停开仓: "
                 f"VIX={vix:.1f} >= {self.vix_threshold}"
             )
             return False
 
-        # 判断2：历史波动率触发
-        if hist_vol is not None and hist_vol >= self.hist_vol_threshold:
+        # vix_warning_threshold <= VIX < vix_threshold: 警告 + 允许开仓（level 0日志）
+        elif vix >= self.vix_warning_threshold:
             self.algorithm.Debug(
-                f"[MarketCondition] 波动率过高，暂停开仓: "
-                f"{hist_vol*100:.1f}% >= {self.hist_vol_threshold*100:.0f}%"
+                f"[MarketCondition] 警告: VIX={vix:.1f} 接近阈值{self.vix_threshold} "
+                f"(警告线{self.vix_warning_threshold})"
             )
-            return False
 
-        # 两个条件都未触发，允许开仓
+        # VIX < vix_warning_threshold: 正常开仓（无日志，减少噪音）
         return True
 
 
@@ -165,56 +157,5 @@ class MarketCondition:
             if getattr(self.config.main, 'debug_mode', False):
                 self.algorithm.Debug(
                     f"[MarketCondition] VIX获取异常: {str(e)}"
-                )
-            return None
-
-
-    def _get_spy_annualized_volatility(self) -> Optional[float]:
-        """
-        获取SPY年化波动率
-
-        Returns:
-            年化波动率（小数形式，如0.25表示25%）
-            数据不足时返回None
-
-        计算方法:
-        1. 获取SPY最近(window_size+1)天的收盘价
-        2. 计算日收益率: returns = (price[t] - price[t-1]) / price[t-1]
-        3. 计算日收益率标准差: daily_std = std(returns)
-        4. 年化: annualized_vol = daily_std * sqrt(252)
-
-        注意:
-        - 需要window_size+1天数据（计算window_size个收益率）
-        - 使用252个交易日年化（美股标准）
-        - 数据不足或异常时返回None
-        """
-        try:
-            # 获取SPY历史数据（需要window_size+1天计算window_size个收益率）
-            spy = self.algorithm.market_benchmark
-            history = self.algorithm.History(spy, self.window_size + 1, Resolution.Daily)
-
-            # 检查数据完整性
-            if history.empty or len(history) < self.window_size + 1:
-                return None
-
-            # 提取收盘价
-            prices = history['close'].values
-
-            # 计算日收益率: (price[t] - price[t-1]) / price[t-1]
-            returns = np.diff(prices) / prices[:-1]
-
-            # 计算标准差
-            daily_std = np.std(returns)
-
-            # 年化（252个交易日）
-            annualized_vol = daily_std * np.sqrt(252)
-
-            return annualized_vol
-
-        except Exception as e:
-            # 计算异常时记录日志并返回None（默认允许开仓）
-            if getattr(self.config.main, 'debug_mode', False):
-                self.algorithm.Debug(
-                    f"[MarketCondition] 波动率计算异常: {str(e)}"
                 )
             return None

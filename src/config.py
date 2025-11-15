@@ -22,12 +22,12 @@ class MainConfig:
     account_type: AccountType = AccountType.Margin
 
     # 选股调度配置
-    schedule_frequency: str = 'MonthStart'  # 每月初
-    schedule_time: tuple = (9, 10)          # 9:10 AM
+    schedule_frequency: str = 'MonthStart'                  # 每月初
+    schedule_time: tuple = (9, 10)                          # 9:10 AM
 
     # 开发配置
-    debug_mode: bool = True                 # True=开发调试(详细日志), False=生产运行(仅关键日志)
-    log_level: int = 0                      # 0=生产模式(核心日志,10-30年), 1=调试模式(全部日志,1年)
+    debug_mode: bool = True                                 # True=开发调试(详细日志), False=生产运行(仅关键日志)
+    log_level: int = 0                                      # 0=生产模式(核心日志,10-30年), 1=调试模式(全部日志,1年)
 
 
 @dataclass
@@ -35,9 +35,9 @@ class UniverseConfig:
     """选股配置 - 筛选参数"""
 
     # 基础筛选
-    min_price: float = 15                   # 最低股价（美元）
-    min_volume: float = 5e6                 # 最低日均成交量（股数）
-    min_days_since_ipo: int = 360           # IPO最短时间（天）
+    min_price: float = 15                                   # 最低股价（美元）
+    min_volume: float = 5e6                                 # 最低日均成交量（股数）
+    min_days_since_ipo: int = 360                           
 
     # 财务筛选器配置 (嵌套保留,因为逻辑上是一组)
     financial_filters: Dict = field(default_factory=lambda: {
@@ -77,19 +77,19 @@ class PairsTradingConfig:
     """配对交易配置 - 信号/仓位参数"""
 
     # 信号阈值
-    entry_threshold_lower: float = 1.2      # 入场Z-score下限
-    entry_threshold_upper: float = 1.8      # 入场Z-score上限
-    exit_threshold: float = 0.3             # 出场Z-score阈值
-    stop_loss_threshold: float = 2.3        # 止损Z-score阈值
+    entry_threshold_lower: float = 1.2                      # 入场Z-score下限
+    entry_threshold_upper: float = 1.8                      # 入场Z-score上限
+    exit_threshold: float = 0.3                             # 出场Z-score阈值
+    stop_loss_threshold: float = 2.3                        # 止损Z-score阈值
 
     # 仓位管理参数
-    min_investment_ratio: float = 0.05      # 质量最低(0.0分)配对投资比例: 5%
-    max_investment_ratio: float = 0.15      # 质量最高(1.0分)配对投资比例: 15%
+    min_investment_ratio: float = 0.05                      # 质量最低(0.0分)配对投资比例: 5%
+    max_investment_ratio: float = 0.15                      # 质量最高(1.0分)配对投资比例: 15%
 
     # 保证金管理 (美股规则)
-    margin_requirement_long: float = 0.5    # 多头保证金率: 50%
-    margin_requirement_short: float = 1.5   # 空头保证金率: 150%
-    margin_usage_ratio: float = 0.98        # 保证金使用率: 98%
+    margin_requirement_long: float = 0.5                    # 多头保证金率: 50%
+    margin_requirement_short: float = 1.5                   # 空头保证金率: 150%
+    margin_usage_ratio: float = 0.98                        # 保证金使用率: 98%
 
 
 # ============================================================================
@@ -101,11 +101,11 @@ class CointegrationConfig:
     """协整分析配置"""
 
     # 统计检验
-    pvalue_threshold: float = 0.05          # Engle-Granger p值阈值
+    pvalue_threshold: float = 0.05                          # Engle-Granger p值阈值
 
     # 子行业分组
-    min_stocks_per_group: int = 3           # 子行业最少股票数
-    max_stocks_per_group: int = 50          # 子行业最多股票数
+    min_stocks_per_group: int = 3                           # 子行业最少股票数
+    max_stocks_per_group: int = 50                          # 子行业最多股票数
 
 
 @dataclass
@@ -113,15 +113,15 @@ class PairSelectorConfig:
     """配对质量评估配置"""
 
     # 筛选限制
-    max_symbol_repeats: int = 1             # 单股最多配对数
+    max_symbol_repeats: int = 1                             # 单股最多配对数
 
     # 质量门槛
-    min_quality_threshold: float = 0.60     # 最低质量分数阈值
+    min_quality_threshold: float = 0.60                     # 最低质量分数阈值
 
     # 质量权重
     quality_weights: Dict = field(default_factory=lambda: {
-        'half_life': 0.50,                  # 均值回归速度
-        'mean_reversion_certainty': 0.50    # AR(1)显著性
+        'half_life': 0.50,                                  
+        'mean_reversion_certainty': 0.50                    
     })
 
     # 评分阈值 (复杂嵌套保留字典)
@@ -178,47 +178,46 @@ class Constants:
         'CLOSE': 'CLOSE'
     }
 
-    # === 4. 平仓原因（常量+显示文本+冷却天数+分类）===
+    # === 4. 平仓原因（常量+显示文本+分类）===
     CLOSE_REASONS = {
-        # === 组1: 正常交易信号触发 (Pairs cooldown only) ===
+        # === 组1: 正常交易信号触发 ===
         'MEAN_REVERSION': {
             'display': '均值回归',
-            'cooldown_days': 10,
-            'category': 'NORMAL_SIGNAL'  # 信号触发,非风控
+            'cooldown_days': 10,                                # Pairs层冷却期
+            'category': 'NORMAL_SIGNAL'                         
         },
         'PAIR_BREAK': {
             'display': '协整破裂',
-            'cooldown_days': 10,
-            'category': 'NORMAL_SIGNAL'  # 信号触发,非风控
+            'cooldown_days': 30,                                # Pairs层冷却期
+            'category': 'NORMAL_SIGNAL'
         },
 
-        # === 组2: Pair级风控触发 (Rule cooldown + Pairs cooldown同步) ===
+        # === 组2: Pair级风控触发 ===
         'TIMEOUT': {
             'display': '持有超时',
-            'cooldown_days': 10,
-            'category': 'PAIR_RISK'  # Pair风控触发
+            'category': 'PAIR_RISK'                             # Pair风控触发
+        },
+        'CUMULATIVE_LOSS': {
+            'display': '累计亏损',
+            'category': 'PAIR_RISK'
         },
         'DRAWDOWN': {
             'display': '回撤触发',
-            'cooldown_days': 180,
-            'category': 'PAIR_RISK'  # Pair风控触发
+            'category': 'PAIR_RISK'
         },
         'ANOMALY': {
             'display': '单腿异常',
-            'cooldown_days': 999999,
-            'category': 'PAIR_RISK'  # Pair风控触发
+            'category': 'PAIR_RISK'
         },
 
-        # === 组3: Portfolio级风控 (全局cooldown only) ===
+        # === 组3: Portfolio级风控 ===
         'PORTFOLIO_DRAWDOWN': {
             'display': '组合回撤',
-            'cooldown_days': 360,
-            'category': 'PORTFOLIO_RISK'  # Portfolio风控触发
+            'category': 'PORTFOLIO_RISK'                        # Portfolio风控触发
         },
         'ACCOUNT_BLOWUP': {
             'display': '组合爆仓',
-            'cooldown_days': 999999,
-            'category': 'PORTFOLIO_RISK'  # Portfolio风控触发
+            'category': 'PORTFOLIO_RISK'
         }
     }
 
@@ -354,14 +353,13 @@ class StrategyConfig:
         self.risk_management = {
             'enabled': True,
 
-            # 市场条件检查
+            # 市场条件检查 (v7.28.1: VIX-Only前瞻指标)
             'market_condition': {
                 'enabled': True,
                 'vix_symbol': 'VIX',
                 'vix_resolution': Resolution.Daily,
-                'vix_threshold': 30,
-                'spy_volatility_threshold': 0.25,
-                'spy_volatility_window': 20
+                'vix_threshold': 35,                                # 阻止开仓阈值
+                'vix_warning_threshold': 30                         # 警告阈值 (>= 30 打印警告)
             },
 
             # Portfolio层面规则
@@ -369,13 +367,15 @@ class StrategyConfig:
                 'account_blowup': {
                     'enabled': True,
                     'priority': 100,
-                    'threshold': 0.20,
+                    'threshold': 0.15,
+                    'cooldown_days': 999999,                    
                     'action': 'portfolio_liquidate_all'
                 },
                 'portfolio_drawdown': {
                     'enabled': True,
                     'priority': 90,
                     'threshold': 0.10,
+                    'cooldown_days': 180,                     
                     'action': 'portfolio_liquidate_all'
                 }
             },
@@ -384,18 +384,26 @@ class StrategyConfig:
             'pair_rules': {
                 'pair_anomaly': {
                     'enabled': True,
-                    'priority': 100
+                    'priority': 100,
+                    'cooldown_days': 999999                  
+                },
+                'pair_cumulative_loss': {
+                    'enabled': True,
+                    'priority': 90,
+                    'threshold': 0.08,                         
+                    'cooldown_days': 360                        
                 },
                 'pair_drawdown': {
                     'enabled': True,
-                    'priority': 90,
-                    'threshold': 0.08,
-                    'enable_cumulative_check': True
+                    'priority': 80,
+                    'threshold': 0.08,                          
+                    'cooldown_days': 180                        
                 },
                 'holding_timeout': {
                     'enabled': True,
-                    'priority': 80,
-                    'max_halflife_multiplier': 2.0
+                    'priority': 70,
+                    'max_halflife_multiplier': 2.0,
+                    'cooldown_days': 30                         
                 }
             }
         }

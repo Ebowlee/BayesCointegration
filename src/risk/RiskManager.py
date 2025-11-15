@@ -15,8 +15,9 @@ from .PortfolioDrawdown import PortfolioDrawdownRule
 from .MarketCondition import MarketCondition
 from .PairHoldingTimeout import PairHoldingTimeoutRule
 from .PairAnomaly import PairAnomalyRule
+from .PairCumulativeLoss import PairCumulativeLossRule
 from .PairDrawdown import PairDrawdownRule
-from src.execution.OrderIntent import CloseIntent  
+from src.execution.OrderIntent import CloseIntent
 from typing import List, Tuple, Optional
 
 
@@ -108,11 +109,13 @@ class RiskManager:
 
         # v7.1.0 新增: Pair层映射机制(Intent Pattern)
         # v7.13.0: 更新reason命名,对应config.constants['close_reasons']
+        # v7.27.0: 新增CUMULATIVE_LOSS映射
         # Rule类名 → CloseIntent的reason字符串
         self._pair_rule_to_reason_map = {
-            'PairHoldingTimeoutRule': 'TIMEOUT',     # v7.13.0: 从'PAIR TIMEOUT'改名
-            'PairAnomalyRule': 'ANOMALY',            # v7.13.0: 从'PAIR ANOMALY'改名
-            'PairDrawdownRule': 'DRAWDOWN',          # v7.13.0: 从'PAIR DRAWDOWN'改名
+            'PairHoldingTimeoutRule': 'TIMEOUT',          # v7.13.0: 从'PAIR TIMEOUT'改名
+            'PairAnomalyRule': 'ANOMALY',                 # v7.13.0: 从'PAIR ANOMALY'改名
+            'PairCumulativeLossRule': 'CUMULATIVE_LOSS',  # v7.27.0: 新增累计亏损检测
+            'PairDrawdownRule': 'DRAWDOWN',               # v7.13.0: 从'PAIR DRAWDOWN'改名
         }
         # pair_id → Rule实例的映射(用于Intent执行后激活cooldown)
         self._pair_intent_to_rule_map = {}
@@ -200,6 +203,7 @@ class RiskManager:
         rule_map = {
             'holding_timeout': PairHoldingTimeoutRule,
             'pair_anomaly': PairAnomalyRule,
+            'pair_cumulative_loss': PairCumulativeLossRule,  # v7.27.0: 新增累计亏损检测
             'pair_drawdown': PairDrawdownRule,
         }
 

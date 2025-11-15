@@ -476,36 +476,38 @@ class Pairs:
 
     def get_cooldown_days(self) -> int:
         """
-        v7.13.0: 从config查询冷却天数,简化映射逻辑
+        v7.28.0: NORMAL_SIGNAL从CLOSE_REASONS读取,风控规则由Rule层管理
 
         设计理由:
-        - v7.13.0新增三分类: MEAN_REVERSION/PAIR_BREAK/TIMEOUT (统一10天)
-        - 直接从config.constants.close_reasons查询,无需中间映射
-        - 兼容历史版本原因(如NORMAL_EXIT/CLOSE)通过默认值兜底
+        - v7.28.0配置重构: cooldown_days迁移到risk_management
+        - NORMAL_SIGNAL (MEAN_REVERSION/PAIR_BREAK): 仍从CLOSE_REASONS读取
+        - 风控规则 (TIMEOUT/DRAWDOWN/CUMULATIVE_LOSS/ANOMALY): 由RiskBaseRule.config['cooldown_days']管理
+        - 兼容历史版本原因通过默认值兜底
 
         Returns:
-            冷却期天数（从config.constants.close_reasons读取）
+            冷却期天数
 
-        冷却期分类 (v7.13.0):
-            MEAN_REVERSION: 10天 (均值回归)
-            PAIR_BREAK: 10天 (协整破裂)
-            TIMEOUT: 10天 (持有超时)
-            DRAWDOWN: 180天 (回撤触发)
-            ANOMALY: 999999天 (单腿异常)
+        冷却期分类 (v7.28.0):
+            MEAN_REVERSION: 10天 (从CLOSE_REASONS读取)
+            PAIR_BREAK: 10天 (从CLOSE_REASONS读取)
+            TIMEOUT/DRAWDOWN/CUMULATIVE_LOSS/ANOMALY: 由Rule层管理
             其他: 10天 (默认值,兼容历史原因如NORMAL_EXIT/CLOSE)
 
         注意:
         - Portfolio级原因(PORTFOLIO_DRAWDOWN/ACCOUNT_BLOWUP)不参与per-pair冷却计算
-        - 如果last_close_reason在config中不存在,返回默认10天
+        - 风控规则的冷却期由RiskBaseRule从config['cooldown_days']读取
         """
         close_reasons = self.algorithm.config.constants['close_reasons']
 
-        # v7.13.0: 直接查询,找不到时默认10天
+        # v7.28.0: 检查是否在CLOSE_REASONS中配置了cooldown_days
         if self.last_close_reason in close_reasons:
-            return close_reasons[self.last_close_reason]['cooldown_days']
-        else:
-            # 兼容历史原因(NORMAL_EXIT/CLOSE等) + None + 未知原因
-            return 10
+            reason_config = close_reasons[self.last_close_reason]
+            if 'cooldown_days' in reason_config:
+                return reason_config['cooldown_days']  # NORMAL_SIGNAL
+
+        # 风控规则: 由RiskBaseRule.config['cooldown_days']管理
+        # 返回默认值10天(仅用于向后兼容历史原因如NORMAL_EXIT/CLOSE)
+        return 10
 
 
     def get_pair_pnl(self) -> Optional[float]:

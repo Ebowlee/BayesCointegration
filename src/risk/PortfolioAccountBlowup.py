@@ -15,15 +15,15 @@ class AccountBlowupRule(RiskRule):
     账户爆仓线风控规则 
 
     功能:
-    - 检测账户亏损是否超过阈值（默认25%）
+    - 检测账户亏损是否超过阈值（默认20%）
     - 触发后由RiskManager生成所有持仓的CloseIntent
-    - 支持永久冷却期（默认36500天）
+    - 支持可配置冷却期（默认999999天，永久）
 
     配置参数:
     - enabled: 是否启用（默认True）
     - priority: 优先级（默认100，最高优先级）
     - threshold: 亏损阈值（默认0.20，即20%）
-    - cooldown_days: 冷却期天数（默认999999天，永久）
+    - cooldown_days: 冷却期天数（默认999999天，永久）  # v7.28.0新增
 
     使用示例:
     ```python

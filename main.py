@@ -7,13 +7,12 @@ from src.analysis.DataProcessor import DataProcessor
 from src.analysis.CointegrationAnalyzer import CointegrationAnalyzer
 from src.analysis.BayesianModeler import BayesianModeler
 from src.analysis.PairSelector import PairSelector
-from src.analysis.IndustryQuotaManager import IndustryQuotaManager  # v7.12.0
+from src.analysis.IndustryQuotaManager import IndustryQuotaManager 
 from src.Pairs import Pairs
 from src.PairsManager import PairsManager
 from src.TicketsManager import TicketsManager
 from src.risk import RiskManager
 from src.execution import ExecutionManager, OrderExecutor, MarginAllocator
-# v7.12.0: 删除BlacklistManager导入
 # endregion
 
 
@@ -68,7 +67,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # === 添加VIX指数（用于市场条件检查）===
         vix_config = self.config.risk_management['market_condition']
         self.vix_symbol = self.AddIndex(vix_config['vix_symbol'], vix_config['vix_resolution']).Symbol
-        self.benchmark_symbols.append(self.vix_symbol)  # VIX也需过滤
+        self.benchmark_symbols.append(self.vix_symbol)  
 
         # === 初始化辅助工具 ===
         self.tickets_manager = TicketsManager(self, self.pairs_manager)
@@ -197,6 +196,21 @@ class BayesianCointegrationStrategy(QCAlgorithm):
 
         # === 步骤7: 交给PairsManager管理 ===
         self.pairs_manager.update_pairs(new_pairs_dict)
+
+        # v7.26.0: 详细日志 - 显示各行业配对创建统计
+        from collections import defaultdict
+        industry_pair_count = defaultdict(int)
+        for pair in new_pairs_dict.values():
+            if pair.industry_code:
+                industry_pair_count[str(pair.industry_code)] += 1
+
+        if industry_pair_count:
+            industry_names = self.config.constants['industry_names']
+            readable_stats = {
+                industry_names.get(int(code), f'未知({code})'): count
+                for code, count in industry_pair_count.items()
+            }
+            self.Debug(f"[配对创建] 各行业配对数量: {readable_stats}", level=1)
     
 
 
@@ -262,4 +276,3 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # 委托给TicketsManager处理
         self.tickets_manager.on_order_event(event)
 
-        # 异常配对检查移至风控模块处理
