@@ -46,7 +46,6 @@ class DataProcessor:
                 validated_symbols.append(symbol)
 
         statistics['final_valid'] = len(validated_symbols)
-        self._log_statistics(dict(statistics))
 
         return {'clean_data': cleaned_data_dict, 'valid_symbols': validated_symbols, 'statistics': dict(statistics)}
 
@@ -125,31 +124,3 @@ class DataProcessor:
             return False, 'invalid_values'
 
         return True, ''
-
-
-    def _fill_missing_values(self, data: pd.DataFrame) -> pd.DataFrame:
-        """
-        填补缺失值
-
-        注意: 严格模式(data_completeness_ratio=1.0)下,
-        有NaN的股票在_validate_data阶段已被过滤,
-        此方法实际不执行任何操作。
-
-        保留此方法是为了:
-        1. 代码结构完整性
-        2. 未来可能放宽策略时使用
-
-        Returns:
-            原样返回data(严格模式下无修改)
-        """
-        # 严格模式: 不填补,直接返回
-        # 理由: data_completeness_ratio=1.0要求100%完整,拒绝有NaN的数据
-        return data
-
-
-    def _log_statistics(self, stats: dict):
-        """
-        输出数据处理统计信息到Debug日志
-        """
-        # 数据处理统计信息（日志已优化：从orders.csv可推断数据质量）
-        # 统计信息保留用于内部逻辑，但不输出日志

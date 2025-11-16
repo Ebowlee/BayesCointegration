@@ -55,10 +55,6 @@ class PairSelector:
         # 步骤2: 筛选最佳配对
         selected_pairs = self.select_best(scored_pairs)
 
-        # v7.28.4: 删除质量筛选日志（避免与配对流程日志重叠）
-        # 配对流程日志已包含核心信息（"质量筛选N对"）
-        # 淘汰数可通过简单减法计算（贝叶斯成功数 - 质量筛选数）
-
         return selected_pairs
 
 
@@ -152,37 +148,19 @@ class PairSelector:
 
 
     # ===== 私有评分方法 (Private Scoring Methods) =====
-    # v7.31.0: 删除_filter_risk_pairs()方法 (冷却期由ExecutionManager统一检查)
 
     def _calculate_half_life_score(self, model_result):
         """
-        计算半衰期分数 (v7.5.21: 非对称高斯评分,阈值优先设计)
+        计算半衰期分数 (v7.31.3: 简化注释,详见CLAUDE.md)
 
-        设计理念:
-        - 峰值: 8天 (统计质量+timeout安全性的最优平衡)
-        - 核心区间: 5-10天 (评分≥0.75)
-        - 可接受区间: 4-12天 (评分≥0.50)
-        - 排除区间: <4天或>15天
-
-        配合改良C方案:
-        - 入场: [1.2σ, 1.8σ]
-        - 出场: 0.3σ
-        - Timeout: 30天
-
-        评分标准(基于Timeout约束):
-        - 4天: 0.50 (次优,噪音风险)
-        - 5天: 0.75 (良好)
-        - 6天: 0.90 (优秀)
-        - 8天: 1.00 (峰值)
-        - 10天: 0.85 (良好)
-        - 12天: 0.65 (可接受)
-        - 15天: 0.18 (排除)
+        评分方法: 非对称高斯+软截断+指数衰减
+        峰值: 8天 | 核心区间: 5-10天 | 可接受: 4-12天
 
         Args:
-            model_result: BayesianModeler输出的模型结果(包含rho_samples)
+            model_result: BayesianModeler输出（包含rho_samples）
 
         Returns:
-            (score, half_life_days): 评分和原始半衰期天数
+            (score, half_life_mean, half_life_std): 评分和半衰期统计量
         """
         try:
             # 从rho_samples按需计算rho_mean
@@ -240,25 +218,18 @@ class PairSelector:
 
     def _calculate_mean_reversion_certainty_score(self, model_result):
         """
-        计算均值回归确定性分数（v7.5.5: κ-based SNR，逐样本精确计算）
+        计算均值回归确定性分数 (v7.31.3: 简化注释,详见CLAUDE.md)
 
-        核心思路:
-        1. 连续时间转换: κ = -ln|ρ|/Δt (频率不变性)
-        2. 逐样本转换: κ^(s) = -ln|ρ^(s)|/Δt (贝叶斯一致性)
-        3. 精确后验统计: E[κ] = mean(κ^(s)), Std[κ] = std(κ^(s))
-        4. SNR计算: SNR_κ = E[κ] / Std[κ] (估计精度)
-        5. 逻辑斯蒂归一化: score = 1/(1+exp(a·(b-SNR_κ))) (S曲线)
-
-        数学原理:
-        - κ: 连续时间均值回归率 (单位: 1/天)
-        - κ越大 → 均值回归越快 → 半衰期越短
-        - SNR_κ越高 → κ估计越可靠 → 交易策略越稳健
+        核心思路: 通过κ-based SNR量化均值回归显著性
+        - κ = 连续时间均值回归率 (从ρ转换)
+        - SNR_κ = E[κ] / Std[κ] (估计精度)
+        - 评分: 逻辑斯蒂归一化 (S曲线)
 
         Args:
-            model_result: BayesianModeler输出（包含rho_samples数组）
+            model_result: BayesianModeler输出（包含rho_samples）
 
         Returns:
-            (score, snr_kappa): 评分和κ-based SNR（用于日志）
+            (score, snr_kappa): 评分和SNR值
         """
         try:
             # 提取rho样本

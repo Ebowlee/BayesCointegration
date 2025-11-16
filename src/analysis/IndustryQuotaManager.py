@@ -124,8 +124,6 @@ class IndustryQuotaManager:
         # v7.13.0: 日志输出 (映射行业代码为中文名)
         non_default = {k: v for k, v in industry_quotas.items() if v != self.default_quota}
         if non_default:
-            # 读取行业映射表
-            industry_names = self.algorithm.config.constants['industry_names']
             # 格式化输出: {半导体:6, 医疗器械:3}
             readable_quotas = {
                 industry_names.get(int(code), f'未知({code})'): quota

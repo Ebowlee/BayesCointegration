@@ -103,16 +103,35 @@ class CointegrationAnalyzer:
 
         Returns:
             通过协整检验的配对列表 (v7.12.0: 应用配额后TOP N配对)
+        """
+        # 步骤1: 执行协整检验
+        cointegrated_pairs = self._test_all_pairs(symbols, clean_data, ig_name)
 
-        v7.12.0配额逻辑:
-        1. 执行所有配对的协整检验
-        2. 按pvalue排序 (从小到大,p值越小越显著)
-        3. 选取TOP N配对 (N = 该行业配额)
+        # 步骤2: 应用配额和单股重复限制
+        sorted_pairs = sorted(cointegrated_pairs, key=lambda x: x['pvalue'])
+        selected_pairs = self._apply_quota_and_limit(ig_name, sorted_pairs)
+
+        # 步骤3: 输出统计日志
+        self._log_selection_summary(ig_name, symbols, sorted_pairs, selected_pairs)
+
+        return selected_pairs
+
+
+    def _test_all_pairs(self, symbols: List[Symbol], clean_data: Dict, ig_name: str) -> List[Dict]:
+        """
+        对所有配对执行协整检验 (v7.31.3: 从_find_cointegrated_pairs_in_group拆分)
+
+        Args:
+            symbols: 该子行业内的股票列表
+            clean_data: 清洗后的价格数据
+            ig_name: 子行业名称
+
+        Returns:
+            通过pvalue阈值的配对列表 (未排序,未应用配额)
         """
         cointegrated_pairs = []
         failed_tests = []
 
-        # 步骤1: 生成所有可能的配对组合并检验
         for sym1, sym2 in itertools.combinations(symbols, 2):
             symbol1, symbol2 = sorted([sym1, sym2], key=lambda x: x.Value)
 
@@ -134,35 +153,43 @@ class CointegrationAnalyzer:
                         'symbol1': symbol1,
                         'symbol2': symbol2,
                         'pvalue': pvalue,
-                        'industry_group': ig_name  # 记录子行业(用于后续分析)
+                        'industry_group': ig_name
                     })
 
             except ValueError:
-                # statsmodels可能抛出ValueError(如数据退化)
                 failed_tests.append((symbol1, symbol2, 'statsmodels_error'))
             except KeyError:
-                # clean_data中缺少股票数据
                 failed_tests.append((symbol1, symbol2, 'data_missing'))
             except Exception:
                 failed_tests.append((symbol1, symbol2, 'unknown_error'))
 
-        # 步骤2: v7.31.0 应用行业配额 + 单股重复限制 (贪心算法)
-        # 获取该行业的配额 (如果industry_quotas为空,使用default_quota)
+        return cointegrated_pairs
+
+
+    def _apply_quota_and_limit(self, ig_name: str, sorted_pairs: List[Dict]) -> List[Dict]:
+        """
+        应用行业配额和单股重复限制 (v7.31.3: 从_find_cointegrated_pairs_in_group拆分)
+
+        Args:
+            ig_name: 子行业名称
+            sorted_pairs: 已按pvalue排序的配对列表 (从小到大)
+
+        Returns:
+            应用配额后的最终配对列表
+
+        贪心算法逻辑 (v7.31.0):
+        - 按pvalue从小到大遍历 (优先选择协整性最强的配对)
+        - 同时检查配额限制和单股重复限制
+        - 一旦配额满足即停止选择
+        """
         quota = self.industry_quotas.get(ig_name, self.default_quota)
-
-        # 按pvalue排序 (从小到大,p值越小协整关系越显著)
-        sorted_pairs = sorted(cointegrated_pairs, key=lambda x: x['pvalue'])
-
-        # v7.31.0: 贪心算法同时应用配额和重复限制
         selected_pairs = []
         symbol_counts = defaultdict(int)
 
         for pair in sorted_pairs:
-            # 检查配额
             if len(selected_pairs) >= quota:
                 break
 
-            # 检查单股重复限制
             s1, s2 = pair['symbol1'], pair['symbol2']
             if (symbol_counts[s1] < self.max_symbol_repeats and
                 symbol_counts[s2] < self.max_symbol_repeats):
@@ -170,16 +197,23 @@ class CointegrationAnalyzer:
                 symbol_counts[s1] += 1
                 symbol_counts[s2] += 1
 
-        # v7.28.3: 统一日志 - 显示完整流程（合并原Lines 73-77和165-169）
+        return selected_pairs
+
+
+    def _log_selection_summary(self, ig_name: str, symbols: List[Symbol],
+                                sorted_pairs: List[Dict], selected_pairs: List[Dict]):
+        """
+        输出行业协整筛选统计日志 (v7.31.3: 从_find_cointegrated_pairs_in_group拆分)
+
+        Args:
+            ig_name: 子行业名称
+            symbols: 该子行业内的股票列表
+            sorted_pairs: 通过pvalue阈值的配对列表 (排序后)
+            selected_pairs: 应用配额后的最终配对列表
+        """
         industry_names = self.algorithm.config.constants['industry_names']
         industry_name = industry_names.get(int(ig_name), f'未知({ig_name})')
-
-        # 计算相关数量
-        num_stocks = len(symbols) if 'symbols' in locals() else 0
-        # symbols参数传入,但我们可以从cointegrated_pairs推算检测总数
-        # 实际上这里无法直接获取symbols变量,需要从方法签名传递过来
-        # 但为了保持完整性,我们从len(cointegrated_pairs) + len(failed_tests)推算
-        # 更准确的方式是: n_choose_2 = n*(n-1)/2, 但我们从参数获取
+        quota = self.industry_quotas.get(ig_name, self.default_quota)
 
         self.algorithm.Debug(
             f"[协整分析] {industry_name}({ig_name}): "
@@ -187,8 +221,6 @@ class CointegrationAnalyzer:
             f"PValue通过{len(sorted_pairs)}对 → 配额{quota} → 最终选取{len(selected_pairs)}对",
             level=1
         )
-
-        return selected_pairs
 
 
     def _group_by_industry(self, symbols: List[Symbol]) -> Dict[str, List[Symbol]]:
@@ -266,7 +298,4 @@ class CointegrationAnalyzer:
             valid_groups[str(ig_code)] = [s['symbol'] for s in limited_stocks]
 
         return valid_groups
-
-
-
 
