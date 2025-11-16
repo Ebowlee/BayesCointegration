@@ -152,7 +152,7 @@ class SectorBasedUniverseSelection(FineFundamentalUniverseSelectionModel):
 
     两阶段筛选：
     1. 粗选: 价格、成交量、IPO时间筛选
-    2. 精选: 财务指标筛选 (PE, ROE, 负债率, 杠杆率)
+    2. 精选: 财务指标筛选 (PE/PS估值OR逻辑, 负债率, 杠杆率)
 
     注: 波动率筛选已移除(历史数据证明过滤效果<1%,成本高收益低)
     """
@@ -196,8 +196,16 @@ class SectorBasedUniverseSelection(FineFundamentalUniverseSelectionModel):
     # ========== 主要筛选方法 ==========
     def _select_coarse(self, coarse: List[CoarseFundamental]) -> List[Symbol]:
         """
-        粗选阶段: 基础筛选
-        筛选条件: 基本面数据、价格、成交量、IPO时间
+        粗选阶段: 基础筛选 + 流动性排序
+        筛选条件: 基本面数据、价格、市值、IPO时间
+
+        v7.30.3变更:
+        - 移除DollarVolume阈值筛选
+        - 新增Volume排序+TOP N机制 (精确控制Fine阶段股票数量)
+
+        v7.30.0变更:
+        - 新增市值筛选 (MarketCap >= $1B)
+        - 交易量筛选移至行业内部 (精选阶段TOP N)
         """
         # 如果未触发选股, 返回上次结果
         if not self.selection_on:
@@ -208,17 +216,25 @@ class SectorBasedUniverseSelection(FineFundamentalUniverseSelectionModel):
         # 预计算筛选阈值
         min_ipo_date = self.algorithm.Time - timedelta(days=self.config.min_days_since_ipo)
         min_price = self.config.min_price
-        min_volume = self.config.min_volume
+        min_market_cap = self.config.min_market_cap
+        max_coarse_stocks = self.config.max_coarse_stocks       # v7.30.3: TOP N
 
-        # 高效筛选: 短路求值优化
-        selected = [
-            x.Symbol for x in coarse
-            if x.HasFundamentalData                                 # 排除ETF等
-            and x.Price > min_price                                 # 价格筛选
-            and x.Volume > min_volume                               # 成交量筛选
+        # 步骤1: 基础筛选
+        filtered = [
+            x for x in coarse
+            if x.HasFundamentalData                             # 排除ETF等
+            and x.Price > min_price                             # 价格筛选
+            and x.MarketCap >= min_market_cap                   # v7.30.0: 市值筛选
             and x.SecurityReference.IPODate is not None
-            and x.SecurityReference.IPODate <= min_ipo_date         # IPO时间
+            and x.SecurityReference.IPODate <= min_ipo_date     # IPO时间
         ]
+
+        # 步骤2: 按Volume降序排序 + 取TOP N
+        sorted_by_volume = sorted(filtered, key=lambda x: x.Volume, reverse=True)
+        top_n = sorted_by_volume[:max_coarse_stocks]
+
+        # 步骤3: 提取Symbol返回
+        selected = [x.Symbol for x in top_n]
 
         return selected
 
@@ -227,6 +243,10 @@ class SectorBasedUniverseSelection(FineFundamentalUniverseSelectionModel):
         """
         精选阶段: 财务筛选
         流程: 财务筛选 -> 输出所有通过的股票
+
+        v7.30.0变更说明:
+        - 行业内交易量TOP 50筛选已移至CointegrationAnalyzer (架构优化)
+        - 理由: 行业内筛选应在协整检验前进行,职责分离更清晰
 
         注: 波动率筛选已移除(历史数据显示过滤<1%股票,成本高收益低)
         """
@@ -240,10 +260,10 @@ class SectorBasedUniverseSelection(FineFundamentalUniverseSelectionModel):
 
         fine = list(fine)
 
-        # 财务筛选 (PE, ROE, 负债率, 杠杆率)
+        # 财务筛选 (PE/PS估值OR逻辑, 负债率, 杠杆率)
         financially_filtered, financial_stats = self._apply_financial_filters(fine)
 
-        # 缓存结果（不分组，输出所有通过筛选的股票）
+        # 缓存结果 (不做行业分组,输出所有通过筛选的股票)
         self.last_fine_selected_symbols = [x.Symbol for x in financially_filtered]
 
         return self.last_fine_selected_symbols

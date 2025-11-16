@@ -5,6 +5,57 @@
 ---
 
 
+## [v7.30.12_remove-roe@20250206]
+
+### 版本概述
+**移除ROE维度** - 删除所有ROE相关配置和代码,简化财务筛选器。修正MCMC配置结构错误(mcmc_chains从BayesianModelerConfig移至JointStagePriorConfig)。
+
+### 核心改进
+
+#### 1. 移除ROE筛选维度 - config.py + UniverseSelection.py
+**删除配置** (config.py Lines 63-68):
+```python
+# REMOVED:
+'roe': {
+    'enabled': False,
+    'path': 'OperationRatios.ROE.Value',
+    'operator': 'ge',
+    'threshold': 0,
+    'fail_key': 'roe_failed'
+}
+```
+
+**更新注释** (UniverseSelection.py):
+- Line 155: `(PE, ROE, 负债率, 杠杆率)` → `(PE/PS估值OR逻辑, 负债率, 杠杆率)`
+- Line 263: 同上
+
+**理由**: ROE配置已禁用(enabled: False),且没有实际筛选价值,完全移除简化配置
+
+#### 2. 修正MCMC配置结构 - config.py
+**问题**: `mcmc_chains` 错误定义在 `BayesianModelerConfig` 类下
+
+**修复**: 将 `mcmc_chains: int = 4` 移动至 `JointStagePriorConfig` 类下
+
+**正确结构** (Lines 127-135):
+```python
+@dataclass
+class JointStagePriorConfig:
+    """Joint Single Stage先验配置"""
+    mcmc_chains: int = 4                    # ← 修正位置
+    sigma_eta_prior: float = 0.1
+    mcmc_warmup: int = 1000
+    mcmc_draws: int = 1000
+    enable: bool = True
+```
+
+### 文件变更
+- `src/config.py`: 删除ROE配置,修正MCMC配置结构
+- `src/UniverseSelection.py`: 更新财务筛选注释
+
+### 关键洞察
+**配置精简原则**: 已禁用的配置应彻底删除而非注释保留,避免配置膨胀和误解
+
+
 ## [v7.30.11_critical-bugfix@20250206]
 
 ### 版本概述

@@ -40,7 +40,7 @@ class UniverseConfig:
     min_days_since_ipo: int = 360
     max_coarse_stocks: int = 150                                    # 粗选TOP N(按Volume排序)
 
-    # 财务筛选器配置 
+    # 财务筛选器配置
     financial_filters: Dict = field(default_factory=lambda: {
         # 估值OR逻辑 (PE≤100 OR PS≤10) 避免抹杀高成长公司(如特斯拉等PS估值为主的科技公司)
         'valuation': {
@@ -59,13 +59,6 @@ class UniverseConfig:
                 }
             ],
             'fail_key': 'valuation_failed'
-        },
-        'roe': {
-            'enabled': False,
-            'path': 'OperationRatios.ROE.Value',
-            'operator': 'ge',
-            'threshold': 0,
-            'fail_key': 'roe_failed'
         },
         'debt_ratio': {
             'enabled': True,
@@ -101,7 +94,7 @@ class CointegrationConfig:
 
     # 行业分组
     min_stocks_per_industry: int = 4                                # 行业最少股票数
-    max_stocks_per_industry: int = 20                               # 行业最多股票数 (粗选已排序,直接限制)
+    max_stocks_per_industry: int = 40                               # 行业最多股票数 (粗选已排序,直接限制)
 
 
 @dataclass
@@ -127,6 +120,7 @@ class InformedPriorConfig:
 @dataclass
 class JointStagePriorConfig:
     """Joint Single Stage先验配置"""
+    mcmc_chains: int = 4
     sigma_eta_prior: float = 0.1
     mcmc_warmup: int = 1000
     mcmc_draws: int = 1000
@@ -137,7 +131,6 @@ class JointStagePriorConfig:
 class BayesianModelerConfig:
     """贝叶斯建模配置"""
 
-    mcmc_chains: int = 4
     uninformed: PriorConfig = field(default_factory=PriorConfig)
     informed: InformedPriorConfig = field(default_factory=InformedPriorConfig)
     joint_single_stage: JointStagePriorConfig = field(default_factory=JointStagePriorConfig)
