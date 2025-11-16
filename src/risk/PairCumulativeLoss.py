@@ -100,37 +100,50 @@ class PairCumulativeLossRule(RiskRule):
         if self.is_in_cooldown(pair_id=pair.pair_id):
             return False, ""
 
-        # 3. 前置条件: 必须有历史交易数据
-        if pair.trade_count == 0 or pair.realized_cost <= 0:
-            return False, ""
+        # 3. v7.30.10: 计算累计收益率 (第1次交易使用当前浮动PnL, 历史交易使用realized_pnl)
+        if pair.trade_count == 0:
+            # 第1次交易: 使用当前浮动PnL计算累计收益率
+            current_pnl = pair.get_pair_pnl()
+            current_cost = pair.get_pair_cost()
 
-        # 4. 计算累计收益率 (小数形式,如 -0.11 代表 -11%)
-        cumulative_return = pair.realized_pnl / pair.realized_cost
+            if current_pnl is None or current_cost is None or current_cost <= 0:
+                return False, ""
+
+            cumulative_return = current_pnl / current_cost  # 浮动收益率
+        else:
+            # 历史交易: 使用已平仓交易的累计收益率
+            if pair.realized_cost <= 0:
+                return False, ""
+            cumulative_return = pair.realized_pnl / pair.realized_cost
 
         # 5. 获取阈值
-        threshold = self.config['threshold']
+        threshold = self.config.threshold
 
         # 智能日志: 只在触发或接近阈值时打印(减少噪音)
         warning_threshold = threshold * 0.8  # 警告线: 阈值的80%
 
         # 6. 判断是否触发 (累计亏损 >= 阈值)
         if cumulative_return <= -threshold:
-            # 触发: 累计亏损超过阈值
-            description = (
-                f"配对累计亏损: {cumulative_return*100:.1f}% <= "
-                f"-{threshold*100:.1f}% ({pair.trade_count}笔历史, "
-                f"PnL=${pair.realized_pnl:,.0f}, Cost=${pair.realized_cost:,.0f})"
-            )
-            self.algorithm.Debug(f"[Pair风控] PairCumulativeLossRule 触发! {description}")
+            # v7.30.10: 区分第1次交易和历史交易的description
+            if pair.trade_count == 0:
+                # 第1次交易: 显示浮动PnL
+                description = (
+                    f"第1次交易浮亏: {cumulative_return*100:.1f}% <= "
+                    f"-{threshold*100:.1f}% (浮动PnL=${current_pnl:,.0f}, Cost=${current_cost:,.0f})"
+                )
+            else:
+                # 历史交易: 显示累计已实现PnL
+                description = (
+                    f"累计亏损: {cumulative_return*100:.1f}% <= "
+                    f"-{threshold*100:.1f}% ({pair.trade_count}笔历史, "
+                    f"PnL=${pair.realized_pnl:,.0f}, Cost=${pair.realized_cost:,.0f})"
+                )
             return True, description
-
-        # 接近阈值时打印警告(警告线到阈值之间)
-        elif cumulative_return <= -warning_threshold:
-            self.algorithm.Debug(
-                f"[Pair风控] PairCumulativeLossRule 警告: "
-                f"累计亏损={cumulative_return*100:.2f}% (接近阈值-{threshold*100:.0f}%, "
-                f"{pair.trade_count}笔历史)"
-            )
 
         # 正常情况: 静默(不打印,减少日志噪音)
         return False, ""
+
+
+    def get_trigger_name(self) -> str:
+        """返回简化的触发名称(用于整合日志)"""
+        return "累积亏损"

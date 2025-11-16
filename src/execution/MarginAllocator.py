@@ -1,14 +1,16 @@
 """
-MarginAllocator - Level 1 全局资金分配器
+MarginAllocator - Level 1 全局资金分配器 (v7.30.8: 双模式分配)
 
 职责:
 - 计算可用保证金(MarginRemaining - fixed_buffer)
 - 为同批次entry_candidates按质量分数分配保证金
-- 基于初始资金基准和当前可用资金的约束进行分配
+- 根据账户状态切换分配模式(放大 vs 保护)
 
 设计原则:
-- Fixed Buffer: 整个回测周期固定不变(初始资金×5%)
-- 基准约束分配: min(当前可用, 初始基金×计划比例)
+- Fixed Buffer: 整个回测周期固定不变(初始资金×2%)
+- 双模式分配 (v7.30.8):
+  * 放大模式 (current >= initial): 盈利后使用current × planned_pct, 上限2倍杠杆
+  * 保护模式 (current < initial): 亏损时使用min(current, initial × planned_pct)
 - 无状态: 每次allocate_margin()独立计算,使用调用时的快照
 
 不负责:
@@ -23,15 +25,20 @@ from typing import Dict, List, Tuple
 
 class MarginAllocator:
     """
-    Level 1 全局资金分配器
+    Level 1 全局资金分配器 (v7.30.8: 双模式分配)
 
     核心算法:
-    1. Fixed Buffer: 初始资金×5%(整个回测周期固定)
+    1. Fixed Buffer: 初始资金×2%(整个回测周期固定)
     2. Available Margin: MarginRemaining - fixed_buffer
-    3. 分配约束:
-       - 计划分配 = min(当前可用, 初始基金 × 计划比例)
-       - 过滤门槛 = 最小投资额(初始资金 × min_investment_ratio = 5% = $5,000)
-       - 顺序分配直到资金不足或候选耗尽
+    3. 双模式分配 (v7.30.8):
+       - 放大模式 (current >= initial):
+         * 计划分配 = min(current × planned_pct, initial × 2.0 × planned_pct)
+         * 实现复利增长,上限2倍杠杆保护
+       - 保护模式 (current < initial):
+         * 计划分配 = min(current, initial × planned_pct)
+         * 维持baseline约束,防止过度投入
+    4. 过滤门槛: 最小投资额(初始资金 × min_investment_ratio = 5% = $5,000)
+    5. 顺序分配直到资金不足或候选耗尽
 
     使用示例:
     ```python
@@ -41,6 +48,12 @@ class MarginAllocator:
     # ExecutionManager中
     allocations = margin_allocator.allocate_margin(entry_candidates)
     # 返回: {('AAPL','MSFT'): 25000.0, ('GOOG','GOOGL'): 20000.0}
+
+    # 盈利场景 (current=150k, initial=100k):
+    # quality_score=0.8 → planned_pct=13% → allocation=19.5k (放大1.5倍)
+
+    # 亏损场景 (current=70k, initial=100k):
+    # quality_score=0.8 → planned_pct=13% → allocation=13k (baseline约束)
     ```
     """
 
@@ -57,7 +70,8 @@ class MarginAllocator:
 
         # 从config提取关键参数
         pairs_config = config.pairs_trading
-        self.margin_usage_ratio = pairs_config.margin_usage_ratio  # 0.95
+        self.margin_usage_ratio = pairs_config.margin_usage_ratio  # 0.98
+        self.max_leverage_cap = pairs_config.max_leverage_cap      # 2.0 (v7.30.11)
 
         # 记录初始保证金(分配基准,整个回测周期固定)
         self.initial_available_fund = algorithm.Portfolio.MarginRemaining
@@ -101,7 +115,7 @@ class MarginAllocator:
 
     def allocate_margin(self, entry_candidates: List[Tuple]) -> Dict[Tuple, float]:
         """
-        为同批次entry_candidates公平分配保证金
+        为同批次entry_candidates公平分配保证金 (v7.30.8: 双模式分配)
 
         Args:
             entry_candidates: [(pair, signal, quality_score, planned_pct), ...]
@@ -118,13 +132,16 @@ class MarginAllocator:
                 ...
             }
 
-        核心算法:
+        核心算法 (v7.30.8更新):
         1. 获取当前可用保证金
-        2. 遍历candidates（按质量分数降序）:
-           a. 计算分配额: min(当前可用, 初始基金 × 计划比例)
+        2. 判断分配模式:
+           - 放大模式 (current >= initial): 盈利后使用current × planned_pct, 上限2倍杠杆
+           - 保护模式 (current < initial): 亏损时使用min(current, initial × planned_pct)
+        3. 遍历candidates（按质量分数降序）:
+           a. 根据模式计算分配额
            b. 如果 >= 最小投资额: 执行分配并扣减可用资金
            c. 如果 < 最小投资额: 跳过该配对
-        3. 返回所有成功分配的配对及其金额
+        4. 返回所有成功分配的配对及其金额
         """
         allocations = {}
 
@@ -139,10 +156,30 @@ class MarginAllocator:
             )
             return {}
 
-        # === Step 2: 遍历candidates进行分配 ===
+        # === Step 2: v7.30.8 判断分配模式 ===
+        if current_available >= self.initial_available_fund:
+            # 放大模式: 盈利后放大规模
+            allocation_mode = "GROWTH"
+            max_cap = self.initial_available_fund * self.max_leverage_cap  # v7.30.11: 从config读取
+        else:
+            # 保护模式: 亏损时收缩规模
+            allocation_mode = "PROTECT"
+            max_cap = self.initial_available_fund
+
+        # === Step 3: 遍历candidates进行分配 ===
         for idx, (pair, signal, quality_score, planned_pct) in enumerate(entry_candidates, 1):
-            # 基于全周期固定基准,受当前可用约束
-            planned_allocated = min(current_available, self.initial_available_fund * planned_pct)
+            if allocation_mode == "GROWTH":
+                # 放大模式: 基于当前资金,但有上限保护
+                planned_allocated = min(
+                    current_available * planned_pct,
+                    max_cap * planned_pct
+                )
+            else:
+                # 保护模式: 保持原有逻辑
+                planned_allocated = min(
+                    current_available,
+                    self.initial_available_fund * planned_pct
+                )
 
             # 判断是否满足最小投资门槛
             if planned_allocated >= self.min_investment_amount:
@@ -158,5 +195,5 @@ class MarginAllocator:
                 # 不满足条件: 跳过此配对,继续尝试下一个
                 continue  # 继续尝试剩余配对
 
-        # === Step 3: 返回分配结果 ===
+        # === Step 4: 返回分配结果 ===
         return allocations

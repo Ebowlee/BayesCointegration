@@ -299,12 +299,29 @@ class Pairs:
         close_reasons = self.algorithm.config.constants['close_reasons']
         reason_text = close_reasons.get(reason, {}).get('display', '未知原因')
 
+        # v7.30.11: 根据reason从config读取真实冷却期(修复BUG: 之前错误使用get_cooldown_days()返回10天)
+        from datetime import timedelta
+
+        # 风控规则的冷却期从risk_management.pair_rules读取
+        risk_config = self.algorithm.config.risk_management.pair_rules
+        reason_to_config = {
+            'TIMEOUT': risk_config.holding_timeout.cooldown_days,         # 30天
+            'DRAWDOWN': risk_config.pair_drawdown.cooldown_days,          # 180天
+            'CUMULATIVE_LOSS': risk_config.cumulative_loss.cooldown_days, # 360天
+            'ANOMALY': risk_config.pair_anomaly.cooldown_days,            # 999999天
+        }
+
+        # 如果是风控原因，读取配置；否则使用默认10天
+        cooldown_days = reason_to_config.get(reason, self.get_cooldown_days())
+        cooldown_end = self.algorithm.Time + timedelta(days=cooldown_days)
+
         self.algorithm.Debug(
             f"[平仓] {self.pair_id} {reason_text} | "
             f"PnL=${current_pnl:.2f} ({current_pnl_pct:+.1f}%) | "
             f"累计{total_pnl_pct:+.1f}% | "
             f"{entry_z:+.2f}σ → {close_z:+.2f}σ | "
-            f"第{trade_num}次交易",
+            f"第{trade_num}次交易, "
+            f"激活冷却期({cooldown_days}天, 至{cooldown_end:%Y-%m-%d})",
             level=0
         )
 

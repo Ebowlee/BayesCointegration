@@ -49,14 +49,10 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         self.Schedule.On(date_rule, time_rule, Action(self.universe_selector.trigger_selection))
 
         # === 初始化分析工具 ===
-        self.data_processor = DataProcessor(self, self.config.analysis_shared, self.config.data_processor)
-        # v7.12.0: CointegrationAnalyzer不需要industry_quotas参数(在_analyze_and_create_pairs中动态传递)
+        self.data_processor = DataProcessor(self, self.config.analysis)
         self.industry_quota_manager = IndustryQuotaManager(self, self.config.industry_quota)
-        self.bayesian_modeler = BayesianModeler(self, self.config.analysis_shared, self.config.bayesian_modeler)
-
-        # v7.12.0: 删除blacklist_manager,PairSelector不再需要依赖注入
-        self.pair_selector = PairSelector(self, self.config.analysis_shared, self.config.pair_selector)
-
+        self.bayesian_modeler = BayesianModeler(self, self.config.analysis, self.config.bayesian_modeler)
+        self.pair_selector = PairSelector(self, self.config.analysis, self.config.pair_selector)
         self.pairs_manager = PairsManager(self, self.config.pairs_trading)
 
 
@@ -65,8 +61,8 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         self.last_analysis_time = None  # 上次分析时间
 
         # === 添加VIX指数（用于市场条件检查）===
-        vix_config = self.config.risk_management['market_condition']
-        self.vix_symbol = self.AddIndex(vix_config['vix_symbol'], vix_config['vix_resolution']).Symbol
+        vix_config = self.config.risk_management.market_condition
+        self.vix_symbol = self.AddIndex(vix_config.vix_symbol, vix_config.vix_resolution).Symbol
         self.benchmark_symbols.append(self.vix_symbol)  
 
         # === 初始化辅助工具 ===
@@ -278,7 +274,6 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # 分类获取配对
         pairs_with_position = self.pairs_manager.get_pairs_with_position()
         pairs_without_position = self.pairs_manager.get_pairs_without_position()
-
 
         # === Pair层面风控检查 ===
         # 直接循环检查每个配对

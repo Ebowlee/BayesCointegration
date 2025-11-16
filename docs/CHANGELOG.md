@@ -5,6 +5,187 @@
 ---
 
 
+## [v7.30.11_critical-bugfix@20250206]
+
+### 版本概述
+**关键BUG修复** - 修复风控平仓日志显示错误冷却期(10天 vs 180/360天)的严重缺陷,优化日志噪音,配置化杠杆参数。
+
+### 核心改进
+
+#### 1. 修复平仓日志冷却期显示BUG (CRITICAL) - Pairs.py
+**问题**: `_log_close_completion()` Line 304 调用 `self.get_cooldown_days()` 返回10天默认值,无法显示风控规则的真实冷却期
+
+**影响**:
+- 所有风控平仓日志显示错误: `激活冷却期(10天)`
+- 实际应为: 回撤触发180天, 累计亏损360天, 持仓超时30天
+
+**修复** (Lines 302-316):
+```python
+# v7.30.11: 根据reason从config读取真实冷却期
+risk_config = self.algorithm.config.risk_management.pair_rules
+reason_to_config = {
+    'TIMEOUT': risk_config.holding_timeout.cooldown_days,         # 30天
+    'DRAWDOWN': risk_config.pair_drawdown.cooldown_days,          # 180天
+    'CUMULATIVE_LOSS': risk_config.cumulative_loss.cooldown_days, # 360天
+    'ANOMALY': risk_config.pair_anomaly.cooldown_days,            # 999999天
+}
+cooldown_days = reason_to_config.get(reason, self.get_cooldown_days())
+```
+
+**效果对比**:
+- **修复前**: `[平仓] ('GILD','PFE') 回撤触发 | ... 激活冷却期(10天, 至2023-11-12)`
+- **修复后**: `[平仓] ('GILD','PFE') 回撤触发 | ... 激活冷却期(180天, 至2024-05-11)`
+
+#### 2. 删除累计亏损规则警告日志 - PairCumulativeLoss.py
+**移除** (Lines 143-149): 删除接近阈值警告日志,减少噪音
+
+**原日志**: `[Pair风控] PairCumulativeLossRule 警告: 累计亏损=-6.57% (接近阈值-8%, 0笔历史)`
+
+**理由**: 只保留触发日志,静默正常检测,减少100KB日志限制压力
+
+#### 3. 删除重复的行业配额日志 - main.py
+**移除** (Lines 155-170): 删除 main.py 中的重复日志
+
+**原因**: IndustryQuotaManager.py Line 135 已有日志 `[行业配额] 本月动态配额 (非默认): {...}`
+
+**修复**: 保留 IndustryQuotaManager 中的原有日志,删除 main.py 中的重复打印
+
+#### 4. 配置化杠杆倍数参数 - config.py + MarginAllocator.py
+**新增配置** (config.py Line 202):
+```python
+max_leverage_cap: float = 2.0  # 放大模式最大杠杆倍数: 2.0倍 (v7.30.11)
+```
+
+**修改实现** (MarginAllocator.py):
+- Line 74: `self.max_leverage_cap = pairs_config.max_leverage_cap`
+- Line 163: `max_cap = self.initial_available_fund * self.max_leverage_cap`
+
+**收益**:
+- 消除硬编码魔法数字
+- 方便调参测试不同杠杆倍数(1.5x, 2.0x, 3.0x)
+
+### 文件变更
+- `src/Pairs.py`: 修复 `_log_close_completion()` 冷却期读取逻辑
+- `src/risk/PairCumulativeLoss.py`: 删除警告日志
+- `main.py`: 删除重复的行业配额日志
+- `src/config.py`: 新增 `max_leverage_cap` 配置参数
+- `src/execution/MarginAllocator.py`: 使用配置化杠杆倍数
+
+### 关键洞察
+1. **日志与配置的耦合陷阱**: Pairs._log_close_completion() 依赖 reason 字符串反查配置,暴露了日志模块与配置强耦合的脆弱性
+2. **冷却期的双重来源**: 正常信号(MEAN_REVERSION)冷却期在 CLOSE_REASONS,风控规则冷却期在 risk_management,导致 get_cooldown_days() 无法统一处理
+3. **调试日志的运营价值**: 用户通过实际回测日志发现"10天"错误,证明详细日志是发现系统隐藏缺陷的最有效工具
+
+
+## [v7.30.0_funnel-optimization@20250206]
+
+### 版本概述
+**漏斗瓶颈优化** - 基于v7.29.2诊断结果,精准解除配对创建漏斗的两大瓶颈:行业配额(损失90%)和质量筛选(损失56%),目标将资金占用率从3.9%提升至6-8%。
+
+### 核心改进
+
+#### 1. 市值筛选替代交易量筛选 (UniverseSelection.py + config.py)
+**变更**: 移除全局交易量筛选,新增市值筛选(≥$10亿美元)
+
+**实现**:
+```python
+# config.py - UniverseConfig (Lines 45-49)
+min_market_cap: float = 1e9                             # v7.30.0: 最低市值($10亿美元)
+industry_top_volume_count: int = 50                     # 每个行业选取交易量TOP 50
+
+# UniverseSelection.py - _select_coarse() (Lines 216-226)
+selected = [
+    x.Symbol for x in coarse
+    if x.HasFundamentalData
+    and x.Price > min_price
+    and x.MarketCap >= min_market_cap                   # v7.30.0: 市值筛选(替代交易量)
+    and x.SecurityReference.IPODate is not None
+    and x.SecurityReference.IPODate <= min_ipo_date
+]
+```
+
+**理由**:
+- **问题**: 全局交易量筛选导致大盘股垄断(科技、金融行业),小盘行业参与不足
+- **方案**: 市值筛选确保公司规模足够,交易量筛选下沉至行业内部
+- **阈值选择**: $10亿美元 - 涵盖优质成长股同时过滤微盘股噪音
+
+#### 2. 行业内交易量TOP 50筛选 (CointegrationAnalyzer.py - 架构优化)
+**新增**: `_apply_industry_volume_filter()` 方法 (Lines 256-320)
+
+**架构决策** (基于用户建议):
+- **初版设计**: 在UniverseSelection中实施 (全局筛选阶段)
+- **优化后**: 移至CointegrationAnalyzer (行业内逻辑阶段)
+- **理由**: 职责分离 - UniverseSelection负责全局条件,CointegrationAnalyzer负责行业内部逻辑
+
+**作用**:
+- 在协整检验前,每个行业选TOP 50交易量股票
+- 平衡流动性要求和行业多样性
+- 避免大盘股垄断,确保每个行业有足够流动性代表
+
+#### 3. 提升行业初始配额 (config.py)
+**变更**: `default_quota: 1 → 2` (Line 309)
+
+**影响**:
+- **Warmup期(前180天)**: 每个行业从1对提升至2对 → 理论配对数翻倍
+- **动态调整后**: tier1配额保持1对,tier2-4配额不变
+- **预期**: 协整通过配对数从6.4对提升至10-12对
+
+**配合逻辑**:
+- 行业内TOP 50交易量筛选 → 扩大候选池(特别是小盘行业)
+- default_quota提升至2 → 每个行业选2对而非1对
+- 协同作用 → 显著增加可交易配对数
+
+### 优化目标 vs 实际影响
+
+| 指标 | v7.29.2基线 | v7.30.0目标 | 优化路径 |
+|------|------------|------------|---------|
+| 协整通过配对数 | 6.4对/轮 | 10-12对 | 行业配额翻倍(1→2) |
+| 质量筛选后配对数 | 2.8对/轮 | 4-5对 | 协整增加 + 行业多样性 |
+| 资金占用率 | 3.9% | 6-8% | 可交易配对数增加 |
+| 开仓率 | 23.3% | 20-30% | 自然波动(配对数多,单配对开仓概率稳定) |
+
+**优化策略**:
+- ✅ **精准打击**: 针对两大瓶颈(行业配额90%损失 + 质量筛选56%损失)
+- ✅ **保守稳健**: 不盲目扩大漏斗,只调整配额和筛选顺序
+- ✅ **可回退**: 如效果不佳,可逐阶段回退(配额2→1,恢复全局交易量筛选)
+
+### 配置变更汇总
+
+**config.py**:
+```python
+# UniverseConfig (新增)
+min_market_cap: float = 1e9                            # 市值筛选($10亿)
+industry_top_volume_count: int = 50                    # 行业内TOP 50交易量
+
+# industry_quota (修改)
+'default_quota': 2                                     # 1 → 2
+```
+
+**UniverseSelection.py**:
+- 移除全局交易量筛选 (`x.Volume > min_volume`)
+- 新增市值筛选 (`x.MarketCap >= min_market_cap`)
+
+**CointegrationAnalyzer.py** (v7.30.0架构优化):
+- 新增行业内交易量筛选方法 `_apply_industry_volume_filter()`
+
+### 代码位置
+- `src/config.py`: Lines 45-49 (UniverseConfig), Line 309 (industry_quota)
+- `src/UniverseSelection.py`: Lines 197-228 (_select_coarse), Lines 231-258 (_select_fine)
+- `src/analysis/CointegrationAnalyzer.py`: Lines 256-320 (_apply_industry_volume_filter)
+
+### 兼容性
+- ✅ **向后兼容**: 不影响已有配对的交易逻辑
+- ✅ **独立优化**: 不修改信号生成、风控、执行等核心模块
+- ⚠️ **配置依赖**: 需要`min_market_cap`和`industry_top_volume_count`参数
+
+### 下一步优化方向 (待v7.30.0验证)
+1. **如果资金占用率仍<6%**: 考虑降低质量筛选阈值(0.6 → 0.5)
+2. **如果Sharpe明显下降**: 考虑引入adaptive max_pct (配对数≤5时放宽至0.30)
+3. **如果行业分布不均**: 调整industry_top_volume_count (50 → 30/70)
+
+---
+
+
 ## [v7.29.2_diagnostic-logs@20250206]
 
 ### 版本概述

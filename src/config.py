@@ -6,7 +6,7 @@ from typing import Dict
 
 
 # ============================================================================
-# 第一部分: 业务参数配置类 (经常调整的回测参数)
+# 第一部分: 运行时配置类 (按策略执行流程排序)
 # ============================================================================
 
 @dataclass
@@ -22,39 +22,39 @@ class MainConfig:
     account_type: AccountType = AccountType.Margin
 
     # 选股调度配置
-    schedule_frequency: str = 'MonthStart'                  # 每月初
-    schedule_time: tuple = (9, 10)                          # 9:10 AM
+    schedule_frequency: str = 'MonthStart'                          # 每月初
+    schedule_time: tuple = (9, 10)                                  # 9:10 AM
 
     # 开发配置
-    debug_mode: bool = True                                 # True=开发调试(详细日志), False=生产运行(仅关键日志)
-    log_level: int = 1                                      # 0=生产模式(核心日志,10-30年), 1=调试模式(全部日志,1年)
+    debug_mode: bool = True                                         # True=开发调试(详细日志), False=生产运行(仅关键日志)
+    log_level: int = 1                                              # 0=生产模式(核心日志,10-30年), 1=调试模式(全部日志,1年)
 
 
 @dataclass
 class UniverseConfig:
     """选股配置 - 筛选参数"""
 
-    # 基础筛选
-    min_price: float = 15                                   # 最低股价（美元）
-    min_volume: float = 5e6                                 # 最低日均成交量（股数）
-    min_days_since_ipo: int = 360                           
+    # 粗筛设置
+    min_price: float = 20
+    min_market_cap: float = 1e9
+    min_days_since_ipo: int = 360
+    max_coarse_stocks: int = 150                                    # 粗选TOP N(按Volume排序)
 
-    # 财务筛选器配置 (嵌套保留,因为逻辑上是一组)
+    # 财务筛选器配置 
     financial_filters: Dict = field(default_factory=lambda: {
-        # v7.29.0: 估值OR逻辑 (PE≤100 OR PS≤10)
-        # 目的: 避免抹杀高成长公司(如特斯拉等PS估值为主的科技公司)
+        # 估值OR逻辑 (PE≤100 OR PS≤10) 避免抹杀高成长公司(如特斯拉等PS估值为主的科技公司)
         'valuation': {
             'enabled': True,
-            'type': 'or',  # OR逻辑标识(任意一条规则通过即可)
+            'type': 'or',
             'rules': [
                 {
                     'path': 'ValuationRatios.PERatio',
-                    'operator': 'le',  # ≤ 包含边界
+                    'operator': 'le',
                     'threshold': 100
                 },
                 {
                     'path': 'ValuationRatios.PSRatio',
-                    'operator': 'le',  # ≤ 包含边界
+                    'operator': 'le',
                     'threshold': 10
                 }
             ],
@@ -63,21 +63,21 @@ class UniverseConfig:
         'roe': {
             'enabled': False,
             'path': 'OperationRatios.ROE.Value',
-            'operator': 'ge',  # v7.29.1: 改为 ≥ (包含边界)
+            'operator': 'ge',
             'threshold': 0,
             'fail_key': 'roe_failed'
         },
         'debt_ratio': {
             'enabled': True,
             'path': 'OperationRatios.DebtToAssets.Value',
-            'operator': 'le',  # v7.29.1: 改为 ≤ (包含边界)
+            'operator': 'le',
             'threshold': 0.6,
             'fail_key': 'debt_failed'
         },
         'leverage': {
             'enabled': True,
             'path': 'OperationRatios.FinancialLeverage.Value',
-            'operator': 'le',  # v7.29.1: 改为 ≤ (包含边界)
+            'operator': 'le',
             'threshold': 6,
             'fail_key': 'leverage_failed'
         }
@@ -85,58 +85,76 @@ class UniverseConfig:
 
 
 @dataclass
-class PairsTradingConfig:
-    """配对交易配置 - 信号/仓位参数"""
+class AnalysisConfig:
+    """分析模块配置 - 合并 analysis_shared 和 data_processor"""
 
-    # 信号阈值
-    entry_threshold_lower: float = 1.2                      # 入场Z-score下限
-    entry_threshold_upper: float = 1.8                      # 入场Z-score上限
-    exit_threshold: float = 0.3                             # 出场Z-score阈值
-    stop_loss_threshold: float = 2.3                        # 止损Z-score阈值
+    lookback_days: int = 252                                        # 历史数据回看天数
+    data_completeness_ratio: float = 1.0                            # 数据完整性要求
 
-    # 仓位管理参数
-    min_investment_ratio: float = 0.05                      # 质量最低(0.0分)配对投资比例: 5%
-    max_investment_ratio: float = 0.15                      # 质量最高(1.0分)配对投资比例: 15%
-
-    # 保证金管理 (美股规则)
-    margin_requirement_long: float = 0.5                    # 多头保证金率: 50%
-    margin_requirement_short: float = 1.5                   # 空头保证金率: 150%
-    margin_usage_ratio: float = 0.98                        # 保证金使用率: 98%
-
-
-# ============================================================================
-# 第二部分: 算法参数配置类 (学术研究确定后很少改动)
-# ============================================================================
 
 @dataclass
 class CointegrationConfig:
     """协整分析配置"""
 
     # 统计检验
-    pvalue_threshold: float = 0.05                          # Engle-Granger p值阈值
+    pvalue_threshold: float = 0.01                                  # Engle-Granger p值阈值
 
-    # 子行业分组
-    min_stocks_per_group: int = 3                           # 子行业最少股票数
-    max_stocks_per_group: int = 50                          # 子行业最多股票数
+    # 行业分组
+    min_stocks_per_industry: int = 4                                # 行业最少股票数
+    max_stocks_per_industry: int = 20                               # 行业最多股票数 (粗选已排序,直接限制)
+
+
+@dataclass
+class PriorConfig:
+    """Uninformed先验配置 (默认值)"""
+    alpha_sigma: float = 10.0
+    beta_sigma: float = 5.0
+    sigma_sigma: float = 5.0
+    rho_alpha: float = 2.0
+    rho_beta: float = 2.0
+
+
+@dataclass
+class InformedPriorConfig:
+    """Informed先验特殊配置"""
+    sigma_multiplier: float = 2.0
+    validity_days: int = 30
+    rho_variance_multiplier: float = 1.2
+    rho_variance_safety: float = 0.9
+    sigma_eta_multiplier: float = 2.5
+
+
+@dataclass
+class JointStagePriorConfig:
+    """Joint Single Stage先验配置"""
+    sigma_eta_prior: float = 0.1
+    mcmc_warmup: int = 1000
+    mcmc_draws: int = 1000
+    enable: bool = True
+
+
+@dataclass
+class BayesianModelerConfig:
+    """贝叶斯建模配置"""
+
+    mcmc_chains: int = 4
+    uninformed: PriorConfig = field(default_factory=PriorConfig)
+    informed: InformedPriorConfig = field(default_factory=InformedPriorConfig)
+    joint_single_stage: JointStagePriorConfig = field(default_factory=JointStagePriorConfig)
 
 
 @dataclass
 class PairSelectorConfig:
     """配对质量评估配置"""
 
-    # 筛选限制
-    max_symbol_repeats: int = 1                             # 单股最多配对数
-
-    # 质量门槛
-    min_quality_threshold: float = 0.60                     # 最低质量分数阈值
-
-    # 质量权重
+    max_symbol_repeats: int = 1                                     # 单股最多配对数（同一轮同一只股票只允许参与构建一个协整对）
+    min_quality_threshold: float = 0.60                             # 最低质量分数阈值
     quality_weights: Dict = field(default_factory=lambda: {
-        'half_life': 0.50,                                  
-        'mean_reversion_certainty': 0.50                    
+        'half_life': 0.50,
+        'mean_reversion_certainty': 0.50
     })
 
-    # 评分阈值 (复杂嵌套保留字典)
+    # 评分函数阈值设置
     scoring_thresholds: Dict = field(default_factory=lambda: {
         'half_life': {
             'peak_days': 8,
@@ -155,8 +173,149 @@ class PairSelectorConfig:
     })
 
 
+@dataclass
+class PairsTradingConfig:
+    """配对交易配置 - 信号/仓位参数"""
+
+    # 信号阈值
+    entry_threshold_lower: float = 1.2                             # 入场Z-score下限
+    entry_threshold_upper: float = 1.8                             # 入场Z-score上限
+    exit_threshold: float = 0.3                                    # 出场Z-score阈值
+    stop_loss_threshold: float = 2.3                               # 止损Z-score阈值
+
+    # 仓位管理参数
+    min_investment_ratio: float = 0.05                             # 质量最低(0.0分)配对投资比例: 5%
+    max_investment_ratio: float = 0.15                             # 质量最高(1.0分)配对投资比例: 15% (正常场景)
+
+    # 动态max自适应配置 (v7.30.1)
+    adaptive_max_tiers: Dict[str, Dict[str, float]] = field(default_factory=lambda: {
+        'tier1': {'threshold': 5, 'max_ratio': 0.30},              # ≤5对: 极度稀缺
+        'tier2': {'threshold': 15, 'max_ratio': 0.25},             # ≤15对: 稀缺
+        'tier3': {'threshold': 25, 'max_ratio': 0.20}              # ≤25对: 偏紧
+        # >25对: 使用max_investment_ratio (0.15)
+    })
+
+    # 保证金管理
+    margin_requirement_long: float = 0.5                           # 多头保证金率: 50%
+    margin_requirement_short: float = 1.5                          # 空头保证金率: 150%
+    margin_usage_ratio: float = 0.98                               # 保证金使用率: 98%
+    max_leverage_cap: float = 2.0                                  # 放大模式最大杠杆倍数: 2.0倍 (v7.30.11)
+
+
+@dataclass
+class MarketConditionConfig:
+    """市场条件检查配置"""
+    enabled: bool = True
+    vix_symbol: str = 'VIX'
+    vix_resolution: Resolution = Resolution.Daily
+    vix_threshold: int = 35
+    vix_warning_threshold: int = 30
+
+
+@dataclass
+class AccountBlowupRuleConfig:
+    """账户爆仓规则配置"""
+    enabled: bool = True
+    priority: int = 100
+    threshold: float = 0.15
+    cooldown_days: int = 999999
+    action: str = 'portfolio_liquidate_all'
+
+
+@dataclass
+class PortfolioDrawdownRuleConfig:
+    """组合回撤规则配置"""
+    enabled: bool = True
+    priority: int = 90
+    threshold: float = 0.10
+    cooldown_days: int = 180
+    action: str = 'portfolio_liquidate_all'
+
+
+@dataclass
+class PairAnomalyRuleConfig:
+    """配对异常规则配置"""
+    enabled: bool = True
+    priority: int = 100
+    cooldown_days: int = 999999
+
+
+@dataclass
+class PairCumulativeLossRuleConfig:
+    """配对累积亏损规则配置"""
+    enabled: bool = True
+    priority: int = 90
+    threshold: float = 0.10
+    cooldown_days: int = 360
+
+
+@dataclass
+class PairDrawdownRuleConfig:
+    """配对回撤规则配置"""
+    enabled: bool = True
+    priority: int = 80
+    threshold: float = 0.05
+    cooldown_days: int = 90
+
+
+@dataclass
+class HoldingTimeoutRuleConfig:
+    """持仓超时规则配置"""
+    enabled: bool = True
+    priority: int = 70
+    max_halflife_multiplier: float = 2.0
+    cooldown_days: int = 15
+
+
+@dataclass
+class PortfolioRulesConfig:
+    """组合层面规则配置"""
+    account_blowup: AccountBlowupRuleConfig = field(default_factory=AccountBlowupRuleConfig)
+    portfolio_drawdown: PortfolioDrawdownRuleConfig = field(default_factory=PortfolioDrawdownRuleConfig)
+
+
+@dataclass
+class PairRulesConfig:
+    """配对层面规则配置"""
+    pair_anomaly: PairAnomalyRuleConfig = field(default_factory=PairAnomalyRuleConfig)
+    pair_cumulative_loss: PairCumulativeLossRuleConfig = field(default_factory=PairCumulativeLossRuleConfig)
+    pair_drawdown: PairDrawdownRuleConfig = field(default_factory=PairDrawdownRuleConfig)
+    holding_timeout: HoldingTimeoutRuleConfig = field(default_factory=HoldingTimeoutRuleConfig)
+
+
+@dataclass
+class RiskManagementConfig:
+    """风险管理配置"""
+    enabled: bool = True
+    market_condition: MarketConditionConfig = field(default_factory=MarketConditionConfig)
+    portfolio_rules: PortfolioRulesConfig = field(default_factory=PortfolioRulesConfig)
+    pair_rules: PairRulesConfig = field(default_factory=PairRulesConfig)
+
+
+@dataclass
+class IndustryQuotaConfig:
+    """行业配额配置"""
+    warmup_days: int = 180                                                  # 自适应行业偏好预热时间
+    default_quota: int = 1                                                  # 每个行业初始的协整对配额数量
+    
+    # 回报率与配额数量的关系
+    tier_thresholds: Dict[str, float] = field(default_factory=lambda: {
+        'tier0': 0.0,
+        'tier1': 0.10,
+        'tier2': 0.20,
+        'tier3': 0.30
+    })
+    tier_quotas: Dict[str, int] = field(default_factory=lambda: {
+        'tier0': 1,
+        'tier1': 2,
+        'tier2': 5,
+        'tier3': 8,
+        'tier4': 10
+    })
+
+
 # ============================================================================
-# 第三部分: 常量定义类 (永久不变的枚举映射)
+# 第二部分: 常量定义类 (永久不变的枚举映射)
 # ============================================================================
 
 class Constants:
@@ -195,12 +354,12 @@ class Constants:
         # === 组1: 正常交易信号触发 ===
         'MEAN_REVERSION': {
             'display': '均值回归',
-            'cooldown_days': 10,                                # Pairs层冷却期
-            'category': 'NORMAL_SIGNAL'                         
+            'cooldown_days': 7,                                 # Pairs层冷却期
+            'category': 'NORMAL_SIGNAL'
         },
         'PAIR_BREAK': {
             'display': '协整破裂',
-            'cooldown_days': 30,                                # Pairs层冷却期
+            'cooldown_days': 15,                                # Pairs层冷却期
             'category': 'NORMAL_SIGNAL'
         },
 
@@ -281,7 +440,7 @@ class Constants:
 
 
 # ============================================================================
-# 统一配置类 (对外接口 - 向后兼容)
+# 第三部分: 统一配置类 (对外接口 - 向后兼容)
 # ============================================================================
 
 class StrategyConfig:
@@ -289,138 +448,35 @@ class StrategyConfig:
 
     def __init__(self):
 
-        # ========== 第一部分: 业务参数 (经常调整) ==========
+        # ========== 按新执行流程初始化所有dataclass配置 ==========
+        # 1. 主程序配置
         self.main = MainConfig()
+
+        # 2. 选股配置
         self.universe_selection = UniverseConfig()
-        self.pairs_trading = PairsTradingConfig()
 
-        # 行业配额 (保持字典,结构简单)
-        self.industry_quota = {
-            'warmup_days': 180,
-            'default_quota': 1,
+        # 3. 分析模块配置 (合并 analysis_shared + data_processor)
+        self.analysis = AnalysisConfig()
 
-            'tier_thresholds': {
-                'tier1': 0.05,
-                'tier2': 0.10,
-                'tier3': 0.20
-            },
-
-            'tier_quotas': {
-                'tier1': 1,
-                'tier2': 3,
-                'tier3': 6,
-                'tier4': 9
-            }
-        }
-
-
-        # ========== 第二部分: 算法参数 (稳定不变) ==========
-        # 共享参数
-        self.analysis_shared = {
-            'lookback_days': 252
-        }
-
-        # 数据处理模块
-        self.data_processor = {
-            'data_completeness_ratio': 1.0
-        }
-
-        # 协整分析模块
+        # 4. 协整分析配置
         self.cointegration_analyzer = CointegrationConfig()
 
-        # 配对选择模块
+        # 5. 贝叶斯建模配置
+        self.bayesian_modeler = BayesianModelerConfig()
+
+        # 6. 配对选择配置
         self.pair_selector = PairSelectorConfig()
 
-        # 贝叶斯建模模块 (保持字典,先验配置复杂)
-        self.bayesian_modeler = {
-            'mcmc_chains': 4,
+        # 7. 配对交易配置
+        self.pairs_trading = PairsTradingConfig()
 
-            'bayesian_priors': {
-                'uninformed': {
-                    'alpha_sigma': 10,
-                    'beta_sigma': 5,
-                    'sigma_sigma': 5.0,
-                    'rho_alpha': 2,
-                    'rho_beta': 2
-                },
-                'informed': {
-                    'sigma_multiplier': 2.0,
-                    'validity_days': 30,
-                    'rho_variance_multiplier': 1.2,
-                    'rho_variance_safety': 0.9,
-                    'sigma_eta_multiplier': 2.5
-                },
-                'joint_single_stage': {
-                    'sigma_eta_prior': 0.1,
-                    'mcmc_warmup': 1000,
-                    'mcmc_draws': 1000,
-                    'enable': True
-                }
-            }
-        }
+        # 8. 风险管理配置
+        self.risk_management = RiskManagementConfig()
 
+        # 9. 行业配额配置
+        self.industry_quota = IndustryQuotaConfig()
 
-        # ========== 第三部分: 风控+常量 (永久不变) ==========
-        # 风险管理配置 (保持字典,规则配置动态)
-        self.risk_management = {
-            'enabled': True,
-
-            # 市场条件检查 (v7.28.1: VIX-Only前瞻指标)
-            'market_condition': {
-                'enabled': True,
-                'vix_symbol': 'VIX',
-                'vix_resolution': Resolution.Daily,
-                'vix_threshold': 35,                                # 阻止开仓阈值
-                'vix_warning_threshold': 30                         # 警告阈值 (>= 30 打印警告)
-            },
-
-            # Portfolio层面规则
-            'portfolio_rules': {
-                'account_blowup': {
-                    'enabled': True,
-                    'priority': 100,
-                    'threshold': 0.15,
-                    'cooldown_days': 999999,                    
-                    'action': 'portfolio_liquidate_all'
-                },
-                'portfolio_drawdown': {
-                    'enabled': True,
-                    'priority': 90,
-                    'threshold': 0.10,
-                    'cooldown_days': 180,                     
-                    'action': 'portfolio_liquidate_all'
-                }
-            },
-
-            # Pair层面规则
-            'pair_rules': {
-                'pair_anomaly': {
-                    'enabled': True,
-                    'priority': 100,
-                    'cooldown_days': 999999                  
-                },
-                'pair_cumulative_loss': {
-                    'enabled': True,
-                    'priority': 90,
-                    'threshold': 0.08,                         
-                    'cooldown_days': 360                        
-                },
-                'pair_drawdown': {
-                    'enabled': True,
-                    'priority': 80,
-                    'threshold': 0.08,                          
-                    'cooldown_days': 180                        
-                },
-                'holding_timeout': {
-                    'enabled': True,
-                    'priority': 70,
-                    'max_halflife_multiplier': 2.0,
-                    'cooldown_days': 30                         
-                }
-            }
-        }
-
-        # 常量定义
+        # 10. 常量配置 (保持dict - 枚举性质)
         self.constants = self._init_constants()
 
 
@@ -428,7 +484,7 @@ class StrategyConfig:
         """
         初始化常量定义 (独立方法,减少__init__视觉噪音)
 
-        包含:
+        包含: 
         - trading_signals: 交易信号枚举
         - position_modes: 持仓模式枚举
         - order_actions: 订单动作枚举
@@ -442,21 +498,3 @@ class StrategyConfig:
             'close_reasons': Constants.CLOSE_REASONS,
             'industry_names': Constants.INDUSTRY_NAMES
         }
-
-
-    def get_module_config(self, module_name):
-        """
-        获取模块配置 (向后兼容方法)
-
-        支持两种访问方式:
-        - dataclass对象: 转换为字典返回
-        - 字典: 直接返回
-        """
-        config = getattr(self, module_name, {})
-
-        # 如果是dataclass对象,转换为字典 (向后兼容)
-        if hasattr(config, '__dataclass_fields__'):
-            from dataclasses import asdict
-            return asdict(config)
-
-        return config
