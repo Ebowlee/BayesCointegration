@@ -38,7 +38,7 @@ class UniverseConfig:
     min_price: float = 20
     min_market_cap: float = 1e9
     min_days_since_ipo: int = 360
-    max_coarse_stocks: int = 200                                 # 按Volume排序取top N
+    max_coarse_stocks: int = 300                                    # 按Volume排序取top N
 
     # 财务筛选器配置
     financial_filters: Dict = field(default_factory=lambda: {
@@ -180,10 +180,10 @@ class PairsTradingConfig:
     # v7.32.0: 基于行业tier的最大投资比例映射 (取代 adaptive_max_investment_ratio)
     tier_max_investment_ratio: Dict[str, float] = field(default_factory=lambda: {
         'tier0': 0.10,  # ≤5%: 低回报 → 低风险
-        'tier1': 0.12,  # (5%, 10%]
-        'tier2': 0.15,  # (10%, 20%]
-        'tier3': 0.18,  # (20%, 30%]
-        'tier4': 0.20   # >30%: 高回报 → 高配置
+        'tier1': 0.15,   # (5%, 10%]
+        'tier2': 0.18,   #（10%, 20%]
+        'tier3': 0.20,  # (20%, 30%]
+        'tier4': 0.25   # >30%: 高回报 → 高配置
     })
 
     # 保证金管理
@@ -298,10 +298,10 @@ class IndustryQuotaConfig:
     })
     tier_quotas: Dict[str, int] = field(default_factory=lambda: {
         'tier0': 1,
-        'tier1': 2,
+        'tier1': 3,
         'tier2': 5,
-        'tier3': 8,
-        'tier4': 10
+        'tier3': 7,
+        'tier4': 9
     })
 
 
