@@ -69,9 +69,6 @@ class DataProcessor:
                 statistics[reason] += 1
                 return None
 
-            # 填补缺失值
-            symbol_ohlcv = self._fill_missing_values(symbol_ohlcv)
-
             return symbol_ohlcv
 
         except Exception as e:
