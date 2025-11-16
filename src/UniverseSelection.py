@@ -294,13 +294,24 @@ class SectorBasedUniverseSelection(FineFundamentalUniverseSelectionModel):
                 for reason in fail_reasons:
                     stats[reason] += 1
 
-        # v7.29.2: 估值筛选详细统计(level=1)
-        if 'valuation_failed' in stats and stats['valuation_failed'] > 0:
-            fail_rate = (stats['valuation_failed'] / stats['total'] * 100) if stats['total'] > 0 else 0
+        # v7.31.1: 完整财务筛选统计(level=1) - 替换单一估值统计
+        if stats['total'] > 0:
+            pass_rate = (stats['passed'] / stats['total'] * 100)
+
+            # 收集所有失败项的统计
+            fail_details = []
+            for key in ['valuation_failed', 'debt_failed', 'leverage_failed']:
+                if key in stats and stats[key] > 0:
+                    count = stats[key]
+                    # 简化显示: valuation_failed → 估值
+                    label = key.replace('_failed', '').replace('valuation', '估值').replace('debt', '负债').replace('leverage', '杠杆')
+                    fail_details.append(f"{label}{count}只")
+
+            fail_summary = " ".join(fail_details) if fail_details else "无"
             self.algorithm.Debug(
-                f"[估值筛选] 输入{stats['total']}只 → "
-                f"通过{stats['passed']}只 → "
-                f"估值失败{stats['valuation_failed']}只 ({fail_rate:.1f}%)",
+                f"[财务筛选] 输入{stats['total']}只 → "
+                f"通过{stats['passed']}只 ({pass_rate:.1f}%) | "
+                f"失败统计: {fail_summary}",
                 level=1
             )
 

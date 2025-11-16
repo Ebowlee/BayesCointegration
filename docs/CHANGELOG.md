@@ -5,6 +5,73 @@
 ---
 
 
+## [v7.31.1_complete-filter-stats@20250206]
+
+### 版本概述
+**日志完善** - 完善财务筛选统计日志,从单一估值统计扩展到三项筛选器(估值/负债/杠杆)的完整统计。
+
+### 核心改进
+
+#### 财务筛选统计完善 - UniverseSelection.py
+
+**问题诊断**:
+- 当前实现只打印估值失败统计,缺失负债率和杠杆率的失败数据
+- 无法全面了解各筛选器的过滤效果和失败分布
+
+**改进实施** (UniverseSelection.py Lines 297-316):
+```python
+# Before (v7.29.2):
+if 'valuation_failed' in stats and stats['valuation_failed'] > 0:
+    fail_rate = (stats['valuation_failed'] / stats['total'] * 100)
+    self.algorithm.Debug(
+        f"[估值筛选] 输入{stats['total']}只 → "
+        f"通过{stats['passed']}只 → "
+        f"估值失败{stats['valuation_failed']}只 ({fail_rate:.1f}%)"
+    )
+
+# After (v7.31.1):
+if stats['total'] > 0:
+    pass_rate = (stats['passed'] / stats['total'] * 100)
+
+    # 收集所有失败项统计
+    fail_details = []
+    for key in ['valuation_failed', 'debt_failed', 'leverage_failed']:
+        if key in stats and stats[key] > 0:
+            count = stats[key]
+            label = key.replace('_failed', '').replace(...)  # 中文化
+            fail_details.append(f"{label}{count}只")
+
+    fail_summary = " ".join(fail_details) if fail_details else "无"
+    self.algorithm.Debug(
+        f"[财务筛选] 输入{stats['total']}只 → "
+        f"通过{stats['passed']}只 ({pass_rate:.1f}%) | "
+        f"失败统计: {fail_summary}"
+    )
+```
+
+**输出示例**:
+```
+# Before:
+[估值筛选] 输入150只 → 通过85只 → 估值失败40只 (26.7%)
+
+# After:
+[财务筛选] 输入150只 → 通过85只 (56.7%) | 失败统计: 估值40只 负债15只 杠杆10只
+```
+
+### 架构收益
+- **全景观察**: 一行日志覆盖所有筛选器的统计,减少日志噪音
+- **问题定位**: 快速识别哪个筛选器过滤最严格(如估值OR逻辑是否有效)
+- **数据完整**: 三项筛选器的失败数可能重叠(一只股票可能同时触发多个fail_key)
+
+### 文件变更
+- src/UniverseSelection.py: 完善财务筛选统计日志 (Lines 297-316)
+
+### 关键洞察
+**统计日志设计原则**: AI回测分析需要的是"筛选漏斗"全景,而非单一指标的详细展开。一行完整统计比多行分项统计更易于AI解析和趋势识别。
+
+---
+
+
 ## [v7.31.0_cooldown-centralization@20250206]
 
 ### 版本概述
