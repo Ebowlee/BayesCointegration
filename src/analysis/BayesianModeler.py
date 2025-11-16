@@ -25,7 +25,7 @@ class BayesianModeler:
         """
         self.algorithm = algorithm
         self.lookback_days = analysis_config.lookback_days
-        self.mcmc_chains = bayesian_config.mcmc_chains
+        self.mcmc_chains = bayesian_config.joint_single_stage.mcmc_chains
         self.uninformed_prior = bayesian_config.uninformed
         self.informed_prior = bayesian_config.informed
         self.joint_config = bayesian_config.joint_single_stage
