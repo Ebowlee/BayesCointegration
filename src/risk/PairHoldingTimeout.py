@@ -22,6 +22,7 @@ class PairHoldingTimeoutRule(RiskRule):
       - 盈利配对 (pnl > 0): 不触发,继续持有
       - 亏损/持平配对 (pnl <= 0): 触发平仓
       - 数据异常 (pnl is None): 触发平仓 (Fail-Safe原则)
+    - v7.32.5: 增加PnL豁免调试日志 - 验证盈利配对豁免逻辑
     - 优先级中等: priority=70
 
     配置示例:
@@ -137,6 +138,14 @@ class PairHoldingTimeoutRule(RiskRule):
             # PnL条件: 只在亏损/持平时触发
             if pair_pnl > 0:
                 # 盈利配对: 不触发,继续持有
+
+                # v7.32.5: 新增调试日志验证豁免逻辑
+                self.algorithm.Debug(
+                    f"[持仓超时] {pair.pair_id} 已持仓{holding_days}天 > 上限{max_days:.1f}天, "
+                    f"但PnL=${pair_pnl:,.0f} (盈利) → 豁免超时,继续持有",
+                    level=1  # Debug模式才显示
+                )
+
                 return False, ""
 
             # 亏损或持平配对: 触发平仓
