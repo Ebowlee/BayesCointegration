@@ -5,6 +5,110 @@
 ---
 
 
+## [v7.31.2_code-cleanup@20250206]
+
+### 版本概述
+**代码清理** - UniverseSelection 模块冗余代码清理,提升可读性和可维护性。
+
+### 核心改进
+
+#### 1. 优化字符串映射逻辑 - UniverseSelection.py (Lines 301-313)
+
+**问题诊断**:
+- 3次链式 `replace()` 调用,可读性差且不易维护
+- 硬编码映射关系分散在方法逻辑中
+
+**改进实施**:
+```python
+# Before:
+label = key.replace('_failed', '').replace('valuation', '估值').replace('debt', '负债').replace('leverage', '杠杆')
+fail_details.append(f"{label}{count}只")
+
+# After:
+label_map = {
+    'valuation_failed': '估值',
+    'debt_failed': '负债',
+    'leverage_failed': '杠杆'
+}
+for key in ['valuation_failed', 'debt_failed', 'leverage_failed']:
+    if key in stats and stats[key] > 0:
+        label = label_map[key]
+        fail_details.append(f"{label}{stats[key]}只")
+```
+
+#### 2. 删除未使用的返回值 - UniverseSelection.py (Lines 273, 323, 264)
+
+**问题诊断**:
+- `_apply_financial_filters()` 返回 `(filtered_stocks, stats)` 元组
+- `stats` 在调用处从未使用,仅在方法内部用于日志打印
+
+**改进实施**:
+```python
+# Before:
+def _apply_financial_filters(...) -> Tuple[List[FineFundamental], Dict[str, int]]:
+    ...
+    return filtered_stocks, stats
+
+financially_filtered, financial_stats = self._apply_financial_filters(fine)
+
+# After:
+def _apply_financial_filters(...) -> List[FineFundamental]:
+    ...
+    return filtered_stocks
+
+financially_filtered = self._apply_financial_filters(fine)
+```
+
+#### 3. 简化版本注释 - UniverseSelection.py (Lines 198-207)
+
+**问题诊断**:
+- v7.30.0 和 v7.30.3 版本注释重复且冗长
+- 版本历史应在CHANGELOG,代码注释应描述当前状态
+
+**改进实施**:
+```python
+# Before:
+"""
+粗选阶段: 基础筛选 + 流动性排序
+筛选条件: 基本面数据、价格、市值、IPO时间
+
+v7.30.3变更:
+- 移除DollarVolume阈值筛选
+- 新增Volume排序+TOP N机制 (精确控制Fine阶段股票数量)
+
+v7.30.0变更:
+- 新增市值筛选 (MarketCap >= $1B)
+- 交易量筛选移至行业内部 (精选阶段TOP N)
+"""
+
+# After:
+"""
+粗选阶段: 基础筛选 + 流动性排序
+
+筛选条件:
+- HasFundamentalData (排除ETF等)
+- Price > $20
+- MarketCap >= $1B
+- IPO时间 >= 360天
+- Volume降序排序 + TOP 150
+"""
+```
+
+### 架构收益
+- **可读性**: 字典映射替换链式replace,清晰表达映射关系
+- **可维护性**: 新增筛选器只需在label_map添加一行
+- **接口简化**: 删除未使用返回值,降低认知负担
+- **注释质量**: 当前状态描述替换版本历史,聚焦功能而非演进
+
+### 文件变更
+- src/UniverseSelection.py: 3处清理 (字符串映射优化, 返回值删除, 注释简化)
+
+### 关键洞察
+**死代码识别原则**: 返回值被接收但从未使用,说明接口设计时"预留扩展性"过度,应果断删除以保持简洁。
+
+---
+
+
 ## [v7.31.1_complete-filter-stats@20250206]
 
 ### 版本概述

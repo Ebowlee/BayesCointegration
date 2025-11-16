@@ -197,15 +197,13 @@ class SectorBasedUniverseSelection(FineFundamentalUniverseSelectionModel):
     def _select_coarse(self, coarse: List[CoarseFundamental]) -> List[Symbol]:
         """
         粗选阶段: 基础筛选 + 流动性排序
-        筛选条件: 基本面数据、价格、市值、IPO时间
 
-        v7.30.3变更:
-        - 移除DollarVolume阈值筛选
-        - 新增Volume排序+TOP N机制 (精确控制Fine阶段股票数量)
-
-        v7.30.0变更:
-        - 新增市值筛选 (MarketCap >= $1B)
-        - 交易量筛选移至行业内部 (精选阶段TOP N)
+        筛选条件:
+        - HasFundamentalData (排除ETF等)
+        - Price > $20
+        - MarketCap >= $1B
+        - IPO时间 >= 360天
+        - Volume降序排序 + TOP 150
         """
         # 如果未触发选股, 返回上次结果
         if not self.selection_on:
@@ -261,7 +259,7 @@ class SectorBasedUniverseSelection(FineFundamentalUniverseSelectionModel):
         fine = list(fine)
 
         # 财务筛选 (PE/PS估值OR逻辑, 负债率, 杠杆率)
-        financially_filtered, financial_stats = self._apply_financial_filters(fine)
+        financially_filtered = self._apply_financial_filters(fine)
 
         # 缓存结果 (不做行业分组,输出所有通过筛选的股票)
         self.last_fine_selected_symbols = [x.Symbol for x in financially_filtered]
@@ -270,15 +268,15 @@ class SectorBasedUniverseSelection(FineFundamentalUniverseSelectionModel):
 
 
     # ========== 筛选辅助方法 ==========
-    def _apply_financial_filters(self, stocks: List[FineFundamental]) -> Tuple[List[FineFundamental], Dict[str, int]]:
+    def _apply_financial_filters(self, stocks: List[FineFundamental]) -> List[FineFundamental]:
         """
-        应用财务筛选条件
+        应用财务筛选条件 (v7.31.2: 移除未使用的stats返回值)
 
         Args:
             stocks: 待筛选的股票列表
 
         Returns:
-            (通过的股票列表, 统计信息字典)
+            通过财务筛选的股票列表
         """
         filtered_stocks = []
         stats = defaultdict(int, total=len(stocks), passed=0)
@@ -298,14 +296,19 @@ class SectorBasedUniverseSelection(FineFundamentalUniverseSelectionModel):
         if stats['total'] > 0:
             pass_rate = (stats['passed'] / stats['total'] * 100)
 
+            # v7.31.2: 使用字典映射替换链式replace (提升可读性)
+            label_map = {
+                'valuation_failed': '估值',
+                'debt_failed': '负债',
+                'leverage_failed': '杠杆'
+            }
+
             # 收集所有失败项的统计
             fail_details = []
             for key in ['valuation_failed', 'debt_failed', 'leverage_failed']:
                 if key in stats and stats[key] > 0:
-                    count = stats[key]
-                    # 简化显示: valuation_failed → 估值
-                    label = key.replace('_failed', '').replace('valuation', '估值').replace('debt', '负债').replace('leverage', '杠杆')
-                    fail_details.append(f"{label}{count}只")
+                    label = label_map[key]
+                    fail_details.append(f"{label}{stats[key]}只")
 
             fail_summary = " ".join(fail_details) if fail_details else "无"
             self.algorithm.Debug(
@@ -315,6 +318,6 @@ class SectorBasedUniverseSelection(FineFundamentalUniverseSelectionModel):
                 level=1
             )
 
-        return filtered_stocks, stats
+        return filtered_stocks
 
 
