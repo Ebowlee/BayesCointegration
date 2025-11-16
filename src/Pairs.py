@@ -305,10 +305,10 @@ class Pairs:
         # 风控规则的冷却期从risk_management.pair_rules读取
         risk_config = self.algorithm.config.risk_management.pair_rules
         reason_to_config = {
-            'TIMEOUT': risk_config.holding_timeout.cooldown_days,         # 30天
-            'DRAWDOWN': risk_config.pair_drawdown.cooldown_days,          # 180天
-            'CUMULATIVE_LOSS': risk_config.cumulative_loss.cooldown_days, # 360天
-            'ANOMALY': risk_config.pair_anomaly.cooldown_days,            # 999999天
+            'TIMEOUT': risk_config.holding_timeout.cooldown_days,              # 30天
+            'DRAWDOWN': risk_config.pair_drawdown.cooldown_days,               # 180天
+            'CUMULATIVE_LOSS': risk_config.pair_cumulative_loss.cooldown_days, # 360天
+            'ANOMALY': risk_config.pair_anomaly.cooldown_days,                 # 999999天
         }
 
         # 如果是风控原因，读取配置；否则使用默认10天
