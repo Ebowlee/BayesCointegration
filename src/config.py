@@ -38,7 +38,7 @@ class UniverseConfig:
     min_price: float = 20
     min_market_cap: float = 1e9
     min_days_since_ipo: int = 360
-    max_coarse_stocks: int = 300                                    # 按Volume排序取top N
+    max_coarse_stocks: int = 350                                    # 按Volume排序取top N
 
     # 财务筛选器配置
     financial_filters: Dict = field(default_factory=lambda: {
@@ -179,10 +179,10 @@ class PairsTradingConfig:
 
     # v7.32.0: 基于行业tier的最大投资比例映射 (取代 adaptive_max_investment_ratio)
     tier_max_investment_ratio: Dict[str, float] = field(default_factory=lambda: {
-        'tier0': 0.10,  # ≤5%: 低回报 → 低风险
-        'tier1': 0.15,   # (5%, 10%]
-        'tier2': 0.18,   #（10%, 20%]
-        'tier3': 0.20,  # (20%, 30%]
+        'tier0': 0.15,  # ≤5%: 低回报 → 低风险
+        'tier1': 0.18,  # (5%, 10%]
+        'tier2': 0.20,  #（10%, 20%]
+        'tier3': 0.23,  # (20%, 30%]
         'tier4': 0.25   # >30%: 高回报 → 高配置
     })
 
@@ -190,7 +190,7 @@ class PairsTradingConfig:
     margin_requirement_long: float = 0.5                           # 多头保证金率: 50%
     margin_requirement_short: float = 1.5                          # 空头保证金率: 150%
     margin_usage_ratio: float = 0.98                               # 保证金使用率: 98%
-    max_leverage_cap: float = 2.0                                  # 放大模式最大杠杆倍数: 2.0倍 (v7.30.11)
+    max_leverage_cap: float = 2.0                                  # 放大模式最大杠杆倍数: 2.0倍
 
 
 @dataclass
@@ -245,7 +245,7 @@ class PairDrawdownRuleConfig:
     """配对回撤规则配置"""
     enabled: bool = True
     priority: int = 80
-    threshold: float = 0.04
+    threshold: float = 0.03
     cooldown_days: int = 90
 
 
@@ -255,7 +255,7 @@ class HoldingTimeoutRuleConfig:
     enabled: bool = True
     priority: int = 70
     max_halflife_multiplier: float = 2.0
-    cooldown_days: int = 15
+    cooldown_days: int = 90
 
 
 @dataclass
@@ -345,12 +345,12 @@ class Constants:
         # === 组1: 正常交易信号触发 ===
         'MEAN_REVERSION': {
             'display': '均值回归',
-            'cooldown_days': 7,                                 # Pairs层冷却期
+            'cooldown_days': 30,                                 # Pairs层冷却期
             'category': 'NORMAL_SIGNAL'
         },
         'PAIR_BREAK': {
             'display': '协整破裂',
-            'cooldown_days': 15,                                # Pairs层冷却期
+            'cooldown_days': 90,                                # Pairs层冷却期
             'category': 'NORMAL_SIGNAL'
         },
 
