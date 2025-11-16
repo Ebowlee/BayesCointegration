@@ -5,6 +5,37 @@
 ---
 
 
+## [v7.31.3_hotfix-bayesian-config@20250116]
+
+### 版本概述
+**紧急修复** - 修复v7.31.3重构引入的BayesianModeler配置访问错误。
+
+### Bug修复
+
+**BayesianModeler初始化错误**:
+```python
+# 问题: v7.31.3重构时错误访问配置属性
+# 报错: 'BayesianModelerConfig' object has no attribute 'mcmc_chains'
+
+# 修复位置: src/analysis/BayesianModeler.py Line 28
+# BEFORE:
+self.mcmc_chains = bayesian_config.mcmc_chains
+
+# AFTER:
+self.mcmc_chains = bayesian_config.joint_single_stage.mcmc_chains
+```
+
+**根本原因**:
+- 配置结构: `mcmc_chains` 位于 `BayesianModelerConfig.joint_single_stage.mcmc_chains`
+- 重构疏忽: 未正确验证嵌套配置路径
+
+**影响范围**: 阻止策略初始化 (致命错误)
+
+**修复验证**: 策略成功初始化,MCMC采样使用正确的4链配置
+
+---
+
+
 ## [v7.31.3_code-refactoring@20250116]
 
 ### 版本概述
