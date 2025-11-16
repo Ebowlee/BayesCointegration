@@ -5,6 +5,130 @@
 ---
 
 
+## [v7.32.0_refactor-adaptive-max-pct@20250116]
+
+### 版本概述
+**配置重构 - Tier-Based最大投资比例** - 将max_pct从基于配对稀缺度(tradeable_count)改为基于行业回报率(industry_quota_tier),实现投资逻辑一致性。**核心改进**: 通过tier字符串(`'tier0'`-`'tier4'`)解耦IndustryQuotaManager(行业分类)和PairsTradingConfig(资金映射)。
+
+### 核心改进
+
+#### 1. 配置结构调整
+
+**PairsTradingConfig (config.py Lines 180-187)**:
+- **新增**: `tier_max_investment_ratio` 字段 - 配对投资参数(基于tier映射)
+  ```python
+  tier_max_investment_ratio: Dict[str, float] = {
+      'tier0': 0.10,  # ≤5%回报: 低风险
+      'tier1': 0.12,  # (5%, 10%]
+      'tier2': 0.15,  # (10%, 20%]
+      'tier3': 0.18,  # (20%, 30%]
+      'tier4': 0.20   # >30%: 高配置
+  }
+  ```
+- **删除**: `adaptive_max_investment_ratio` 字段
+- **删除**: `adaptive_thresholds` 字段
+
+**IndustryQuotaConfig (config.py Line 298)**:
+- **调整**: `tier_thresholds['tier0']` 从 0.0 改为 0.05 (容忍0-5%随机低回报)
+
+#### 2. IndustryQuotaManager返回值升级
+
+**IndustryQuotaManager.py (Lines 71-148)**:
+- **返回类型变更**: `Dict[str, int]` → `Dict[str, Dict]`
+  ```python
+  # 旧: {'10110': 3, '10120': 6}
+  # 新: {'10110': {'quota': 3, 'tier': 'tier1', 'weighted_return': 0.08}}
+  ```
+- **新增方法**: `_get_tier_by_return(weighted_return) -> str` (Lines 227-253)
+  - 根据加权收益率计算tier
+  - 与quota计算逻辑保持一致
+
+#### 3. Pairs对象tier绑定
+
+**Pairs.py**:
+- **新字段**: `industry_quota_tier` (Line 40) - 存储行业tier ('tier0'-'tier4')
+- **新方法**: `set_industry_quota_tier(tier)` (Lines 187-206) - 延迟绑定tier
+- **重构方法**: `get_planned_allocation_pct()` (Lines 1049-1076)
+  ```python
+  # v7.32.0前: max_pct = adaptive_max_investment_ratio['default']  # 固定0.20
+  # v7.32.0后: max_pct = pairs_trading.tier_max_investment_ratio[tier]  # tier驱动 (0.10-0.20)
+  ```
+
+#### 4. main.py tier设置逻辑
+
+**main.py (Lines 222-228)**:
+```python
+# v7.32.0: 设置行业配额tier (用于get_planned_allocation_pct)
+industry_code = str(pair.industry_code) if pair.industry_code else None
+if industry_code and industry_code in industry_quotas:
+    tier = industry_quotas[industry_code].get('tier', 'tier0')
+else:
+    tier = 'tier0'  # 默认tier0 (预热期或无历史数据)
+pair.set_industry_quota_tier(tier)
+```
+
+#### 5. ExecutionManager简化
+
+**ExecutionManager.py (Lines 354-359)**:
+- **删除**: Lines 354-379 自适应max_pct计算逻辑 (约25行)
+- **保留**: 只保留信号聚合和排序逻辑
+- **备注**: max_pct计算已完全委托给Pairs.get_planned_allocation_pct()
+
+#### 6. CointegrationAnalyzer适配
+
+**CointegrationAnalyzer.py**:
+- **类型签名更新**: `industry_quotas: Dict[str, Dict]` (Line 17)
+- **取值适配**: 从字典提取quota字段 (Lines 185-187, 224-226)
+  ```python
+  quota_info = self.industry_quotas.get(ig_name)
+  quota = quota_info['quota'] if quota_info else self.default_quota
+  ```
+
+### 设计优势
+
+1. **职责解耦**: 通过tier字符串(`'tier0'`-`'tier4'`)实现模块解耦
+   - **IndustryQuotaManager**: 行业分类器 (weighted_return → tier字符串)
+   - **PairsTradingConfig**: 投资映射表 (tier字符串 → max_pct)
+   - **跨模块契约**: tier字符串是唯一桥梁,避免循环依赖
+
+2. **逻辑对齐**: 行业配额(quota)和资金分配(max_pct)现在都基于同一套tier体系
+   - tier0 (低回报行业): 1个配对 + 最大10%资金
+   - tier4 (高回报行业): 10个配对 + 最大20%资金
+
+3. **投资一致性**: 彻底解决矛盾逻辑
+   - **旧逻辑**: 稀缺时保守(max_pct=0.10) → 违背"稀缺=机会"原则
+   - **新逻辑**: 高回报时激进(max_pct=0.20) → 符合"收益驱动"原则
+
+4. **双维度调节**: planned_pct = min_pct + quality_score × (max_pct - min_pct)
+   - 示例 (quality_score=0.80):
+     - tier0行业: 0.05 + 0.80×(0.10-0.05) = 0.09 (9%)
+     - tier4行业: 0.05 + 0.80×(0.20-0.05) = 0.17 (17%)
+
+5. **容错性提升**: tier0阈值从0.0→0.05,避免将0-5%随机低回报误判为行业趋势
+
+### 破坏性变更
+
+1. **IndustryQuotaManager.calculate_quotas()返回值变更**:
+   - 调用方需要从字典中提取 `quota` 字段
+   - CointegrationAnalyzer已适配
+
+2. **配置字段迁移**:
+   - PairsTradingConfig不再包含adaptive_max_investment_ratio/adaptive_thresholds
+   - 依赖这些字段的代码需要更新
+
+### 文件变更清单
+
+- src/config.py
+- src/analysis/IndustryQuotaManager.py
+- src/analysis/CointegrationAnalyzer.py
+- src/Pairs.py
+- main.py
+- src/execution/ExecutionManager.py
+- docs/CHANGELOG.md
+
+---
+
+
 ## [v7.31.6_add-quality-distribution-log@20250116]
 
 ### 版本概述

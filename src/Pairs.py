@@ -37,6 +37,7 @@ class Pairs:
         self.pair_id = (self.symbol1.Value, self.symbol2.Value)
         self.industry_group = model_data['industry_group']
         self.industry_code = None  # v7.12.0: MorningstarIndustryGroupCode (在from_model_result中填充)
+        self.industry_quota_tier = None  # v7.32.0: 行业配额档次 ('tier0'/'tier1'/'tier2'/'tier3'/'tier4', 在PairSelector中填充)
 
         # === 统计参数(从贝叶斯建模获得) ===
         self.alpha_mean = model_data['alpha_mean']                              # 截距(对数空间)
@@ -181,6 +182,28 @@ class Pairs:
             pair.industry_code = None
 
         return pair
+
+
+    def set_industry_quota_tier(self, tier: str) -> None:
+        """
+        设置行业配额档次 (v7.32.0: 用于PairSelector调用)
+
+        Args:
+            tier: 行业配额档次 ('tier0'/'tier1'/'tier2'/'tier3'/'tier4')
+
+        Usage:
+            在PairSelector.select()中调用:
+            ```python
+            tier = industry_quotas.get(str(pair.industry_code), {}).get('tier', 'tier0')
+            pair.set_industry_quota_tier(tier)
+            ```
+
+        设计理念:
+            - 分离关注点: PairSelector负责设置tier, Pairs负责使用tier
+            - 延迟绑定: tier在创建后设置,而非构造时传入(避免from_model_result参数膨胀)
+            - 默认容错: 如果未设置,get_planned_allocation_pct()使用tier0兜底
+        """
+        self.industry_quota_tier = tier
 
 
     def on_position_filled(self, action: str, fill_time, tickets, reason: str = None):
@@ -1025,13 +1048,29 @@ class Pairs:
 
     def get_planned_allocation_pct(self) -> float:
         """
-        计算基于质量分数的计划分配比例
-        纯计算方法,不进行任何业务逻辑判断
+        计算基于质量分数和行业tier的计划分配比例 (v7.32.0: tier-based max_pct)
+
+        计算逻辑:
+            planned_pct = min_pct + quality_score × (max_pct - min_pct)
+
+        参数来源:
+            - min_pct: PairsTradingConfig.min_investment_ratio (0.05)
+            - max_pct: PairsTradingConfig.tier_max_investment_ratio[tier] (0.10-0.20)
+            - quality_score: 配对质量分数 (0.0-1.0)
+
+        tier影响:
+            - tier0 (低回报行业): max_pct=0.10 → planned_pct范围 [0.05, 0.10]
+            - tier4 (高回报行业): max_pct=0.20 → planned_pct范围 [0.05, 0.20]
 
         Returns:
-            计划分配比例 (min_investment_ratio 到 adaptive_max_investment_ratio['default'])
+            计划分配比例 (0.05-0.20之间,取决于tier和quality_score)
         """
-        # v7.30.13: 使用整合后的配置
+        # v7.32.0: 从PairsTradingConfig获取tier-based max_pct
         min_pct = self.config.min_investment_ratio
-        max_pct = self.config.adaptive_max_investment_ratio['default']
+
+        # 获取tier对应的max_pct (未设置tier时使用tier0兜底)
+        tier = self.industry_quota_tier if self.industry_quota_tier else 'tier0'
+        tier_max_investment_ratio = self.algorithm.config.pairs_trading.tier_max_investment_ratio
+        max_pct = tier_max_investment_ratio.get(tier, tier_max_investment_ratio['tier0'])
+
         return min_pct + self.quality_score * (max_pct - min_pct)

@@ -14,14 +14,14 @@ class CointegrationAnalyzer:
     协整分析器 - 识别具有长期均衡关系的股票配对 (v7.12.0: 支持行业配额)
     """
 
-    def __init__(self, algorithm, module_config, industry_quotas: Dict[str, int] = None):
+    def __init__(self, algorithm, module_config, industry_quotas: Dict[str, Dict] = None):
         """
-        初始化协整分析器 (v7.12.0: 新增行业配额参数)
+        初始化协整分析器 (v7.32.0: industry_quotas返回值从int改为Dict)
 
         Args:
             algorithm: QCAlgorithm实例
             module_config: 模块配置对象 (CointegrationConfig dataclass)
-            industry_quotas: 行业配额字典 {industry_code: quota}
+            industry_quotas: 行业配额字典 {industry_code: {'quota': int, 'tier': str, 'weighted_return': float}}
                 - 如果为None或空字典,使用默认配额 (从config.industry_quota.default_quota读取)
                 - 如果提供,使用动态配额
         """
@@ -33,7 +33,7 @@ class CointegrationAnalyzer:
         self.min_stocks_per_industry = module_config.min_stocks_per_industry
         self.max_stocks_per_industry = module_config.max_stocks_per_industry
 
-        # v7.12.0: 行业配额
+        # v7.32.0: 行业配额 (从int改为Dict)
         self.industry_quotas = industry_quotas if industry_quotas else {}
         self.default_quota = algorithm.config.industry_quota.default_quota
 
@@ -182,7 +182,10 @@ class CointegrationAnalyzer:
         - 同时检查配额限制和单股重复限制
         - 一旦配额满足即停止选择
         """
-        quota = self.industry_quotas.get(ig_name, self.default_quota)
+        # v7.32.0: 从Dict中提取quota字段
+        quota_info = self.industry_quotas.get(ig_name)
+        quota = quota_info['quota'] if quota_info else self.default_quota
+
         selected_pairs = []
         symbol_counts = defaultdict(int)
 
@@ -217,7 +220,10 @@ class CointegrationAnalyzer:
 
         industry_names = self.algorithm.config.constants['industry_names']
         industry_name = industry_names.get(int(ig_name), f'未知({ig_name})')
-        quota = self.industry_quotas.get(ig_name, self.default_quota)
+
+        # v7.32.0: 从Dict中提取quota字段
+        quota_info = self.industry_quotas.get(ig_name)
+        quota = quota_info['quota'] if quota_info else self.default_quota
 
         self.algorithm.Debug(
             f"[协整分析] {industry_name}({ig_name}): "

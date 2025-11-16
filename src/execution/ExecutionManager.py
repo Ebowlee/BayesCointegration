@@ -348,45 +348,10 @@ class ExecutionManager:
 
 
             if signal in ['LONG_SPREAD', 'SHORT_SPREAD']:
-                planned_pct = pair.get_planned_allocation_pct()
+                planned_pct = pair.get_planned_allocation_pct()  # v7.32.0: 现在基于industry_quota_tier
                 candidates.append((pair, signal, pair.quality_score, planned_pct))
 
-        # v7.30.13: 重构自适应max_pct逻辑(简化为if-elif-else)
-        tradeable_count = len(pairs_without_position)
-        if len(candidates) > 0:
-            # 从配置读取整合后的自适应配置
-            adaptive_config = self.algorithm.config.pairs_trading.adaptive_max_investment_ratio
-            thresholds = self.algorithm.config.pairs_trading.adaptive_thresholds
-            min_pct = self.algorithm.config.pairs_trading.min_investment_ratio
-
-            # 根据配对数量确定动态max (简化判断逻辑)
-            if tradeable_count <= thresholds['tier1']:
-                dynamic_max = adaptive_config['tier1']      # ≤5对: 0.10
-            elif tradeable_count <= thresholds['tier2']:
-                dynamic_max = adaptive_config['tier2']      # ≤15对: 0.15
-            else:
-                dynamic_max = adaptive_config['default']    # >15对: 0.20
-
-            # v7.31.4: 只在dynamic_max发生变化时打印(避免重复信息)
-            if not hasattr(self, '_last_dynamic_max'):
-                self._last_dynamic_max = None
-
-            if dynamic_max != self._last_dynamic_max:
-                self._last_dynamic_max = dynamic_max
-                self.algorithm.Debug(
-                    f"[自适应分配] 可交易配对{tradeable_count}对, "
-                    f"动态max_pct: {dynamic_max:.2f} "
-                    f"(tier: {'tier1' if tradeable_count <= thresholds['tier1'] else 'tier2' if tradeable_count <= thresholds['tier2'] else 'default'})",
-                    level=1
-                )
-
-            # 重新计算planned_pct (使用动态max)
-            adjusted_candidates = []
-            for pair, signal, quality_score, _ in candidates:
-                adjusted_pct = min_pct + quality_score * (dynamic_max - min_pct)
-                adjusted_candidates.append((pair, signal, quality_score, adjusted_pct))
-
-            candidates = adjusted_candidates
+        # v7.32.0: 删除自适应max_pct计算逻辑 (已迁移到Pairs.get_planned_allocation_pct内部,基于industry_quota_tier)
 
         # 按质量分数降序排序
         candidates.sort(key=lambda x: x[2], reverse=True)

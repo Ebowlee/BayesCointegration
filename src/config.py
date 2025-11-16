@@ -38,7 +38,7 @@ class UniverseConfig:
     min_price: float = 20
     min_market_cap: float = 1e9
     min_days_since_ipo: int = 360
-    max_coarse_stocks: int = 150                                    # 粗选TOP N(按Volume排序)
+    max_coarse_stocks: int = 200                                 # 按Volume排序取top N
 
     # 财务筛选器配置
     financial_filters: Dict = field(default_factory=lambda: {
@@ -93,8 +93,8 @@ class CointegrationConfig:
 
     # 行业分组
     min_stocks_per_industry: int = 4                                # 行业最少股票数
-    max_stocks_per_industry: int = 40                               # 行业最多股票数 (粗选已排序,直接限制)
-    max_symbol_repeats: int = 3                                     # v7.31.0: 单股最多允许配对数 (从PairSelector迁移)
+    max_stocks_per_industry: int = 40                               # 行业最多股票数
+    max_symbol_repeats: int = 3                                     # 单股最多允许配对数
 
 
 @dataclass
@@ -120,8 +120,8 @@ class InformedPriorConfig:
 @dataclass
 class JointStagePriorConfig:
     """Joint Single Stage先验配置"""
-    mcmc_chains: int = 4
     sigma_eta_prior: float = 0.1
+    mcmc_chains: int = 4
     mcmc_warmup: int = 1000
     mcmc_draws: int = 1000
     enable: bool = True
@@ -177,17 +177,13 @@ class PairsTradingConfig:
     # 仓位管理参数
     min_investment_ratio: float = 0.05                             # 质量最低(0.0分)配对投资比例: 5%
 
-    # v7.30.13: 整合自适应最大投资比例配置
-    adaptive_max_investment_ratio: Dict[str, float] = field(default_factory=lambda: {
-        'tier1': 0.10,                                             # ≤5对: 极度稀缺,降低风险
-        'tier2': 0.15,                                             # ≤15对: 稀缺,保持标准
-        'default': 0.20,                                           # >15对: 充裕,适度放大
-    })
-
-    # 自适应阈值配置
-    adaptive_thresholds: Dict[str, int] = field(default_factory=lambda: {
-        'tier1': 5,                                                # 极度稀缺阈值
-        'tier2': 15,                                               # 稀缺阈值
+    # v7.32.0: 基于行业tier的最大投资比例映射 (取代 adaptive_max_investment_ratio)
+    tier_max_investment_ratio: Dict[str, float] = field(default_factory=lambda: {
+        'tier0': 0.10,  # ≤5%: 低回报 → 低风险
+        'tier1': 0.12,  # (5%, 10%]
+        'tier2': 0.15,  # (10%, 20%]
+        'tier3': 0.18,  # (20%, 30%]
+        'tier4': 0.20   # >30%: 高回报 → 高配置
     })
 
     # 保证金管理
@@ -212,7 +208,7 @@ class AccountBlowupRuleConfig:
     """账户爆仓规则配置"""
     enabled: bool = True
     priority: int = 100
-    threshold: float = 0.15
+    threshold: float = 0.25
     cooldown_days: int = 999999
     action: str = 'portfolio_liquidate_all'
 
@@ -249,7 +245,7 @@ class PairDrawdownRuleConfig:
     """配对回撤规则配置"""
     enabled: bool = True
     priority: int = 80
-    threshold: float = 0.05
+    threshold: float = 0.04
     cooldown_days: int = 90
 
 
@@ -292,10 +288,10 @@ class IndustryQuotaConfig:
     """行业配额配置"""
     warmup_days: int = 180                                                  # 自适应行业偏好预热时间
     default_quota: int = 1                                                  # 每个行业初始的协整对配额数量
-    
+
     # 回报率与配额数量的关系
     tier_thresholds: Dict[str, float] = field(default_factory=lambda: {
-        'tier0': 0.0,
+        'tier0': 0.05,                                                      # v7.32.0: 调整为5% (避免随机低回报误判)
         'tier1': 0.10,
         'tier2': 0.20,
         'tier3': 0.30

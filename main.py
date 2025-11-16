@@ -218,6 +218,15 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         for model_result in selected_pairs:
             # 使用类方法工厂创建Pairs对象（与PairData.from_clean_data()一致）
             pair = Pairs.from_model_result(self, model_result, self.config.pairs_trading)
+
+            # v7.32.0: 设置行业配额tier (用于get_planned_allocation_pct)
+            industry_code = str(pair.industry_code) if pair.industry_code else None
+            if industry_code and industry_code in industry_quotas:
+                tier = industry_quotas[industry_code].get('tier', 'tier0')
+            else:
+                tier = 'tier0'  # 默认tier0 (预热期或无历史数据)
+            pair.set_industry_quota_tier(tier)
+
             new_pairs_dict[pair.pair_id] = pair
 
         # === 步骤7: 交给PairsManager管理 ===
