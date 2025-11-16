@@ -207,13 +207,17 @@ class PairsManager:
 
     def get_pairs_without_position(self) -> Dict:
         """
-        获取所有无持仓的可交易配对(用于开仓逻辑)
+        获取所有无持仓的COINTEGRATED配对(用于开仓逻辑)
+
         返回: {pair_id: Pairs对象} 字典
 
-        优化: 直接遍历,避免构建中间字典
+        v7.30.1优化:
+        - 只遍历cointegrated_ids (本轮通过协整检验)
+        - LEGACY配对定义保证has_position()==True,不会出现在此列表
+        - 语义清晰: 只有本轮协整通过的配对才能开新仓
         """
         result = {}
-        for pair_id in self.tradeable_ids:
+        for pair_id in self.cointegrated_ids:
             pair = self.all_pairs[pair_id]
             if not pair.has_position():
                 result[pair_id] = pair

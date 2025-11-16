@@ -5,6 +5,128 @@
 ---
 
 
+## [v7.31.0_cooldown-centralization@20250206]
+
+### 版本概述
+**架构优化** - 统一冷却期检查机制 + 单股重复限制前移。解决用户提出的两个核心问题:(1) max_symbol_repeats应在协整阶段应用避免浪费配额,(2) 冷却期检查分散在3处造成混乱。
+
+### 核心改进
+
+#### 1. 单股重复限制前移 - config.py + CointegrationAnalyzer.py + PairSelector.py
+
+**问题诊断**:
+- 原架构: CointegrationAnalyzer按pvalue选TOP N对 → PairSelector过滤max_symbol_repeats
+- 问题场景: 行业10只股票,配额6对 → 协整选出(A,B)(A,C)(A,D)(A,E)(A,F)(A,G) → PairSelector过滤为3对 → **浪费3个配额**
+- 用户洞察: "假设分组后某个行业有m只股票,那么一只股票完全有可能同时出现在m-1个协整对中。如果我们要设置max_symbol_repeats,那么它最好作用在这里[CointegrationAnalyzer],而不是pairselector中"
+
+**配置迁移** (config.py Lines 97, 141):
+```python
+# Before (PairSelectorConfig):
+max_symbol_repeats: int = 3
+
+# After (CointegrationConfig):
+max_symbol_repeats: int = 3  # v7.31.0: 从PairSelector迁移
+```
+
+**协整阶段应用** (CointegrationAnalyzer.py Lines 149-171):
+```python
+# v7.31.0: 贪心算法同时应用配额和重复限制
+selected_pairs = []
+symbol_counts = defaultdict(int)
+
+for pair in sorted_pairs:  # 已按pvalue排序
+    # 检查配额
+    if len(selected_pairs) >= quota:
+        break
+
+    # 检查单股重复限制
+    s1, s2 = pair['symbol1'], pair['symbol2']
+    if (symbol_counts[s1] < self.max_symbol_repeats and
+        symbol_counts[s2] < self.max_symbol_repeats):
+        selected_pairs.append(pair)
+        symbol_counts[s1] += 1
+        symbol_counts[s2] += 1
+```
+
+**PairSelector简化** (PairSelector.py):
+- **删除**: Step 2风险配对过滤(54行) + Step 4单股重复限制(15行)
+- **删除**: `_filter_risk_pairs()`方法(54行) + `max_symbol_repeats`属性
+- **保留**: Step 1质量阈值过滤 + Step 2排序
+- **新流程**: qualified → sorted (只剩2步)
+
+#### 2. 冷却期检查统一化 - RiskManager.py + 5个Rule文件
+
+**问题诊断**:
+- 原架构: 3处冷却期检查 - ①PairSelector._filter_risk_pairs() ②ExecutionManager.is_pair_in_cooldown() ③Rule.check()内部
+- 用户质疑: "不理解为什么要在风控check中检查,是担心什么?最不能理解的是为什么要在选股中检查!?我觉得目前调用混乱"
+
+**RiskManager统一检查** (RiskManager.py Lines 274-276, 493-495):
+```python
+# check_portfolio_risks()
+for rule in self.portfolio_rules:
+    if not rule.enabled:
+        continue
+    # v7.31.0: 统一检查冷却期(职责集中化)
+    if rule.is_in_cooldown():
+        continue
+    # Rule.check()内部的冷却期检查成为Fail-Safe机制
+    triggered, description = rule.check()
+
+# check_pair_risks()
+for rule in self.pair_rules:
+    if not rule.enabled:
+        continue
+    # v7.31.0: 统一检查冷却期(职责集中化)
+    if rule.is_in_cooldown(pair_id=pair.pair_id):
+        continue
+    # Rule.check()内部的冷却期检查成为Fail-Safe机制
+    triggered, description = rule.check(pair=pair)
+```
+
+**Rule简化为Fail-Safe** (5个Rule文件):
+```python
+# Before (AccountBlowupRule/PortfolioDrawdownRule):
+if self.is_in_cooldown():
+    if debug_mode:
+        self.algorithm.Debug(f"[Rule] 跳过: 冷却期至{self.cooldown_until}")
+    return False, ""
+
+# After (v7.31.0):
+# v7.31.0: Fail-Safe - RiskManager应已过滤冷却期规则
+if self.is_in_cooldown():
+    return False, ""
+```
+
+**架构收益**:
+- **单一职责**: RiskManager负责冷却期管理,Rule只负责风险检测
+- **防御性编程**: Rule内部检查保留作为Fail-Safe机制(防止RiskManager误调用)
+- **消除混淆**: 删除PairSelector中的风险过滤(不符合"fresh data first"原则)
+
+### 文件变更
+- `src/config.py`: 配置迁移 (Line 97新增, Line 141删除+注释)
+- `src/analysis/CointegrationAnalyzer.py`: 贪心算法应用重复限制 (Lines 41, 149-171)
+- `src/analysis/PairSelector.py`: 删除风险过滤+重复限制 (删除69行代码)
+- `src/risk/RiskManager.py`: 统一冷却期检查 (Lines 41, 274-276, 493-495)
+- `src/risk/PortfolioAccountBlowup.py`: 简化为Fail-Safe (Lines 66, 73-75)
+- `src/risk/PortfolioDrawdown.py`: 简化为Fail-Safe (Lines 82, 91-93)
+- `src/risk/PairHoldingTimeout.py`: 简化为Fail-Safe (Lines 57, 62, 87-89)
+- `src/risk/PairAnomaly.py`: 简化为Fail-Safe (Lines 54, 59, 82-84)
+- `src/risk/PairDrawdown.py`: 简化为Fail-Safe (Lines 79, 82, 110-112)
+- `docs/CHANGELOG.md`: 添加版本记录
+
+### 关键洞察
+
+**✶ Insight ─────────────────────────────────────**
+- **配额利用率**: 单股重复限制前移至协整阶段,避免后期过滤浪费配额
+- **防御性编程**: RiskManager统一检查 + Rule内部Fail-Safe = 双重保护
+- **Fresh Data First**: 删除PairSelector风险过滤,让月度协整测试主导配对选择
+─────────────────────────────────────────────────
+
+### 已知限制
+- main.py无需修改: `max_symbol_repeats`通过`config.cointegration_analyzer`自动传递
+- 向后兼容: 配额算法从"选TOP N → 过滤"改为"贪心选N",配额使用更高效
+
+
 ## [v7.30.13_config-refactor@20250206]
 
 ### 版本概述

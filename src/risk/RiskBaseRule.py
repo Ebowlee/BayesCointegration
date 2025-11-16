@@ -24,26 +24,26 @@ class RiskRule(ABC):
     - Pair层面风控 (持仓超时、仓位异常、配对回撤等)
     """
 
-    def __init__(self, algorithm, config: dict):
+    def __init__(self, algorithm, config):
         """
         初始化风控规则
 
         Args:
             algorithm: QCAlgorithm实例，用于访问Portfolio、Time等
-            config: 规则配置字典，包含enabled、priority、threshold等参数
+            config: 规则配置dataclass实例，包含enabled、priority、threshold等参数
 
-        配置示例:
-        {
-            'enabled': True,        # 是否启用
-            'priority': 100,        # 优先级(数字越大越先执行)
-            'threshold': 0.25,      # 触发阈值
-            'cooldown_days': 30     # 冷却期(天)
-        }
+        配置示例(dataclass):
+            @dataclass
+            class RuleConfig:
+                enabled: bool = True
+                priority: int = 100
+                threshold: float = 0.25
+                cooldown_days: int = 30
         """
         self.algorithm = algorithm
         self.config = config
-        self.enabled = config['enabled']
-        self.priority = config['priority']
+        self.enabled = config.enabled
+        self.priority = config.priority
 
         # v7.1.2: 支持Portfolio和Pair两种cooldown模式
         self.cooldown_until = None    # Portfolio规则: 全局cooldown
@@ -87,6 +87,26 @@ class RiskRule(ABC):
         3. 执行具体检测逻辑
         4. 如果触发，返回(True, 详细描述)
         5. 如果未触发，返回(False, "")
+        """
+        pass
+
+
+    @abstractmethod
+    def get_trigger_name(self) -> str:
+        """
+        返回简化的触发名称（用于整合日志）
+
+        Returns:
+            简化名称字符串（如"持仓超时", "最大回撤", "累积亏损"）
+
+        示例:
+            class PairHoldingTimeoutRule(RiskRule):
+                def get_trigger_name(self) -> str:
+                    return "持仓超时"
+
+        用途:
+            用于RiskManager的整合日志输出:
+            [Pair风控] 持仓超时 ('A','B'): description, 激活冷却期(10天)
         """
         pass
 
@@ -158,9 +178,9 @@ class RiskRule(ABC):
         """
         # 优先使用传入的days参数,否则从config读取
         if days is None:
-            if 'cooldown_days' not in self.config:
+            if not hasattr(self.config, 'cooldown_days'):
                 return
-            days = self.config['cooldown_days']
+            days = self.config.cooldown_days
 
         if days is None or days <= 0:
             return

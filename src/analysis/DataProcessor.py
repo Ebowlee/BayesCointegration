@@ -9,18 +9,17 @@ from collections import defaultdict
 class DataProcessor:
     """数据处理器 - 负责历史数据的获取和预处理"""
 
-    def __init__(self, algorithm, shared_config: dict, module_config: dict):
+    def __init__(self, algorithm, analysis_config):
         """
         初始化数据处理器
 
         Args:
             algorithm: QCAlgorithm实例
-            shared_config: 共享配置字典
-            module_config: 模块配置字典
+            analysis_config: AnalysisConfig dataclass实例
         """
         self.algorithm = algorithm
-        self.lookback_days = shared_config['lookback_days']
-        self.data_completeness_ratio = module_config['data_completeness_ratio']
+        self.lookback_days = analysis_config.lookback_days
+        self.data_completeness_ratio = analysis_config.data_completeness_ratio
 
 
     def process(self, symbols: List[Symbol]) -> Dict:

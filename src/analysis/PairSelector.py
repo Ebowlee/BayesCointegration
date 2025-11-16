@@ -9,23 +9,22 @@ from src.analysis.PairData import PairData
 class PairSelector:
     """配对评估和筛选器 - 负责评估配对质量并筛选最佳配对"""
 
-    def __init__(self, algorithm, shared_config: dict, module_config):
+    def __init__(self, algorithm, analysis_config, module_config):
         """
         初始化配对选择器 (v7.12.0: 移除blacklist_manager依赖)
 
         Args:
             algorithm: QCAlgorithm实例
-            shared_config: 共享配置字典(analysis_shared)
-            module_config: 模块配置对象(PairSelectorConfig dataclass)
+            analysis_config: AnalysisConfig dataclass实例
+            module_config: PairSelectorConfig dataclass实例
         """
         self.algorithm = algorithm
 
-        # 从shared_config读取 (字典类型)
-        self.lookback_days = shared_config['lookback_days']  # 252天,与BayesianModeler统一
+        # 从analysis_config读取
+        self.lookback_days = analysis_config.lookback_days  # 252天,与BayesianModeler统一
 
-        # 从module_config读取 (dataclass类型)
-        self.max_symbol_repeats = module_config.max_symbol_repeats
-        # v7.12.0: max_pairs已从config中删除
+        # 从module_config读取
+        # v7.31.0: max_symbol_repeats已迁移到CointegrationAnalyzer
         self.min_quality_threshold = module_config.min_quality_threshold
         self.quality_weights = module_config.quality_weights
         self.scoring_thresholds = module_config.scoring_thresholds
@@ -135,91 +134,25 @@ class PairSelector:
             if p['quality_score'] > min_threshold  # 严格大于（不包含等于）
         ]
 
-        # Step 2: [v7.12.0] 风险配对过滤
-        qualified_pairs = self._filter_risk_pairs(qualified_pairs)
+        # v7.30.0: 诊断日志 - 质量筛选
+        self.algorithm.Debug(
+            f"[质量筛选] 输入{len(scored_pairs)}对 → "
+            f"质量阈值>{min_threshold:.2f} → "
+            f"通过{len(qualified_pairs)}对 (损失{len(scored_pairs) - len(qualified_pairs)}对)",
+            level=1
+        )
 
-        # Step 3: 按质量分数排序（从高到低）
+        # v7.31.0: 删除Step 2风险配对过滤 (冷却期由ExecutionManager统一检查)
+        # v7.31.0: 删除Step 4单股重复限制 (已在CointegrationAnalyzer阶段完成)
+
+        # Step 2: 按质量分数排序（从高到低）
         sorted_pairs = sorted(qualified_pairs, key=lambda x: x['quality_score'], reverse=True)
 
-        # Step 4: 单股重复限制（确保单个股票不会出现在过多配对中）
-        selected = []
-        symbol_counts = defaultdict(int)
-
-        for pair in sorted_pairs:
-            symbol1 = pair['symbol1']
-            symbol2 = pair['symbol2']
-
-            # 检查单股重复限制
-            if (symbol_counts[symbol1] < self.max_symbol_repeats and
-                symbol_counts[symbol2] < self.max_symbol_repeats):
-
-                selected.append(pair)
-                symbol_counts[symbol1] += 1
-                symbol_counts[symbol2] += 1
-
-                # v7.12.0: 移除max_pairs限制,改用资金约束自然限制
-
-        return selected
+        return sorted_pairs
 
 
     # ===== 私有评分方法 (Private Scoring Methods) =====
-
-    def _filter_risk_pairs(self, qualified_pairs):
-        """
-        风险配对过滤 (v7.12.0: 简化黑名单逻辑)
-
-        剔除条件:
-        - last_close_reason = 'DRAWDOWN' 且仍在冻结期（180天内）
-        - last_close_reason = 'ANOMALY'（永久剔除）
-
-        设计理由:
-        - 简化黑名单逻辑: 不再依赖trade_count统计,直接检查平仓原因
-        - DRAWDOWN: 回撤触发,需要180天冷却期重新观察
-        - ANOMALY: 订单异常,永久剔除避免系统性问题
-
-        Args:
-            qualified_pairs: 已通过质量门槛的配对列表
-
-        Returns:
-            list: 非风险配对列表
-        """
-        risk_reasons = {'DRAWDOWN', 'ANOMALY'}
-        filtered_pairs = []
-        risk_rejected = []
-
-        for pair_data in qualified_pairs:
-            pair_id = (pair_data['symbol1'].Value, pair_data['symbol2'].Value)
-
-            # 查询历史配对对象 (从PairsManager)
-            existing_pair = self.algorithm.pairs_manager.get_pair_by_id(pair_id)
-
-            # 如果是新配对,直接通过
-            if existing_pair is None:
-                filtered_pairs.append(pair_data)
-                continue
-
-            # 检查平仓原因
-            if existing_pair.last_close_reason not in risk_reasons:
-                filtered_pairs.append(pair_data)
-                continue
-
-            # 风险原因检查: DRAWDOWN需要检查冷却期, ANOMALY永久剔除
-            frozen_days = existing_pair.get_pair_frozen_days()
-            if frozen_days is None:
-                # 从未平仓,直接通过
-                filtered_pairs.append(pair_data)
-                continue
-
-            cooldown_days = existing_pair.get_cooldown_days()
-            if frozen_days >= cooldown_days:
-                # 冷却期已过,可以重新选择
-                filtered_pairs.append(pair_data)
-            else:
-                # 仍在冷却期,剔除
-                risk_rejected.append(pair_id)
-
-        return filtered_pairs
-
+    # v7.31.0: 删除_filter_risk_pairs()方法 (冷却期由ExecutionManager统一检查)
 
     def _calculate_half_life_score(self, model_result):
         """

@@ -83,7 +83,8 @@
       "Bash(for commit in 7560e07 7fac185 a81b9ec acb1b62)",
       "Bash(do echo \"=== Commit: $commit ===\")",
       "Bash(done)",
-      "Bash(nul)"
+      "Bash(nul)",
+      "Bash(chcp 65001)"
     ],
     "deny": []
   },

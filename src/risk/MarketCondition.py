@@ -51,11 +51,11 @@ class MarketCondition:
         self.algorithm = algorithm
         self.config = config
 
-        # 从config.risk_management['market_condition']读取配置
-        mc_config = config.risk_management['market_condition']
-        self.enabled = mc_config['enabled']
-        self.vix_threshold = mc_config['vix_threshold']              # v7.28.1: 阻止开仓阈值=35
-        self.vix_warning_threshold = mc_config['vix_warning_threshold']  # v7.28.1: 警告阈值=30
+        # 从config.risk_management.market_condition读取配置
+        mc_config = config.risk_management.market_condition
+        self.enabled = mc_config.enabled
+        self.vix_threshold = mc_config.vix_threshold              # v7.28.1: 阻止开仓阈值=35
+        self.vix_warning_threshold = mc_config.vix_warning_threshold  # v7.28.1: 警告阈值=30
 
 
 

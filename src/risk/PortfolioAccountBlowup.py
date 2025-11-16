@@ -63,15 +63,15 @@ class AccountBlowupRule(RiskRule):
         2. 计算亏损比例 = (初始资金 - 当前价值) / 初始资金
         3. 如果亏损比例 >= 阈值，则触发
 
+        v7.31.0: RiskManager已在check()前统一检查冷却期,此处检查成为Fail-Safe机制
+
         Returns:
             (是否触发, 风险描述)
             - 触发: (True, "账户爆仓: 亏损XX.X% >= 阈值YY.Y%")
             - 未触发: (False, "")
         """
-        # 检查是否在冷却期内
+        # v7.31.0: Fail-Safe - RiskManager应已过滤冷却期规则
         if self.is_in_cooldown():
-            if getattr(self.algorithm.config.main, 'debug_mode', False):
-                self.algorithm.Debug(f"[AccountBlowup] 跳过: 冷却期至{self.cooldown_until}")
             return False, ""
 
         # 获取当前账户总价值
@@ -81,7 +81,7 @@ class AccountBlowupRule(RiskRule):
         loss_ratio = (self.initial_capital - portfolio_value) / self.initial_capital
 
         # 获取阈值
-        threshold = self.config['threshold']
+        threshold = self.config.threshold
 
         # 智能日志: 只在触发或接近阈值时打印(减少噪音)
         warning_threshold = threshold * 0.8  # 警告线: 阈值的80%
@@ -104,3 +104,8 @@ class AccountBlowupRule(RiskRule):
 
         # 正常情况: 静默(不打印,减少日志噪音)
         return False, ""
+
+
+    def get_trigger_name(self) -> str:
+        """返回简化的触发名称(用于整合日志)"""
+        return "账户爆仓"

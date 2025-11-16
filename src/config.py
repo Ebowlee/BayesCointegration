@@ -94,6 +94,7 @@ class CointegrationConfig:
     # 行业分组
     min_stocks_per_industry: int = 4                                # 行业最少股票数
     max_stocks_per_industry: int = 40                               # 行业最多股票数 (粗选已排序,直接限制)
+    max_symbol_repeats: int = 3                                     # v7.31.0: 单股最多允许配对数 (从PairSelector迁移)
 
 
 @dataclass
@@ -137,7 +138,7 @@ class BayesianModelerConfig:
 @dataclass
 class PairSelectorConfig:
     """配对质量评估配置"""
-    max_symbol_repeats: int = 1                                     # 单股最多配对数（同一轮同一只股票只允许参与构建一个协整对）
+    # v7.31.0: max_symbol_repeats已迁移到CointegrationConfig
     min_quality_threshold: float = 0.60                             # 最低质量分数阈值
     quality_weights: Dict = field(default_factory=lambda: {
         'half_life': 0.50,
@@ -178,15 +179,15 @@ class PairsTradingConfig:
 
     # v7.30.13: 整合自适应最大投资比例配置
     adaptive_max_investment_ratio: Dict[str, float] = field(default_factory=lambda: {
-        'tier1': 0.10,      # ≤5对: 极度稀缺,降低风险
-        'tier2': 0.15,      # ≤15对: 稀缺,保持标准
-        'default': 0.20,    # >15对: 充裕,适度放大
+        'tier1': 0.10,                                             # ≤5对: 极度稀缺,降低风险
+        'tier2': 0.15,                                             # ≤15对: 稀缺,保持标准
+        'default': 0.20,                                           # >15对: 充裕,适度放大
     })
 
     # 自适应阈值配置
     adaptive_thresholds: Dict[str, int] = field(default_factory=lambda: {
-        'tier1': 5,         # 极度稀缺阈值
-        'tier2': 15,        # 稀缺阈值
+        'tier1': 5,                                                # 极度稀缺阈值
+        'tier2': 15,                                               # 稀缺阈值
     })
 
     # 保证金管理

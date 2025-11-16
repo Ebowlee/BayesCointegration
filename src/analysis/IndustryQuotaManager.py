@@ -52,19 +52,19 @@ class IndustryQuotaManager:
     }
     """
 
-    def __init__(self, algorithm, config: dict):
+    def __init__(self, algorithm, config):
         """
         初始化行业配额管理器
 
         Args:
             algorithm: QCAlgorithm实例
-            config: industry_quota配置字典
+            config: IndustryQuotaConfig dataclass实例
         """
         self.algorithm = algorithm
-        self.warmup_days = config['warmup_days']
-        self.default_quota = config['default_quota']
-        self.tier_thresholds = config['tier_thresholds']
-        self.tier_quotas = config['tier_quotas']
+        self.warmup_days = config.warmup_days
+        self.default_quota = config.default_quota
+        self.tier_thresholds = config.tier_thresholds
+        self.tier_quotas = config.tier_quotas
 
 
     def calculate_quotas(self, pairs_manager) -> Dict[str, int]:
@@ -191,25 +191,28 @@ class IndustryQuotaManager:
 
     def _get_quota_by_return(self, weighted_return: float) -> int:
         """
-        根据加权收益率计算配额
+        根据加权收益率计算配额 (v7.30.1: 5层阶梯)
 
         Args:
             weighted_return: 加权收益率 (小数, 如0.05表示5%)
 
         Returns:
-            配额数量 (1/3/6/9)
+            配额数量 (1/2/4/6/8)
 
-        分层逻辑:
-            weighted_return ≤ 0.05  → tier1 (1个)
-            weighted_return ≤ 0.10  → tier2 (3个)
-            weighted_return ≤ 0.20  → tier3 (6个)
-            weighted_return > 0.20  → tier4 (9个)
+        分层逻辑 (v7.30.1):
+            weighted_return < 0.0   → tier0 (1个,负收益惩罚)
+            weighted_return < 0.10  → tier1 (2个,[0%,10%))
+            weighted_return < 0.20  → tier2 (4个,[10%,20%))
+            weighted_return < 0.30  → tier3 (6个,[20%,30%))
+            weighted_return >= 0.30 → tier4 (8个,[30%,∞))
         """
-        if weighted_return <= self.tier_thresholds['tier1']:
-            return self.tier_quotas['tier1']
-        elif weighted_return <= self.tier_thresholds['tier2']:
-            return self.tier_quotas['tier2']
-        elif weighted_return <= self.tier_thresholds['tier3']:
-            return self.tier_quotas['tier3']
+        if weighted_return < self.tier_thresholds['tier0']:
+            return self.tier_quotas['tier0']  # 负收益
+        elif weighted_return < self.tier_thresholds['tier1']:
+            return self.tier_quotas['tier1']  # [0%, 10%)
+        elif weighted_return < self.tier_thresholds['tier2']:
+            return self.tier_quotas['tier2']  # [10%, 20%)
+        elif weighted_return < self.tier_thresholds['tier3']:
+            return self.tier_quotas['tier3']  # [20%, 30%)
         else:
-            return self.tier_quotas['tier4']
+            return self.tier_quotas['tier4']  # [30%, ∞)

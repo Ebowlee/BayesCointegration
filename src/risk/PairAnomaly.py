@@ -51,10 +51,12 @@ class PairAnomalyRule(RiskRule):
 
         检查流程:
         1. 检查规则是否启用
-        2. 检查该配对是否在冷却期
+        2. (v7.31.0 Fail-Safe) 检查该配对是否在冷却期
         3. 调用pair.has_anomaly()判断是否有异常
         4. 如果有异常,获取position_info详情
         5. 根据异常类型生成描述信息
+
+        v7.31.0: RiskManager已在check()前统一检查冷却期,此处检查成为Fail-Safe机制
 
         Args:
             pair: Pairs对象,必须实现has_anomaly_position()和get_position_info()方法
@@ -68,7 +70,6 @@ class PairAnomalyRule(RiskRule):
             - 复用Pairs.has_anomaly_position()方法,遵循DRY原则
             - 该方法内部调用get_position_info()自动检测异常模式
             - 与HoldingTimeoutRule类似,避免重复实现检测逻辑
-            - v7.1.2: 新增per-pair cooldown检查,防止同一配对短期内重复触发
 
         示例:
             triggered, desc = rule.check(pair=pair_obj)
@@ -78,7 +79,7 @@ class PairAnomalyRule(RiskRule):
         if not self.enabled:
             return False, ""
 
-        # 2. 检查该配对是否在冷却期
+        # 2. v7.31.0: Fail-Safe - RiskManager应已过滤冷却期配对
         if self.is_in_cooldown(pair_id=pair.pair_id):
             return False, ""
 
@@ -106,3 +107,8 @@ class PairAnomalyRule(RiskRule):
             self.algorithm.Error(f"[PairAnomalyRule] 检测到未预期的异常模式: {mode}")
 
         return True, description
+
+
+    def get_trigger_name(self) -> str:
+        """返回简化的触发名称(用于整合日志)"""
+        return "持仓异常"

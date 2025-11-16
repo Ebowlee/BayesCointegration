@@ -26,15 +26,19 @@ class CointegrationAnalyzer:
                 - 如果提供,使用动态配额
         """
         self.algorithm = algorithm
+        self.module_config = module_config  # v7.30.1: 保存config引用
         self.pvalue_threshold = module_config.pvalue_threshold
 
-        # 子行业分组配置
-        self.min_stocks_per_group = module_config.min_stocks_per_group
-        self.max_stocks_per_group = module_config.max_stocks_per_group
+        # 行业分组配置 (v7.30.4: 新增max_stocks_per_industry)
+        self.min_stocks_per_industry = module_config.min_stocks_per_industry
+        self.max_stocks_per_industry = module_config.max_stocks_per_industry
 
         # v7.12.0: 行业配额
         self.industry_quotas = industry_quotas if industry_quotas else {}
-        self.default_quota = algorithm.config.industry_quota['default_quota']
+        self.default_quota = algorithm.config.industry_quota.default_quota
+
+        # v7.31.0: 单股重复限制 (从PairSelector迁移)
+        self.max_symbol_repeats = module_config.max_symbol_repeats
 
 
     def cointegration_procedure(self, valid_symbols: List[Symbol], clean_data: Dict[Symbol, pd.DataFrame]) -> Dict:
@@ -57,10 +61,10 @@ class CointegrationAnalyzer:
             'industry_group_breakdown': {}
         }
 
-        # 步骤1: 按子行业分组（包含过滤+排序+数量限制）
-        industry_groups = self._group_by_industry_group(valid_symbols)
+        # 步骤1: 按行业分组（包含过滤+排序+数量限制）
+        industry_groups = self._group_by_industry(valid_symbols)
 
-        # 步骤2: 每个子行业内部进行协整配对
+        # 步骤2: 每个行业内部进行协整配对
         all_cointegrated_pairs = []
         for ig_name, symbols in industry_groups.items():
             # 查找该子行业内的协整配对
@@ -142,15 +146,29 @@ class CointegrationAnalyzer:
             except Exception:
                 failed_tests.append((symbol1, symbol2, 'unknown_error'))
 
-        # 步骤2: v7.12.0 应用行业配额
+        # 步骤2: v7.31.0 应用行业配额 + 单股重复限制 (贪心算法)
         # 获取该行业的配额 (如果industry_quotas为空,使用default_quota)
         quota = self.industry_quotas.get(ig_name, self.default_quota)
 
         # 按pvalue排序 (从小到大,p值越小协整关系越显著)
         sorted_pairs = sorted(cointegrated_pairs, key=lambda x: x['pvalue'])
 
-        # 选取TOP N配对
-        selected_pairs = sorted_pairs[:quota]
+        # v7.31.0: 贪心算法同时应用配额和重复限制
+        selected_pairs = []
+        symbol_counts = defaultdict(int)
+
+        for pair in sorted_pairs:
+            # 检查配额
+            if len(selected_pairs) >= quota:
+                break
+
+            # 检查单股重复限制
+            s1, s2 = pair['symbol1'], pair['symbol2']
+            if (symbol_counts[s1] < self.max_symbol_repeats and
+                symbol_counts[s2] < self.max_symbol_repeats):
+                selected_pairs.append(pair)
+                symbol_counts[s1] += 1
+                symbol_counts[s2] += 1
 
         # v7.28.3: 统一日志 - 显示完整流程（合并原Lines 73-77和165-169）
         industry_names = self.algorithm.config.constants['industry_names']
@@ -165,28 +183,39 @@ class CointegrationAnalyzer:
 
         self.algorithm.Debug(
             f"[协整分析] {industry_name}({ig_name}): "
-            f"{len(symbols)}只股票 → 检测{len(symbols)*(len(symbols)-1)//2}对 → "
-            f"原始通过{len(sorted_pairs)}对 → 配额{quota} → 最终选取{len(selected_pairs)}对",
+            f"{len(symbols)}只股票 → 配对{len(symbols)*(len(symbols)-1)//2}对 → "
+            f"PValue通过{len(sorted_pairs)}对 → 配额{quota} → 最终选取{len(selected_pairs)}对",
             level=1
         )
 
         return selected_pairs
 
 
-    def _group_by_industry_group(self, symbols: List[Symbol]) -> Dict[str, List[Symbol]]:
+    def _group_by_industry(self, symbols: List[Symbol]) -> Dict[str, List[Symbol]]:
         """
-        按26个子行业分组，每个子行业选TOP stocks
+        按55个行业分组 - v7.30.4简化
 
         Args:
-            symbols: UniverseSelection输出的所有通过筛选的股票
+            symbols: 已通过Fine筛选的股票列表 (已在粗选阶段按Volume全局排序)
 
         Returns:
-            {industry_group_code: [symbols]} 字典
+            {industry_code: [symbols]} 字典
+
+        流程:
+        1. 按MorningstarIndustryGroupCode分组
+        2. 过滤: 最少min_stocks_per_industry只
+        3. 限制: 最多max_stocks_per_industry只 (直接切片,无需排序)
+
+        v7.30.4变更:
+        - 移除行业内Volume排序 (粗选阶段已完成全局Volume排序)
+        - 新增max_stocks_per_industry参数 (直接限制行业股票数上限)
+
+        v7.30.1变更:
+        - 移除市值筛选逻辑,只用Volume筛选
         """
         industry_groups = defaultdict(list)
 
-        # 步骤1: 收集每只股票的市值和子行业信息
-        stock_info = []
+        # 步骤1: 按行业分组
         failed_symbols = []
 
         for symbol in symbols:
@@ -203,17 +232,16 @@ class CointegrationAnalyzer:
                     continue
 
                 ig_code = security.Fundamentals.AssetClassification.MorningstarIndustryGroupCode
-                market_cap = security.Fundamentals.MarketCap
 
                 # 验证数据有效性
-                if ig_code is None or market_cap is None or market_cap <= 0:
+                if ig_code is None:
                     failed_symbols.append((symbol, 'invalid_data'))
                     continue
 
-                stock_info.append({
+                # 直接添加到分组
+                industry_groups[ig_code].append({
                     'symbol': symbol,
-                    'ig_code': ig_code,
-                    'market_cap': market_cap
+                    'ig_code': ig_code
                 })
 
             except AttributeError:
@@ -221,32 +249,24 @@ class CointegrationAnalyzer:
             except Exception:
                 failed_symbols.append((symbol, 'unknown_error'))
 
-
-        # 步骤2: 按子行业分组
-        for info in stock_info:
-            industry_groups[info['ig_code']].append(info)
-
-        # 步骤3: 过滤+排序+限制数量
+        # 步骤2: 过滤行业股票数 (最少min只,最多max只)
         valid_groups = {}
         skipped_groups = []
 
         for ig_code, stocks_list in industry_groups.items():
-            # 过滤：至少min_stocks_per_group只
-            if len(stocks_list) < self.min_stocks_per_group:
+            # 过滤: 至少min_stocks_per_industry只
+            if len(stocks_list) < self.min_stocks_per_industry:
                 skipped_groups.append((ig_code, len(stocks_list)))
                 continue
 
-            # 排序：按市值降序
-            sorted_stocks = sorted(stocks_list, key=lambda x: x['market_cap'], reverse=True)
-
-            # 限制：最多max_stocks_per_group只
-            top_stocks = sorted_stocks[:self.max_stocks_per_group]
+            # 限制: 最多max_stocks_per_industry只 (粗选已排序,直接切片)
+            limited_stocks = stocks_list[:self.max_stocks_per_industry]
 
             # 提取symbols
-            valid_groups[str(ig_code)] = [s['symbol'] for s in top_stocks]
-
-
+            valid_groups[str(ig_code)] = [s['symbol'] for s in limited_stocks]
 
         return valid_groups
+
+
 
 

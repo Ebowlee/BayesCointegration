@@ -23,7 +23,7 @@ from typing import List, Tuple, Optional
 
 class RiskManager:
     """
-    风控调度器 
+    风控调度器
 
     职责:
     - 注册和管理所有Portfolio和Pair层面的风控规则
@@ -38,6 +38,7 @@ class RiskManager:
     - 延迟cooldown：Intent执行成功后再激活cooldown
     - 优先级排序：始终返回最高优先级规则的Intent
     - 分层检查：Portfolio和Pair分开调度，API完全对称
+    - v7.31.0: 统一冷却期检查 - RiskManager在check()前统一检查,Rule内部检查成为Fail-Safe
     - check_portfolio_risks() → List[CloseIntent]
     - check_pair_risks(pair) → Optional[CloseIntent]
     - check_all_pair_risks() → List[CloseIntent]
@@ -87,10 +88,10 @@ class RiskManager:
         """
         self.algorithm = algorithm
         self.config = config
-        self.pairs_manager = pairs_manager  
+        self.pairs_manager = pairs_manager
 
         # 全局开关
-        self.enabled = config.risk_management.get('enabled', True)
+        self.enabled = config.risk_management.enabled
 
         # 注册Portfolio层面规则
         self.portfolio_rules = self._register_portfolio_rules()
@@ -152,15 +153,15 @@ class RiskManager:
         }
 
         # 从config读取规则配置
-        portfolio_rule_configs = self.config.risk_management['portfolio_rules']
+        portfolio_rules_config = self.config.risk_management.portfolio_rules
 
         # 遍历rule_map，动态注册
         for rule_name, rule_class in rule_map.items():
-            if rule_name in portfolio_rule_configs:
-                rule_config = portfolio_rule_configs[rule_name]
-
+            # 使用getattr动态获取规则配置
+            rule_config = getattr(portfolio_rules_config, rule_name, None)
+            if rule_config is not None:
                 # 只注册enabled的规则
-                if rule_config.get('enabled', True):
+                if rule_config.enabled:
                     try:
                         rule_instance = rule_class(self.algorithm, rule_config)
                         rules.append(rule_instance)
@@ -208,15 +209,15 @@ class RiskManager:
         }
 
         # 从config读取规则配置
-        pair_rule_configs = self.config.risk_management['pair_rules']
+        pair_rules_config = self.config.risk_management.pair_rules
 
         # 遍历rule_map，动态注册
         for rule_name, rule_class in rule_map.items():
-            if rule_name in pair_rule_configs:
-                rule_config = pair_rule_configs[rule_name]
-
+            # 使用getattr动态获取规则配置
+            rule_config = getattr(pair_rules_config, rule_name, None)
+            if rule_config is not None:
                 # 只注册enabled的规则
-                if rule_config.get('enabled', True):
+                if rule_config.enabled:
                     try:
                         rule_instance = rule_class(self.algorithm, rule_config)
                         rules.append(rule_instance)
@@ -271,6 +272,11 @@ class RiskManager:
             if not rule.enabled:
                 continue
 
+            # v7.31.0: 统一检查冷却期(职责集中化)
+            if rule.is_in_cooldown():
+                continue
+
+            # Rule.check()内部的冷却期检查成为Fail-Safe机制
             try:
                 triggered, description = rule.check()
                 if triggered:
@@ -490,14 +496,16 @@ class RiskManager:
             if not rule.enabled:
                 continue
 
-            # Rule.check()内部会检查per-pair cooldown
+            # v7.31.0: 统一检查冷却期(职责集中化)
+            if rule.is_in_cooldown(pair_id=pair.pair_id):
+                continue
+
+            # Rule.check()内部的冷却期检查成为Fail-Safe机制
             try:
                 triggered, description = rule.check(pair=pair)
                 if triggered:
                     # 找到触发规则,立即生成Intent并返回(排他性: 最高优先级)
-                    self.algorithm.Debug(
-                        f"[Pair风控] {rule.__class__.__name__} 触发: {description}"
-                    )
+                    # v7.30.7: 不在这里打印日志,延迟到activate_cooldown_for_pairs统一打印
 
                     # 获取reason字符串
                     reason = self._pair_rule_to_reason_map.get(
@@ -560,26 +568,28 @@ class RiskManager:
                 # 激活Rule层面的cooldown标记
                 rule.activate_cooldown(pair_id=pair_id)
 
-                # 从Pairs对象查询真实冷却天数 (用于日志显示)
-                pair_obj = self.pairs_manager.get_pair_by_id(pair_id)
-                if pair_obj:
-                    cooldown_days = pair_obj.get_cooldown_days()  # 从config.close_reasons查询
-                else:
-                    cooldown_days = 10  # 默认10天
+                # v7.30.10: 从触发规则的config读取冷却期 (修复BUG: 之前错误读取pair.get_cooldown_days()返回10天默认值)
+                cooldown_days = rule.config.cooldown_days
 
                 # 记录用于批量日志
                 if rule not in activated_rules:
                     activated_rules[rule] = []
                 activated_rules[rule].append((pair_id, cooldown_days))
 
-        # 批量日志输出
+        # v7.30.7: 整合日志输出 (pair_id + description + 冷却期)
         for rule, pair_cooldowns in activated_rules.items():
-            pair_ids = [pair_id for pair_id, _ in pair_cooldowns]
-            cooldown_days = pair_cooldowns[0][1] if pair_cooldowns else 0
-            self.algorithm.Debug(
-                f"[Pair风控] {rule.__class__.__name__} 激活{len(pair_ids)}个配对的冷却期 "
-                f"({cooldown_days}天): {pair_ids}"
-            )
+            trigger_name = rule.get_trigger_name()  # 获取简化名称(如"持仓超时")
+
+            for pair_id, cooldown_days in pair_cooldowns:
+                # 重新调用check获取description(为了整合日志)
+                pair = self.pairs_manager.get_pair_by_id(pair_id)
+                if pair:
+                    triggered, description = rule.check(pair)
+                    if triggered:
+                        self.algorithm.Debug(
+                            f"[Pair风控] {trigger_name} {pair_id}: {description} | "
+                            f"规则优先级={rule.priority}, 冷却期={cooldown_days}天"
+                        )
 
         # 清空映射(防止下次OnData误用旧映射)
         self._pair_intent_to_rule_map.clear()

@@ -36,16 +36,16 @@ class PairHoldingTimeoutRule(RiskRule):
     ```
     """
 
-    def __init__(self, algorithm, config: dict):
+    def __init__(self, algorithm, config):
         """
         初始化持仓超时规则
 
         Args:
             algorithm: QCAlgorithm实例
-            config: 规则配置字典,必须包含'max_halflife_multiplier'字段
+            config: HoldingTimeoutRuleConfig dataclass实例
         """
         super().__init__(algorithm, config)
-        self.max_halflife_multiplier = config['max_halflife_multiplier']
+        self.max_halflife_multiplier = config.max_halflife_multiplier
 
 
     def check(self, pair) -> Tuple[bool, str]:
@@ -54,10 +54,12 @@ class PairHoldingTimeoutRule(RiskRule):
 
         检查流程:
         1. 检查规则是否启用
-        2. 检查该配对是否在冷却期
+        2. (v7.31.0 Fail-Safe) 检查该配对是否在冷却期
         3. 动态计算该配对的最大持有时间 (half_life × multiplier)
         4. 调用pair.get_pair_holding_days()获取实际持仓天数
         5. 判断是否超过动态阈值
+
+        v7.31.0: RiskManager已在check()前统一检查冷却期,此处检查成为Fail-Safe机制
 
         Args:
             pair: Pairs对象,必须实现get_pair_holding_days()和half_life属性
@@ -82,7 +84,7 @@ class PairHoldingTimeoutRule(RiskRule):
         if not self.enabled:
             return False, ""
 
-        # 2. 检查该配对是否在冷却期
+        # 2. v7.31.0: Fail-Safe - RiskManager应已过滤冷却期配对
         if self.is_in_cooldown(pair_id=pair.pair_id):
             return False, ""
 
@@ -107,23 +109,26 @@ class PairHoldingTimeoutRule(RiskRule):
             entry_time = getattr(pair, 'pair_opened_time', None)
             entry_time_str = entry_time.strftime('%Y-%m-%d') if entry_time else "未知"
 
-            # v7.13.1: 根据实际使用的公式动态生成日志
+            # v7.30.7: 简化description(移除"持仓超时:"前缀和开仓时间)
             if pair.half_life_std > 0:
                 # 新公式: half_life + 2*std
                 description = (
-                    f"持仓超时: 已持仓{holding_days}天 > "
+                    f"已持仓{holding_days}天 > "
                     f"上限{max_days:.1f}天 "
-                    f"(半衰期{pair.half_life:.1f}天 + 2×标准差{pair.half_life_std:.1f}天, "
-                    f"开仓时间: {entry_time_str})"
+                    f"(半衰期{pair.half_life:.1f}天 + 2×标准差{pair.half_life_std:.1f}天)"
                 )
             else:
                 # 旧公式: half_life × multiplier (兼容模式)
                 description = (
-                    f"持仓超时: 已持仓{holding_days}天 > "
+                    f"已持仓{holding_days}天 > "
                     f"上限{max_days:.1f}天 "
-                    f"(半衰期{pair.half_life:.1f}天 × {self.max_halflife_multiplier}, "
-                    f"开仓时间: {entry_time_str})"
+                    f"(半衰期{pair.half_life:.1f}天 × {self.max_halflife_multiplier})"
                 )
             return True, description
 
         return False, ""
+
+
+    def get_trigger_name(self) -> str:
+        """返回简化的触发名称(用于整合日志)"""
+        return "持仓超时"

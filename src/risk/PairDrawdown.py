@@ -76,8 +76,10 @@ class PairDrawdownRule(RiskRule):
 
         检查流程:
         1. 检查规则是否启用
-        2. 检查该配对是否在冷却期
+        2. (v7.31.0 Fail-Safe) 检查该配对是否在冷却期
         3. 检查当前持仓回撤是否超过阈值
+
+        v7.31.0: RiskManager已在check()前统一检查冷却期,此处检查成为Fail-Safe机制
 
         Args:
             pair: Pairs对象,必须实现 get_pair_pnl(), get_pair_cost() 方法
@@ -105,7 +107,7 @@ class PairDrawdownRule(RiskRule):
         if not self.enabled:
             return False, ""
 
-        # 2. 检查该配对是否在冷却期
+        # 2. v7.31.0: Fail-Safe - RiskManager应已过滤冷却期配对
         if self.is_in_cooldown(pair_id=pair.pair_id):
             return False, ""
 
@@ -138,7 +140,7 @@ class PairDrawdownRule(RiskRule):
         drawdown = (hwm - pair_value) / hwm
 
         # 7. 获取阈值
-        threshold = self.config['threshold']
+        threshold = self.config.threshold
 
         # 智能日志: 只在触发或接近阈值时打印(减少噪音)
         warning_threshold = threshold * 0.8  # 警告线: 阈值的80%
@@ -147,21 +149,15 @@ class PairDrawdownRule(RiskRule):
         if drawdown >= threshold:
             # 触发: 单次回撤超过阈值
             pnl_status = "盈利" if pnl > 0 else "亏损"
+            # v7.30.7: 简化description(移除"配对回撤-单次:"前缀,简化数字格式)
             description = (
-                f"配对回撤-单次: {drawdown*100:.1f}% >= {threshold*100:.1f}% "
-                f"(当前价值: ${pair_value:,.2f}, HWM: ${hwm:,.2f}, "
-                f"PnL: ${pnl:,.2f}, 成本: ${pair_cost:,.2f}, 状态: {pnl_status})"
+                f"回撤={drawdown*100:.1f}% >= {threshold*100:.1f}% "
+                f"(当前价值${pair_value:,.0f}, HWM${hwm:,.0f}, "
+                f"PnL${pnl:,.0f}, 成本${pair_cost:,.0f}, {pnl_status})"
             )
-            # v7.28.2: 移除重复打印,统一由RiskManager打印
             return True, description
 
-        # 接近阈值时打印警告(警告线到阈值之间)
-        elif drawdown >= warning_threshold:
-            self.algorithm.Debug(
-                f"[Pair风控] PairDrawdownRule 警告: 回撤={drawdown*100:.2f}% "
-                f"(接近阈值{threshold*100:.0f}%, HWM=${hwm:,.0f}, 当前=${pair_value:,.0f})"
-            )
-
+        # v7.30.7: 删除警告日志(只保留触发日志)
         # 正常情况: 静默(不打印,减少日志噪音)
         return False, ""
 
@@ -193,3 +189,8 @@ class PairDrawdownRule(RiskRule):
         """
         if pair_id in self.pair_hwm_dict:
             del self.pair_hwm_dict[pair_id]
+
+
+    def get_trigger_name(self) -> str:
+        """返回简化的触发名称(用于整合日志)"""
+        return "最大回撤"

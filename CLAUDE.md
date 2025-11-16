@@ -32,24 +32,22 @@ Key architectural principles (v7.0.0):
 
 ## Log Design Principles
 
-### Purpose: Logs are for AI Agents, Not Humans
+**Purpose**: Logs are for backtest-analyst agent (AI) forensic analysis, not human debugging.
 
-**Critical Understanding**:
-- **Primary User**: backtest-analyst agent (AI), not human developers
-- **File Ecosystem**:
-  - overview.json: Strategy-level metrics (Sharpe, drawdown, total return)
-  - orders.csv: Order execution details (time, symbol, price, quantity, status)
-  - logs.txt: Reasoning context and state transitions (for AI inference)
+**File Ecosystem**:
+- **overview.json**: Strategy-level metrics (Sharpe, drawdown, total return)
+- **orders.csv**: Order execution details (time, symbol, price, quantity, status)
+- **logs.txt**: Reasoning context and state transitions (for AI inference)
 
 **Design Goals**:
-- Maximize AI-parseable analysis value within 100KB limit
-- Provide context that overview.json and orders.csv cannot capture
-- Enable forensic analysis of strategy decision-making process
+- Maximize AI-parseable value within 100KB limit
+- Provide decision context that overview.json/orders.csv cannot capture
+- Enable forensic analysis of strategy behavior
 
 **Log Priority Tiers**:
-1. **Must Keep**: trade_close JSON, risk triggers with numerical details, state transitions
-2. **Can Remove**: Redundant summaries derivable from orders.csv, verbose batch progress
-3. **Should Add**: Entry conditions (entry_zscore, quality_score), market context (VIX)
+1. **Critical**: Trade close events (JSON with PnL, holding days, exit reason), risk trigger details with numerical values
+2. **Important**: Entry conditions (entry_zscore, quality_score), market context (VIX), state transitions
+3. **Optional**: Redundant summaries derivable from orders.csv, verbose batch progress messages
 
 ## Development Commands
 
@@ -124,6 +122,53 @@ git commit -m "docs: update CHANGELOG for v7.2.5"
 - Ensures CHANGELOG.md stays synchronized with git history
 - Prevents forgotten documentation updates
 - Clarifies mandatory workflow steps
+
+## Performance Monitoring (v7.29.2+)
+
+### Key Metrics
+
+**Capital Efficiency**:
+- **Margin Utilization**: 保证金占用 / 初始资金 (Target: 20-40%)
+- **Position Fill Rate**: 已开仓配对 / 可交易配对 (Target: 50-70%)
+- **Idle Capital Diagnostic**: 诊断低开仓率原因 (资金不足, 信号缺失, 冷却期)
+
+**Pair Creation Funnel**:
+- **Cointegration Pass Rate**: 通过协整检验 / 候选配对
+- **Quality Filter Rate**: 通过质量筛选 / 协整配对
+- **Risk Filter Rate**: 通过风险过滤 / 质量配对
+- **Final Creation Rate**: 最终创建 / 全部候选
+
+**Valuation Screening** (v7.29.2):
+- **Pass Rate**: 通过估值筛选 / 输入股票
+- **Failure Breakdown**: PE失败数, PS失败数, 两者均失败数
+- **OR Logic Benefit**: 记录OR逻辑挽救的股票数量
+
+### Diagnostic Logs (Level 1)
+
+```python
+# 资金效率诊断示例
+[资金效率] 可交易配对3对 → 已开仓1对 (33.3%) → 保证金占用$3,500 (3.5%)
+[配对漏斗] 候选500对 → 协整476对 (95.2%) → 质量120对 (25.2%) → 最终3对 (0.6%)
+
+# 估值筛选统计示例
+[估值筛选] 输入500只 → 通过476只 (95.2%) → 失败24只 (4.8%)
+  ├─ PE失败: 10只
+  ├─ PS失败: 8只
+  └─ 两者均失败: 6只
+[OR逻辑] 挽救14只高成长股 (PE失败但PS≤10)
+```
+
+### Monitoring Guidelines
+
+**Daily Checks** (回测后):
+- 资金效率 < 10%: 检查信号生成逻辑或增加配对数量
+- 开仓率 < 30%: 检查冷却期配置或风险规则过严
+- 协整通过率 < 50%: 检查选股质量或协整参数
+
+**Monthly Reviews**:
+- 配对创建漏斗趋势: 识别瓶颈阶段 (协整/质量/风险)
+- 行业配额效果: 高收益行业是否获得更多配额
+- 估值筛选效果: OR逻辑挽救率是否合理 (Target: 10-20%)
 
 ## Core Module Architecture
 
@@ -261,15 +306,50 @@ git commit -m "docs: update CHANGELOG for v7.2.5"
   - `handle_pair_risk_actions()`: Replaced by handle_pair_risk_intents()
   - `liquidate_all_positions()`: Replaced by cleanup_remaining_positions()
 
-### 8. UniverseSelection.py - Stock Selection
-- **Purpose**: Monthly universe refresh
+### 8. MarginAllocator.py - Level 1 Global Fund Allocation (v7.0.0)
+- **Purpose**: Calculate available margin and allocate to entry candidates based on quality scores
+- **Design Principle**: "Stateless Calculator + Fixed Buffer Constraint"
+  - ✅ **Responsible for**: Computing available margin, assigning planned allocation percentages
+  - ❌ **NOT responsible for**: Position opening, risk checking, order execution
+- **Key Features**:
+  - **Fixed Buffer**: 5% of initial capital reserved throughout entire backtest (non-dynamic)
+  - **Baseline Constraint**: Allocation capped at `min(current_available, initial_capital × planned_pct)`
+  - **Min Investment Filter**: $5,000 minimum allocation per pair (filters trivial positions)
+  - **Quality-Based Scaling**: `planned_pct = min_pct + quality_score × (max_pct - min_pct)`
+- **Key Methods**:
+  - `get_available_margin()`: Returns `Portfolio.MarginRemaining - fixed_buffer`
+  - `allocate_margin(entry_candidates)`: Distributes margin to candidates by quality score, returns allocation dict
+  - `_calculate_planned_percentage(quality_score)`: Maps quality_score (0-1) to allocation percentage (10%-30%)
+- **Allocation Algorithm**:
+  1. Calculate total available margin (MarginRemaining - fixed_buffer)
+  2. Assign each candidate a planned percentage based on quality_score
+  3. Apply baseline constraint: `allocation = min(available_margin × planned_pct, initial_capital × planned_pct)`
+  4. Filter out allocations < min_investment ($5,000)
+  5. Return allocation dict: `{pair_id: allocated_margin}`
+- **Integration Pattern**:
+  ```python
+  # ExecutionManager.handle_normal_open_intents()
+  allocations = self.margin_allocator.allocate_margin(entry_candidates)
+  for pair_id, margin in allocations.items():
+      pair = self.pairs_manager.get_pair_by_id(pair_id)
+      intent = pair.get_open_intent(margin, data)
+      # ... execute intent
+  ```
+
+### 9. UniverseSelection.py - Stock Selection
+- **Purpose**: Monthly universe refresh with multi-stage fundamental screening
 - **Two-stage filtering**:
-  - Coarse: Price > $20, Volume > $5M, IPO > 3 years
-  - Fine: PE < 100, ROE > 0%, Debt/Assets < 80%
+  - **Coarse**: Price > $20, Volume > $5M, IPO > 3 years
+  - **Fine** (v7.29.0+):
+    - Valuation: PE ≤ 100 OR PS ≤ 10 (OR logic避免误杀高成长股)
+    - Profitability: ROE > 0%
+    - Leverage: Debt-to-Assets ≤ 70%, Leverage ≤ 5x
+    - Volatility: Annual volatility ≤ 50%
+    - Note: v7.29.1 unified boundary conditions (≤/≥ instead of </>)
 - **Industry-group-based selection**: Top stocks per Morningstar industry group (动态分组,实际出现18-20个)
 - **Triggers**: Monthly via `Schedule.On()` → `TriggerSelection()`
 
-### 9. TicketsManager.py - Order Lifecycle Tracking (v6.4.4)
+### 10. TicketsManager.py - Order Lifecycle Tracking (v6.4.4)
 - **Purpose**: Prevent duplicate orders via order locking mechanism
 - **Key Features**:
   - Real-time order status calculation (PENDING/COMPLETED/ANOMALY)
@@ -282,13 +362,23 @@ git commit -m "docs: update CHANGELOG for v7.2.5"
   - `get_anomaly_pairs()`: Detect pairs with order anomalies for risk management
 - **Design Principle**: Single source of truth - status derived from OrderTicket.Status
 
-### 10. Analysis Modules (src/analysis/)
+### 11. Analysis Modules (src/analysis/)
 - **DataProcessor**: Clean and prepare historical data (252-day lookback)
+- **PairData**: Data encapsulation class for pair analysis
+  - **Purpose**: Unified data interface for BayesianModeler and PairSelector
+  - **Factory Method**: `PairData.from_clean_data(pair_info, clean_data)` (recommended creation pattern)
+  - **Key Fields**: symbol1, symbol2, industry_code, clean_data (252-day DataFrame)
+  - **Usage**: Passed between analysis modules to avoid duplicate data preparation
 - **CointegrationAnalyzer**: Engle-Granger cointegration tests (p-value < 0.05) + industry quota application (v7.12.0)
+  - **Industry Grouping** (v7.30.1): 按55个MorningstarIndustryGroupCode分组
+  - **Volume Filtering** (v7.30.1): 每个子行业内按Volume(成交股数)筛选TOP 30
   - **Industry Quota** (v7.12.0): Applies dynamic quotas at cointegration stage
   - Selects TOP N pairs per industry by pvalue (N from IndustryQuotaManager)
 - **BayesianModeler**: PyMC MCMC parameter estimation (500 warmup + 500 samples, 2 chains)
+  - **Input**: PairData objects from CointegrationAnalyzer
+  - **Output**: ModelResult objects with posterior distributions (alpha, beta, sigma)
 - **PairSelector**: Quality scoring using 2 weighted metrics (v7.5.23) + risk pair filtering (v7.12.0)
+  - **Input**: ModelResult objects from BayesianModeler
   - **Quality Metrics**:
     - **half_life** (60%): Mean reversion speed (most independent + highest predictive power 57%)
     - **mean_reversion_certainty** (40%): AR(1) significance (theoretical core + moderate predictive power 50%)
@@ -429,56 +519,26 @@ required_margin = long_value * 0.5 + short_value * 1.5
 
 **Key Insight**: This model naturally constrains position count by available margin, eliminating the need for hard pair limits.
 
-### Dual Cooldown Mechanism (v7.2.21)
+### ~~Dual Cooldown Mechanism (v7.2.21)~~ [DEPRECATED in v7.12.0]
 
-The strategy implements **dynamic cooldown periods** based on exit reasons to balance trading frequency with risk management:
+**Note**: This mechanism was replaced by the **Unified Cooldown System** in v7.12.0. See CHANGELOG.md for migration details.
+
+<details>
+<summary>Historical Implementation (Click to expand)</summary>
+
+The strategy implemented **dynamic cooldown periods** based on exit reasons:
 
 **Normal Exit (CLOSE)**: 10 days
 - Z-score converges to mean (< 0.25σ)
 - Pair relationship remains healthy and mean-reverting
-- Allows relatively quick re-entry to maintain capital efficiency
 
 **Stop Loss Exit (STOP_LOSS)**: 30 days
 - Z-score exceeds threshold (> 2.5σ)
 - Indicates potential breakdown in cointegration relationship
-- Requires extended observation period before re-entry
 
-**Implementation Architecture:**
-```python
-# Pairs.py stores exit reason and provides dynamic cooldown
-class Pairs:
-    def __init__(self, ...):
-        self.cooldown_days_for_exit = 10  # Normal exit cooldown
-        self.cooldown_days_for_stop = 30  # Stop loss cooldown
-        self.last_close_reason = None     # Stores 'CLOSE' or 'STOP_LOSS'
+**v7.12.0 Change**: Unified to 3 cooldown types (NORMAL, DRAWDOWN, ANOMALY) with consistent propagation mechanism through `last_close_reason` field.
 
-    def get_cooldown_days(self) -> int:
-        """Returns 30 for STOP_LOSS, 10 for all other exits"""
-        if self.last_close_reason == 'STOP_LOSS':
-            return self.cooldown_days_for_stop  # 30 days
-        else:
-            return self.cooldown_days_for_exit  # 10 days
-
-# ExecutionManager uses dynamic cooldown in entry checks
-def is_pair_in_normal_cooldown(self, pair) -> bool:
-    frozen_days = pair.get_pair_frozen_days()  # Days since last close
-    if frozen_days is None:
-        return False
-    cooldown_days = pair.get_cooldown_days()   # Dynamic: 10 or 30
-    return frozen_days < cooldown_days
-```
-
-**Reason Propagation Chain:**
-1. ExecutionManager generates intent: `pair.get_close_intent(reason='STOP_LOSS')`
-2. OrderExecutor registers with reason: `tickets_manager.register_tickets(..., reason=intent.reason)`
-3. TicketsManager stores reason temporarily in `_pair_close_reasons`
-4. On order completion: `pairs_obj.on_position_filled(..., reason)`
-5. Pairs stores in `last_close_reason` for future cooldown calculations
-
-**Design Rationale:**
-- **Normal exits**: Pair still cointegrated, quick re-entry capitalizes on mean reversion
-- **Stop loss exits**: Suggests structural change, extended cooldown prevents repeated losses
-- **Other exits** (TIMEOUT/RISK_TRIGGER): Use 10-day cooldown as default (wind down scenarios)
+</details>
 
 ### Statistical Engine
 - **Cointegration testing**: Engle-Granger test with p-value < 0.05
@@ -489,8 +549,12 @@ def is_pair_in_normal_cooldown(self, pair) -> bool:
 ### Universe Selection Logic
 1. **Coarse filtering**: Price > $20, Volume > $5M, IPO > 3 years
 2. **Industry grouping**: MorningstarIndustryGroupCode动态分组(55个标准分组,实际出现18-20个)
-3. **Fundamental filters**: PE < 100, ROE > 0%, Debt-to-Assets < 70%, Leverage < 5x
-4. **Volatility filter**: Annual volatility < 50%
+3. **Fundamental filters** (v7.29.0+):
+   - **Valuation** (OR logic): PE ≤ 100 OR PS ≤ 10 (避免误杀高成长股)
+   - **Profitability**: ROE > 0%
+   - **Leverage**: Debt-to-Assets ≤ 70%, Leverage ≤ 5x
+   - **Note**: v7.29.1 unified boundary conditions (≤/≥ instead of </>)
+4. **Volatility filter**: Annual volatility ≤ 50% (v7.29.1: boundary inclusive)
 
 ## Cross-Module Communication (v7.0.0 OnData + Intent Pattern)
 
@@ -683,38 +747,30 @@ for pair in tradeable_pairs.values():
     signal = pair.get_signal(data)
 ```
 
-### Entry Z-Score Recording Mechanism (v7.2.16 Fixed)
-**Recording Timing**: `entry_zscore` is recorded **at signal generation time** in `get_signal()` method
-**Guarantee**: All recorded `entry_zscore` values satisfy `|zscore| >= entry_threshold` (1.0)
+### Entry Z-Score Recording Mechanism (v7.2.16)
 
-**Implementation Details** (Fixed in v7.2.16):
+**Core Principle**: `entry_zscore` is recorded **at signal generation time** (not at order execution time)
+
+**Implementation** (Pairs.get_signal()):
 ```python
-# Pairs.py:526-533 - Record at signal trigger moment
 if zscore > self.entry_threshold:
-    self.entry_zscore = zscore  # Capture exact triggering zscore
+    self.entry_zscore = zscore  # Capture exact triggering value
     return TradingSignal.SHORT_SPREAD
-
 elif zscore < -self.entry_threshold:
-    self.entry_zscore = zscore  # Capture exact triggering zscore
+    self.entry_zscore = zscore  # Guaranteed |zscore| ≥ 1.0
     return TradingSignal.LONG_SPREAD
 ```
 
-**Why This Fix Matters**:
-- **Before v7.2.16**: `entry_zscore` recorded at `get_open_intent()` time → could deviate to 0.07 due to market price changes
-- **After v7.2.16**: `entry_zscore` recorded at signal trigger moment → guaranteed to be ≥1.0 or ≤-1.0
-- **Analysis Impact**: Trade analysis now accurately reflects entry decision quality
+**Why This Matters**:
+- **Before v7.2.16**: Recorded at `get_open_intent()` → could deviate to 0.07 due to price changes
+- **After v7.2.16**: Recorded at signal trigger → guaranteed |zscore| ≥ entry_threshold (1.0)
+- **Benefit**: Trade analysis accurately reflects entry decision quality, not execution slippage
 
-**Note on Fill Price vs. Signal Price**:
-- `entry_zscore` reflects the **decision-making moment** (when signal triggered)
-- Actual fill occurs at next bar with potentially different prices
-- This is intentional: separates decision quality from execution slippage
-
-**Understanding Z-Score Calculation** (No Smoothing):
+**Z-Score Calculation** (No Smoothing):
 ```python
-# Pairs.py:485-507 - Raw price calculation
 log_residual = np.log(price1) - (alpha_mean + beta_mean * np.log(price2))
 zscore = (log_residual - residual_mean) / residual_std
-# No rolling window, no EMA, no filtering - instant response to price changes
+# Instant response to price changes - no rolling window, no EMA
 ```
 
 ## Testing and Debugging
@@ -740,17 +796,21 @@ zscore = (log_residual - residual_mean) / residual_std
 
 ## Version History
 
-**Current Version**: v7.12.0 (2025-11-14)
+**Current Version**: v7.29.2 (2025-02-06)
 
 **Recent Major Updates**:
-- **v7.12.0** (Nov 2025): Simplified freeze mechanism + industry dynamic quota system - unified cooldown (3 types), removed BlacklistManager, added IndustryQuotaManager
-- **v7.11.0** (Nov 2025): Adaptive holding timeout - dynamic holding time based on pair half-life
-- **v7.7.2** (Feb 2025): Config bug fix - added missing trade_analysis configuration block
-- **v7.7.1** (Feb 2025): Math bug fix - weighted average cumulative return calculation
-- **v7.7.0** (Feb 2025): Trade module OOP refactor - face-to-face OOP design (deprecated in v7.12.0)
-- **v7.5.23** (Feb 2025): Two-dimension quality scoring - removed Beta Stability and Residual Quality
-- **v7.0.0** (Jan 2025): Intent Pattern refactor - separated intent generation from order execution
-- **v6.4.4** (Jan 2025): Order lifecycle tracking - duplicate order prevention via locking mechanism
+- **v7.29.2** (Feb 2025): 诊断日志增强 - 估值筛选统计和资金效率诊断
+- **v7.29.1** (Feb 2025): 边界包含统一化 - 所有筛选器改为 ≤/≥ 避免边界值遗漏
+- **v7.29.0** (Feb 2025): 估值OR逻辑 - PE≤100 OR PS≤10 避免误杀高成长股
+- **v7.27.0** (Feb 2025): 累积亏损规则 - 新增PairCumulativeLossRule配对级风险控制
+- **v7.12.0** (Nov 2025): 简化冻结机制 + 行业动态配额系统 - 统一冷却机制,移除BlacklistManager,新增IndustryQuotaManager
+- **v7.11.0** (Nov 2025): 自适应持仓超时 - 基于半衰期的动态持仓时间限制
+- **v7.7.2** (Feb 2025): 配置修复 - 补充缺失的trade_analysis配置块
+- **v7.7.1** (Feb 2025): 数学修复 - 累积收益率加权平均计算
+- **v7.7.0** (Feb 2025): 交易模块OOP重构 - 面向对象设计 (v7.12.0已废弃)
+- **v7.5.23** (Feb 2025): 二维质量评分 - 移除Beta稳定性和残差质量指标
+- **v7.0.0** (Jan 2025): Intent模式重构 - 意图生成与订单执行分离
+- **v6.4.4** (Jan 2025): 订单生命周期追踪 - 订单锁防止重复提交
 
 **Complete History**: See [docs/CHANGELOG.md](docs/CHANGELOG.md) for detailed version history and breaking changes
 
