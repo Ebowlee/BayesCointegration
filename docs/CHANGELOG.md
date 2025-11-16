@@ -5,6 +5,59 @@
 ---
 
 
+## [v7.32.6_remove-vix-warning-log@20250117]
+
+### 版本概述
+**日志优化** - 删除VIX警告日志,减少日志噪音,只保留VIX恐慌时的关键日志。
+
+### 核心改进
+
+#### 删除VIX警告日志
+
+**背景**:
+- 当前逻辑: VIX≥30时输出警告日志,VIX≥35时阻止开仓
+- 问题: 30-35区间的警告日志频繁出现,但不影响交易决策,属于噪音信息
+
+**变更** (MarketCondition.py Lines 108-110):
+```python
+# 删除前:
+elif vix >= self.vix_warning_threshold:
+    self.algorithm.Debug(
+        f"[MarketCondition] 警告: VIX={vix:.1f} 接近阈值{self.vix_threshold} "
+        f"(警告线{self.vix_warning_threshold})"
+    )
+
+# 删除后:
+# vix_warning_threshold <= VIX < vix_threshold: 静默允许开仓（v7.32.6: 删除警告日志,减少噪音）
+# VIX < vix_warning_threshold: 正常开仓（无日志）
+return True
+```
+
+**日志行为变化**:
+```
+# 删除前:
+VIX=30.5 → [MarketCondition] 警告: VIX=30.5 接近阈值35 (警告线30)
+VIX=32.0 → [MarketCondition] 警告: VIX=32.0 接近阈值35 (警告线30)
+VIX=35.0 → [MarketCondition] VIX恐慌，暂停开仓: VIX=35.0 >= 35
+
+# 删除后:
+VIX=30.5 → (无日志,静默允许开仓)
+VIX=32.0 → (无日志,静默允许开仓)
+VIX=35.0 → [MarketCondition] VIX恐慌，暂停开仓: VIX=35.0 >= 35
+```
+
+**好处**:
+- ✅ 减少日志噪音: 只记录真正影响交易决策的恐慌事件
+- ✅ 提升日志可读性: 关键风控信息更清晰
+- ✅ 保留扩展性: vix_warning_threshold仍在配置中,未来可扩展
+
+**文档更新**:
+- 方法文档字符串 (Lines 66-85): 简化逻辑描述,移除警告步骤
+- 代码注释 (Lines 108-110): 标注v7.32.6版本删除原因
+
+---
+
+
 ## [v7.32.5_enhance-pnl-exemption-log@20250117]
 
 ### 版本概述
