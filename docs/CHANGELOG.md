@@ -5,6 +5,39 @@
 ---
 
 
+## [v7.31.3_hotfix-dataprocessor@20250116]
+
+### 版本概述
+**紧急修复** - 修复v7.31.3清理时遗漏的DataProcessor方法调用。
+
+### Bug修复
+
+**DataProcessor方法调用错误**:
+```python
+# 问题: v7.31.3删除_fill_missing_values()方法时未删除调用点
+# 报错: 'DataProcessor' object has no attribute '_fill_missing_values'
+
+# 修复位置: src/analysis/DataProcessor.py Line 73
+# BEFORE:
+# 填补缺失值
+symbol_ohlcv = self._fill_missing_values(symbol_ohlcv)
+
+# AFTER:
+# (删除整个调用,因为strict模式不需要填补缺失值)
+```
+
+**根本原因**:
+- v7.31.3清理时删除了`_fill_missing_values()`方法实现
+- 未同步删除Line 73的方法调用点
+- 代码审查不完整
+
+**影响范围**: 阻止数据处理流程 (致命错误)
+
+**设计说明**: strict模式(data_completeness_ratio=1.0)直接拒绝缺失数据,无需填补
+
+---
+
+
 ## [v7.31.3_hotfix-bayesian-config@20250116]
 
 ### 版本概述
