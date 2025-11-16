@@ -64,9 +64,8 @@ class MarketCondition:
         判断当前市场条件是否适合开仓 (v7.28.1 VIX-Only)
 
         单一指标逻辑:
-        - VIX >= vix_threshold (默认35): 阻止开仓
-        - vix_warning_threshold <= VIX < vix_threshold (默认30-35): 警告 + 允许开仓
-        - VIX < vix_warning_threshold (默认30): 正常开仓
+        - VIX >= vix_threshold (默认35): 阻止开仓 + 日志
+        - VIX < vix_threshold (默认<35): 允许开仓,静默
         - VIX无数据: 允许开仓（激进策略）
 
         Returns:
@@ -78,13 +77,12 @@ class MarketCondition:
         2. 获取VIX值
         3. VIX无数据 → 允许开仓
         4. VIX >= vix_threshold → 阻止开仓（level 0日志）
-        5. vix_warning_threshold <= VIX < vix_threshold → 警告 + 允许开仓（level 0日志）
-        6. VIX < vix_warning_threshold → 正常开仓
+        5. VIX < vix_threshold → 允许开仓（无日志）
 
         注意:
         - v7.28.1移除HistVol检查（后置指标无预测价值）
-        - 阈值和警告线均可配置（默认35和30）
-        - 所有日志为level 0（风控级别）
+        - v7.32.6移除VIX警告日志（减少噪音,只保留恐慌日志）
+        - vix_warning_threshold仍保留在配置中（未来扩展用）
         """
         # 全局禁用时，直接允许
         if not self.enabled:
@@ -105,14 +103,8 @@ class MarketCondition:
             )
             return False
 
-        # vix_warning_threshold <= VIX < vix_threshold: 警告 + 允许开仓（level 0日志）
-        elif vix >= self.vix_warning_threshold:
-            self.algorithm.Debug(
-                f"[MarketCondition] 警告: VIX={vix:.1f} 接近阈值{self.vix_threshold} "
-                f"(警告线{self.vix_warning_threshold})"
-            )
-
-        # VIX < vix_warning_threshold: 正常开仓（无日志，减少噪音）
+        # vix_warning_threshold <= VIX < vix_threshold: 静默允许开仓（v7.32.6: 删除警告日志,减少噪音）
+        # VIX < vix_warning_threshold: 正常开仓（无日志）
         return True
 
 
