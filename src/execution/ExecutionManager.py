@@ -422,19 +422,6 @@ class ExecutionManager:
         if not entry_candidates:
             return
 
-        # v7.31.4: 新增质量分布统计日志
-        excellent_count = sum(1 for _, _, score, _ in entry_candidates if score >= 0.80)
-        good_count = sum(1 for _, _, score, _ in entry_candidates if 0.70 <= score < 0.80)
-        pass_count = sum(1 for _, _, score, _ in entry_candidates if 0.60 <= score < 0.70)
-
-        self.algorithm.Debug(
-            f"[开仓候选] {len(entry_candidates)}对质量分布: "
-            f"优秀(≥0.80)={excellent_count}, "
-            f"良好(0.70-0.80)={good_count}, "
-            f"及格(0.60-0.70)={pass_count}",
-            level=1
-        )
-
         # Step 2: 使用MarginAllocator分配资金
         allocations = self.margin_allocator.allocate_margin(entry_candidates)
         if not allocations:
@@ -460,9 +447,28 @@ class ExecutionManager:
 
             success = self.order_executor.execute_open(intent)  # 自动注册到TicketsManager
             if success:
-                # v7.30.8: 简化开仓日志 - 只显示Z-score和实际分配金额
+                # v7.31.5: 查询quality_score并计算质量等级标签
+                quality_score = next(
+                    (score for p, _, score, _ in entry_candidates if p.pair_id == pair_id),
+                    None
+                )
+
+                # 计算质量等级标签
+                if quality_score is not None:
+                    if quality_score >= 0.80:
+                        quality_label = "优秀(≥0.80)"
+                    elif quality_score >= 0.70:
+                        quality_label = "良好(0.70-0.80)"
+                    elif quality_score >= 0.60:
+                        quality_label = "及格(0.60-0.70)"
+                    else:
+                        quality_label = f"分数{quality_score:.2f}"
+                else:
+                    quality_label = "未知"  # fallback
+
+                # 开仓日志 - 显示质量等级、Z-score和分配金额
                 entry_z = pair.entry_zscore if pair.entry_zscore is not None else 0.0
                 self.algorithm.Debug(
-                    f"[开仓] {pair_id} Z-score={entry_z:+.2f}σ | "
-                    f"分配=${amount_allocated:,.0f}"
+                    f"[开仓] {pair_id} | {quality_label} | "
+                    f"Z-score={entry_z:+.2f}σ | 分配=${amount_allocated:,.0f}"
                 )
