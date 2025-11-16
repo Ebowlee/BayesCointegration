@@ -5,6 +5,104 @@
 ---
 
 
+## [v7.31.4_optimize-logging@20250116]
+
+### 版本概述
+**日志系统优化** - 删除冗余日志 + 过滤空结果噪音 + 新增关键洞察日志,优化Agent分析体验。
+
+### 核心改进
+
+#### 1. 删除冗余日志 (3处)
+
+**main.py (Lines 210-227) - 删除[资金效率]状态快照**:
+```python
+# 删除原因: 配对创建后立即打印,总是显示"已开仓0对 (0.0%)"
+# 日志噪音: 每次选股产生9行无意义输出
+# 替代方案: 真实开仓/平仓时已有详细日志记录
+
+# DELETED CODE (18 lines):
+# v7.29.2: 资金效率诊断(level=1)
+# tradeable_pairs = self.pairs_manager.get_tradeable_pairs()
+# ...
+# self.Debug(f"[资金效率] 可交易配对{total_pairs}对 → ...")
+```
+
+**ExecutionManager.py (Lines 357-368) - 优化自适应分配重复日志**:
+```python
+# 优化前: 每月打印10次相同信息
+# [自适应分配] 可交易配对2对, 动态调整max_pct: 0.20 → 0.10
+
+# 优化后: 只在dynamic_max发生变化时打印
+if not hasattr(self, '_last_dynamic_max'):
+    self._last_dynamic_max = None
+
+if dynamic_max != self._last_dynamic_max:
+    self._last_dynamic_max = dynamic_max
+    self.algorithm.Debug(f"[自适应分配] ...")
+```
+
+**CointegrationAnalyzer.py (Lines 214-216) - 过滤协整空结果噪音**:
+```python
+# 优化前: 36%日志为"PValue通过0对"(Formal Black Bat回测中120行)
+# 优化后: 只记录选出配对的行业
+
+def _log_selection_summary(...):
+    # v7.31.4: 只记录有效结果
+    if len(selected_pairs) == 0:
+        return  # 过滤空结果噪音
+```
+
+#### 2. 新增关键洞察日志 (2处)
+
+**ExecutionManager.py (Lines 412-423) - 开仓候选质量分布统计**:
+```python
+# 价值: 评估当前市场是"被迫开仓"还是"精选优质配对"
+# 输出示例:
+# [开仓候选] 15对质量分布: 优秀(≥0.80)=3, 良好(0.70-0.80)=7, 及格(0.60-0.70)=5
+
+excellent_count = sum(1 for _, _, score, _ in entry_candidates if score >= 0.80)
+good_count = sum(1 for _, _, score, _ in entry_candidates if 0.70 <= score < 0.80)
+pass_count = sum(1 for _, _, score, _ in entry_candidates if 0.60 <= score < 0.70)
+```
+
+**main.py (Lines 75-77, 106-129, 233-250, ExecutionManager.py Lines 147,195,252,308,316) - 月度风控汇总统计**:
+```python
+# 价值: 月末自动汇总平仓原因分布,便于策略健康度分析
+# 输出示例:
+# [月度总结-2024-09] 平仓28次: 均值回归18次, 回撤5次, 超时3次, 协整破裂2次, 其他0次
+
+# 实现架构:
+# 1. main.py: record_close_stat(reason) 方法 + 月度统计字典
+# 2. ExecutionManager: 4个平仓执行点调用 algorithm.record_close_stat()
+# 3. main.py OnData: 月份切换时输出上月统计
+```
+
+### 数据影响
+
+**日志噪音削减** (以Formal Black Bat回测为例):
+- 协整空结果过滤: -120行 (36%)
+- 资金效率删除: -9行 (3%)
+- 自适应分配优化: -8行 (估算)
+- 总计减少: ~40%噪音日志
+
+**新增日志价值**:
+- 质量分布: 每次开仓前展示候选质量结构 (level=1)
+- 月度风控: 月末1行汇总,替代逐笔平仓原因日志 (level=0)
+
+### 设计原则
+
+**日志层级使用**:
+- level=0 (生产级): 月度风控汇总 (核心指标)
+- level=1 (调试级): 质量分布、自适应分配、协整详情 (过程洞察)
+
+**Agent优先设计**:
+- 日志目标用户: backtest-analyst agent (AI),非人类
+- 优化方向: 减少重复信息,增加结构化洞察
+- 替代数据: overview.json (策略级指标) + orders.csv (订单明细) + logs.txt (决策上下文)
+
+---
+
+
 ## [v7.31.3_hotfix-dataprocessor@20250116]
 
 ### 版本概述

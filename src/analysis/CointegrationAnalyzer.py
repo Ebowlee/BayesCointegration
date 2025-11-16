@@ -203,7 +203,7 @@ class CointegrationAnalyzer:
     def _log_selection_summary(self, ig_name: str, symbols: List[Symbol],
                                 sorted_pairs: List[Dict], selected_pairs: List[Dict]):
         """
-        输出行业协整筛选统计日志 (v7.31.3: 从_find_cointegrated_pairs_in_group拆分)
+        输出行业协整筛选统计日志 (v7.31.4: 只记录有效结果,过滤空结果噪音)
 
         Args:
             ig_name: 子行业名称
@@ -211,6 +211,10 @@ class CointegrationAnalyzer:
             sorted_pairs: 通过pvalue阈值的配对列表 (排序后)
             selected_pairs: 应用配额后的最终配对列表
         """
+        # v7.31.4: 只记录选出了配对的行业 (过滤"PValue通过0对"噪音)
+        if len(selected_pairs) == 0:
+            return
+
         industry_names = self.algorithm.config.constants['industry_names']
         industry_name = industry_names.get(int(ig_name), f'未知({ig_name})')
         quota = self.industry_quotas.get(ig_name, self.default_quota)

@@ -72,6 +72,10 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         self.margin_allocator = MarginAllocator(self, self.config)
         self.execution_manager = ExecutionManager(self, self.pairs_manager, self.risk_manager, self.tickets_manager, self.order_executor, self.margin_allocator)
 
+        # v7.31.4: 月度风控统计追踪
+        self.monthly_close_stats = {}  # {year_month: {reason: count}}
+        self.last_stat_month = None
+
 
 
     def Debug(self, message: str, level: int = 0):
@@ -97,6 +101,32 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         log_level = getattr(self.config.main, 'log_level', 0)  # dataclass使用getattr代替.get()
         if self.debug_mode and level <= log_level:
             QCAlgorithm.Debug(self, message)
+
+
+    def record_close_stat(self, reason: str):
+        """
+        记录平仓原因统计 (v7.31.4: 月度风控统计)
+
+        Args:
+            reason: 平仓原因 (MEAN_REVERSION, DRAWDOWN, TIMEOUT, PAIR_BREAK等)
+        """
+        from collections import defaultdict
+
+        current_month = self.Time.strftime('%Y-%m')
+        if current_month not in self.monthly_close_stats:
+            self.monthly_close_stats[current_month] = defaultdict(int)
+
+        # 归类原因
+        if reason in ['MEAN_REVERSION', 'PAIR_BREAK']:
+            category = reason
+        elif 'DRAWDOWN' in reason or 'CUMULATIVE_LOSS' in reason:
+            category = 'DRAWDOWN'
+        elif 'TIMEOUT' in reason:
+            category = 'TIMEOUT'
+        else:
+            category = 'OTHER'
+
+        self.monthly_close_stats[current_month][category] += 1
 
 
     def OnSecuritiesChanged(self, changes: SecurityChanges):
@@ -207,25 +237,6 @@ class BayesianCointegrationStrategy(QCAlgorithm):
             level=1
         )
 
-        # v7.29.2: 资金效率诊断(level=1)
-        tradeable_pairs = self.pairs_manager.get_tradeable_pairs()
-        pairs_with_position = self.pairs_manager.get_pairs_with_position()
-        total_pairs = len(tradeable_pairs)
-        position_pairs = len(pairs_with_position)
-
-        if total_pairs > 0:
-            opening_rate = (position_pairs / total_pairs) * 100
-            margin_used = self.Portfolio.TotalMarginUsed
-            total_value = self.Portfolio.TotalPortfolioValue
-            utilization = (margin_used / total_value) * 100 if total_value > 0 else 0
-
-            self.Debug(
-                f"[资金效率] 可交易配对{total_pairs}对 → "
-                f"已开仓{position_pairs}对 ({opening_rate:.1f}%) → "
-                f"保证金占用${margin_used:,.0f} ({utilization:.1f}%)",
-                level=1
-            )
-
         # v7.26.0: 详细日志 - 显示各行业配对创建统计
         from collections import defaultdict
         industry_pair_count = defaultdict(int)
@@ -245,6 +256,25 @@ class BayesianCointegrationStrategy(QCAlgorithm):
 
     def OnData(self, data: Slice):
         """处理实时数据 - OnData架构的核心"""
+        # v7.31.4: 月末风控统计汇总
+        current_month = self.Time.strftime('%Y-%m')
+        if self.last_stat_month and current_month != self.last_stat_month:
+            # 月份切换,输出上月统计
+            if self.last_stat_month in self.monthly_close_stats:
+                stats = self.monthly_close_stats[self.last_stat_month]
+                total = sum(stats.values())
+                self.Debug(
+                    f"[月度总结-{self.last_stat_month}] "
+                    f"平仓{total}次: "
+                    f"均值回归{stats.get('MEAN_REVERSION', 0)}次, "
+                    f"回撤{stats.get('DRAWDOWN', 0)}次, "
+                    f"超时{stats.get('TIMEOUT', 0)}次, "
+                    f"协整破裂{stats.get('PAIR_BREAK', 0)}次, "
+                    f"其他{stats.get('OTHER', 0)}次",
+                    level=0
+                )
+        self.last_stat_month = current_month
+
         # 如果正在分析，跳过
         if self.is_analyzing:
             return

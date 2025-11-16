@@ -143,6 +143,8 @@ class ExecutionManager:
             success = self.order_executor.execute_close(intent)
             if success:
                 executed_count += 1
+                # v7.31.4: 记录平仓原因统计
+                self.algorithm.record_close_stat(intent.reason)
 
         # 无论成功与否,都激活cooldown（防止继续交易）
         risk_manager.activate_cooldown_for_portfolio(triggered_rule)
@@ -188,6 +190,9 @@ class ExecutionManager:
             success = self.order_executor.execute_close(intent)
             if success:
                 executed_pair_ids.append(intent.pair_id)
+
+                # v7.31.4: 记录平仓原因统计
+                self.algorithm.record_close_stat(intent.reason)
 
                 # 清理该配对的HWM状态（PairDrawdownRule）
                 risk_manager.cleanup_pair_hwm(intent.pair_id)
@@ -243,6 +248,8 @@ class ExecutionManager:
                 success = self.order_executor.execute_close(intent)
                 if success:
                     cleanup_count += 1
+                    # v7.31.4: 记录平仓原因统计
+                    self.algorithm.record_close_stat(intent.reason)
 
 
     # ===== 正常交易执行方法 =====
@@ -297,12 +304,18 @@ class ExecutionManager:
 
                 intent = pair.get_close_intent(reason=reason)
                 if intent:
-                    self.order_executor.execute_close(intent)  # 自动注册到TicketsManager
+                    success = self.order_executor.execute_close(intent)  # 自动注册到TicketsManager
+                    # v7.31.4: 记录平仓原因统计
+                    if success:
+                        self.algorithm.record_close_stat(intent.reason)
 
             elif signal == 'PAIR_BREAK':  # v7.10.6: 原STOP_LOSS重命名
                 intent = pair.get_close_intent(reason='PAIR_BREAK')  # v7.13.0: 协整破裂
                 if intent:
-                    self.order_executor.execute_close(intent)  # 自动注册到TicketsManager
+                    success = self.order_executor.execute_close(intent)  # 自动注册到TicketsManager
+                    # v7.31.4: 记录平仓原因统计
+                    if success:
+                        self.algorithm.record_close_stat(intent.reason)
 
 
     def get_entry_candidates(self, pairs_without_position: dict, data) -> list:
@@ -354,16 +367,18 @@ class ExecutionManager:
             else:
                 dynamic_max = adaptive_config['default']    # >15对: 0.20
 
-            # 如果使用了自适应max,输出调试信息(每月只打印1次)
-            if dynamic_max != adaptive_config['default']:
-                current_month = self.algorithm.Time.strftime('%Y-%m')
-                if not hasattr(self, '_last_adaptive_log_month') or self._last_adaptive_log_month != current_month:
-                    self._last_adaptive_log_month = current_month
-                    self.algorithm.Debug(
-                        f"[自适应分配] 可交易配对{tradeable_count}对, "
-                        f"动态调整max_pct: {adaptive_config['default']:.2f} → {dynamic_max:.2f}",
-                        level=1
-                    )
+            # v7.31.4: 只在dynamic_max发生变化时打印(避免重复信息)
+            if not hasattr(self, '_last_dynamic_max'):
+                self._last_dynamic_max = None
+
+            if dynamic_max != self._last_dynamic_max:
+                self._last_dynamic_max = dynamic_max
+                self.algorithm.Debug(
+                    f"[自适应分配] 可交易配对{tradeable_count}对, "
+                    f"动态max_pct: {dynamic_max:.2f} "
+                    f"(tier: {'tier1' if tradeable_count <= thresholds['tier1'] else 'tier2' if tradeable_count <= thresholds['tier2'] else 'default'})",
+                    level=1
+                )
 
             # 重新计算planned_pct (使用动态max)
             adjusted_candidates = []
@@ -407,6 +422,18 @@ class ExecutionManager:
         if not entry_candidates:
             return
 
+        # v7.31.4: 新增质量分布统计日志
+        excellent_count = sum(1 for _, _, score, _ in entry_candidates if score >= 0.80)
+        good_count = sum(1 for _, _, score, _ in entry_candidates if 0.70 <= score < 0.80)
+        pass_count = sum(1 for _, _, score, _ in entry_candidates if 0.60 <= score < 0.70)
+
+        self.algorithm.Debug(
+            f"[开仓候选] {len(entry_candidates)}对质量分布: "
+            f"优秀(≥0.80)={excellent_count}, "
+            f"良好(0.70-0.80)={good_count}, "
+            f"及格(0.60-0.70)={pass_count}",
+            level=1
+        )
 
         # Step 2: 使用MarginAllocator分配资金
         allocations = self.margin_allocator.allocate_margin(entry_candidates)
