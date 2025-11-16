@@ -5,6 +5,62 @@
 ---
 
 
+## [v7.31.6_add-quality-distribution-log@20250116]
+
+### 版本概述
+**质量分布日志** - 在PairSelector质量筛选前添加整体质量分布统计,帮助判断市场配对质量水平。
+
+### 核心改进
+
+#### 新增质量分布统计日志
+
+**PairSelector.py (Lines 126-144新增)**:
+
+**日志输出示例**:
+```
+[质量分布] 总计476对 → 优秀(≥0.80):32对 | 良好(0.70-0.80):88对 | 及格(0.60-0.70):156对 | 不及格(<0.60):200对 | 最高:0.892 | 最低:0.102
+[质量筛选] 输入476对 → 质量阈值>0.60 → 通过276对 (损失200对)
+```
+
+**实现细节**:
+```python
+# v7.31.6: 质量分布统计 (在质量筛选之前)
+if scored_pairs:
+    # 统计各档位数量
+    excellent = sum(1 for p in scored_pairs if p['quality_score'] >= 0.80)
+    good = sum(1 for p in scored_pairs if 0.70 <= p['quality_score'] < 0.80)
+    pass_grade = sum(1 for p in scored_pairs if 0.60 <= p['quality_score'] < 0.70)
+    fail = sum(1 for p in scored_pairs if p['quality_score'] < 0.60)
+
+    # 计算极值
+    max_score = max(p['quality_score'] for p in scored_pairs)
+    min_score = min(p['quality_score'] for p in scored_pairs)
+
+    self.algorithm.Debug(
+        f"[质量分布] 总计{len(scored_pairs)}对 → "
+        f"优秀(≥0.80):{excellent}对 | 良好(0.70-0.80):{good}对 | "
+        f"及格(0.60-0.70):{pass_grade}对 | 不及格(<0.60):{fail}对 | "
+        f"最高:{max_score:.3f} | 最低:{min_score:.3f}",
+        level=1
+    )
+```
+
+### 设计优势
+
+1. **一行展示**: 所有关键信息在一行内,便于快速判断市场整体质量
+2. **档位明确**: 四档划分(优秀/良好/及格/不及格)直观反映质量水平
+3. **极值统计**: 提供最高、最低分数,帮助理解质量边界
+4. **月度触发**: 由选股周期自动触发,满足"每月一次"需求
+5. **逻辑链条**: [质量分布]→[质量筛选],展示筛选前后对比
+
+### 用户反馈
+
+**需求**: 在[质量筛选]日志之前添加整体质量分布,了解市场配对质量结构
+**解决**: 新增四档分布统计+极值,一行展示完整质量图景
+
+---
+
+
 ## [v7.31.5_optimize-opening-log@20250116]
 
 ### 版本概述

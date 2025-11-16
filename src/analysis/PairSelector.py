@@ -123,6 +123,26 @@ class PairSelector:
         - 新增风险配对过滤 (检查DRAWDOWN/ANOMALY冷却期)
         - 移除max_pairs硬性限制 (改用资金约束自然限制)
         """
+        # v7.31.6: 质量分布统计 (在质量筛选之前)
+        if scored_pairs:
+            # 统计各档位数量
+            excellent = sum(1 for p in scored_pairs if p['quality_score'] >= 0.80)
+            good = sum(1 for p in scored_pairs if 0.70 <= p['quality_score'] < 0.80)
+            pass_grade = sum(1 for p in scored_pairs if 0.60 <= p['quality_score'] < 0.70)
+            fail = sum(1 for p in scored_pairs if p['quality_score'] < 0.60)
+
+            # 计算极值
+            max_score = max(p['quality_score'] for p in scored_pairs)
+            min_score = min(p['quality_score'] for p in scored_pairs)
+
+            self.algorithm.Debug(
+                f"[质量分布] 总计{len(scored_pairs)}对 → "
+                f"优秀(≥0.80):{excellent}对 | 良好(0.70-0.80):{good}对 | "
+                f"及格(0.60-0.70):{pass_grade}对 | 不及格(<0.60):{fail}对 | "
+                f"最高:{max_score:.3f} | 最低:{min_score:.3f}",
+                level=1
+            )
+
         # Step 1: 最低质量门槛过滤（严格大于阈值）
         min_threshold = self.min_quality_threshold  # 从config读取
         qualified_pairs = [
