@@ -437,6 +437,47 @@ git commit -m "docs: update CHANGELOG for v7.2.5"
     - **mean_reversion_certainty** (40%): AR(1) significance (theoretical core + moderate predictive power 50%)
   - **Risk Filtering** (v7.12.0): `_filter_risk_pairs()` internal method filters DRAWDOWN/ANOMALY cooldown pairs
   - **No Blacklist**: v7.12.0 removed BlacklistManager module, simplified to cooldown-based filtering
+
+  **Half-Life Scoring Details** (v7.31.3 - 详细数学原理):
+  - **设计理念**:
+    - 峰值: 8天 (统计质量+timeout安全性的最优平衡)
+    - 核心区间: 5-10天 (评分≥0.75)
+    - 可接受区间: 4-12天 (评分≥0.50)
+    - 排除区间: <4天或>15天
+  - **配合改良C方案**:
+    - 入场: [1.2σ, 1.8σ]
+    - 出场: 0.3σ
+    - Timeout: 30天
+  - **评分标准** (基于Timeout约束):
+    - 4天: 0.50 (次优,噪音风险)
+    - 5天: 0.75 (良好)
+    - 6天: 0.90 (优秀)
+    - 8天: 1.00 (峰值)
+    - 10天: 0.85 (良好)
+    - 12天: 0.65 (可接受)
+    - 15天: 0.18 (排除)
+  - **评分算法**: 非对称高斯+软截断+指数衰减
+    - 左侧(4-8天): σ=3.5 (保证6天≈0.90)
+    - 右侧(8-12天): σ=4.5 (保证10天≈0.85, 12天≈0.65)
+    - 软截断下界: 4天以下平滑惩罚
+    - 远端指数衰减: 12天后快速排除
+
+  **Mean Reversion Certainty Scoring Details** (v7.31.3 - 详细数学原理):
+  - **核心思路**:
+    1. 连续时间转换: κ = -ln|ρ|/Δt (频率不变性)
+    2. 逐样本转换: κ^(s) = -ln|ρ^(s)|/Δt (贝叶斯一致性)
+    3. 精确后验统计: E[κ] = mean(κ^(s)), Std[κ] = std(κ^(s))
+    4. SNR计算: SNR_κ = E[κ] / Std[κ] (估计精度)
+    5. 逻辑斯蒂归一化: score = 1/(1+exp(a·(b-SNR_κ))) (S曲线)
+  - **数学原理**:
+    - κ: 连续时间均值回归率 (单位: 1/天)
+    - κ越大 → 均值回归越快 → 半衰期越短
+    - SNR_κ越高 → κ估计越可靠 → 交易策略越稳健
+  - **参数配置** (见config.py):
+    - time_delta_days: 1天 (日频数据)
+    - max_snr_kappa: 100 (上界截断)
+    - logistic_steepness: 0.3
+    - logistic_midpoint: 5.0
 - **IndustryQuotaManager** (v7.12.0): Dynamic industry-level quota system
   - **Warmup Period**: First 180 days use default quota (1 pair per industry)
   - **Dynamic Adjustment**: Monthly quota calculation based on weighted return
