@@ -30,6 +30,59 @@ Key architectural principles (v7.0.0):
 - **Intra-industry pairing** - Securities paired within same Morningstar industry group (动态分组,实际约18-20个)
 - **Natural fund constraints** - Position limits determined by available capital, not hard caps
 
+## Communication Patterns
+
+### Execution Flow Diagram (流程图)
+
+**Trigger Phrase**: When the user says "请用【流程图】沟通", use the Execution Flow Diagram format.
+
+**Purpose**: Provide high-level architectural communication showing data flow, decision points, and system interactions.
+
+**Format Example**:
+```
+执行流程:
+OnSecuritiesChanged (月度触发)
+    ↓
+步骤1: DataProcessor.process()
+    ↓
+步骤2: CointegrationAnalyzer.analyze()
+    ⭐ 行业配额应用点 (v7.12.0)
+    [内部流程]:
+        - 遍历行业分组
+        - 按pvalue排序
+        - 应用配额限制 ← 关键过滤点
+        - 应用单股重复限制 (v7.31.0)
+    ↓
+步骤3: BayesianModeler.model()
+    ↓
+步骤4: PairSelector.select()
+    [内部流程]:
+        - 质量分数计算
+        - 阈值过滤
+        - 质量排序
+    ↓
+输出: 高质量配对列表 → PairsManager.update_pairs()
+```
+
+**Key Elements**:
+- **Vertical Timeline**: Data flows from top to bottom
+- **⭐ Markers**: Critical decision or processing points
+- **[内部流程]**: Indented breakdown of internal steps
+- **← Annotations**: Important filter points or architectural notes
+- **Version Tags**: (v7.X.X) to show when features were added
+
+**Benefits**:
+- **全局视角**: Shows complete system flow in one view
+- **问题定位**: Quickly identifies where logic operates
+- **影响分析**: Reveals downstream dependencies
+- **沟通高效**: Reduces back-and-forth clarification questions
+
+**When to Use**:
+- Discussing architectural changes or refactoring
+- Debugging multi-module interaction issues
+- Planning feature implementation across layers
+- Explaining system behavior to new developers
+
 ## Log Design Principles
 
 **Purpose**: Logs are for backtest-analyst agent (AI) forensic analysis, not human debugging.
