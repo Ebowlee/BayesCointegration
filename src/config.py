@@ -80,7 +80,6 @@ class UniverseConfig:
 @dataclass
 class AnalysisConfig:
     """分析模块配置 - 合并 analysis_shared 和 data_processor"""
-
     lookback_days: int = 252                                        # 历史数据回看天数
     data_completeness_ratio: float = 1.0                            # 数据完整性要求
 
@@ -130,7 +129,6 @@ class JointStagePriorConfig:
 @dataclass
 class BayesianModelerConfig:
     """贝叶斯建模配置"""
-
     uninformed: PriorConfig = field(default_factory=PriorConfig)
     informed: InformedPriorConfig = field(default_factory=InformedPriorConfig)
     joint_single_stage: JointStagePriorConfig = field(default_factory=JointStagePriorConfig)
@@ -139,7 +137,6 @@ class BayesianModelerConfig:
 @dataclass
 class PairSelectorConfig:
     """配对质量评估配置"""
-
     max_symbol_repeats: int = 1                                     # 单股最多配对数（同一轮同一只股票只允许参与构建一个协整对）
     min_quality_threshold: float = 0.60                             # 最低质量分数阈值
     quality_weights: Dict = field(default_factory=lambda: {
@@ -178,14 +175,18 @@ class PairsTradingConfig:
 
     # 仓位管理参数
     min_investment_ratio: float = 0.05                             # 质量最低(0.0分)配对投资比例: 5%
-    max_investment_ratio: float = 0.15                             # 质量最高(1.0分)配对投资比例: 15% (正常场景)
 
-    # 动态max自适应配置 (v7.30.1)
-    adaptive_max_tiers: Dict[str, Dict[str, float]] = field(default_factory=lambda: {
-        'tier1': {'threshold': 5, 'max_ratio': 0.30},              # ≤5对: 极度稀缺
-        'tier2': {'threshold': 15, 'max_ratio': 0.25},             # ≤15对: 稀缺
-        'tier3': {'threshold': 25, 'max_ratio': 0.20}              # ≤25对: 偏紧
-        # >25对: 使用max_investment_ratio (0.15)
+    # v7.30.13: 整合自适应最大投资比例配置
+    adaptive_max_investment_ratio: Dict[str, float] = field(default_factory=lambda: {
+        'tier1': 0.10,      # ≤5对: 极度稀缺,降低风险
+        'tier2': 0.15,      # ≤15对: 稀缺,保持标准
+        'default': 0.20,    # >15对: 充裕,适度放大
+    })
+
+    # 自适应阈值配置
+    adaptive_thresholds: Dict[str, int] = field(default_factory=lambda: {
+        'tier1': 5,         # 极度稀缺阈值
+        'tier2': 15,        # 稀缺阈值
     })
 
     # 保证金管理

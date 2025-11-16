@@ -1029,9 +1029,9 @@ class Pairs:
         纯计算方法,不进行任何业务逻辑判断
 
         Returns:
-            计划分配比例 (min_investment_ratio 到 max_investment_ratio)
+            计划分配比例 (min_investment_ratio 到 adaptive_max_investment_ratio['default'])
         """
-        # 基于质量分数的线性插值计算
+        # v7.30.13: 使用整合后的配置
         min_pct = self.config.min_investment_ratio
-        max_pct = self.config.max_investment_ratio
+        max_pct = self.config.adaptive_max_investment_ratio['default']
         return min_pct + self.quality_score * (max_pct - min_pct)

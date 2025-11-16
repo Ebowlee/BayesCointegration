@@ -312,7 +312,7 @@ class ExecutionManager:
         职责: ExecutionManager 负责"执行准备"逻辑
         - 遍历配对获取信号（调用 Pairs.get_signal()）
         - 过滤开仓信号
-        - 计算计划分配比例
+        - 计算计划分配比例(v7.30.0: 自适应max_pct)
         - 按质量分数排序
 
         Args:
@@ -337,6 +337,41 @@ class ExecutionManager:
             if signal in ['LONG_SPREAD', 'SHORT_SPREAD']:
                 planned_pct = pair.get_planned_allocation_pct()
                 candidates.append((pair, signal, pair.quality_score, planned_pct))
+
+        # v7.30.13: 重构自适应max_pct逻辑(简化为if-elif-else)
+        tradeable_count = len(pairs_without_position)
+        if len(candidates) > 0:
+            # 从配置读取整合后的自适应配置
+            adaptive_config = self.algorithm.config.pairs_trading.adaptive_max_investment_ratio
+            thresholds = self.algorithm.config.pairs_trading.adaptive_thresholds
+            min_pct = self.algorithm.config.pairs_trading.min_investment_ratio
+
+            # 根据配对数量确定动态max (简化判断逻辑)
+            if tradeable_count <= thresholds['tier1']:
+                dynamic_max = adaptive_config['tier1']      # ≤5对: 0.10
+            elif tradeable_count <= thresholds['tier2']:
+                dynamic_max = adaptive_config['tier2']      # ≤15对: 0.15
+            else:
+                dynamic_max = adaptive_config['default']    # >15对: 0.20
+
+            # 如果使用了自适应max,输出调试信息(每月只打印1次)
+            if dynamic_max != adaptive_config['default']:
+                current_month = self.algorithm.Time.strftime('%Y-%m')
+                if not hasattr(self, '_last_adaptive_log_month') or self._last_adaptive_log_month != current_month:
+                    self._last_adaptive_log_month = current_month
+                    self.algorithm.Debug(
+                        f"[自适应分配] 可交易配对{tradeable_count}对, "
+                        f"动态调整max_pct: {adaptive_config['default']:.2f} → {dynamic_max:.2f}",
+                        level=1
+                    )
+
+            # 重新计算planned_pct (使用动态max)
+            adjusted_candidates = []
+            for pair, signal, quality_score, _ in candidates:
+                adjusted_pct = min_pct + quality_score * (dynamic_max - min_pct)
+                adjusted_candidates.append((pair, signal, quality_score, adjusted_pct))
+
+            candidates = adjusted_candidates
 
         # 按质量分数降序排序
         candidates.sort(key=lambda x: x[2], reverse=True)
@@ -398,8 +433,9 @@ class ExecutionManager:
 
             success = self.order_executor.execute_open(intent)  # 自动注册到TicketsManager
             if success:
+                # v7.30.8: 简化开仓日志 - 只显示Z-score和实际分配金额
                 entry_z = pair.entry_zscore if pair.entry_zscore is not None else 0.0
                 self.algorithm.Debug(
-                    f"[开仓] {pair_id} 分配=${amount_allocated:.2f} | "
-                    f"Z-score={entry_z:+.2f}σ"
+                    f"[开仓] {pair_id} Z-score={entry_z:+.2f}σ | "
+                    f"分配=${amount_allocated:,.0f}"
                 )

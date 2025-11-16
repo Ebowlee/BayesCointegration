@@ -5,6 +5,69 @@
 ---
 
 
+## [v7.30.13_config-refactor@20250206]
+
+### 版本概述
+**配置重构** - 整合 `max_investment_ratio` 和 `adaptive_max_tiers` 为统一的 `adaptive_max_investment_ratio` 配置,简化配置结构并提升语义清晰度。
+
+### 核心改进
+
+#### 整合自适应投资比例配置 - config.py + Pairs.py + ExecutionManager.py
+
+**新配置结构** (config.py Lines 179-190):
+```python
+# v7.30.13: 整合自适应最大投资比例配置
+adaptive_max_investment_ratio: Dict[str, float] = {
+    'tier1': 0.10,      # ≤5对: 极度稀缺,降低风险
+    'tier2': 0.15,      # ≤15对: 稀缺,保持标准
+    'default': 0.20,    # >15对: 充裕,适度放大
+}
+
+# 自适应阈值配置
+adaptive_thresholds: Dict[str, int] = {
+    'tier1': 5,         # 极度稀缺阈值
+    'tier2': 15,        # 稀缺阈值
+}
+```
+
+**删除配置**:
+- `max_investment_ratio: float = 0.15` → 整合为 `adaptive_max_investment_ratio['default']`
+- `adaptive_max_tiers` 嵌套字典 → 简化为扁平字典 + 独立阈值
+
+**代码适配**:
+- **Pairs.py Line 1036**:
+  ```python
+  # Before: self.config.max_investment_ratio
+  # After:  self.config.adaptive_max_investment_ratio['default']
+  ```
+
+- **ExecutionManager.py Lines 341-374**:
+  ```python
+  # Before: for循环遍历tier1/tier2/tier3字典
+  # After:  if-elif-else简化判断
+
+  if tradeable_count <= thresholds['tier1']:
+      dynamic_max = adaptive_config['tier1']      # ≤5对: 0.10
+  elif tradeable_count <= thresholds['tier2']:
+      dynamic_max = adaptive_config['tier2']      # ≤15对: 0.15
+  else:
+      dynamic_max = adaptive_config['default']    # >15对: 0.20
+  ```
+
+**配置语义优化**:
+- 原 `tier3: 0.20` (阈值20对) → 新 `default: 0.20` (>15对默认值)
+- 明确"充裕场景使用默认值"的语义,避免"tier3"歧义
+
+### 文件变更
+- `src/config.py`: 重构配置定义 (删除2个配置,新增2个配置)
+- `src/Pairs.py`: 更新配置引用 (Line 1036)
+- `src/execution/ExecutionManager.py`: 简化自适应逻辑 (Lines 341-374)
+- `docs/CHANGELOG.md`: 添加版本记录
+
+### 关键洞察
+**配置扁平化原则**: 嵌套字典 `{'tier1': {'threshold': 5, 'max_ratio': 0.10}}` 简化为分离字典 `adaptive_max_investment_ratio` + `adaptive_thresholds`,提升可读性和维护性。避免过度嵌套导致的配置复杂度和访问路径冗长。
+
+
 ## [v7.30.12_remove-roe@20250206]
 
 ### 版本概述
