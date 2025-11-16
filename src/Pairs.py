@@ -336,15 +336,18 @@ class Pairs:
 
         # 如果是风控原因，读取配置；否则使用默认10天
         cooldown_days = reason_to_config.get(reason, self.get_cooldown_days())
-        cooldown_end = self.algorithm.Time + timedelta(days=cooldown_days)
+
+        # 计算持有天数
+        holding_days = self.get_pair_holding_days()
 
         self.algorithm.Debug(
             f"[平仓] {self.pair_id} {reason_text} | "
+            f"持有{holding_days}天 | "
             f"PnL=${current_pnl:.2f} ({current_pnl_pct:+.1f}%) | "
             f"累计{total_pnl_pct:+.1f}% | "
             f"{entry_z:+.2f}σ → {close_z:+.2f}σ | "
-            f"第{trade_num}次交易, "
-            f"激活冷却期({cooldown_days}天, 至{cooldown_end:%Y-%m-%d})",
+            f"第{trade_num}次交易 | "
+            f"激活冷却({cooldown_days}天)",
             level=0
         )
 
