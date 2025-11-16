@@ -129,7 +129,8 @@ class PairSelector:
             excellent = sum(1 for p in scored_pairs if p['quality_score'] >= 0.80)
             good = sum(1 for p in scored_pairs if 0.70 <= p['quality_score'] < 0.80)
             pass_grade = sum(1 for p in scored_pairs if 0.60 <= p['quality_score'] < 0.70)
-            fail = sum(1 for p in scored_pairs if p['quality_score'] < 0.60)
+            poor = sum(1 for p in scored_pairs if 0.30 <= p['quality_score'] < 0.60)
+            very_poor = sum(1 for p in scored_pairs if p['quality_score'] < 0.30)
 
             # 计算极值
             max_score = max(p['quality_score'] for p in scored_pairs)
@@ -137,8 +138,8 @@ class PairSelector:
 
             self.algorithm.Debug(
                 f"[质量分布] 总计{len(scored_pairs)}对 → "
-                f"优秀(≥0.80):{excellent}对 | 良好(0.70-0.80):{good}对 | "
-                f"及格(0.60-0.70):{pass_grade}对 | 不及格(<0.60):{fail}对 | "
+                f"(≥0.80):{excellent}对 | [0.70,0.80):{good}对 | "
+                f"[0.60,0.70):{pass_grade}对 | [0.30,0.60):{poor}对 | (<0.30):{very_poor}对 | "
                 f"最高:{max_score:.3f} | 最低:{min_score:.3f}",
                 level=1
             )
