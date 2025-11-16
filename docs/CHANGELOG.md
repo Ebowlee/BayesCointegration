@@ -5,6 +5,286 @@
 ---
 
 
+## [v7.31.3_code-refactoring@20250116]
+
+### 版本概述
+**代码质量优化** - Analysis模块死代码清理 + 长方法重构 + 文档优化,提升可维护性。
+
+### 核心改进
+
+#### 1. 死代码清理 - Analysis模块 (9处修改)
+
+**第一批清理 - 空方法删除 (3处)**:
+```python
+# DataProcessor.py (Lines 49, 130-147)
+- 删除 _log_statistics() 空方法实现 (7行)
+- 删除方法调用 Line 49
+
+# BayesianModeler.py (Lines 59, 378-385)
+- 删除 _log_statistics() 空方法实现 (8行)
+- 删除方法调用 Line 59
+```
+
+**第二批清理 - 常量提取 (1处)**:
+```python
+# BayesianModeler.py (Lines 14-15, 255-256)
+# Before:
+beta = pm.Normal('beta', mu=prior_params['beta_mu'], sigma=prior_params['beta_sigma'] * 2.5)
+alpha = pm.Normal('alpha', mu=prior_params['alpha_mu'], sigma=prior_params['alpha_sigma'] * 2.5)
+
+# After:
+PRIOR_RELAXATION_FACTOR = 2.5  # 类常量
+beta = pm.Normal('beta', mu=prior_params['beta_mu'], sigma=prior_params['beta_sigma'] * self.PRIOR_RELAXATION_FACTOR)
+alpha = pm.Normal('alpha', mu=prior_params['alpha_mu'], sigma=prior_params['alpha_sigma'] * self.PRIOR_RELAXATION_FACTOR)
+```
+
+**第三批清理 - 版本注释删除 (2处)**:
+```python
+# PairSelector.py (Line 155, Lines 58-60)
+- 删除过时版本注释 "v7.31.0: 删除_filter_risk_pairs()方法"
+- 删除质量筛选日志删除说明 (4行注释)
+
+# IndustryQuotaManager.py (Line 128)
+- 删除重复的 industry_names 变量读取
+```
+
+**第四批清理 - PEP8修正 (2处)**:
+- DataProcessor.py: 文件结尾空行规范化
+- CointegrationAnalyzer.py: 文件结尾空行规范化
+
+
+#### 2. 长方法重构 - CointegrationAnalyzer (97行 → 4个方法)
+
+**拆分前** (Line 95, 97行单一方法):
+```python
+def _find_cointegrated_pairs_in_group(self, ig_name, symbols, clean_data):
+    # 步骤1: 协整检验 (33行)
+    cointegrated_pairs = []
+    for sym1, sym2 in itertools.combinations(symbols, 2):
+        # ... 协整检验逻辑 ...
+
+    # 步骤2: 配额+贪心算法 (23行)
+    quota = self.industry_quotas.get(ig_name, self.default_quota)
+    sorted_pairs = sorted(cointegrated_pairs, key=lambda x: x['pvalue'])
+    # ... 贪心算法逻辑 ...
+
+    # 步骤3: 日志输出 (10行)
+    industry_names = self.algorithm.config.constants['industry_names']
+    # ... 日志逻辑 ...
+```
+
+**拆分后** (4个单一职责方法):
+```python
+# 主方法 (8行 - 流程编排)
+def _find_cointegrated_pairs_in_group(self, ig_name, symbols, clean_data):
+    cointegrated_pairs = self._test_all_pairs(symbols, clean_data, ig_name)
+    sorted_pairs = sorted(cointegrated_pairs, key=lambda x: x['pvalue'])
+    selected_pairs = self._apply_quota_and_limit(ig_name, sorted_pairs)
+    self._log_selection_summary(ig_name, symbols, sorted_pairs, selected_pairs)
+    return selected_pairs
+
+# 子方法1 (33行 - 协整检验)
+def _test_all_pairs(self, symbols, clean_data, ig_name):
+    cointegrated_pairs = []
+    for sym1, sym2 in itertools.combinations(symbols, 2):
+        # ... Engle-Granger检验 ...
+    return cointegrated_pairs
+
+# 子方法2 (23行 - 配额+贪心)
+def _apply_quota_and_limit(self, ig_name, sorted_pairs):
+    quota = self.industry_quotas.get(ig_name, self.default_quota)
+    selected_pairs = []
+    symbol_counts = defaultdict(int)
+    # ... 贪心算法 ...
+    return selected_pairs
+
+# 子方法3 (10行 - 统计日志)
+def _log_selection_summary(self, ig_name, symbols, sorted_pairs, selected_pairs):
+    industry_names = self.algorithm.config.constants['industry_names']
+    # ... 日志输出 ...
+```
+
+**重构收益**:
+- 单一职责: 每个方法功能明确
+- 易于测试: 协整检验/配额算法/日志可独立测试
+- 可维护性: 修改贪心算法不影响协整检验逻辑
+
+
+#### 3. 长方法重构 - BayesianModeler (141行 → 5个方法)
+
+**拆分前** (Line 220, 141行单一方法):
+```python
+def _fit_joint_model(self, pair_data, prior_params):
+    try:
+        # 数据准备 (9行)
+        y_data = pair_data.log_prices1
+        x_data = pair_data.log_prices2
+        y_curr = y_data[1:]
+        # ...
+
+        # PyMC模型构建 (30行)
+        with pm.Model():
+            beta = pm.Normal('beta', ...)
+            # ... PyMC模型定义 ...
+            trace = pm.sample(...)
+
+        # 后验统计提取 (50行)
+        rho_samples = trace['rho'].flatten()
+        beta_mean = float(np.mean(trace['beta']))
+        # ... 统计量计算 ...
+
+        return stats
+    except Exception as e:
+        # 异常处理 (18行默认值)
+        return {...}
+```
+
+**拆分后** (5个单一职责方法):
+```python
+# 主方法 (14行 - 流程+异常处理)
+def _fit_joint_model(self, pair_data, prior_params):
+    try:
+        y_data, x_data, y_curr, y_lag, x_curr, x_lag = self._prepare_ar1_data(pair_data)
+        trace = self._build_pymc_model(prior_params, y_curr, y_lag, x_curr, x_lag)
+        stats = self._extract_posterior_stats(trace, pair_data, y_data, x_data)
+        return stats
+    except Exception as e:
+        if self.algorithm.debug_mode:
+            self.algorithm.Debug(f"[BayesianModeler] 联合建模失败: {str(e)}")
+        return self._get_default_stats()
+
+# 子方法1 (9行 - 数据准备)
+def _prepare_ar1_data(self, pair_data):
+    y_data = pair_data.log_prices1
+    x_data = pair_data.log_prices2
+    y_curr = y_data[1:]
+    # ...
+    return y_data, x_data, y_curr, y_lag, x_curr, x_lag
+
+# 子方法2 (30行 - PyMC模型)
+def _build_pymc_model(self, prior_params, y_curr, y_lag, x_curr, x_lag):
+    with pm.Model():
+        beta = pm.Normal('beta', mu=prior_params['beta_mu'], ...)
+        # ... PyMC模型定义 ...
+        trace = pm.sample(...)
+    return trace
+
+# 子方法3 (50行 - 后验统计)
+def _extract_posterior_stats(self, trace, pair_data, y_data, x_data):
+    rho_samples = trace['rho'].flatten()
+    beta_mean = float(np.mean(trace['beta']))
+    # ... 统计量计算 ...
+    return stats
+
+# 子方法4 (11行 - 默认值)
+def _get_default_stats(self):
+    return {
+        'alpha_mean': 0.0,
+        'beta_mean': 1.0,
+        # ... 默认后验统计 ...
+    }
+```
+
+**重构收益**:
+- 模块化: PyMC模型定义独立,易于实验新模型
+- 易于测试: 数据准备/后验提取可独立单元测试
+- 异常处理: 默认值逻辑独立,主流程清晰
+
+
+#### 4. 注释优化 + 文档迁移 - PairSelector + CLAUDE.md
+
+**简化方法注释 (2处)**:
+```python
+# _calculate_half_life_score (Lines 156-164)
+# Before (30行docstring):
+"""
+计算半衰期分数 (v7.5.21: 非对称高斯评分,阈值优先设计)
+
+设计理念:
+- 峰值: 8天 (统计质量+timeout安全性的最优平衡)
+- 核心区间: 5-10天 (评分≥0.75)
+- 可接受区间: 4-12天 (评分≥0.50)
+- 排除区间: <4天或>15天
+
+配合改良C方案:
+- 入场: [1.2σ, 1.8σ]
+- 出场: 0.3σ
+- Timeout: 30天
+
+评分标准(基于Timeout约束):
+- 4天: 0.50 (次优,噪音风险)
+- 5天: 0.75 (良好)
+...
+"""
+
+# After (10行docstring):
+"""
+计算半衰期分数 (v7.31.3: 简化注释,详见CLAUDE.md)
+
+评分方法: 非对称高斯+软截断+指数衰减
+峰值: 8天 | 核心区间: 5-10天 | 可接受: 4-12天
+
+Args:
+    model_result: BayesianModeler输出（包含rho_samples）
+
+Returns:
+    (score, half_life_mean, half_life_std): 评分和半衰期统计量
+"""
+```
+
+```python
+# _calculate_mean_reversion_certainty_score (Lines 219-233)
+# Before (23行docstring - 数学原理详述)
+# After (13行docstring - 核心思路概述)
+```
+
+**文档迁移 - CLAUDE.md (Lines 441-480)**:
+```markdown
+  **Half-Life Scoring Details** (v7.31.3 - 详细数学原理):
+  - **设计理念**:
+    - 峰值: 8天 (统计质量+timeout安全性的最优平衡)
+    - 核心区间: 5-10天 (评分≥0.75)
+    - 可接受区间: 4-12天 (评分≥0.50)
+    - 排除区间: <4天或>15天
+  - **评分标准** (基于Timeout约束):
+    - 4天: 0.50 | 5天: 0.75 | 6天: 0.90 | 8天: 1.00
+    - 10天: 0.85 | 12天: 0.65 | 15天: 0.18
+  - **评分算法**: 非对称高斯+软截断+指数衰减
+    - 左侧(4-8天): σ=3.5 (保证6天≈0.90)
+    - 右侧(8-12天): σ=4.5 (保证10天≈0.85, 12天≈0.65)
+
+  **Mean Reversion Certainty Scoring Details** (v7.31.3 - 详细数学原理):
+  - **核心思路**:
+    1. 连续时间转换: κ = -ln|ρ|/Δt (频率不变性)
+    2. 逐样本转换: κ^(s) = -ln|ρ^(s)|/Δt (贝叶斯一致性)
+    3. 精确后验统计: E[κ] = mean(κ^(s)), Std[κ] = std(κ^(s))
+    4. SNR计算: SNR_κ = E[κ] / Std[κ] (估计精度)
+    5. 逻辑斯蒂归一化: score = 1/(1+exp(a·(b-SNR_κ)))
+  - **数学原理**:
+    - κ: 连续时间均值回归率 (单位: 1/天)
+    - SNR_κ越高 → κ估计越可靠 → 交易策略越稳健
+```
+
+**改进收益**:
+- 代码简洁: 方法注释精简到核心功能说明
+- 文档集中: 详细数学原理统一管理在CLAUDE.md
+- 易于维护: 修改评分算法只需更新文档,不影响代码可读性
+
+
+### 技术影响
+- **代码质量**: Analysis模块行数减少约60行 (死代码+注释优化)
+- **可维护性**: 长方法拆分后,修改局部逻辑不影响整体流程
+- **可测试性**: 拆分后的子方法可独立单元测试 (协整检验/PyMC模型/后验统计)
+- **文档管理**: 数学原理统一在CLAUDE.md,代码注释保持简洁
+
+
+### Breaking Changes
+无 - 纯代码质量优化,不影响功能逻辑
+
+
+---
+
+
 ## [v7.31.2_code-cleanup@20250206]
 
 ### 版本概述
