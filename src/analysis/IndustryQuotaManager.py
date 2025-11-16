@@ -202,14 +202,14 @@ class IndustryQuotaManager:
             weighted_return: 加权收益率 (小数, 如0.05表示5%)
 
         Returns:
-            配额数量 (1/2/5/8/10)
+            配额数量 (1/3/5/7/9)
 
-        分层逻辑 (v7.32.0: tier0从0.0改为0.05):
+        分层逻辑 (v7.32.3 更新配额数量):
             weighted_return < 0.05  → tier0 (1个,低收益/随机)
-            weighted_return < 0.10  → tier1 (2个,[5%,10%))
+            weighted_return < 0.10  → tier1 (3个,[5%,10%))
             weighted_return < 0.20  → tier2 (5个,[10%,20%))
-            weighted_return < 0.30  → tier3 (8个,[20%,30%))
-            weighted_return >= 0.30 → tier4 (10个,[30%,∞))
+            weighted_return < 0.30  → tier3 (7个,[20%,30%))
+            weighted_return >= 0.30 → tier4 (9个,[30%,∞))
         """
         if weighted_return < self.tier_thresholds['tier0']:
             return self.tier_quotas['tier0']  # <5%
@@ -233,12 +233,12 @@ class IndustryQuotaManager:
         Returns:
             tier名称 ('tier0'/'tier1'/'tier2'/'tier3'/'tier4')
 
-        分层逻辑 (v7.32.0):
-            weighted_return < 0.05  → tier0 (max_pct=0.10)
-            weighted_return < 0.10  → tier1 (max_pct=0.12)
-            weighted_return < 0.20  → tier2 (max_pct=0.15)
-            weighted_return < 0.30  → tier3 (max_pct=0.18)
-            weighted_return >= 0.30 → tier4 (max_pct=0.20)
+        分层逻辑 (v7.32.4 更新max_pct配置):
+            weighted_return < 0.05  → tier0 (max_pct=0.15)
+            weighted_return < 0.10  → tier1 (max_pct=0.18)
+            weighted_return < 0.20  → tier2 (max_pct=0.20)
+            weighted_return < 0.30  → tier3 (max_pct=0.23)
+            weighted_return >= 0.30 → tier4 (max_pct=0.25)
         """
         if weighted_return < self.tier_thresholds['tier0']:
             return 'tier0'
