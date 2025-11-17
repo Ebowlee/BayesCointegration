@@ -944,82 +944,104 @@ class Pairs:
 
     def calculate_leg_values(self, allocated_amount: float, signal: str, data):
         """
-        从分配资金计算两腿购买力,实现风险中性对冲
+        从分配资金计算两腿购买力,实现风险中性对冲 (v7.34.0 CRITICAL FIX)
 
-        风险中性条件: 购买力比 = β
-        即: (x₁/m₁) = β × (x₂/m₂)
+        ========================================================================
+        CRITICAL FIX (v7.34.0): 修正Beta对冲公式
+        ========================================================================
+        旧版错误假设: 购买力比 = β, 即 x₁/m₁ = β × x₂/m₂  ❌ 错误!
+        正确对冲条件: 市值比 = β, 即 V₂ = β × V₁  ✓ 正确!
 
-        数学推导:
+        错误原因:
+        - 模型 ln(P₁) = α + β·ln(P₂) 表明 Symbol1 弹性是 Symbol2 的 β 倍
+        - 要对冲 Symbol1 更大的波动,必须用 β 倍的 Symbol2 市值来抵消
+        - 旧公式导致 28.1% 交易"两腿都亏损",Beta对冲从未真正生效
+
+        影响: 所有历史回测结果失效,需重新运行回测验证修复效果
+        ========================================================================
+
+        正确数学推导:
         约束1: x₁ + x₂ = A (资金分配)
-        约束2: x₁/m₁ = β·x₂/m₂ (风险中性)
+        约束2: x₂/m₂ = β × x₁/m₁ (市值比 V₂ = β × V₁)
 
-        LONG_SPREAD (多头1保证金率0.5, 空头2保证金率1.5):
-            x₁/0.5 = β·x₂/1.5
-            => x₁ = β·x₂/3
-            代入约束1: β·x₂/3 + x₂ = A
-            => x₂ = 3A/(β+3), x₁ = βA/(β+3)
+        LONG_SPREAD (Symbol1多头 m₁=0.5, Symbol2空头 m₂=1.5):
+            x₂/1.5 = β × x₁/0.5
+            => x₂ = 3β × x₁
+            代入约束1: x₁ + 3β×x₁ = A
+            => x₁ = A/(1+3β), x₂ = 3βA/(1+3β)
 
-        SHORT_SPREAD (空头1保证金率1.5, 多头2保证金率0.5):
-            x₁/1.5 = β·x₂/0.5
-            => x₁ = 3β·x₂
-            代入约束1: 3β·x₂ + x₂ = A
-            => x₂ = A/(3β+1), x₁ = 3βA/(3β+1)
+            市值验证:
+            V₁ = x₁/m₁ = 2A/(1+3β)
+            V₂ = x₂/m₂ = 2βA/(1+3β)
+            => V₂/V₁ = β ✓ 满足对冲条件
+
+        SHORT_SPREAD (Symbol1空头 m₁=1.5, Symbol2多头 m₂=0.5):
+            x₂/0.5 = β × x₁/1.5
+            => x₂ = β×x₁/3
+            代入约束1: x₁ + β×x₁/3 = A
+            => x₁ = 3A/(3+β), x₂ = βA/(3+β)
+
+            市值验证:
+            V₁ = x₁/m₁ = 2A/(3+β)
+            V₂ = x₂/m₂ = 2βA/(3+β)
+            => V₂/V₁ = β ✓ 满足对冲条件
 
         参数:
-            allocated_amount: 分配的投资资金金额
+            allocated_amount: 分配的投资资金金额 (A)
             signal: 交易信号 (LONG_SPREAD/SHORT_SPREAD)
             data: 数据切片(用于获取当前价格)
 
         返回:
-            (value_A, value_B): A和B的目标购买市值, 计算失败返回 (None, None)
+            (value_1, value_2): Symbol1和Symbol2的目标购买市值, 计算失败返回 (None, None)
 
         关键设计:
-            - 公式只依赖β和保证金率,保证风险中性 (市值比 = β)
+            - 公式只依赖β和保证金率,保证风险中性 (市值比 V₂/V₁ = β)
             - 避免引入价格P₁,P₂,防止计算偏差
+            - v7.34.0修复后预期"两腿都亏损"从28.1%降至<10%
         """
         # 获取当前价格
         prices = self.get_price(data)
         if prices is None:
             return None, None
-        price_A, price_B = prices
+        price_1, price_2 = prices
 
         # 避免除零
-        if price_A <= 0 or price_B <= 0:
-            self.algorithm.Debug(f"[计算失败] {self.pair_id} 价格异常: A={price_A}, B={price_B}")
+        if price_1 <= 0 or price_2 <= 0:
+            self.algorithm.Debug(f"[计算失败] {self.pair_id} 价格异常: Symbol1={price_1}, Symbol2={price_2}")
             return None, None
 
         beta = abs(self.beta_mean) if abs(self.beta_mean) != 0 else 1
 
         if signal == 'LONG_SPREAD':
-            # A做多(margin_long=0.5), B做空(margin_short=1.5)
-            # 正确公式: x₁ = βA/(β+3), x₂ = 3A/(β+3)
-            denominator = beta + 3
+            # Symbol1多头(m₁=0.5), Symbol2空头(m₂=1.5)
+            # v7.34.0 修复: 正确公式 x₁ = A/(1+3β), x₂ = 3βA/(1+3β)
+            denominator = 1 + 3 * beta  # m₁ + β × m₂ = 0.5 + β × 1.5
 
-            x1 = allocated_amount * beta / denominator
-            x2 = allocated_amount * 3 / denominator
+            x1 = allocated_amount / denominator
+            x2 = allocated_amount * 3 * beta / denominator
 
             # 市值 = 资金 / 保证金率
-            value_A = x1 / self.margin_long    # x1 / 0.5
-            value_B = x2 / self.margin_short   # x2 / 1.5
+            value_1 = x1 / self.margin_long    # 2A/(1+3β)
+            value_2 = x2 / self.margin_short   # 2βA/(1+3β)
 
         else:  # SHORT_SPREAD
-            # A做空(margin_short=1.5), B做多(margin_long=0.5)
-            # 正确公式: x₁ = 3βA/(3β+1), x₂ = A/(3β+1)
-            denominator = 3 * beta + 1
+            # Symbol1空头(m₁=1.5), Symbol2多头(m₂=0.5)
+            # v7.34.0 修复: 正确公式 x₁ = 3A/(3+β), x₂ = βA/(3+β)
+            denominator = 3 + beta  # m₁ + β × m₂ = 1.5 + β × 0.5
 
-            x1 = allocated_amount * 3 * beta / denominator
-            x2 = allocated_amount / denominator
+            x1 = allocated_amount * 3 / denominator
+            x2 = allocated_amount * beta / denominator
 
             # 市值
-            value_A = x1 / self.margin_short   # x1 / 1.5
-            value_B = x2 / self.margin_long    # x2 / 0.5
+            value_1 = x1 / self.margin_short   # 2A/(3+β)
+            value_2 = x2 / self.margin_long    # 2βA/(3+β)
 
         # 安全检查: 资金分配合理性
         if x1 <= 0 or x2 <= 0:
             self.algorithm.Debug(f"[计算失败] {self.pair_id} 资金分配异常: x1={x1:.2f}, x2={x2:.2f}")
             return None, None
 
-        return value_A, value_B
+        return value_1, value_2
 
 
     # ===== 7. 辅助方法(无依赖) =====

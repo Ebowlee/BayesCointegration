@@ -5,6 +5,104 @@
 ---
 
 
+## [v7.34.0_fix-beta-hedging-formula@20250117] ⚠️ **CRITICAL FIX**
+
+### 版本概述
+**CRITICAL_FIX** - 修正Beta对冲公式的根本性错误,从错误的"购买力比=β"改为正确的"市值比=β"。这是策略诞生以来最严重的数学错误,导致Beta对冲从未真正生效。**所有历史回测结果失效**,需重新运行回测验证修复效果。
+
+### 核心改进
+
+#### ⚠️ 修复Beta对冲公式 (Pairs.calculate_leg_values Lines 945-1044)
+
+**问题根源**:
+- **错误假设**: 旧版公式基于"购买力比=β",即 `x₁/m₁ = β × x₂/m₂`
+- **正确条件**: 协整模型 `ln(P₁) = α + β·ln(P₂)` 要求"市值比=β",即 `V₂ = β × V₁`
+- **数学错误**: 混淆了"购买力(资金/保证金率)"和"市值"两个概念
+
+**错误证据**:
+- 用户回测分析显示 **28.1% 交易"两腿都亏损"** (应<10%)
+- 只有 **6.25% 交易"两腿都盈利"** (理论上应>50%)
+- Beta对冲完全失效,配对交易退化为方向性赌博
+
+**错误公式** (v7.0.0-v7.33.0):
+```python
+# LONG_SPREAD (错误)
+denominator = beta + 3
+x1 = allocated_amount * beta / denominator  # ❌ 错误
+x2 = allocated_amount * 3 / denominator
+
+# SHORT_SPREAD (错误)
+denominator = 3 * beta + 1
+x1 = allocated_amount * 3 * beta / denominator  # ❌ 错误
+x2 = allocated_amount / denominator
+```
+
+**正确公式** (v7.34.0):
+```python
+# LONG_SPREAD (正确)
+denominator = 1 + 3 * beta  # m₁ + β × m₂
+x1 = allocated_amount / denominator  # ✓ 正确
+x2 = allocated_amount * 3 * beta / denominator
+
+# 市值验证: V₁ = 2A/(1+3β), V₂ = 2βA/(1+3β)
+# => V₂/V₁ = β ✓ 满足对冲条件
+
+# SHORT_SPREAD (正确)
+denominator = 3 + beta  # m₁ + β × m₂
+x1 = allocated_amount * 3 / denominator  # ✓ 正确
+x2 = allocated_amount * beta / denominator
+
+# 市值验证: V₁ = 2A/(3+β), V₂ = 2βA/(3+β)
+# => V₂/V₁ = β ✓ 满足对冲条件
+```
+
+**数学推导** (正确):
+```
+模型: ln(P₁) = α + β·ln(P₂)
+含义: Symbol1 弹性是 Symbol2 的 β 倍
+
+对冲条件: V₂ = β × V₁ (市值比等于β)
+因为: V = x/m (市值 = 资金/保证金率)
+所以: x₂/m₂ = β × x₁/m₁
+
+LONG_SPREAD (m₁=0.5, m₂=1.5):
+  x₂/1.5 = β × x₁/0.5
+  => x₂ = 3β × x₁
+  代入约束 x₁ + x₂ = A:
+  => x₁ = A/(1+3β), x₂ = 3βA/(1+3β)
+
+SHORT_SPREAD (m₁=1.5, m₂=0.5):
+  x₂/0.5 = β × x₁/1.5
+  => x₂ = β×x₁/3
+  代入约束 x₁ + x₂ = A:
+  => x₁ = 3A/(3+β), x₂ = βA/(3+β)
+```
+
+**预期改善**:
+- "两腿都亏损"占比: **28.1% → <10%** (Beta对冲生效)
+- "两腿都盈利"占比: **6.25% → >50%** (均值回归正常发挥)
+- 夏普比率预期显著提升 (风险中性实现)
+
+**影响范围**: ⚠️ **所有历史回测结果作废**
+- v7.0.0-v7.33.0所有版本的回测结果均无效
+- Beta对冲从未真正工作过
+- 策略风险特性根本改变
+- 需重新运行完整回测评估修复效果
+
+**文档更新**:
+- Pairs.py Lines 946-1000: 详细注释说明错误原因和正确推导
+- 添加市值验证公式证明对冲条件满足
+- 标记v7.34.0版本和CRITICAL FIX警告
+
+**验证步骤** (用户必做):
+1. 重新运行回测
+2. 分析新回测中"两腿都亏损"占比是否<10%
+3. 验证Beta对冲是否生效 (计算实际V₂/V₁是否≈β)
+4. 对比修复前后夏普比率/最大回撤变化
+
+---
+
+
 ## [v7.32.7_fix-docs-quota-maxpct@20250117]
 
 ### 版本概述
