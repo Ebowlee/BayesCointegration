@@ -282,6 +282,31 @@ class BayesianCointegrationStrategy(QCAlgorithm):
                     f"其他{stats.get('OTHER', 0)}次",
                     level=0
                 )
+
+                # v7.37.2: 输出累计统计（从回测开始到上月）
+                from collections import defaultdict
+                cumulative_stats = defaultdict(int)
+                cumulative_total = 0
+
+                # 遍历所有月份（包括上月）求和
+                for month in sorted(self.monthly_close_stats.keys()):
+                    if month > self.last_stat_month:
+                        break  # 只统计到上月
+                    month_stats = self.monthly_close_stats[month]
+                    for reason, count in month_stats.items():
+                        cumulative_stats[reason] += count
+                        cumulative_total += count
+
+                self.Debug(
+                    f"[月度累计-{self.last_stat_month}] "
+                    f"平仓{cumulative_total}次: "
+                    f"均值回归{cumulative_stats.get('MEAN_REVERSION', 0)}次, "
+                    f"回撤{cumulative_stats.get('DRAWDOWN', 0)}次, "
+                    f"超时{cumulative_stats.get('TIMEOUT', 0)}次, "
+                    f"协整破裂{cumulative_stats.get('PAIR_BREAK', 0)}次, "
+                    f"其他{cumulative_stats.get('OTHER', 0)}次",
+                    level=0
+                )
         self.last_stat_month = current_month
 
         # 如果正在分析，跳过
