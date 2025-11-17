@@ -38,8 +38,8 @@ class UniverseConfig:
     min_price: float = 20
     min_market_cap: float = 1e9
     min_days_since_ipo: int = 360
-    min_dollar_volume: float = 5e7                                  # 最小成交额 
-    max_coarse_stocks: int = 300                                    # 按Volume排序取top N
+    min_dollar_volume: float = 1e8                                  # 最小成交额 
+    max_coarse_stocks: int = 400                                    # 按Volume排序取top N
 
     # 财务筛选器配置
     financial_filters: Dict = field(default_factory=lambda: {
@@ -176,7 +176,7 @@ class PairsTradingConfig:
     stop_loss_threshold: float = 2.3                               # 止损Z-score阈值
 
     # 仓位管理参数
-    min_investment_ratio: float = 0.05                             # 质量最低(0.0分)配对投资比例: 5%
+    min_investment_ratio: float = 0.01                             # 质量最低(0.0分)配对投资比例: 5%
 
     # v7.35.0: 基于行业tier的最大投资比例映射 (更保守的配置)
     tier_max_investment_ratio: Dict[str, float] = field(default_factory=lambda: {

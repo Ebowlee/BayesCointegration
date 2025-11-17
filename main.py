@@ -246,8 +246,18 @@ class BayesianCointegrationStrategy(QCAlgorithm):
             level=1
         )
 
-        # v7.26.0: 详细日志 - 显示各行业配对创建统计
+        # v7.36.0: 聚合各行业累积收益率 (用于日志显示)
         from collections import defaultdict
+        industry_stats = defaultdict(lambda: {'realized_pnl': 0.0, 'realized_cost': 0.0})
+
+        for pair in self.pairs_manager.all_pairs.values():
+            if pair.industry_code is None or pair.trade_count == 0:
+                continue
+            industry_code = str(pair.industry_code)
+            industry_stats[industry_code]['realized_pnl'] += pair.realized_pnl
+            industry_stats[industry_code]['realized_cost'] += pair.realized_cost
+
+        # v7.36.0: 详细日志 - 显示各行业配对创建统计 + 累积收益率
         industry_pair_count = defaultdict(int)
         for pair in new_pairs_dict.values():
             if pair.industry_code:
@@ -255,10 +265,22 @@ class BayesianCointegrationStrategy(QCAlgorithm):
 
         if industry_pair_count:
             industry_names = self.config.constants['industry_names']
-            readable_stats = {
-                industry_names.get(int(code), f'未知({code})'): count
-                for code, count in industry_pair_count.items()
-            }
+            readable_stats = {}
+
+            for code, count in industry_pair_count.items():
+                industry_name = industry_names.get(int(code), f'未知({code})')
+
+                # 计算累积收益率
+                if code in industry_stats and industry_stats[code]['realized_cost'] > 0:
+                    weighted_return = (industry_stats[code]['realized_pnl'] /
+                                       industry_stats[code]['realized_cost']) * 100
+                    label = f"{industry_name}({weighted_return:+.1f}%)"
+                else:
+                    # 无历史数据 (预热期或首次创建)
+                    label = f"{industry_name}(预热期)"
+
+                readable_stats[label] = count
+
             self.Debug(f"[配对创建] 各行业配对数量: {readable_stats}", level=1)
     
 

@@ -5,6 +5,89 @@
 ---
 
 
+## [v7.36.0_enhance-pair-creation-log@20250117]
+
+### 版本概述
+增强配对创建日志，在行业名称旁显示累积收益率，提升诊断透明度。
+
+### 核心改进
+
+#### 日志增强：显示行业累积收益率 (main.py Lines 249-284)
+
+**旧格式** (v7.35.0):
+```
+[配对创建] 各行业配对数量: {'软件': 1, '金属矿业': 1, '消费品': 1}
+```
+
+**新格式** (v7.36.0):
+```
+[配对创建] 各行业配对数量: {'软件(+12.5%)': 3, '金属矿业(-8.2%)': 1, '消费品(预热期)': 1}
+```
+
+**改进点**:
+1. **累积收益率显示**: 括号内显示 `weighted_return = sum(realized_pnl) / sum(realized_cost) × 100`
+2. **预热期标识**: 无历史交易的行业显示 `(预热期)`
+3. **配额验证**: 直观验证高收益行业是否获得更多配对
+4. **数据一致性**: 使用与 IndustryQuotaManager 相同的加权平均公式
+
+#### 实现逻辑 (main.py Lines 249-284)
+
+**步骤1: 聚合各行业累积数据** (Lines 249-258):
+```python
+# v7.36.0: 聚合各行业累积收益率
+industry_stats = defaultdict(lambda: {'realized_pnl': 0.0, 'realized_cost': 0.0})
+
+for pair in self.pairs_manager.all_pairs.values():
+    if pair.industry_code is None or pair.trade_count == 0:
+        continue
+    industry_code = str(pair.industry_code)
+    industry_stats[industry_code]['realized_pnl'] += pair.realized_pnl
+    industry_stats[industry_code]['realized_cost'] += pair.realized_cost
+```
+
+**步骤2: 计算并格式化日志** (Lines 273-280):
+```python
+# 计算累积收益率
+if code in industry_stats and industry_stats[code]['realized_cost'] > 0:
+    weighted_return = (industry_stats[code]['realized_pnl'] /
+                       industry_stats[code]['realized_cost']) * 100
+    label = f"{industry_name}({weighted_return:+.1f}%)"
+else:
+    # 无历史数据 (预热期或首次创建)
+    label = f"{industry_name}(预热期)"
+```
+
+### 设计优势
+
+**诊断价值**:
+- **配额调整验证**: 一眼看出哪些行业因高收益获得更多配对
+- **异常检测**: 负收益行业仍获高配额 → 提示检查 tier 系统
+- **预热期识别**: 清晰标识新行业 (无历史数据)
+
+**数据一致性**:
+- 与 `IndustryQuotaManager.calculate_quotas()` 使用相同的加权平均公式
+- `trade_count > 0` 过滤确保只统计有过交易的配对
+- `realized_pnl / realized_cost` 避免简单求和的误差
+
+### 示例输出
+
+**预热期场景** (前90天):
+```
+[配对创建] 各行业配对数量: {'软件(预热期)': 1, '金属矿业(预热期)': 1}
+```
+
+**正常期场景** (90天后):
+```
+[配对创建] 各行业配对数量: {'软件(+15.2%)': 5, '医疗器械(+8.3%)': 3, '消费品(-2.1%)': 1}
+```
+→ 验证: 软件行业高收益(+15.2%) → 获得最高配额(5个) → tier4 生效 ✓
+
+### 文件修改
+- `main.py`: 增强 `_analyze_and_create_pairs()` 日志输出逻辑 (Lines 249-284, +23行)
+
+---
+
+
 ## [v7.35.0_adjust-tier-thresholds@20250117]
 
 ### 版本概述
