@@ -173,8 +173,8 @@ class PairSelector:
 
             self.algorithm.Debug(
                 f"[零轴穿越] 总计{len(scored_pairs)}对 → "
-                f"优秀(≥18):{crossing_excellent}对 | 良好[12,18):{crossing_good}对 | "
-                f"中等[6,12):{crossing_moderate}对 | 稀缺(0,6):{crossing_sparse}对 | "
+                f"(≥18):{crossing_excellent}对 | [12,18):{crossing_good}对 | "
+                f"[6,12):{crossing_moderate}对 | (0,6):{crossing_sparse}对 | "
                 f"无穿越:{crossing_none}对 | "
                 f"最高:{max_crossing}次 | 最低:{min_crossing}次 | 平均:{avg_crossing:.1f}次",
                 level=1

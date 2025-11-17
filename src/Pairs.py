@@ -340,12 +340,16 @@ class Pairs:
         # 计算持有天数
         holding_days = self.get_pair_holding_days()
 
+        # v7.38.2: 计算理论最大持仓天数
+        max_days = self.get_max_holding_days()
+        max_days_str = f"{max_days:.0f}" if max_days is not None else "N/A"
+
         # v7.37.1: 获取行业名称用于日志输出
         industry_names = self.algorithm.config.constants['industry_names']
         industry_name = industry_names.get(int(self.industry_code), '未知') if self.industry_code else '未知'
 
         self.algorithm.Debug(
-            f"[平仓] {self.pair_id} | {industry_name} | {reason_text}, 持有{holding_days}天 | "
+            f"[平仓] {self.pair_id} | {industry_name} | {reason_text} | 持有{holding_days}天,最大{max_days_str}天 | "
             f"PnL=${current_pnl:.2f} ({current_pnl_pct:+.1f}%) | "
             f"累计{total_pnl_pct:+.1f}% | "
             f"{entry_z:+.2f}σ → {close_z:+.2f}σ | "
@@ -515,7 +519,41 @@ class Pairs:
         if entry_time is not None:
             return (self.algorithm.UtcTime - entry_time).days
 
-        return None  
+        return None
+
+
+    def get_max_holding_days(self) -> Optional[float]:
+        """
+        计算理论最大持仓天数 (v7.38.2: 基于指数衰减公式)
+
+        公式来源:
+        - 均值回归路径: Z(t) = Z_entry × (0.5)^(t/half_life)
+        - 求解半衰期数: n = ln(exit_threshold/entry_zscore) / ln(0.5)
+        - 最大持有天数: max_days = n × half_life
+
+        使用场景:
+        - 平仓日志输出 (显示动态超时阈值)
+        - 风控规则诊断 (PairHoldingTimeoutRule已内联此公式)
+
+        Returns:
+            理论最大持仓天数 或 None(数据不完整)
+        """
+        # 检查必需数据
+        if self.entry_zscore is None or self.half_life is None:
+            return None
+
+        # 从config读取出场阈值
+        exit_threshold = self.algorithm.config.pairs_trading.exit_threshold  # 0.3
+        entry_zscore = abs(self.entry_zscore)  # 取绝对值,如-1.9σ → 1.9
+
+        # 计算所需半衰期数
+        import math
+        n = math.log(exit_threshold / entry_zscore) / math.log(0.5)
+
+        # 计算最大持有天数
+        max_days = n * self.half_life
+
+        return max_days  
 
 
     def get_pair_frozen_days(self) -> Optional[int]:

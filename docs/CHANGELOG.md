@@ -5,6 +5,97 @@
 ---
 
 
+## [v7.38.2_log-format-optimization@20250117]
+
+### 版本概述
+日志格式优化与代码封装改进：简化零轴穿越日志格式，增强平仓日志信息，封装最大持仓天数计算为Pairs方法。
+
+### 🎯 核心改进
+
+#### 改进1: 封装max_holding_days计算为Pairs方法 (Pairs.py Lines 521-552)
+
+**新增方法**:
+```python
+def get_max_holding_days(self) -> Optional[float]:
+    """计算理论最大持仓天数 (v7.38.2: 基于指数衰减公式)"""
+    if self.entry_zscore is None or self.half_life is None:
+        return None
+
+    exit_threshold = self.algorithm.config.pairs_trading.exit_threshold
+    entry_zscore = abs(self.entry_zscore)
+
+    import math
+    n = math.log(exit_threshold / entry_zscore) / math.log(0.5)
+    max_days = n * self.half_life
+
+    return max_days
+```
+
+**设计优势**:
+- 封装原则: 外部调用者无需了解指数衰减公式细节
+- 代码复用: PairHoldingTimeoutRule和平仓日志共用同一计算逻辑
+- 一致性保证: 避免公式在多处重复导致的维护风险
+
+#### 改进2: 平仓日志增强 (Pairs.py Lines 343-352)
+
+**Before**:
+```python
+f"[平仓] {self.pair_id} | {industry_name} | {reason_text}, 持有{holding_days}天 | ..."
+```
+
+**After**:
+```python
+max_days = self.get_max_holding_days()
+max_days_str = f"{max_days:.0f}" if max_days is not None else "N/A"
+
+f"[平仓] {self.pair_id} | {industry_name} | {reason_text} | 持有{holding_days}天,最大{max_days_str}天 | ..."
+```
+
+**示例输出**:
+```
+[平仓] ('AKRO', 'PCVX') | 生物科技 | 协整破裂 | 持有5天,最大40天 | PnL=$3308.11 (+40.2%) | ...
+```
+
+#### 改进3: 简化零轴穿越日志 (PairSelector.py Lines 174-181)
+
+**Before**:
+```python
+f"[零轴穿越] 总计20对 → 优秀(≥18):16对 | 良好[12,18):2对 | 中等[6,12):0对 | 稀缺(0,6):2对 | ..."
+```
+
+**After**:
+```python
+f"[零轴穿越] 总计20对 → (≥18):16对 | [12,18):2对 | [6,12):0对 | (0,6):2对 | ..."
+```
+
+**改进理由**: 移除冗余的中文标签("优秀/良好/中等/稀缺")，保留数学区间符号，提升简洁性。
+
+#### 改进4: 简化PairHoldingTimeoutRule (PairHoldingTimeout.py Lines 111-114)
+
+**Before**:
+```python
+exit_threshold = self.algorithm.config.pairs_trading.exit_threshold
+entry_zscore = abs(pair.entry_zscore)
+n = math.log(exit_threshold / entry_zscore) / math.log(0.5)
+max_days = n * pair.half_life
+```
+
+**After**:
+```python
+max_days = pair.get_max_holding_days()
+if max_days is None:
+    return False, ""
+```
+
+**副作用**: 删除未使用的`import math` (Line 4)
+
+### 📝 文件变更清单
+
+- **src/Pairs.py**: 新增`get_max_holding_days()`方法 + 平仓日志格式调整
+- **src/analysis/PairSelector.py**: 零轴穿越日志格式简化
+- **src/risk/PairHoldingTimeout.py**: 调用封装方法 + 删除冗余代码
+
+
 ## [v7.38.1_exponential-decay-timeout@20250117]
 
 ### 版本概述

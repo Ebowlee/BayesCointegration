@@ -1,7 +1,6 @@
 # region imports
 from .RiskBaseRule import RiskRule
 from typing import Tuple
-import math
 # endregion
 
 
@@ -108,14 +107,10 @@ class PairHoldingTimeoutRule(RiskRule):
         if self.is_in_cooldown(pair_id=pair.pair_id):
             return False, ""
 
-        # 3. v7.38.1: 基于指数衰减的物理公式
-        # 均值回归路径: Z(t) = Z_entry × (0.5)^(t/half_life)
-        # 求解: (0.5)^n = Z_exit / Z_entry → n = ln(Z_exit/Z_entry) / ln(0.5)
-        # 最大持有天数: max_days = n × half_life
-        exit_threshold = self.algorithm.config.pairs_trading.exit_threshold  # 0.3
-        entry_zscore = abs(pair.entry_zscore)  # 取绝对值,如-1.9σ → 1.9
-        n = math.log(exit_threshold / entry_zscore) / math.log(0.5)  # 所需半衰期数
-        max_days = n * pair.half_life
+        # 3. v7.38.2: 调用Pairs.get_max_holding_days() (封装指数衰减公式)
+        max_days = pair.get_max_holding_days()
+        if max_days is None:
+            return False, ""  # 数据不完整,不触发
 
         # 4. 获取实际持仓天数 (复用Pairs自带方法,避免时区问题)
         holding_days = pair.get_pair_holding_days()
@@ -138,11 +133,10 @@ class PairHoldingTimeoutRule(RiskRule):
                 )
                 return True, description
 
-            # v7.38.1: 统一使用指数衰减公式描述
+            # v7.38.2: 简化描述 (详细计算已封装在Pairs.get_max_holding_days()中)
             description = (
                 f"已持仓{holding_days}天 > 上限{max_days:.1f}天 "
-                f"(入场{entry_zscore:.2f}σ → 出场{exit_threshold:.1f}σ, "
-                f"需{n:.2f}个半衰期 × {pair.half_life:.1f}天)"
+                f"(基于入场Z-score和半衰期{pair.half_life:.1f}天的指数衰减计算)"
             )
             return True, description
 
