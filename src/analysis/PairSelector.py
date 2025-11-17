@@ -60,18 +60,25 @@ class PairSelector:
 
     def evaluate_quality(self, modeling_results):
         """
-        评估配对质量（v7.5.23: 二维评分系统,移除BetaStab维度）
+        评估配对质量（v7.37.0: 三维评分系统,新增零轴穿越维度）
 
         Args:
             modeling_results: BayesianModeler输出的建模结果列表
 
-        二维评分系统:
-        1. Half-life (60%): 均值回归速度 (最独立+预测力最强,准确率57%)
-        2. Mean-reversion certainty (40%): AR(1)显著性 (理论核心,预测力中等50%)
+        三维评分系统 (v7.37.0):
+        1. Half-life (40%): 均值回归速度 (最独立+预测力最强,准确率57%)
+        2. Mean-reversion certainty (35%): AR(1)显著性 (理论核心,预测力中等50%)
+        3. Zero-crossing (25%): 零轴穿越次数 (物理直观,噪声过滤)
 
-        移除维度:
-        - Beta Stability: 与MR重叠50%(r=0.71), 所有配对评分0.97-0.99无区分度
-        - Residual Quality: 预测失败率57%, 历史拟合≠未来预测
+        零轴穿越维度设计理念:
+        - 物理意义: 验证spread的均值回归潜力
+        - 过滤目标: 排除信号稀缺(<6次/年)和噪声过度(>36次/年)配对
+        - 评分峰值: 12次/252天 (每月1次,理想交易频率)
+        - 保守权重: 25% (便于后续根据回测结果调优至30-35%)
+
+        历史变更:
+        - v7.5.23: 移除Beta Stability (与MR重叠r=0.71) 和 Residual Quality (预测失败率57%)
+        - v7.37.0: 新增Zero-crossing维度,权重调整为40%+35%+25%
 
         设计优势:
         - 使用贝叶斯后验参数（比OLS更准确）
@@ -84,15 +91,18 @@ class PairSelector:
             symbol1 = model_result['symbol1']
             symbol2 = model_result['symbol2']
 
-            # 二维评分计算 (调用私有方法)
+            # 三维评分计算 (调用私有方法)
             # v7.13.0: _calculate_half_life_score返回三元组 (score, mean, std)
             half_life_score, half_life_days, half_life_std = self._calculate_half_life_score(model_result)
             mean_reversion_score, snr_kappa = self._calculate_mean_reversion_certainty_score(model_result)
+            # v7.37.0: 新增零轴穿越评分
+            zero_crossing_score, crossing_count, _ = self._calculate_zero_crossing_score(model_result)
 
-            # 综合质量分数（二维加权平均, v7.5.23: 移除BetaStab维度）
+            # 综合质量分数（三维加权平均, v7.37.0: 40%+35%+25%）
             quality_score = (
                 self.quality_weights['half_life'] * half_life_score +
-                self.quality_weights['mean_reversion_certainty'] * mean_reversion_score
+                self.quality_weights['mean_reversion_certainty'] * mean_reversion_score +
+                self.quality_weights['zero_crossing'] * zero_crossing_score
             )
 
 
@@ -102,6 +112,9 @@ class PairSelector:
             model_result['half_life'] = half_life_days  # v7.11.0: 供PairHoldingTimeoutRule使用
             model_result['half_life_std'] = half_life_std  # v7.13.0: 半衰期不确定性
             model_result['mean_reversion_score'] = mean_reversion_score
+            # v7.37.0: 新增零轴穿越维度字段
+            model_result['zero_crossing_score'] = zero_crossing_score
+            model_result['crossing_count'] = crossing_count
 
             scored_pairs.append(model_result)
 
@@ -141,6 +154,29 @@ class PairSelector:
                 f"(≥0.80):{excellent}对 | [0.70,0.80):{good}对 | "
                 f"[0.60,0.70):{pass_grade}对 | [0.30,0.60):{poor}对 | (<0.30):{very_poor}对 | "
                 f"最高:{max_score:.3f} | 最低:{min_score:.3f}",
+                level=1
+            )
+
+        # v7.37.1: 零轴穿越分布统计（验证v7.37.0新评分维度）
+        if scored_pairs and any('crossing_count' in p for p in scored_pairs):
+            # 统计穿越次数分档（基于评分函数设计的区间）
+            crossing_excellent = sum(1 for p in scored_pairs if p.get('crossing_count', 0) >= 18)  # 平台区及以上
+            crossing_good = sum(1 for p in scored_pairs if 12 <= p.get('crossing_count', 0) < 18)  # 峰值区
+            crossing_moderate = sum(1 for p in scored_pairs if 6 <= p.get('crossing_count', 0) < 12)  # 上升区
+            crossing_sparse = sum(1 for p in scored_pairs if 0 < p.get('crossing_count', 0) < 6)  # 低于基线
+            crossing_none = sum(1 for p in scored_pairs if p.get('crossing_count', 0) == 0)  # 无穿越
+
+            # 计算极值和平均值
+            max_crossing = max((p.get('crossing_count', 0) for p in scored_pairs), default=0)
+            min_crossing = min((p.get('crossing_count', 0) for p in scored_pairs), default=0)
+            avg_crossing = sum(p.get('crossing_count', 0) for p in scored_pairs) / len(scored_pairs)
+
+            self.algorithm.Debug(
+                f"[零轴穿越] 总计{len(scored_pairs)}对 → "
+                f"优秀(≥18):{crossing_excellent}对 | 良好[12,18):{crossing_good}对 | "
+                f"中等[6,12):{crossing_moderate}对 | 稀缺(0,6):{crossing_sparse}对 | "
+                f"无穿越:{crossing_none}对 | "
+                f"最高:{max_crossing}次 | 最低:{min_crossing}次 | 平均:{avg_crossing:.1f}次",
                 level=1
             )
 
@@ -287,3 +323,94 @@ class PairSelector:
         except Exception as e:
             self.algorithm.Debug(f"[PairSelector] κ-based均值回归确定性计算失败: {e}")
             return (0.0, 0.0)
+
+
+    def _calculate_zero_crossing_score(self, model_result: Dict) -> Tuple[float, int, int]:
+        """
+        计算零轴穿越次数评分 (v7.37.0)
+
+        核心逻辑:
+        - 从对数价差序列(spread)计算穿越零轴的次数
+        - 应用分段线性评分函数,峰值12次/252天(每月1次)
+        - 过滤信号稀缺(<6次)和噪声过度(>36次)的配对
+
+        评分标准 (基于交易频率优化):
+        - 峰值: 12次 → 1.0 (每月1次,理想频率)
+        - 半峰: 6次 → 0.5 (两月1次,最低可接受)
+        - 平台: 18-24次 → 0.5 (每月1.5-2次,可接受但非最优)
+        - 左端: <6次 → 0.0 (信号稀缺,资金利用率低)
+        - 右端: >36次 → 0.0 (过度交易,噪声信号)
+
+        分段线性函数:
+        score(n) =
+            0.0,                             n < 6
+            0.5 + (n-6)*0.5/6,              6 ≤ n ≤ 12  (上升段)
+            0.5 + (18-n)*0.5/6,             12 < n ≤ 18 (下降段)
+            0.5,                            18 < n ≤ 24 (平台段)
+            0.5 * (36-n)/12,                24 < n ≤ 36 (衰减段)
+            0.0,                             n > 36
+
+        Args:
+            model_result: BayesianModeler输出的建模结果字典,必须包含'spread'和'residual_mean'字段
+
+        Returns:
+            (score, crossing_count, peak_value): 三元组
+            - score: 归一化评分 [0.0, 1.0]
+            - crossing_count: 实际穿越次数 (int)
+            - peak_value: 峰值点参考值 (固定12)
+
+        实现细节:
+        - spread去均值化: spread_centered = spread - residual_mean
+        - 穿越检测: np.sign()符号变化计数
+        - 边界处理: spread长度<10返回默认值(0.0, 0, 12)
+        - 异常容错: 任何计算错误返回(0.0, 0, 12)并记录日志
+        """
+        try:
+            # 读取阈值配置
+            thresholds = self.scoring_thresholds['zero_crossing']
+            min_cross = thresholds['min_crossings']       # 6
+            peak_cross = thresholds['peak_crossings']     # 12
+            half_high = thresholds['half_peak_high']      # 18
+            plateau_end = thresholds['plateau_end']       # 24
+            max_cross = thresholds['max_crossings']       # 36
+
+            # 获取对数价差序列
+            spread = model_result.get('spread')
+            if spread is None or len(spread) < 10:
+                # 数据不足,返回默认值
+                return (0.0, 0, peak_cross)
+
+            # 去均值化 (spread本身是log-space残差,需要减去均值)
+            residual_mean = model_result.get('residual_mean', 0.0)
+            spread_centered = spread - residual_mean
+
+            # 计算零轴穿越次数
+            signs = np.sign(spread_centered)
+            # 符号变化次数 = 穿越次数
+            crossing_count = int(np.sum(signs[:-1] != signs[1:]))
+
+            # 分段线性评分
+            if crossing_count < min_cross:
+                # 左端硬截断: <6次 → 0.0
+                score = 0.0
+            elif crossing_count <= peak_cross:
+                # 上升段: [6, 12] → [0.5, 1.0]
+                score = 0.5 + (crossing_count - min_cross) * 0.5 / (peak_cross - min_cross)
+            elif crossing_count <= half_high:
+                # 下降段: (12, 18] → (1.0, 0.5]
+                score = 0.5 + (half_high - crossing_count) * 0.5 / (half_high - peak_cross)
+            elif crossing_count <= plateau_end:
+                # 平台段: (18, 24] → 0.5
+                score = 0.5
+            elif crossing_count <= max_cross:
+                # 衰减段: (24, 36] → (0.5, 0.0]
+                score = 0.5 * (max_cross - crossing_count) / (max_cross - plateau_end)
+            else:
+                # 右端硬截断: >36次 → 0.0
+                score = 0.0
+
+            return (float(score), crossing_count, peak_cross)
+
+        except Exception as e:
+            self.algorithm.Debug(f"[PairSelector] 零轴穿越计算失败: {e}")
+            return (0.0, 0, 12)

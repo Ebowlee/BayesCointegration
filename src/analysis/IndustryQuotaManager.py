@@ -118,28 +118,22 @@ class IndustryQuotaManager:
             }
 
             # v7.26.0: 详细日志 - 显示非默认配额的计算依据
+            # v7.37.1: 添加交易次数, 移除行业代码
             if quota != self.default_quota:
                 industry_name = industry_names.get(int(industry_code), f'未知({industry_code})')
                 self.algorithm.Debug(
-                    f"[行业配额] {industry_name}({industry_code}): "
+                    f"[行业配额] {industry_name}: "
                     f"累计收益{weighted_return*100:+.2f}% "
-                    f"(PnL=${stats['realized_pnl']:,.0f}, Cost=${stats['realized_cost']:,.0f}) "
+                    f"(PnL=${stats['realized_pnl']:,.0f}, Cost=${stats['realized_cost']:,.0f}, 交易{stats['pair_count']}对) "
                     f"→ 配额: {self.default_quota} → {quota} (tier={tier})",
                     level=1  # Debug模式才显示详情
                 )
 
         # v7.13.0: 日志输出 (映射行业代码为中文名)
+        # v7.37.1: 删除汇总日志 (已在上方逐个输出详细信息, 避免冗余)
         non_default = {k: v for k, v in industry_quotas.items() if v['quota'] != self.default_quota}
-        if non_default:
-            # 格式化输出: {半导体:6, 医疗器械:3}
-            readable_quotas = {
-                industry_names.get(int(code), f'未知({code})'): info['quota']
-                for code, info in non_default.items()
-            }
-            self.algorithm.Debug(
-                f"[行业配额] 本月动态配额 (非默认): {readable_quotas}"
-            )
-        else:
+        if not non_default:
+            # 只在所有行业都使用默认配额时输出（预热期或无动态调整）
             self.algorithm.Debug(
                 f"[行业配额] 本月所有行业使用默认配额: {self.default_quota}"
             )

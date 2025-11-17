@@ -85,7 +85,8 @@
       "Bash(done)",
       "Bash(nul)",
       "Bash(chcp 65001)",
-      "Bash(findstr:*)"
+      "Bash(findstr:*)",
+      "Bash(git reset:*)"
     ],
     "deny": []
   },

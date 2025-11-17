@@ -226,9 +226,9 @@ class CointegrationAnalyzer:
         quota = quota_info['quota'] if quota_info else self.default_quota
 
         self.algorithm.Debug(
-            f"[协整分析] {industry_name}({ig_name}): "
+            f"[协整分析] {industry_name}: "
             f"{len(symbols)}只股票 → 配对{len(symbols)*(len(symbols)-1)//2}对 → "
-            f"PValue通过{len(sorted_pairs)}对 → 配额{quota} → 最终选取{len(selected_pairs)}对",
+            f"P值通过{len(sorted_pairs)}对 → 配额{quota} → 最终选取{len(selected_pairs)}对",
             level=1
         )
 

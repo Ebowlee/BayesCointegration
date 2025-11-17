@@ -38,8 +38,8 @@ class UniverseConfig:
     min_price: float = 20
     min_market_cap: float = 1e9
     min_days_since_ipo: int = 360
-    min_dollar_volume: float = 1e8                                  # 最小成交额 
-    max_coarse_stocks: int = 400                                    # 按Volume排序取top N
+    min_dollar_volume: float = 5e7                                  # 最小成交额 
+    max_coarse_stocks: int = 500                                    # 按Volume排序取top N
 
     # 财务筛选器配置
     financial_filters: Dict = field(default_factory=lambda: {
@@ -62,14 +62,14 @@ class UniverseConfig:
             'fail_key': 'valuation_failed'
         },
         'debt_ratio': {
-            'enabled': True,
+            'enabled': False,
             'path': 'OperationRatios.DebtToAssets.Value',
             'operator': 'le',
             'threshold': 0.6,
             'fail_key': 'debt_failed'
         },
         'leverage': {
-            'enabled': True,
+            'enabled': False,
             'path': 'OperationRatios.FinancialLeverage.Value',
             'operator': 'le',
             'threshold': 6,
@@ -90,7 +90,7 @@ class CointegrationConfig:
     """协整分析配置"""
 
     # 统计检验
-    pvalue_threshold: float = 0.05                                  # Engle-Granger p值阈值
+    pvalue_threshold: float = 0.01                                  # Engle-Granger p值阈值
 
     # 行业分组
     min_stocks_per_industry: int = 3                                # 行业最少股票数
@@ -140,10 +140,11 @@ class BayesianModelerConfig:
 class PairSelectorConfig:
     """配对质量评估配置"""
     # v7.31.0: max_symbol_repeats已迁移到CointegrationConfig
-    min_quality_threshold: float = 0.60                             # 最低质量分数阈值
+    min_quality_threshold: float = 0.50                             # 最低质量分数阈值
     quality_weights: Dict = field(default_factory=lambda: {
-        'half_life': 0.50,
-        'mean_reversion_certainty': 0.50
+        'half_life': 0.40,                     
+        'mean_reversion_certainty': 0.30,      
+        'zero_crossing': 0.30                  
     })
 
     # 评分函数阈值设置
@@ -161,6 +162,13 @@ class PairSelectorConfig:
             'logistic_steepness': 2.5,
             'logistic_midpoint': 2.0,
             'max_snr_kappa': 10.0
+        },
+        'zero_crossing': {
+            'min_crossings': 6,      # 左端硬截断（两个月1次）
+            'peak_crossings': 12,    # 峰值点（每月1次）
+            'half_peak_high': 18,    # 右侧半峰值起点
+            'plateau_end': 24,       # 半峰平台结束点
+            'max_crossings': 36      # 右端硬截断
         }
     })
 
@@ -176,7 +184,7 @@ class PairsTradingConfig:
     stop_loss_threshold: float = 2.3                               # 止损Z-score阈值
 
     # 仓位管理参数
-    min_investment_ratio: float = 0.01                             # 质量最低(0.0分)配对投资比例: 5%
+    min_investment_ratio: float = 0.05                             # 质量最低(0.0分)配对投资比例: 5%
 
     # v7.35.0: 基于行业tier的最大投资比例映射 (更保守的配置)
     tier_max_investment_ratio: Dict[str, float] = field(default_factory=lambda: {
