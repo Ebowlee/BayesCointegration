@@ -11,18 +11,14 @@ class PairHoldingTimeoutRule(RiskRule):
     检测配对持仓时间是否超过阈值且处于亏损状态。配对交易是短期均值回归策略,
     如果持仓超过max_days仍未回归且亏损,说明协整关系可能失效,应止损退出。
 
-    触发条件 (v7.33.0 复合AND条件):
+    触发条件:
     - 持仓天数 > max_days (动态计算: half_life × max_halflife_multiplier)
-    - **AND** (PnL <= 0 OR PnL is None)
 
     设计特点:
     - 支持per-pair冷却期: 默认15天
     - 动态持有时间: 基于半衰期分布的自适应公式 (half_life + 2*std 或 half_life × 2.0)
-    - v7.33.0: PnL条件判断 - 保持盈利仓位,快速止损亏损仓位
-      - 盈利配对 (pnl > 0): 不触发,继续持有
-      - 亏损/持平配对 (pnl <= 0): 触发平仓
-      - 数据异常 (pnl is None): 触发平仓 (Fail-Safe原则)
-    - v7.32.5: 增加PnL豁免调试日志 - 验证盈利配对豁免逻辑
+    - v7.34.2: 移除盈利豁免机制，统一触发条件 (holding_days > max_days，不论盈亏)
+    - 保留PnL=None时的Fail-Safe平仓逻辑
     - 优先级中等: priority=70
 
     配置示例:
@@ -64,20 +60,15 @@ class PairHoldingTimeoutRule(RiskRule):
         3. 动态计算该配对的最大持有时间 (half_life × multiplier)
         4. 调用pair.get_pair_holding_days()获取实际持仓天数
         5. 判断是否超过动态阈值
-        6. v7.33.0: 增加PnL条件 - 只在亏损/持平/异常时触发
-
-        v7.33.0: 复合触发条件
-        - 盈利配对 (pnl > 0): 不触发,继续持有
-        - 亏损/持平配对 (pnl <= 0): 触发平仓
-        - 数据异常 (pnl is None): 触发平仓 (Fail-Safe原则)
+        6. v7.34.2: 统一触发条件 (不检查盈亏状态，仅Fail-Safe检查PnL=None)
 
         Args:
             pair: Pairs对象,必须实现get_pair_holding_days(), get_pair_pnl(), half_life属性
 
         Returns:
             (is_triggered, description)
-            - is_triggered: True表示超时且亏损/异常,False表示未触发
-            - description: 详细描述(包含持仓天数、动态阈值、半衰期、PnL信息)
+            - is_triggered: True表示超时(不论盈亏),False表示未触发
+            - description: 详细描述(包含持仓天数、动态阈值、半衰期信息)
 
         设计说明 (v7.11.0):
             - 动态持有时间 = pair.half_life × max_halflife_multiplier
@@ -86,15 +77,11 @@ class PairHoldingTimeoutRule(RiskRule):
             - 与动态Half-life评分曲线配合,构建完整的自适应风控体系
 
         示例:
-            # 超时+亏损 → 触发
+            # 超时 → 触发 (不论盈亏)
             triggered, desc = rule.check(pair=pair_obj)
-            # 返回: (True, "已持仓25天 > 上限20.0天 (半衰期10.0天 × 2.0), PnL=$-500 (亏损/持平)")
+            # 返回: (True, "已持仓25天 > 上限20.0天 (半衰期10.0天 × 2.0)")
 
-            # 超时+盈利 → 不触发
-            triggered, desc = rule.check(pair=pair_obj)
-            # 返回: (False, "")
-
-            # 超时+数据异常 → 触发
+            # PnL数据异常 → 触发 (Fail-Safe)
             triggered, desc = rule.check(pair=pair_obj)
             # 返回: (True, "已持仓25天 > 上限20.0天, PnL数据缺失 (异常状态)")
         """
@@ -123,7 +110,7 @@ class PairHoldingTimeoutRule(RiskRule):
 
         # 5. 判断是否超过动态阈值
         if holding_days > max_days:
-            # v7.33.0: 增加PnL条件判断
+            # v7.34.2: Fail-Safe检查 - 仅验证PnL数据完整性
             pair_pnl = pair.get_pair_pnl()
 
             # PnL数据完整性检查
@@ -135,37 +122,20 @@ class PairHoldingTimeoutRule(RiskRule):
                 )
                 return True, description
 
-            # PnL条件: 只在亏损/持平时触发
-            if pair_pnl > 0:
-                # 盈利配对: 不触发,继续持有
-
-                # v7.32.5: 新增调试日志验证豁免逻辑
-                self.algorithm.Debug(
-                    f"[持仓超时] {pair.pair_id} 已持仓{holding_days}天 > 上限{max_days:.1f}天, "
-                    f"但PnL=${pair_pnl:,.0f} (盈利) → 豁免超时,继续持有",
-                    level=1  # Debug模式才显示
-                )
-
-                return False, ""
-
-            # 亏损或持平配对: 触发平仓
-            # v7.30.7: 简化description(移除"持仓超时:"前缀和开仓时间)
-            # v7.33.0: 增加PnL信息
+            # v7.34.2: 统一触发，不检查盈亏状态
             if pair.half_life_std > 0:
                 # 新公式: half_life + 2*std
                 description = (
                     f"已持仓{holding_days}天 > "
                     f"上限{max_days:.1f}天 "
-                    f"(半衰期{pair.half_life:.1f}天 + 2×标准差{pair.half_life_std:.1f}天), "
-                    f"PnL=${pair_pnl:,.0f} (亏损/持平)"
+                    f"(半衰期{pair.half_life:.1f}天 + 2×标准差{pair.half_life_std:.1f}天)"
                 )
             else:
                 # 旧公式: half_life × multiplier (兼容模式)
                 description = (
                     f"已持仓{holding_days}天 > "
                     f"上限{max_days:.1f}天 "
-                    f"(半衰期{pair.half_life:.1f}天 × {self.max_halflife_multiplier}), "
-                    f"PnL=${pair_pnl:,.0f} (亏损/持平)"
+                    f"(半衰期{pair.half_life:.1f}天 × {self.max_halflife_multiplier})"
                 )
             return True, description
 

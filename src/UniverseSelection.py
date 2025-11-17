@@ -35,8 +35,6 @@ class FinancialValidator:
 
         Returns:
             (是否通过, 失败原因列表)
-
-        v7.29.0: 支持OR逻辑的估值筛选
         """
         # 基础数据检查
         if not stock.ValuationRatios or not stock.OperationRatios:
@@ -112,17 +110,6 @@ class FinancialValidator:
 
         Returns:
             是否通过(至少一条规则满足)
-
-        示例: (PE≤100 OR PS≤10)
-            - PE=50, PS=null → ✅ 通过(PE满足)
-            - PE=null, PS=5 → ✅ 通过(PS满足)
-            - PE=120, PS=15 → ❌ 不通过(都不满足)
-            - PE=null, PS=null → ❌ 不通过(都无效)
-
-        技术细节:
-            - QuantConnect返回null而非负数表示无效指标
-            - PE=null: 亏损公司(EPS<0或极端值)
-            - PS=null: 无收入公司(Sales≤0)
         """
         rules = filter_config.get('rules', [])
 
@@ -153,8 +140,6 @@ class SectorBasedUniverseSelection(FineFundamentalUniverseSelectionModel):
     两阶段筛选：
     1. 粗选: 价格、成交量、IPO时间筛选
     2. 精选: 财务指标筛选 (PE/PS估值OR逻辑, 负债率, 杠杆率)
-
-    注: 波动率筛选已移除(历史数据证明过滤效果<1%,成本高收益低)
     """
 
     def __init__(self, algorithm):
@@ -216,18 +201,18 @@ class SectorBasedUniverseSelection(FineFundamentalUniverseSelectionModel):
         min_ipo_date = self.algorithm.Time - timedelta(days=self.config.min_days_since_ipo)
         min_price = self.config.min_price
         min_market_cap = self.config.min_market_cap
-        min_dollar_volume = self.config.min_dollar_volume       # v7.34.1: DollarVolume阈值
-        max_coarse_stocks = self.config.max_coarse_stocks       # v7.30.3: TOP N
+        min_dollar_volume = self.config.min_dollar_volume       
+        max_coarse_stocks = self.config.max_coarse_stocks      
 
         # 步骤1: 基础筛选
         filtered = [
             x for x in coarse
-            if x.HasFundamentalData                             # 排除ETF等
-            and x.Price >= min_price                            # v7.34.1: 价格筛选 (>=包含边界)
-            and x.MarketCap >= min_market_cap                   # 市值筛选
-            and x.DollarVolume >= min_dollar_volume             # v7.34.1: 成交额筛选 (真实流动性)
+            if x.HasFundamentalData                             
+            and x.Price >= min_price                           
+            and x.MarketCap >= min_market_cap                   
+            and x.DollarVolume >= min_dollar_volume            
             and x.SecurityReference.IPODate is not None
-            and x.SecurityReference.IPODate <= min_ipo_date     # IPO时间
+            and x.SecurityReference.IPODate <= min_ipo_date     
         ]
 
         # 步骤2: 按Volume降序排序 + 取TOP N
@@ -248,8 +233,6 @@ class SectorBasedUniverseSelection(FineFundamentalUniverseSelectionModel):
         v7.30.0变更说明:
         - 行业内交易量TOP 50筛选已移至CointegrationAnalyzer (架构优化)
         - 理由: 行业内筛选应在协整检验前进行,职责分离更清晰
-
-        注: 波动率筛选已移除(历史数据显示过滤<1%股票,成本高收益低)
         """
         # 如果未触发选股, 返回上次结果
         if not self.selection_on:

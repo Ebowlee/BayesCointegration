@@ -5,6 +5,93 @@
 ---
 
 
+## [v7.34.2_remove-timeout-profit-exemption@20250117]
+
+### 版本概述
+移除 `PairHoldingTimeout` 规则中的"盈利豁免"机制，统一触发条件为 `holding_days > max_days`（不论盈亏）。
+
+### 核心改进
+
+#### 删除盈利豁免逻辑 (PairHoldingTimeout.py Lines 139-149)
+
+**删除的代码**:
+```python
+# PnL条件: 只在亏损/持平时触发
+if pair_pnl > 0:
+    # 盈利配对: 不触发,继续持有
+    self.algorithm.Debug(
+        f"[持仓超时] {pair.pair_id} 已持仓{holding_days}天 > 上限{max_days:.1f}天, "
+        f"但PnL=${pair_pnl:,.0f} (盈利) → 豁免超时,继续持有",
+        level=1
+    )
+    return False, ""
+```
+
+**修改后逻辑**:
+- 直接触发超时，不检查 PnL 盈亏状态
+- 保留 `PnL=None` 时的 Fail-Safe 平仓逻辑（数据异常保护）
+- 统一触发条件：`holding_days > max_days`（不论盈亏）
+
+**设计理由**:
+1. **简化风控逻辑**: 避免"盈利但回归速度过慢"的尾部风险
+2. **一致性原则**: 所有超时配对统一处理，规则更清晰
+3. **策略定位**: 配对交易是短期均值回归策略，不应长期持有
+
+### 破坏性变更
+- ⚠️ 盈利配对现在也会在超时后被强制平仓
+- 可能影响长期盈利配对的持续收益（但符合短期策略定位）
+
+### 文件修改
+- `src/risk/PairHoldingTimeout.py`: 删除盈利豁免逻辑 (Lines 139-149)
+- `src/risk/PairHoldingTimeout.py`: 更新类和方法的 docstring
+
+---
+
+
+## [v7.34.1_add-dollarvolume-filter@20250117]
+
+### 版本概述
+新增 `DollarVolume >= $20M` 流动性筛选，并统一价格边界条件为 `>=`。
+
+### 核心改进
+
+#### 新增 DollarVolume 流动性筛选 (UniverseSelection.py)
+
+**配置新增** (config.py Line 41):
+```python
+min_dollar_volume: float = 20_000_000  # 最小成交额 $20M
+```
+
+**筛选逻辑** (UniverseSelection.py Line 228):
+```python
+and x.DollarVolume >= min_dollar_volume  # 流动性筛选
+```
+
+**设计理由**:
+- `DollarVolume = Price × Volume` 衡量真实流动性
+- 过滤低价股的虚假高成交量（如 $2 股票 × 20M 股 = $40M ✓）
+- 减少滑点风险和执行成本
+
+#### 统一边界条件 (UniverseSelection.py Line 226)
+
+**变更**:
+```python
+# 修改前: x.Price > min_price
+# 修改后: x.Price >= min_price
+```
+
+**理由**:
+- 与 v7.29.1 财务筛选器保持一致（`le`/`ge` 包含边界）
+- 语义清晰：`min_price=20` 表示"至少 $20"
+- 避免边界值误排除（如 Price=$20.00 的股票）
+
+### 文件修改
+- `src/config.py`: 新增 `min_dollar_volume` 参数
+- `src/UniverseSelection.py`: 新增 DollarVolume 筛选条件，修改 Price 边界条件
+
+---
+
+
 ## [v7.34.0_fix-beta-hedging-formula@20250117] ⚠️ **CRITICAL FIX**
 
 ### 版本概述

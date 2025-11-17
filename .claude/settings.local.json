@@ -84,7 +84,8 @@
       "Bash(do echo \"=== Commit: $commit ===\")",
       "Bash(done)",
       "Bash(nul)",
-      "Bash(chcp 65001)"
+      "Bash(chcp 65001)",
+      "Bash(findstr:*)"
     ],
     "deny": []
   },
