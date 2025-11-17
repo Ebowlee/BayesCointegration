@@ -150,12 +150,12 @@ class PairSelectorConfig:
     # 评分函数阈值设置
     scoring_thresholds: Dict = field(default_factory=lambda: {
         'half_life': {
-            'peak_days': 8,
-            'sigma_left': 4.0,
-            'sigma_right': 9.0,
+            'peak_days': 10,           # v7.38.0: 从8放宽至10 (慢速配对友好)
+            'sigma_left': 5.0,         # v7.38.0: 从4.0放宽至5.0 (左侧宽度)
+            'sigma_right': 12.0,       # v7.38.0: 从9.0放宽至12.0 (右侧宽度)
             'min_days': 4,
-            'decay_start': 20,
-            'decay_rate': 0.20
+            'decay_start': 25,         # v7.38.0: 从20延后至25 (衰减起点)
+            'decay_rate': 0.15         # v7.38.0: 从0.20降低至0.15 (衰减速率)
         },
         'mean_reversion_certainty': {
             'time_delta_days': 1.0,
@@ -189,10 +189,10 @@ class PairsTradingConfig:
     # v7.35.0: 基于行业tier的最大投资比例映射 (更保守的配置)
     tier_max_investment_ratio: Dict[str, float] = field(default_factory=lambda: {
         'tier0': 0.10,  # <0%: 负收益 → 最低配置
-        'tier1': 0.12,  # [0%, 5%)
-        'tier2': 0.15,  # [5%, 10%)
-        'tier3': 0.18,  # [10%, 15%)
-        'tier4': 0.20   # ≥15%: 高回报 → 高配置
+        'tier1': 0.16,  # [0%, 5%)
+        'tier2': 0.18,  # [5%, 10%)
+        'tier3': 0.20,  # [10%, 15%)
+        'tier4': 0.22   # ≥15%: 高回报 → 高配置
     })
 
     # 保证金管理
@@ -259,10 +259,9 @@ class PairDrawdownRuleConfig:
 
 @dataclass
 class HoldingTimeoutRuleConfig:
-    """持仓超时规则配置"""
+    """持仓超时规则配置 (v7.38.1: 移除max_halflife_multiplier)"""
     enabled: bool = True
     priority: int = 70
-    max_halflife_multiplier: float = 2.0
     cooldown_days: int = 90
 
 

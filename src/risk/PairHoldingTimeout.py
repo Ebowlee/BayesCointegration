@@ -1,32 +1,39 @@
 # region imports
 from .RiskBaseRule import RiskRule
 from typing import Tuple
+import math
 # endregion
 
 
 class PairHoldingTimeoutRule(RiskRule):
     """
-    持仓超时风控规则
+    持仓超时风控规则 (v7.38.1: 基于指数衰减物理公式)
 
-    检测配对持仓时间是否超过阈值且处于亏损状态。配对交易是短期均值回归策略,
-    如果持仓超过max_days仍未回归且亏损,说明协整关系可能失效,应止损退出。
+    检测配对持仓时间是否超过基于均值回归路径计算的动态阈值。
+    配对交易是短期均值回归策略,如果持仓超过物理预期时间仍未回归,
+    说明协整关系可能失效,应止损退出。
 
     触发条件:
-    - 持仓天数 > max_days (动态计算: half_life × max_halflife_multiplier)
+    - 持仓天数 > max_days (基于指数衰减公式动态计算)
+
+    指数衰减公式 (v7.38.1):
+    - 均值回归路径: Z(t) = Z_entry × (0.5)^(t/half_life)
+    - 求解半衰期数: n = ln(exit_threshold/entry_zscore) / ln(0.5)
+    - 最大持有天数: max_days = n × half_life
 
     设计特点:
-    - 支持per-pair冷却期: 默认15天
-    - 动态持有时间: 基于半衰期分布的自适应公式 (half_life + 2*std 或 half_life × 2.0)
+    - 支持per-pair冷却期: 默认90天
+    - 个性化超时限制: 每个配对根据实际entry_zscore计算专属阈值
+    - 物理意义明确: 基于均值回归速率和入场位置的数学推导
     - v7.34.2: 移除盈利豁免机制，统一触发条件 (holding_days > max_days，不论盈亏)
     - 保留PnL=None时的Fail-Safe平仓逻辑
     - 优先级中等: priority=70
 
-    配置示例:
+    配置示例 (v7.38.1简化):
     {
         'enabled': True,
         'priority': 70,
-        'max_halflife_multiplier': 2.0,
-        'cooldown_days': 15
+        'cooldown_days': 90
     }
 
     使用示例:
@@ -47,43 +54,51 @@ class PairHoldingTimeoutRule(RiskRule):
             config: HoldingTimeoutRuleConfig dataclass实例
         """
         super().__init__(algorithm, config)
-        self.max_halflife_multiplier = config.max_halflife_multiplier
+        # v7.38.1: 删除已废弃的max_halflife_multiplier配置
 
 
     def check(self, pair) -> Tuple[bool, str]:
         """
-        检查配对是否触发持仓超时
+        检查配对是否触发持仓超时 (v7.38.1: 基于指数衰减公式)
 
         检查流程:
         1. 检查规则是否启用
         2. (v7.31.0 Fail-Safe) 检查该配对是否在冷却期
-        3. 动态计算该配对的最大持有时间 (half_life × multiplier)
+        3. v7.38.1: 基于指数衰减公式计算动态超时阈值
+           - 获取exit_threshold (0.3) 和 entry_zscore (实际开仓Z-score)
+           - 计算所需半衰期数: n = ln(exit_threshold/entry_zscore) / ln(0.5)
+           - 计算最大持有天数: max_days = n × pair.half_life
         4. 调用pair.get_pair_holding_days()获取实际持仓天数
         5. 判断是否超过动态阈值
         6. v7.34.2: 统一触发条件 (不检查盈亏状态，仅Fail-Safe检查PnL=None)
 
         Args:
-            pair: Pairs对象,必须实现get_pair_holding_days(), get_pair_pnl(), half_life属性
+            pair: Pairs对象,必须实现:
+                - get_pair_holding_days(): 返回持仓天数
+                - get_pair_pnl(): 返回PnL (用于Fail-Safe检查)
+                - half_life: 半衰期属性
+                - entry_zscore: 实际开仓时的Z-score
 
         Returns:
             (is_triggered, description)
             - is_triggered: True表示超时(不论盈亏),False表示未触发
-            - description: 详细描述(包含持仓天数、动态阈值、半衰期信息)
+            - description: 详细描述(包含持仓天数、动态阈值、指数衰减路径)
 
-        设计说明 (v7.11.0):
-            - 动态持有时间 = pair.half_life × max_halflife_multiplier
-            - 不同配对有不同的持有时间上限 (如8天配对→16天, 20天配对→40天)
-            - 避免了固定阈值对慢速配对的过度惩罚
-            - 与动态Half-life评分曲线配合,构建完整的自适应风控体系
+        设计说明 (v7.38.1):
+            - 个性化超时: 每个配对根据实际entry_zscore计算专属阈值
+            - 物理意义: 基于均值回归速率的数学推导,而非统计置信区间
+            - 示例计算: 入场1.9σ, 出场0.3σ, 半衰期8天
+              → n = ln(0.3/1.9)/ln(0.5) ≈ 2.66
+              → max_days = 2.66 × 8 ≈ 21天
 
-        示例:
-            # 超时 → 触发 (不论盈亏)
+        示例输出:
+            # 超时触发
             triggered, desc = rule.check(pair=pair_obj)
-            # 返回: (True, "已持仓25天 > 上限20.0天 (半衰期10.0天 × 2.0)")
+            # 返回: (True, "已持仓25天 > 上限21.3天 (入场1.90σ → 出场0.3σ, 需2.66个半衰期 × 8.0天)")
 
             # PnL数据异常 → 触发 (Fail-Safe)
             triggered, desc = rule.check(pair=pair_obj)
-            # 返回: (True, "已持仓25天 > 上限20.0天, PnL数据缺失 (异常状态)")
+            # 返回: (True, "已持仓25天 > 上限21.3天, PnL数据缺失 (异常状态)")
         """
         # 1. 检查是否启用
         if not self.enabled:
@@ -93,13 +108,14 @@ class PairHoldingTimeoutRule(RiskRule):
         if self.is_in_cooldown(pair_id=pair.pair_id):
             return False, ""
 
-        # 3. v7.13.0: 基于半衰期分布的动态超时公式
-        # 公式: max_days = half_life_mean + 2 * half_life_std (覆盖95%置信区间)
-        # 向后兼容: 如果half_life_std=0或不存在,退回到2.0x固定倍数
-        if pair.half_life_std > 0:
-            max_days = pair.half_life + 2 * pair.half_life_std
-        else:
-            max_days = pair.half_life * self.max_halflife_multiplier  # 兼容旧数据
+        # 3. v7.38.1: 基于指数衰减的物理公式
+        # 均值回归路径: Z(t) = Z_entry × (0.5)^(t/half_life)
+        # 求解: (0.5)^n = Z_exit / Z_entry → n = ln(Z_exit/Z_entry) / ln(0.5)
+        # 最大持有天数: max_days = n × half_life
+        exit_threshold = self.algorithm.config.pairs_trading.exit_threshold  # 0.3
+        entry_zscore = abs(pair.entry_zscore)  # 取绝对值,如-1.9σ → 1.9
+        n = math.log(exit_threshold / entry_zscore) / math.log(0.5)  # 所需半衰期数
+        max_days = n * pair.half_life
 
         # 4. 获取实际持仓天数 (复用Pairs自带方法,避免时区问题)
         holding_days = pair.get_pair_holding_days()
@@ -122,21 +138,12 @@ class PairHoldingTimeoutRule(RiskRule):
                 )
                 return True, description
 
-            # v7.34.2: 统一触发，不检查盈亏状态
-            if pair.half_life_std > 0:
-                # 新公式: half_life + 2*std
-                description = (
-                    f"已持仓{holding_days}天 > "
-                    f"上限{max_days:.1f}天 "
-                    f"(半衰期{pair.half_life:.1f}天 + 2×标准差{pair.half_life_std:.1f}天)"
-                )
-            else:
-                # 旧公式: half_life × multiplier (兼容模式)
-                description = (
-                    f"已持仓{holding_days}天 > "
-                    f"上限{max_days:.1f}天 "
-                    f"(半衰期{pair.half_life:.1f}天 × {self.max_halflife_multiplier})"
-                )
+            # v7.38.1: 统一使用指数衰减公式描述
+            description = (
+                f"已持仓{holding_days}天 > 上限{max_days:.1f}天 "
+                f"(入场{entry_zscore:.2f}σ → 出场{exit_threshold:.1f}σ, "
+                f"需{n:.2f}个半衰期 × {pair.half_life:.1f}天)"
+            )
             return True, description
 
         return False, ""
