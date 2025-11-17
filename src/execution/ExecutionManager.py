@@ -412,28 +412,32 @@ class ExecutionManager:
 
             success = self.order_executor.execute_open(intent)  # 自动注册到TicketsManager
             if success:
-                # v7.31.5: 查询quality_score并计算质量等级标签
+                # v7.36.1: 查询quality_score和行业名称
                 quality_score = next(
                     (score for p, _, score, _ in entry_candidates if p.pair_id == pair_id),
                     None
                 )
 
-                # 计算质量等级标签
+                # 获取行业名称
+                industry_names = self.algorithm.config.constants['industry_names']
+                industry_name = industry_names.get(int(pair.industry_code), f'未知({pair.industry_code})')
+
+                # 计算简化质量标签 (Q= 格式)
                 if quality_score is not None:
                     if quality_score >= 0.80:
-                        quality_label = "优秀(≥0.80)"
+                        quality_label = "Q=≥0.80"
                     elif quality_score >= 0.70:
-                        quality_label = "良好(0.70-0.80)"
+                        quality_label = "Q=0.70-0.80"
                     elif quality_score >= 0.60:
-                        quality_label = "及格(0.60-0.70)"
+                        quality_label = "Q=0.60-0.70"
                     else:
-                        quality_label = f"分数{quality_score:.2f}"
+                        quality_label = f"Q={quality_score:.2f}"
                 else:
-                    quality_label = "未知"  # fallback
+                    quality_label = "Q=未知"  # fallback
 
-                # 开仓日志 - 显示质量等级、Z-score和分配金额
+                # v7.36.1: 开仓日志 - 显示行业、质量标签、Z-score和分配金额
                 entry_z = pair.entry_zscore if pair.entry_zscore is not None else 0.0
                 self.algorithm.Debug(
-                    f"[开仓] {pair_id} | {quality_label} | "
+                    f"[开仓] {pair_id} | {industry_name} | {quality_label} | "
                     f"Z-score={entry_z:+.2f}σ | 分配=${amount_allocated:,.0f}"
                 )
