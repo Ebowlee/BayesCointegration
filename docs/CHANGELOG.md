@@ -5,6 +5,140 @@
 ---
 
 
+## [v7.38.1_exponential-decay-timeout@20250117]
+
+### 版本概述
+持仓超时公式重大修正：将错误的统计置信区间公式(μ+2σ)替换为物理正确的指数衰减公式，基于均值回归路径和实际入场Z-score计算个性化超时阈值。
+
+### 🎯 核心改进
+
+#### 改进1: 指数衰减公式替代统计置信区间 (PairHoldingTimeout.py Lines 111-118)
+
+**数学原理修正**:
+
+**旧公式** (错误 - 无物理意义):
+```python
+# v7.13.0: 统计置信区间
+max_days = pair.half_life + 2 * pair.half_life_std  # ❌ 不符合均值回归物理过程
+```
+
+**新公式** (正确 - 基于指数衰减):
+```python
+# v7.38.1: 指数衰减路径
+exit_threshold = 0.3  # 出场阈值
+entry_zscore = abs(pair.entry_zscore)  # 实际开仓Z-score
+n = math.log(exit_threshold / entry_zscore) / math.log(0.5)  # 所需半衰期数
+max_days = n * pair.half_life  # ✅ 物理意义明确
+```
+
+**物理过程**:
+- 均值回归路径: `Z(t) = Z_entry × (0.5)^(t/half_life)`
+- 求解从`Z_entry`衰减到`Z_exit`所需时间: `(0.5)^n = Z_exit / Z_entry`
+- 通过对数求解: `n = ln(Z_exit/Z_entry) / ln(0.5)`
+
+**示例计算**:
+```
+入场: 1.9σ
+出场: 0.3σ
+半衰期: 8天
+
+n = ln(0.3/1.9) / ln(0.5) ≈ 2.66
+max_days = 2.66 × 8 ≈ 21.3天
+
+验证: 1.9 × (0.5)^2.66 = 0.3 ✅
+```
+
+**关键特性**:
+1. **个性化超时**: 不同entry_zscore → 不同max_days (而非固定倍数)
+2. **物理意义**: 基于均值回归速率的严格数学推导
+3. **取绝对值**: 处理空头入场负Z-score (如-1.9σ)
+4. **实际入场值**: 使用`pair.entry_zscore`(实际记录),非理论计算
+
+#### 改进2: 删除已废弃的配置参数 (config.py Line 265)
+
+**配置简化**:
+```python
+# v7.38.1之前
+@dataclass
+class HoldingTimeoutRuleConfig:
+    enabled: bool = True
+    priority: int = 70
+    max_halflife_multiplier: float = 2.0  # ← 已废弃
+    cooldown_days: int = 90
+
+# v7.38.1之后
+@dataclass
+class HoldingTimeoutRuleConfig:
+    enabled: bool = True
+    priority: int = 70
+    cooldown_days: int = 90  # 保留冷却期配置
+```
+
+**删除理由**:
+- `max_halflife_multiplier`是统计置信区间方法的产物
+- 指数衰减公式直接从entry_zscore和exit_threshold计算,无需倍数
+
+#### 改进3: 增强的日志描述 (PairHoldingTimeout.py Lines 127-132)
+
+**旧日志** (缺乏物理信息):
+```
+已持仓25天 > 上限20.0天 (半衰期10.0天 × 2.0)
+```
+
+**新日志** (显示完整衰减路径):
+```
+已持仓25天 > 上限21.3天 (入场1.90σ → 出场0.3σ, 需2.66个半衰期 × 8.0天)
+```
+
+**日志价值**:
+1. **可追溯**: 显示实际入场条件 (entry_zscore)
+2. **可验证**: 包含衰减路径完整信息
+3. **可诊断**: 便于回测分析时定位异常超时
+
+### 📝 相关文件
+
+**修改文件**:
+- src/risk/PairHoldingTimeout.py (Lines 1-148)
+  - 新增import math
+  - 删除`__init__`中的max_halflife_multiplier
+  - 替换check()中的超时计算公式 (Lines 111-118)
+  - 更新日志描述 (Lines 127-132)
+  - 更新类和方法docstring (Lines 8-46, 61-102)
+- src/config.py (Line 265)
+  - 删除max_halflife_multiplier配置项
+- docs/CHANGELOG.md (本文件)
+
+### 🔬 数学验证
+
+**Python验证脚本**:
+```python
+import math
+
+entry_zscore = 1.9
+exit_threshold = 0.3
+half_life = 8
+
+n = math.log(exit_threshold / entry_zscore) / math.log(0.5)
+max_days = n * half_life
+
+print(f'所需半衰期数: {n:.4f}')  # 2.6630
+print(f'最大持有天数: {max_days:.2f}天')  # 21.30天
+
+# 验证: 经过n个半衰期后,Z-score应衰减到exit_threshold
+final_zscore = entry_zscore * (0.5 ** n)
+print(f'验证: {final_zscore:.4f} ≈ {exit_threshold}')  # 0.3000 ≈ 0.3 ✅
+```
+
+### 🚀 下一步建议
+
+运行回测验证:
+1. 检查持仓超时触发日志是否显示新格式
+2. 验证不同entry_zscore的配对是否有不同的max_days
+3. 监控超时触发率是否合理 (预期与旧公式接近但更精准)
+
+---
+
+
 ## [v7.37.2_add-cumulative-stats@20250117]
 
 ### 版本概述
