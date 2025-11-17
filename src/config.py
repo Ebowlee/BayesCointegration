@@ -178,13 +178,13 @@ class PairsTradingConfig:
     # 仓位管理参数
     min_investment_ratio: float = 0.05                             # 质量最低(0.0分)配对投资比例: 5%
 
-    # v7.32.0: 基于行业tier的最大投资比例映射 (取代 adaptive_max_investment_ratio)
+    # v7.35.0: 基于行业tier的最大投资比例映射 (更保守的配置)
     tier_max_investment_ratio: Dict[str, float] = field(default_factory=lambda: {
-        'tier0': 0.15,  # ≤5%: 低回报 → 低风险
-        'tier1': 0.18,  # (5%, 10%]
-        'tier2': 0.20,  #（10%, 20%]
-        'tier3': 0.23,  # (20%, 30%]
-        'tier4': 0.25   # >30%: 高回报 → 高配置
+        'tier0': 0.10,  # <0%: 负收益 → 最低配置
+        'tier1': 0.12,  # [0%, 5%)
+        'tier2': 0.15,  # [5%, 10%)
+        'tier3': 0.18,  # [10%, 15%)
+        'tier4': 0.20   # ≥15%: 高回报 → 高配置
     })
 
     # 保证金管理
@@ -286,22 +286,22 @@ class RiskManagementConfig:
 @dataclass
 class IndustryQuotaConfig:
     """行业配额配置"""
-    warmup_days: int = 180                                                  # 自适应行业偏好预热时间
+    warmup_days: int = 90                                                   # 自适应行业偏好预热时间
     default_quota: int = 1                                                  # 每个行业初始的协整对配额数量
 
-    # 回报率与配额数量的关系
+    # 回报率与配额数量的关系 (v7.35.0: 更保守的阈值和配额)
     tier_thresholds: Dict[str, float] = field(default_factory=lambda: {
-        'tier0': 0.05,                                                      # 调整为5% (避免随机低回报误判)
-        'tier1': 0.10,
-        'tier2': 0.20,
-        'tier3': 0.30
+        'tier0': 0.00,                                                      # 负收益
+        'tier1': 0.05,                                                      # [0%, 5%)
+        'tier2': 0.10,                                                      # [5%, 10%)
+        'tier3': 0.15                                                       # [10%, 15%)
     })
     tier_quotas: Dict[str, int] = field(default_factory=lambda: {
-        'tier0': 1,
-        'tier1': 3,
-        'tier2': 5,
-        'tier3': 7,
-        'tier4': 9
+        'tier0': 1,                                                         # <0%: 负收益 → 最低配额
+        'tier1': 2,                                                         # [0%, 5%)
+        'tier2': 3,                                                         # [5%, 10%)
+        'tier3': 4,                                                         # [10%, 15%)
+        'tier4': 5                                                          # ≥15%: 高回报 → 高配额
     })
 
 

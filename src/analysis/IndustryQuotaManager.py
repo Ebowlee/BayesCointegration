@@ -196,36 +196,36 @@ class IndustryQuotaManager:
 
     def _get_quota_by_return(self, weighted_return: float) -> int:
         """
-        根据加权收益率计算配额 (v7.30.1: 5层阶梯)
+        根据加权收益率计算配额 (v7.35.0: 更保守的5层阶梯)
 
         Args:
             weighted_return: 加权收益率 (小数, 如0.05表示5%)
 
         Returns:
-            配额数量 (1/3/5/7/9)
+            配额数量 (1/2/3/4/5)
 
-        分层逻辑 (v7.32.3 更新配额数量):
-            weighted_return < 0.05  → tier0 (1个,低收益/随机)
-            weighted_return < 0.10  → tier1 (3个,[5%,10%))
-            weighted_return < 0.20  → tier2 (5个,[10%,20%))
-            weighted_return < 0.30  → tier3 (7个,[20%,30%))
-            weighted_return >= 0.30 → tier4 (9个,[30%,∞))
+        分层逻辑 (v7.35.0 更新阈值和配额):
+            weighted_return < 0.00  → tier0 (1个,负收益)
+            weighted_return < 0.05  → tier1 (2个,[0%,5%))
+            weighted_return < 0.10  → tier2 (3个,[5%,10%))
+            weighted_return < 0.15  → tier3 (4个,[10%,15%))
+            weighted_return >= 0.15 → tier4 (5个,[15%,∞))
         """
         if weighted_return < self.tier_thresholds['tier0']:
-            return self.tier_quotas['tier0']  # <5%
+            return self.tier_quotas['tier0']  # <0%
         elif weighted_return < self.tier_thresholds['tier1']:
-            return self.tier_quotas['tier1']  # [5%, 10%)
+            return self.tier_quotas['tier1']  # [0%, 5%)
         elif weighted_return < self.tier_thresholds['tier2']:
-            return self.tier_quotas['tier2']  # [10%, 20%)
+            return self.tier_quotas['tier2']  # [5%, 10%)
         elif weighted_return < self.tier_thresholds['tier3']:
-            return self.tier_quotas['tier3']  # [20%, 30%)
+            return self.tier_quotas['tier3']  # [10%, 15%)
         else:
-            return self.tier_quotas['tier4']  # [30%, ∞)
+            return self.tier_quotas['tier4']  # [15%, ∞)
 
 
     def _get_tier_by_return(self, weighted_return: float) -> str:
         """
-        根据加权收益率计算tier (v7.32.0: 用于Pairs.get_planned_allocation_pct)
+        根据加权收益率计算tier (v7.35.0: 用于Pairs.get_planned_allocation_pct)
 
         Args:
             weighted_return: 加权收益率 (小数, 如0.05表示5%)
@@ -233,12 +233,12 @@ class IndustryQuotaManager:
         Returns:
             tier名称 ('tier0'/'tier1'/'tier2'/'tier3'/'tier4')
 
-        分层逻辑 (v7.32.4 更新max_pct配置):
-            weighted_return < 0.05  → tier0 (max_pct=0.15)
-            weighted_return < 0.10  → tier1 (max_pct=0.18)
-            weighted_return < 0.20  → tier2 (max_pct=0.20)
-            weighted_return < 0.30  → tier3 (max_pct=0.23)
-            weighted_return >= 0.30 → tier4 (max_pct=0.25)
+        分层逻辑 (v7.35.0 更新阈值和max_pct):
+            weighted_return < 0.00  → tier0 (max_pct=0.10)
+            weighted_return < 0.05  → tier1 (max_pct=0.12)
+            weighted_return < 0.10  → tier2 (max_pct=0.15)
+            weighted_return < 0.15  → tier3 (max_pct=0.18)
+            weighted_return >= 0.15 → tier4 (max_pct=0.20)
         """
         if weighted_return < self.tier_thresholds['tier0']:
             return 'tier0'
