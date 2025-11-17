@@ -5,6 +5,37 @@
 ---
 
 
+## [v7.34.3_remove-vix-warning-threshold@20250117]
+
+### 版本概述
+删除 `vix_warning_threshold` 配置项及所有相关代码，清理 v7.32.6 遗留的技术债务。
+
+### 核心改进
+
+#### 删除无用配置项 (config.py Line 207)
+
+**删除的代码**:
+```python
+vix_warning_threshold: int = 30
+```
+
+**清理范围**:
+1. **config.py**: 删除 `MarketConditionConfig.vix_warning_threshold` 配置项
+2. **MarketCondition.py**: 删除 `self.vix_warning_threshold` 实例变量赋值
+3. **MarketCondition.py**: 删除 docstring 和注释中的 `vix_warning_threshold` 引用
+
+**删除理由**:
+- v7.32.6 已删除 VIX 警告日志（只保留恐慌日志）
+- `vix_warning_threshold` 配置项已无任何实际用途
+- 清理技术债务，保持代码简洁
+
+### 文件修改
+- `src/config.py`: 删除 `vix_warning_threshold` 配置项
+- `src/risk/MarketCondition.py`: 删除变量赋值和相关注释
+
+---
+
+
 ## [v7.34.2_remove-timeout-profit-exemption@20250117]
 
 ### 版本概述

@@ -38,8 +38,8 @@ class UniverseConfig:
     min_price: float = 20
     min_market_cap: float = 1e9
     min_days_since_ipo: int = 360
-    min_dollar_volume: float = 20_000_000                           # 最小成交额 $20M (流动性筛选)
-    max_coarse_stocks: int = 350                                    # 按Volume排序取top N
+    min_dollar_volume: float = 5e7                                  # 最小成交额 
+    max_coarse_stocks: int = 300                                    # 按Volume排序取top N
 
     # 财务筛选器配置
     financial_filters: Dict = field(default_factory=lambda: {
@@ -90,12 +90,12 @@ class CointegrationConfig:
     """协整分析配置"""
 
     # 统计检验
-    pvalue_threshold: float = 0.01                                  # Engle-Granger p值阈值
+    pvalue_threshold: float = 0.05                                  # Engle-Granger p值阈值
 
     # 行业分组
-    min_stocks_per_industry: int = 4                                # 行业最少股票数
+    min_stocks_per_industry: int = 3                                # 行业最少股票数
     max_stocks_per_industry: int = 40                               # 行业最多股票数
-    max_symbol_repeats: int = 3                                     # 单股最多允许配对数
+    max_symbol_repeats: int = 2                                     # 单股最多允许配对数
 
 
 @dataclass
@@ -201,7 +201,6 @@ class MarketConditionConfig:
     vix_symbol: str = 'VIX'
     vix_resolution: Resolution = Resolution.Daily
     vix_threshold: int = 35
-    vix_warning_threshold: int = 30
 
 
 @dataclass
@@ -209,7 +208,7 @@ class AccountBlowupRuleConfig:
     """账户爆仓规则配置"""
     enabled: bool = True
     priority: int = 100
-    threshold: float = 0.25
+    threshold: float = 0.20
     cooldown_days: int = 999999
     action: str = 'portfolio_liquidate_all'
 
@@ -219,8 +218,8 @@ class PortfolioDrawdownRuleConfig:
     """组合回撤规则配置"""
     enabled: bool = True
     priority: int = 90
-    threshold: float = 0.10
-    cooldown_days: int = 180
+    threshold: float = 0.15
+    cooldown_days: int = 360
     action: str = 'portfolio_liquidate_all'
 
 
@@ -237,7 +236,7 @@ class PairCumulativeLossRuleConfig:
     """配对累积亏损规则配置"""
     enabled: bool = True
     priority: int = 90
-    threshold: float = 0.10
+    threshold: float = 0.08
     cooldown_days: int = 360
 
 
@@ -246,8 +245,8 @@ class PairDrawdownRuleConfig:
     """配对回撤规则配置"""
     enabled: bool = True
     priority: int = 80
-    threshold: float = 0.03
-    cooldown_days: int = 90
+    threshold: float = 0.04
+    cooldown_days: int = 180
 
 
 @dataclass
@@ -292,7 +291,7 @@ class IndustryQuotaConfig:
 
     # 回报率与配额数量的关系
     tier_thresholds: Dict[str, float] = field(default_factory=lambda: {
-        'tier0': 0.05,                                                      # v7.32.0: 调整为5% (避免随机低回报误判)
+        'tier0': 0.05,                                                      # 调整为5% (避免随机低回报误判)
         'tier1': 0.10,
         'tier2': 0.20,
         'tier3': 0.30
@@ -351,14 +350,14 @@ class Constants:
         },
         'PAIR_BREAK': {
             'display': '协整破裂',
-            'cooldown_days': 90,                                # Pairs层冷却期
+            'cooldown_days': 180,                                # Pairs层冷却期
             'category': 'NORMAL_SIGNAL'
         },
 
         # === 组2: Pair级风控触发 ===
         'TIMEOUT': {
             'display': '持有超时',
-            'category': 'PAIR_RISK'                             # Pair风控触发
+            'category': 'PAIR_RISK'                              # Pair风控触发
         },
         'CUMULATIVE_LOSS': {
             'display': '累计亏损',

@@ -55,7 +55,6 @@ class MarketCondition:
         mc_config = config.risk_management.market_condition
         self.enabled = mc_config.enabled
         self.vix_threshold = mc_config.vix_threshold              # v7.28.1: 阻止开仓阈值=35
-        self.vix_warning_threshold = mc_config.vix_warning_threshold  # v7.28.1: 警告阈值=30
 
 
 
@@ -82,7 +81,7 @@ class MarketCondition:
         注意:
         - v7.28.1移除HistVol检查（后置指标无预测价值）
         - v7.32.6移除VIX警告日志（减少噪音,只保留恐慌日志）
-        - vix_warning_threshold仍保留在配置中（未来扩展用）
+        - v7.34.3移除vix_warning_threshold配置项（已无实际用途）
         """
         # 全局禁用时，直接允许
         if not self.enabled:
@@ -103,8 +102,7 @@ class MarketCondition:
             )
             return False
 
-        # vix_warning_threshold <= VIX < vix_threshold: 静默允许开仓（v7.32.6: 删除警告日志,减少噪音）
-        # VIX < vix_warning_threshold: 正常开仓（无日志）
+        # VIX < vix_threshold: 允许开仓（无日志）
         return True
 
 
