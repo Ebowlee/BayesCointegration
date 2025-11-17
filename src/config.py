@@ -38,6 +38,7 @@ class UniverseConfig:
     min_price: float = 20
     min_market_cap: float = 1e9
     min_days_since_ipo: int = 360
+    min_dollar_volume: float = 20_000_000                           # 最小成交额 $20M (流动性筛选)
     max_coarse_stocks: int = 350                                    # 按Volume排序取top N
 
     # 财务筛选器配置

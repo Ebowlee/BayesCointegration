@@ -200,10 +200,11 @@ class SectorBasedUniverseSelection(FineFundamentalUniverseSelectionModel):
 
         筛选条件:
         - HasFundamentalData (排除ETF等)
-        - Price > $20
+        - Price >= $20 (v7.34.1: 统一边界条件为包含)
         - MarketCap >= $1B
+        - DollarVolume >= $20M (v7.34.1: 新增流动性筛选)
         - IPO时间 >= 360天
-        - Volume降序排序 + TOP 150
+        - Volume降序排序 + TOP 350
         """
         # 如果未触发选股, 返回上次结果
         if not self.selection_on:
@@ -215,14 +216,16 @@ class SectorBasedUniverseSelection(FineFundamentalUniverseSelectionModel):
         min_ipo_date = self.algorithm.Time - timedelta(days=self.config.min_days_since_ipo)
         min_price = self.config.min_price
         min_market_cap = self.config.min_market_cap
+        min_dollar_volume = self.config.min_dollar_volume       # v7.34.1: DollarVolume阈值
         max_coarse_stocks = self.config.max_coarse_stocks       # v7.30.3: TOP N
 
         # 步骤1: 基础筛选
         filtered = [
             x for x in coarse
             if x.HasFundamentalData                             # 排除ETF等
-            and x.Price > min_price                             # 价格筛选
-            and x.MarketCap >= min_market_cap                   # v7.30.0: 市值筛选
+            and x.Price >= min_price                            # v7.34.1: 价格筛选 (>=包含边界)
+            and x.MarketCap >= min_market_cap                   # 市值筛选
+            and x.DollarVolume >= min_dollar_volume             # v7.34.1: 成交额筛选 (真实流动性)
             and x.SecurityReference.IPODate is not None
             and x.SecurityReference.IPODate <= min_ipo_date     # IPO时间
         ]
