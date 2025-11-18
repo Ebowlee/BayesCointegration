@@ -54,24 +54,35 @@ class CointegrationAnalyzer:
         return symbol in self.algorithm.etf_symbols
 
 
-    def _get_etf_industry_code(self, symbol: Symbol) -> int:
+    def _get_etf_industries(self, symbol: Symbol) -> List[int]:
         """
-        获取ETF的行业代码 (v8.0.0)
-
-        注意: 一个ETF可能映射多个行业 (如XME→[10150,10160])
-        这里返回第一个作为主行业代码
+        获取ETF的所有行业代码 (v8.1.0: 支持多行业映射)
 
         Args:
             symbol: ETF Symbol对象
 
         Returns:
-            行业代码, 如果映射缺失返回None
+            行业代码列表, 如:
+            - 单行业ETF: [31130] (SOXX → 半导体)
+            - 多行业ETF: [10150, 10160] (XME → 金属矿业+钢铁)
+            - 映射缺失: [] (空列表)
+
+        设计说明:
+            v8.1.0改进: 从返回单个int改为返回List[int],
+            使单个ETF能同时参与多个行业的协整检验,
+            充分利用配置层的多行业映射意图。
         """
         ticker = symbol.Value
-        if ticker in self.algorithm.etf_industry_mapping:
-            industries = self.algorithm.etf_industry_mapping[ticker]
-            return industries[0] if isinstance(industries, list) else industries
-        return None
+        if ticker not in self.algorithm.etf_industry_mapping:
+            return []
+
+        industries = self.algorithm.etf_industry_mapping[ticker]
+
+        # 统一返回列表格式 (兼容单个int和List[int])
+        if isinstance(industries, list):
+            return industries
+        else:
+            return [industries]
 
 
     def cointegration_procedure(self, valid_symbols: List[Symbol], clean_data: Dict[Symbol, pd.DataFrame]) -> Dict:
@@ -295,18 +306,19 @@ class CointegrationAnalyzer:
 
         for symbol in symbols:
             try:
-                # v8.0.0: ETF分支处理
+                # v8.1.0: ETF分支处理 (支持多行业映射)
                 if self._is_etf(symbol):
-                    ig_code = self._get_etf_industry_code(symbol)
-                    if ig_code is None:
+                    industries = self._get_etf_industries(symbol)
+                    if not industries:
                         failed_symbols.append((symbol, 'etf_no_mapping'))
                         continue
 
-                    # 添加ETF到对应行业分组
-                    industry_groups[ig_code].append({
-                        'symbol': symbol,
-                        'ig_code': ig_code
-                    })
+                    # ⭐ 关键改进: 将同一个ETF添加到多个行业分组
+                    for ig_code in industries:
+                        industry_groups[ig_code].append({
+                            'symbol': symbol,
+                            'ig_code': ig_code
+                        })
                     continue
 
                 # 股票路径: 使用Fundamentals (现有逻辑)

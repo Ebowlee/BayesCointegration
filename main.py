@@ -4,6 +4,7 @@ from System import Action
 from src.config import StrategyConfig
 from src.UniverseSelection import SectorBasedUniverseSelection
 from src.analysis.DataProcessor import DataProcessor
+from src.analysis.CointegrationAnalyzer import CointegrationAnalyzer
 # endregion
 
 
@@ -45,6 +46,9 @@ class BayesianCointegrationStrategy(QCAlgorithm):
 
         # === v8.0.1: 初始化分析管道 ===
         self.data_processor = DataProcessor(self, self.config.analysis)
+
+        # === v8.1.0: 初始化协整分析器 ===
+        self.cointegration_analyzer = CointegrationAnalyzer(self, self.config.analysis)
 
 
     def Debug(self, message: str, level: int = 0):
@@ -106,11 +110,11 @@ class BayesianCointegrationStrategy(QCAlgorithm):
 
     def _run_analysis_pipeline(self):
         """
-        运行分析管道 (v8.0.1 DataProcessor验证版本)
+        运行分析管道 (v8.1.0 CointegrationAnalyzer验证版本)
 
         完整流程 (7步):
-        - 步骤1: DataProcessor - 数据处理 ← v8.0.1当前
-        - 步骤2: CointegrationAnalyzer - 协整检验 (待恢复)
+        - 步骤1: DataProcessor - 数据处理 ✅ v8.0.1
+        - 步骤2: CointegrationAnalyzer - 协整检验 ✅ v8.1.0
         - 步骤3: 构建PairData字典 (待恢复)
         - 步骤4: BayesianModeler - 贝叶斯建模 (待恢复)
         - 步骤5: PairSelector - 质量筛选 (待恢复)
@@ -138,9 +142,29 @@ class BayesianCointegrationStrategy(QCAlgorithm):
             self.Debug("[Analysis] 有效股票不足2只,终止分析管道", level=1)
             return
 
+        # === 步骤2: 协整检验 (v8.1.0) ===
+        self.Debug("[Analysis] 步骤2: 协整检验", level=1)
+
+        coint_result = self.cointegration_analyzer.cointegration_procedure(valid_symbols, clean_data)
+        raw_pairs = coint_result['raw_pairs']
+        coint_stats = coint_result['statistics']
+
+        # 输出协整统计
+        self.Debug(
+            f"[CointegrationAnalyzer] 候选配对{coint_stats.get('total_pairs', 0)}对 → "
+            f"通过{len(raw_pairs)}对 | "
+            f"行业分组{coint_stats.get('industry_groups', 0)}个",
+            level=1
+        )
+
+        if len(raw_pairs) < 1:
+            self.Debug("[Analysis] 无协整配对,终止分析管道", level=1)
+            return
+
         # 缓存数据供后续步骤使用
         self.clean_data = clean_data
         self.valid_symbols = valid_symbols
+        self.raw_pairs = raw_pairs
 
         self.Debug(f"[Analysis] 管道完成 - 等待后续模块恢复", level=1)
 
@@ -175,7 +199,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
                     for code in industries
                 ]
                 industry_names_str = '、'.join(industry_names_list)
-                self.Debug(f"[加载ETF] 核心 {ticker} → {industry_names_str}", level=1)
+                self.Debug(f"[订阅核心ETF] {ticker} → {industry_names_str}", level=1)
 
         # === Step 2: 订阅7个特种部队ETFs (第二批, 替换逻辑) ===
         if config.industry_etfs_enabled:
@@ -196,12 +220,12 @@ class BayesianCointegrationStrategy(QCAlgorithm):
                     for code in industries
                 ]
                 industry_names_str = '、'.join(industry_names_list)
-                self.Debug(f"[加载ETF] 细分 {ticker} → {industry_names_str}", level=1)
+                self.Debug(f"[订阅细分ETF] {ticker} → {industry_names_str}", level=1)
 
         self.Debug(
             f"[ETF订阅完成] 共{len(self.etf_symbols)}个ETF "
             f"(核心{11 if config.sector_etfs_enabled else 0} + "
-            f"特种{7 if config.industry_etfs_enabled else 0}), "
+            f"细分{7 if config.industry_etfs_enabled else 0}), "
             f"覆盖{len(subscribed_industries)}个行业",
             level=0
         )
