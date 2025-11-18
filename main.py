@@ -126,7 +126,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
 
         data_result = self.data_processor.process(self.symbols)
         clean_data = data_result['clean_data']
-        valid_symbols = data_result['valid_symbols']
+        data_valid_symbols = data_result['valid_symbols']
         stats = data_result['statistics']
 
         # 输出处理统计
@@ -138,46 +138,46 @@ class BayesianCointegrationStrategy(QCAlgorithm):
             level=1
         )
 
-        if len(valid_symbols) < 2:
+        if len(data_valid_symbols) < 2:
             self.Debug("[Analysis] 有效股票不足2只,终止分析管道", level=1)
             return
 
         # === 步骤2: 协整检验 (v8.1.0) ===
         self.Debug("[Analysis] 步骤2: 协整检验", level=1)
 
-        coint_result = self.cointegration_analyzer.cointegration_procedure(valid_symbols, clean_data)
-        raw_pairs = coint_result['raw_pairs']
+        coint_result = self.cointegration_analyzer.cointegration_procedure(data_valid_symbols, clean_data)
+        coint_pairs = coint_result['raw_pairs']
         coint_stats = coint_result['statistics']
 
         # 输出协整统计
         self.Debug(
             f"[CointegrationAnalyzer] 候选配对{coint_stats.get('total_pairs_tested', 0)}对 → "
-            f"通过{len(raw_pairs)}对 | "
+            f"通过{len(coint_pairs)}对 | "
             f"行业分组{len(coint_stats.get('industry_group_breakdown', {}))}个",
             level=1
         )
 
-        if len(raw_pairs) < 1:
+        if len(coint_pairs) < 1:
             self.Debug("[Analysis] 无协整配对,终止分析管道", level=1)
             return
 
         # 缓存数据供后续步骤使用
         self.clean_data = clean_data
-        self.valid_symbols = valid_symbols
-        self.raw_pairs = raw_pairs
+        self.data_valid_symbols = data_valid_symbols
+        self.coint_pairs = coint_pairs
 
         # === 步骤3: 构建PairData字典 ===
         from src.analysis.PairData import PairData
-        pair_data_dict = {}
-        for pair_info in raw_pairs:
+        pair_data = {}
+        for pair_info in coint_pairs:
             pair_key = (pair_info['symbol1'], pair_info['symbol2'])
-            pair_data_dict[pair_key] = PairData.from_clean_data(pair_info, clean_data)
+            pair_data[pair_key] = PairData.from_clean_data(pair_info, clean_data)
 
         # 缓存供后续步骤使用
-        self.pair_data_dict = pair_data_dict
+        self.pair_data = pair_data
 
         self.Debug(
-            f"[PairData] 构建{len(pair_data_dict)}个配对数据对象",
+            f"[PairData] 构建{len(pair_data)}个配对数据对象",
             level=1
         )
 
