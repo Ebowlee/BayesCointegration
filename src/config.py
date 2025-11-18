@@ -1,7 +1,7 @@
 # region imports
 from AlgorithmImports import *
 from dataclasses import dataclass, field
-from typing import Dict
+from typing import Dict, List, Union
 # endregion
 
 
@@ -31,6 +31,58 @@ class MainConfig:
 
 
 @dataclass
+class ETFUniverseConfig:
+    """
+    ETF Universe配置 (v8.0.0)
+
+    设计原则:
+    - 三级开关: enabled → sector_etfs_enabled → industry_etfs_enabled
+    - 订阅优先级: 先订阅11个核心ETF, 再订阅7个特种部队ETF
+    - 特种部队逻辑: 当industry_etfs_enabled=True时,特种部队ETF"替换"核心ETF对应行业
+
+    示例:
+    - 31130半导体: sector_etfs只有XLK → industry_etfs启用后用SOXX替换
+    - 10150金属矿业: sector_etfs用XLB → industry_etfs启用后用XME替换
+
+    覆盖验证:
+    - 11个核心: 覆盖47个行业 (包含10150/10160但会被XME替换)
+    - 7个特种部队: 覆盖8个行业 (XME覆盖2个)
+    - 总计: 55个行业100%覆盖
+    """
+    # === 三级开关 ===
+    enabled: bool = True                                                            # Level 1: 总开关
+    sector_etfs_enabled: bool = True                                                # Level 2: 11个核心 
+    industry_etfs_enabled: bool = True                                              # Level 3: 7个特种部队
+
+    # === 两层映射 ===
+    # Tier 1: 核心11个ETF → 行业列表 (订阅优先级: 第一批)
+    sector_etf_mapping: Dict[str, List[int]] = field(default_factory=lambda: {
+        'XLB': [10110, 10120, 10130, 10140, 10150, 10160, 10250],                   # 基础材料 (包含10150/10160,会被XME替换)
+        'XLY': [10200, 10220, 10240, 10260, 10270, 10290],                          # 消费周期 (10230被XHB替换, 10280被XRT替换)
+        'XLF': [10310, 10330, 10340, 10350, 10360],                                 # 金融 (10320被KRE替换)
+        'XLRE': [10410, 10420],                                                     # 房地产
+        'XLP': [20510, 20520, 20525, 20540, 20550, 20560],                          # 消费防御
+        'XLV': [20620, 20630, 20645, 20650, 20660, 20670],                          # 医疗 (20610被IBB替换)
+        'XLU': [20710, 20720],                                                      # 公用事业
+        'XLC': [30810, 30820, 30830],                                               # 通信
+        'XLE': [30920],                                                             # 能源 (30910被XOP替换)
+        'XLI': [31010, 31020, 31030, 31040, 31050, 31060, 31070, 31080, 31090],     # 工业
+        'XLK': [31110, 31120],                                                      # 科技 (31130被SOXX替换)
+    })
+
+    # Tier 2: 特种部队7个ETF → 行业代码 (订阅优先级: 第二批, 替换逻辑)
+    industry_etf_mapping: Dict[str, Union[int, List[int]]] = field(default_factory=lambda: {
+        'SOXX': 31130,                                                              # 半导体 (替代XLK)
+        'IBB':  20610,                                                              # 生物科技 (替代XLV)
+        'KRE':  10320,                                                              # 银行 (替代XLF)
+        'XOP':  30910,                                                              # 油气勘探 (替代XLE)
+        'XHB':  10230,                                                              # 房建 (替代XLY)
+        'XME':  [10150, 10160],                                                     # 金属矿业+钢铁 (替代XLB)
+        'XRT':  10280,                                                              # 周期零售 (替代XLY)
+    })
+
+
+@dataclass
 class UniverseConfig:
     """选股配置 - 筛选参数"""
 
@@ -38,12 +90,11 @@ class UniverseConfig:
     min_price: float = 20
     min_market_cap: float = 1e9
     min_days_since_ipo: int = 360
-    min_dollar_volume: float = 1e8                                  # 最小成交额 
-    max_coarse_stocks: int = 500                                    # 按Volume排序取top N
+    min_dollar_volume: float = 1e8                                
+    max_coarse_stocks: int = 200                                                    # 按Volume排序取top N
 
     # 财务筛选器配置
     financial_filters: Dict = field(default_factory=lambda: {
-        # 估值OR逻辑 (PE≤100 OR PS≤10) 避免抹杀高成长公司(如特斯拉等PS估值为主的科技公司)
         'valuation': {
             'enabled': True,
             'type': 'or',
@@ -450,31 +501,34 @@ class StrategyConfig:
         # 1. 主程序配置
         self.main = MainConfig()
 
-        # 2. 选股配置
+        # 2. ETF Universe配置 (v8.0.0)
+        self.etf_universe = ETFUniverseConfig()
+
+        # 3. 选股配置
         self.universe_selection = UniverseConfig()
 
-        # 3. 分析模块配置 (合并 analysis_shared + data_processor)
+        # 4. 分析模块配置 (合并 analysis_shared + data_processor)
         self.analysis = AnalysisConfig()
 
-        # 4. 协整分析配置
+        # 5. 协整分析配置
         self.cointegration_analyzer = CointegrationConfig()
 
-        # 5. 贝叶斯建模配置
+        # 6. 贝叶斯建模配置
         self.bayesian_modeler = BayesianModelerConfig()
 
-        # 6. 配对选择配置
+        # 7. 配对选择配置
         self.pair_selector = PairSelectorConfig()
 
-        # 7. 配对交易配置
+        # 8. 配对交易配置
         self.pairs_trading = PairsTradingConfig()
 
-        # 8. 风险管理配置
+        # 9. 风险管理配置
         self.risk_management = RiskManagementConfig()
 
-        # 9. 行业配额配置
+        # 10. 行业配额配置
         self.industry_quota = IndustryQuotaConfig()
 
-        # 10. 常量配置 (保持dict - 枚举性质)
+        # 11. 常量配置 (保持dict - 枚举性质)
         self.constants = self._init_constants()
 
 

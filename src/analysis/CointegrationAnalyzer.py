@@ -41,6 +41,39 @@ class CointegrationAnalyzer:
         self.max_symbol_repeats = module_config.max_symbol_repeats
 
 
+    def _is_etf(self, symbol: Symbol) -> bool:
+        """
+        检测symbol是否为ETF (v8.0.0)
+
+        Args:
+            symbol: 要检测的Symbol对象
+
+        Returns:
+            True: 是ETF, False: 是股票
+        """
+        return symbol in self.algorithm.etf_symbols
+
+
+    def _get_etf_industry_code(self, symbol: Symbol) -> int:
+        """
+        获取ETF的行业代码 (v8.0.0)
+
+        注意: 一个ETF可能映射多个行业 (如XME→[10150,10160])
+        这里返回第一个作为主行业代码
+
+        Args:
+            symbol: ETF Symbol对象
+
+        Returns:
+            行业代码, 如果映射缺失返回None
+        """
+        ticker = symbol.Value
+        if ticker in self.algorithm.etf_industry_mapping:
+            industries = self.algorithm.etf_industry_mapping[ticker]
+            return industries[0] if isinstance(industries, list) else industries
+        return None
+
+
     def cointegration_procedure(self, valid_symbols: List[Symbol], clean_data: Dict[Symbol, pd.DataFrame]) -> Dict:
         """
         执行协整分析流程（按26个子行业分组）
@@ -262,6 +295,21 @@ class CointegrationAnalyzer:
 
         for symbol in symbols:
             try:
+                # v8.0.0: ETF分支处理
+                if self._is_etf(symbol):
+                    ig_code = self._get_etf_industry_code(symbol)
+                    if ig_code is None:
+                        failed_symbols.append((symbol, 'etf_no_mapping'))
+                        continue
+
+                    # 添加ETF到对应行业分组
+                    industry_groups[ig_code].append({
+                        'symbol': symbol,
+                        'ig_code': ig_code
+                    })
+                    continue
+
+                # 股票路径: 使用Fundamentals (现有逻辑)
                 security = self.algorithm.Securities[symbol]
 
                 # 检查基本面数据完整性

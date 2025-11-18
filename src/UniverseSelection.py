@@ -47,31 +47,26 @@ class FinancialValidator:
             if not filter_config.get('enabled', True):
                 continue
 
-            # v7.29.0: 检查是否为OR逻辑筛选器
             if filter_config.get('type') == 'or':
                 if not self._validate_or_rules(stock, filter_config):
                     fail_reasons.append(filter_config['fail_key'])
-                continue  # OR逻辑单独处理,跳过常规流程
+                continue  
 
-            # 常规AND逻辑筛选(保持原有逻辑)
             # 获取指标值
             value = self._get_metric_value(stock, filter_config['path'])
             if value is None:
                 fail_reasons.append(filter_config['fail_key'])
                 continue
 
-            # 获取阈值
             threshold = filter_config['threshold']
-
-            # 比较操作 (v7.29.1: 支持le/ge包含边界操作符)
             operator = filter_config['operator']
             if operator == 'lt' and value >= threshold:
                 fail_reasons.append(filter_config['fail_key'])
             elif operator == 'gt' and value <= threshold:
                 fail_reasons.append(filter_config['fail_key'])
-            elif operator == 'le' and value > threshold:  # v7.29.1新增: ≤
+            elif operator == 'le' and value > threshold: 
                 fail_reasons.append(filter_config['fail_key'])
-            elif operator == 'ge' and value < threshold:  # v7.29.1新增: ≥
+            elif operator == 'ge' and value < threshold:  
                 fail_reasons.append(filter_config['fail_key'])
 
         return len(fail_reasons) == 0, fail_reasons
@@ -117,18 +112,17 @@ class FinancialValidator:
             # 获取指标值
             value = self._get_metric_value(stock, rule['path'])
             if value is None:
-                continue  # 该指标无效,检查下一条规则
+                continue  
 
             # 检查是否满足阈值
             threshold = rule['threshold']
             operator = rule['operator']
 
             if operator == 'le' and value <= threshold:
-                return True  # 该条规则通过,整个OR逻辑通过
+                return True  
             elif operator == 'ge' and value >= threshold:
                 return True
 
-        # 所有规则都未通过
         return False
 
 
@@ -165,7 +159,7 @@ class SectorBasedUniverseSelection(FineFundamentalUniverseSelectionModel):
         padding = (80 - len(msg)) // 2
         self.algorithm.Debug(f"{'='*padding}{msg}{'='*padding}")
 
-        # v7.28.2: 打印资金状态(可投资金/已占用资金)
+        # 打印资金状态(可投资金/已占用资金)
         available_margin = self.algorithm.Portfolio.MarginRemaining
         total_margin_used = self.algorithm.Portfolio.TotalMarginUsed
         total_value = self.algorithm.Portfolio.TotalPortfolioValue
@@ -191,7 +185,6 @@ class SectorBasedUniverseSelection(FineFundamentalUniverseSelectionModel):
         - IPO时间 >= 360天
         - Volume降序排序 + TOP 350
         """
-        # 如果未触发选股, 返回上次结果
         if not self.selection_on:
             return self.last_fine_selected_symbols
 
@@ -248,8 +241,13 @@ class SectorBasedUniverseSelection(FineFundamentalUniverseSelectionModel):
         financially_filtered = self._apply_financial_filters(fine)
 
         # 缓存结果 (不做行业分组,输出所有通过筛选的股票)
-        self.last_fine_selected_symbols = [x.Symbol for x in financially_filtered]
+        stock_symbols = [x.Symbol for x in financially_filtered]
 
+        # 合并ETF symbols到Universe (静默合并)
+        if hasattr(self.algorithm, 'etf_symbols'):
+            stock_symbols.extend(self.algorithm.etf_symbols)
+
+        self.last_fine_selected_symbols = stock_symbols
         return self.last_fine_selected_symbols
 
 
@@ -278,11 +276,10 @@ class SectorBasedUniverseSelection(FineFundamentalUniverseSelectionModel):
                 for reason in fail_reasons:
                     stats[reason] += 1
 
-        # v7.31.1: 完整财务筛选统计(level=1) - 替换单一估值统计
+        # 完整财务筛选统计(level=1) - 替换单一估值统计
         if stats['total'] > 0:
             pass_rate = (stats['passed'] / stats['total'] * 100)
 
-            # v7.31.2: 使用字典映射替换链式replace (提升可读性)
             label_map = {
                 'valuation_failed': '估值',
                 'debt_failed': '负债',
