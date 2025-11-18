@@ -7,6 +7,7 @@ from src.analysis.DataProcessor import DataProcessor
 from src.analysis.CointegrationAnalyzer import CointegrationAnalyzer
 from src.analysis.PairData import PairData
 from src.analysis.BayesianModeler import BayesianModeler
+from src.analysis.PairSelector import PairSelector
 # endregion
 
 
@@ -57,6 +58,13 @@ class BayesianCointegrationStrategy(QCAlgorithm):
             self,
             self.config.analysis,
             self.config.bayesian_modeler
+        )
+
+        # === v8.4.0: 初始化配对选择器 ===
+        self.pair_selector = PairSelector(
+            self,
+            self.config.analysis,
+            self.config.pair_selector
         )
 
 
@@ -119,14 +127,14 @@ class BayesianCointegrationStrategy(QCAlgorithm):
 
     def _run_analysis_pipeline(self):
         """
-        运行分析管道 (v8.1.0 CointegrationAnalyzer验证版本)
+        运行分析管道 (v8.4.0 PairSelector验证版本)
 
         完整流程 (7步):
-        - 步骤1: DataProcessor - 数据处理 
-        - 步骤2: CointegrationAnalyzer - 协整检验 
-        - 步骤3: 构建PairData字典 (待恢复)
-        - 步骤4: BayesianModeler - 贝叶斯建模 (待恢复)
-        - 步骤5: PairSelector - 质量筛选 (待恢复)
+        - 步骤1: DataProcessor - 数据处理 ✅
+        - 步骤2: CointegrationAnalyzer - 协整检验 ✅
+        - 步骤3: 构建PairData字典 ✅
+        - 步骤4: BayesianModeler - 贝叶斯建模 ✅
+        - 步骤5: PairSelector - 质量筛选 ✅
         - 步骤6: 创建Pairs对象 (待恢复)
         - 步骤7: PairsManager管理 (待恢复)
         """
@@ -210,7 +218,24 @@ class BayesianCointegrationStrategy(QCAlgorithm):
             level=1
         )
 
-        self.Debug(f"[Analysis] 步骤4完成 - 等待步骤5-7恢复", level=1)
+        # === 步骤5: 配对质量筛选 (v8.4.0) ===
+        self.Debug("[Analysis] 步骤5: 配对质量筛选", level=1)
+
+        selected_pairs = self.pair_selector.selection_procedure(model_results)
+
+        if len(selected_pairs) < 1:
+            self.Debug("[Analysis] 无高质量配对,终止分析管道", level=1)
+            return
+
+        # 缓存供后续步骤使用
+        self.selected_pairs = selected_pairs
+
+        self.Debug(
+            f"[PairSelector] 筛选{len(selected_pairs)}个高质量配对",
+            level=1
+        )
+
+        self.Debug(f"[Analysis] 步骤5完成 - 等待步骤6-7恢复", level=1)
 
 
     def _subscribe_industry_etfs(self):
