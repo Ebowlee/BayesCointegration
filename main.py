@@ -5,6 +5,7 @@ from src.config import StrategyConfig
 from src.UniverseSelection import SectorBasedUniverseSelection
 from src.analysis.DataProcessor import DataProcessor
 from src.analysis.CointegrationAnalyzer import CointegrationAnalyzer
+from src.analysis.PairData import PairData
 # endregion
 
 
@@ -113,8 +114,8 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         运行分析管道 (v8.1.0 CointegrationAnalyzer验证版本)
 
         完整流程 (7步):
-        - 步骤1: DataProcessor - 数据处理 ✅ v8.0.1
-        - 步骤2: CointegrationAnalyzer - 协整检验 ✅ v8.1.0
+        - 步骤1: DataProcessor - 数据处理 
+        - 步骤2: CointegrationAnalyzer - 协整检验 
         - 步骤3: 构建PairData字典 (待恢复)
         - 步骤4: BayesianModeler - 贝叶斯建模 (待恢复)
         - 步骤5: PairSelector - 质量筛选 (待恢复)
@@ -149,11 +150,14 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         coint_pairs = coint_result['raw_pairs']
         coint_stats = coint_result['statistics']
 
-        # 输出协整统计
+        # 输出协整统计 (v8.2.1: 修复行业数统计 - 只计数有配对的行业)
+        industry_breakdown = coint_stats.get('industry_group_breakdown', {})
+        industries_with_pairs = sum(1 for stats in industry_breakdown.values() if stats['pairs_found'] > 0)
+
         self.Debug(
             f"[CointegrationAnalyzer] 候选配对{coint_stats.get('total_pairs_tested', 0)}对 → "
             f"通过{len(coint_pairs)}对 | "
-            f"行业分组{len(coint_stats.get('industry_group_breakdown', {}))}个",
+            f"有效行业{industries_with_pairs}个 (共{len(industry_breakdown)}个行业分组)",
             level=1
         )
 
@@ -167,7 +171,6 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         self.coint_pairs = coint_pairs
 
         # === 步骤3: 构建PairData字典 ===
-        from src.analysis.PairData import PairData
         pair_data = {}
         for pair_info in coint_pairs:
             pair_key = (pair_info['symbol1'], pair_info['symbol2'])
