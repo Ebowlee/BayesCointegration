@@ -169,7 +169,13 @@ class BayesianCointegrationStrategy(QCAlgorithm):
                 self.etf_industry_mapping[ticker] = industries
                 subscribed_industries.update(industries)
 
-                self.Debug(f"[ETF核心] {ticker} → {len(industries)}个行业", level=1)
+                # 转换行业代码为中文名称
+                industry_names_list = [
+                    self.config.constants['industry_names'].get(code, f'未知{code}')
+                    for code in industries
+                ]
+                industry_names_str = '、'.join(industry_names_list)
+                self.Debug(f"[加载ETF] 核心 {ticker} → {industry_names_str}", level=1)
 
         # === Step 2: 订阅7个特种部队ETFs (第二批, 替换逻辑) ===
         if config.industry_etfs_enabled:
@@ -184,7 +190,13 @@ class BayesianCointegrationStrategy(QCAlgorithm):
                 self.etf_industry_mapping[ticker] = industries
                 subscribed_industries.update(industries)
 
-                self.Debug(f"[ETF特种] {ticker} → 行业{industries}", level=1)
+                # 转换行业代码为中文名称
+                industry_names_list = [
+                    self.config.constants['industry_names'].get(code, f'未知{code}')
+                    for code in industries
+                ]
+                industry_names_str = '、'.join(industry_names_list)
+                self.Debug(f"[加载ETF] 细分 {ticker} → {industry_names_str}", level=1)
 
         self.Debug(
             f"[ETF订阅完成] 共{len(self.etf_symbols)}个ETF "
