@@ -5,6 +5,56 @@
 ---
 
 
+## [v8.1.1_fix-cointegration-config@20250118]
+
+### 版本概述
+修复v8.1.0配置传参错误,CointegrationAnalyzer应使用CointegrationConfig而非AnalysisConfig。
+
+### 🐛 Hotfix: 配置对象传参错误
+
+#### 问题描述
+
+**错误信息**:
+```
+AttributeError: 'AnalysisConfig' object has no attribute 'pvalue_threshold'
+  at CointegrationAnalyzer.py: line 30
+```
+
+**错误原因**: [main.py:51](../main.py#L51) 传入了错误的配置对象
+
+**Before (v8.1.0错误)**:
+```python
+# ❌ 传入AnalysisConfig (只有lookback_days, data_completeness_ratio)
+self.cointegration_analyzer = CointegrationAnalyzer(self, self.config.analysis)
+```
+
+**After (v8.1.1修复)**:
+```python
+# ✅ 传入CointegrationConfig (包含pvalue_threshold等4个字段)
+self.cointegration_analyzer = CointegrationAnalyzer(self, self.config.cointegration_analyzer)
+```
+
+#### 配置对象对比
+
+| 模块 | 正确的配置对象 | v8.1.0错误传入 | 包含字段 |
+|------|--------------|---------------|---------|
+| DataProcessor | AnalysisConfig | AnalysisConfig | lookback_days, data_completeness_ratio |
+| CointegrationAnalyzer | CointegrationConfig | ~~AnalysisConfig~~ | pvalue_threshold, min/max_stocks_per_industry, max_symbol_repeats |
+
+#### 修复内容
+
+**文件**: [main.py](../main.py#L51)
+
+**变更**:
+- Line 51: `self.config.analysis` → `self.config.cointegration_analyzer`
+
+### 📝 相关文件
+- [main.py](../main.py#L51) - 修正配置传参
+- [src/analysis/CointegrationAnalyzer.py](../src/analysis/CointegrationAnalyzer.py#L30) - 代码美化(移除冗余版本注释)
+
+---
+
+
 ## [v8.1.0_restore-cointegration-analyzer@20250118]
 
 ### 版本概述
