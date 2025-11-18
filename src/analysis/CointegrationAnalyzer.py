@@ -33,11 +33,8 @@ class CointegrationAnalyzer:
         self.min_stocks_per_industry = module_config.min_stocks_per_industry
         self.max_stocks_per_industry = module_config.max_stocks_per_industry
 
-        # v7.32.0: 行业配额 (从int改为Dict)
         self.industry_quotas = industry_quotas if industry_quotas else {}
         self.default_quota = algorithm.config.industry_quota.default_quota
-
-        # v7.31.0: 单股重复限制 (从PairSelector迁移)
         self.max_symbol_repeats = module_config.max_symbol_repeats
 
 
@@ -258,14 +255,14 @@ class CointegrationAnalyzer:
             sorted_pairs: 通过pvalue阈值的配对列表 (排序后)
             selected_pairs: 应用配额后的最终配对列表
         """
-        # v7.31.4: 只记录选出了配对的行业 (过滤"PValue通过0对"噪音)
+        # 只记录选出了配对的行业 (过滤"PValue通过0对"噪音)
         if len(selected_pairs) == 0:
             return
 
         industry_names = self.algorithm.config.constants['industry_names']
         industry_name = industry_names.get(int(ig_name), f'未知({ig_name})')
 
-        # v7.32.0: 从Dict中提取quota字段
+        # 从Dict中提取quota字段
         quota_info = self.industry_quotas.get(ig_name)
         quota = quota_info['quota'] if quota_info else self.default_quota
 
@@ -291,13 +288,6 @@ class CointegrationAnalyzer:
         1. 按MorningstarIndustryGroupCode分组
         2. 过滤: 最少min_stocks_per_industry只
         3. 限制: 最多max_stocks_per_industry只 (直接切片,无需排序)
-
-        v7.30.4变更:
-        - 移除行业内Volume排序 (粗选阶段已完成全局Volume排序)
-        - 新增max_stocks_per_industry参数 (直接限制行业股票数上限)
-
-        v7.30.1变更:
-        - 移除市值筛选逻辑,只用Volume筛选
         """
         industry_groups = defaultdict(list)
 
@@ -313,7 +303,7 @@ class CointegrationAnalyzer:
                         failed_symbols.append((symbol, 'etf_no_mapping'))
                         continue
 
-                    # ⭐ 关键改进: 将同一个ETF添加到多个行业分组
+                    # 关键改进: 将同一个ETF添加到多个行业分组
                     for ig_code in industries:
                         industry_groups[ig_code].append({
                             'symbol': symbol,

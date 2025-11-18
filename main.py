@@ -48,7 +48,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         self.data_processor = DataProcessor(self, self.config.analysis)
 
         # === v8.1.0: 初始化协整分析器 ===
-        self.cointegration_analyzer = CointegrationAnalyzer(self, self.config.analysis)
+        self.cointegration_analyzer = CointegrationAnalyzer(self, self.config.cointegration_analyzer)
 
 
     def Debug(self, message: str, level: int = 0):
