@@ -6,6 +6,7 @@ from src.UniverseSelection import SectorBasedUniverseSelection
 from src.analysis.DataProcessor import DataProcessor
 from src.analysis.CointegrationAnalyzer import CointegrationAnalyzer
 from src.analysis.PairData import PairData
+from src.analysis.BayesianModeler import BayesianModeler
 # endregion
 
 
@@ -50,6 +51,13 @@ class BayesianCointegrationStrategy(QCAlgorithm):
 
         # === v8.1.0: 初始化协整分析器 ===
         self.cointegration_analyzer = CointegrationAnalyzer(self, self.config.cointegration_analyzer)
+
+        # === v8.3.0: 初始化贝叶斯建模器 ===
+        self.bayesian_modeler = BayesianModeler(
+            self,
+            self.config.analysis,
+            self.config.bayesian_modeler
+        )
 
 
     def Debug(self, message: str, level: int = 0):
@@ -99,7 +107,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         etf_count = len([s for s in self.symbols if s in self.etf_symbols])
 
         self.Debug(
-            f"[选股结果] 新增{added_count}只 | "
+            f"[选股汇总] 新增{added_count}只 | "
             f"总计{len(self.symbols)}只 (股票{stock_count} + ETF{etf_count})",
             level=0
         )
@@ -132,7 +140,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
 
         # 输出处理统计
         self.Debug(
-            f"[DataProcessor] 输入{stats['total']}只 → "
+            f"[数据处理] 输入{stats['total']}只 → "
             f"有效{stats['final_valid']}只 | "
             f"缺失{stats.get('data_missing', 0)}只 | "
             f"不完整{stats.get('incomplete', 0)}只",
@@ -185,7 +193,24 @@ class BayesianCointegrationStrategy(QCAlgorithm):
             level=1
         )
 
-        self.Debug(f"[Analysis] 步骤3完成 - 等待步骤4-7恢复", level=1)
+        # === 步骤4: 贝叶斯建模 (v8.3.0) ===
+        self.Debug("[Analysis] 步骤4: 贝叶斯建模", level=1)
+
+        model_results = self.bayesian_modeler.modeling_procedure(coint_pairs, pair_data)
+
+        if len(model_results) < 1:
+            self.Debug("[Analysis] 贝叶斯建模失败,无有效结果,终止分析管道", level=1)
+            return
+
+        # 缓存供后续步骤使用
+        self.model_results = model_results
+
+        self.Debug(
+            f"[BayesianModeler] 成功建模{len(model_results)}个配对",
+            level=1
+        )
+
+        self.Debug(f"[Analysis] 步骤4完成 - 等待步骤5-7恢复", level=1)
 
 
     def _subscribe_industry_etfs(self):
