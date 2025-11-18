@@ -166,7 +166,22 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         self.valid_symbols = valid_symbols
         self.raw_pairs = raw_pairs
 
-        self.Debug(f"[Analysis] 管道完成 - 等待后续模块恢复", level=1)
+        # === 步骤3: 构建PairData字典 ===
+        from src.analysis.PairData import PairData
+        pair_data_dict = {}
+        for pair_info in raw_pairs:
+            pair_key = (pair_info['symbol1'], pair_info['symbol2'])
+            pair_data_dict[pair_key] = PairData.from_clean_data(pair_info, clean_data)
+
+        # 缓存供后续步骤使用
+        self.pair_data_dict = pair_data_dict
+
+        self.Debug(
+            f"[PairData] 构建{len(pair_data_dict)}个配对数据对象",
+            level=1
+        )
+
+        self.Debug(f"[Analysis] 步骤3完成 - 等待步骤4-7恢复", level=1)
 
 
     def _subscribe_industry_etfs(self):
