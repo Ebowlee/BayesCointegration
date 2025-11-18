@@ -5,6 +5,68 @@
 ---
 
 
+## [v8.2.0_restore-pairdata-construction@20250118]
+
+### 版本概述
+恢复7步分析管道的步骤3: PairData字典构建逻辑,为后续BayesianModeler和PairSelector提供统一的数据接口。
+
+### ✨ 新增功能
+
+#### 步骤3: PairData字典构建
+
+**实现位置**: [main.py](../main.py#L169-L184)
+
+**构建逻辑**:
+```python
+# === 步骤3: 构建PairData字典 ===
+from src.analysis.PairData import PairData
+pair_data_dict = {}
+for pair_info in raw_pairs:
+    pair_key = (pair_info['symbol1'], pair_info['symbol2'])
+    pair_data_dict[pair_key] = PairData.from_clean_data(pair_info, clean_data)
+
+# 缓存供后续步骤使用
+self.pair_data_dict = pair_data_dict
+```
+
+**关键设计**:
+- **工厂方法**: 使用`PairData.from_clean_data()`封装对数转换和数据验证
+- **字典结构**: Key为`(symbol1, symbol2)`元组,Value为frozen PairData对象
+- **性能优化**: 一次构建,供步骤4(BayesianModeler)和步骤5(PairSelector)复用
+- **不可变性**: PairData为frozen dataclass,保证数据安全
+
+**数据流**:
+```
+步骤2: CointegrationAnalyzer
+    ↓ raw_pairs (协整通过的配对)
+步骤3: PairData字典构建
+    ↓ pair_data_dict (封装原始价格和对数价格)
+步骤4-5: BayesianModeler/PairSelector (待恢复)
+```
+
+**日志输出**:
+```
+[PairData] 构建N个配对数据对象
+[Analysis] 步骤3完成 - 等待步骤4-7恢复
+```
+
+### 📝 相关文件
+- [main.py](../main.py#L169-L184) - 添加步骤3构建逻辑
+- [src/analysis/PairData.py](../src/analysis/PairData.py) - PairData类定义和工厂方法
+
+### 🎯 架构优势
+
+**单一职责**:
+- **PairData.py**: 封装数据结构和创建逻辑
+- **main.py**: 编排数据流和模块调用
+
+**复用性**:
+- 避免BayesianModeler和PairSelector重复创建PairData对象
+- 消除67%的重复`np.log()`调用
+
+---
+
+
 ## [v8.1.2_fix-statistics-field-names@20250118]
 
 ### 版本概述
