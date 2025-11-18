@@ -151,9 +151,9 @@ class BayesianCointegrationStrategy(QCAlgorithm):
 
         # 输出协整统计
         self.Debug(
-            f"[CointegrationAnalyzer] 候选配对{coint_stats.get('total_pairs', 0)}对 → "
+            f"[CointegrationAnalyzer] 候选配对{coint_stats.get('total_pairs_tested', 0)}对 → "
             f"通过{len(raw_pairs)}对 | "
-            f"行业分组{coint_stats.get('industry_groups', 0)}个",
+            f"行业分组{len(coint_stats.get('industry_group_breakdown', {}))}个",
             level=1
         )
 
