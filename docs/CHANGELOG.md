@@ -5,6 +5,58 @@
 ---
 
 
+## [v8.0.3_improve-etf-logging@20250118]
+
+### 版本概述
+用户体验改进: ETF订阅日志从行业代码/数量显示改为中文行业名称显示,提升可读性。
+
+### ✨ 功能改进
+
+#### ETF订阅日志优化
+
+**改进前**:
+```
+[ETF核心] XLB → 7个行业
+[ETF特种] XME → 行业[10150, 10160]
+```
+
+**改进后**:
+```
+[加载ETF] 核心 XLB → 农业、建材、化工、林产品、金属矿业、钢铁、包装容器
+[加载ETF] 细分 XME → 金属矿业、钢铁
+```
+
+#### 实现细节
+
+**修改位置**: [main.py](main.py#L172-L199) `_subscribe_industry_etfs()`方法
+
+**核心逻辑**:
+```python
+# 转换行业代码为中文名称
+industry_names_list = [
+    self.config.constants['industry_names'].get(code, f'未知{code}')
+    for code in industries
+]
+industry_names_str = '、'.join(industry_names_list)
+self.Debug(f"[加载ETF] 核心 {ticker} → {industry_names_str}", level=1)
+```
+
+**数据源**: 使用`config.constants['industry_names']`映射 (来自Constants.INDUSTRY_NAMES,包含55个Morningstar行业中文名)
+
+### 📝 修改文件
+- `main.py` (Lines 172-178, 193-199): 两处ETF订阅日志修改
+  - 核心ETF日志: `[ETF核心]` → `[加载ETF] 核心` + 行业名称
+  - 细分ETF日志: `[ETF特种]` → `[加载ETF] 细分` + 行业名称
+- `docs/CHANGELOG.md`: 记录v8.0.3改进
+
+### 🎯 用户价值
+- **可读性**: 行业名称直观,无需查阅代码表
+- **调试友好**: 快速识别ETF覆盖的行业范围
+- **一致性**: 日志格式统一,易于模式识别
+
+---
+
+
 ## [v7.39.1_hotfix-tier1-default@20250206]
 
 ### 版本概述
