@@ -3,6 +3,7 @@ from AlgorithmImports import *
 from System import Action
 from src.config import StrategyConfig
 from src.UniverseSelection import SectorBasedUniverseSelection
+from src.analysis.DataProcessor import DataProcessor
 # endregion
 
 
@@ -41,6 +42,9 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         self.etf_industry_mapping = {}                          # 反向映射: {ticker: [industry_codes]}
         if self.config.etf_universe.enabled:
             self._subscribe_industry_etfs()
+
+        # === v8.0.1: 初始化分析管道 ===
+        self.data_processor = DataProcessor(self, self.config.analysis)
 
 
     def Debug(self, message: str, level: int = 0):
@@ -94,6 +98,51 @@ class BayesianCointegrationStrategy(QCAlgorithm):
             f"总计{len(self.symbols)}只 (股票{stock_count} + ETF{etf_count})",
             level=0
         )
+
+        # === v8.0.1: 触发分析管道 ===
+        if len(self.symbols) >= 2:
+            self._run_analysis_pipeline()
+
+
+    def _run_analysis_pipeline(self):
+        """
+        运行分析管道 (v8.0.1 DataProcessor验证版本)
+
+        完整流程 (7步):
+        - 步骤1: DataProcessor - 数据处理 ← v8.0.1当前
+        - 步骤2: CointegrationAnalyzer - 协整检验 (待恢复)
+        - 步骤3: 构建PairData字典 (待恢复)
+        - 步骤4: BayesianModeler - 贝叶斯建模 (待恢复)
+        - 步骤5: PairSelector - 质量筛选 (待恢复)
+        - 步骤6: 创建Pairs对象 (待恢复)
+        - 步骤7: PairsManager管理 (待恢复)
+        """
+        # === 步骤1: 数据处理 (v8.0.1) ===
+        self.Debug("[Analysis] 步骤1: 数据处理", level=1)
+
+        data_result = self.data_processor.process(self.symbols)
+        clean_data = data_result['clean_data']
+        valid_symbols = data_result['valid_symbols']
+        stats = data_result['statistics']
+
+        # 输出处理统计
+        self.Debug(
+            f"[DataProcessor] 输入{stats['total']}只 → "
+            f"有效{stats['final_valid']}只 | "
+            f"缺失{stats.get('data_missing', 0)}只 | "
+            f"不完整{stats.get('incomplete', 0)}只",
+            level=1
+        )
+
+        if len(valid_symbols) < 2:
+            self.Debug("[Analysis] 有效股票不足2只,终止分析管道", level=1)
+            return
+
+        # 缓存数据供后续步骤使用
+        self.clean_data = clean_data
+        self.valid_symbols = valid_symbols
+
+        self.Debug(f"[Analysis] 管道完成 - 等待后续模块恢复", level=1)
 
 
     def _subscribe_industry_etfs(self):
