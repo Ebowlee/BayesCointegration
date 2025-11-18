@@ -7,6 +7,16 @@ from src.execution import OpenIntent, CloseIntent
 # endregion
 
 
+class PositionMode:
+    """持仓模式常量 - 避免魔法字符串"""
+    NONE = 'NONE'                    # 无持仓
+    LONG_SPREAD = 'LONG_SPREAD'      # 正常多头价差
+    SHORT_SPREAD = 'SHORT_SPREAD'    # 正常空头价差
+    PARTIAL_LEG1 = 'PARTIAL_LEG1'    # 异常: 仅LEG1持仓
+    PARTIAL_LEG2 = 'PARTIAL_LEG2'    # 异常: 仅LEG2持仓
+    ANOMALY_SAME = 'ANOMALY_SAME'    # 异常: 同向持仓
+
+
 class Pairs:
     """
     配对交易的核心数据对象
@@ -21,6 +31,67 @@ class Pairs:
     """
 
     # ===== 1. 初始化与参数管理 =====
+
+    @classmethod
+    def from_model_result(cls, algorithm, model_result: Dict, config) -> 'Pairs':
+        """
+        工厂方法：从贝叶斯建模结果创建 Pairs 对象
+
+        设计理念（与 PairData.from_clean_data() 保持一致）：
+        - 封装创建逻辑：调用者无需了解构造函数参数细节
+        - 语义清晰：明确表达"从建模结果创建"的意图
+        - 扩展性：未来可添加其他工厂方法（from_dict, from_historical_data）
+
+        技术细节：
+        - cls 是 Pairs 类本身（Python 自动传递）
+        - cls(...) 调用构造函数 __init__，创建并返回 Pairs 实例对象
+        - 返回值是 Pairs 实例，可直接调用实例方法（get_signal, open_position 等）
+
+        Args:
+            algorithm: QCAlgorithm 实例
+            model_result: BayesianModeler 输出的单个建模结果
+                格式: {
+                    'symbol1': Symbol, 'symbol2': Symbol,
+                    'alpha_mean': float, 'beta_mean': float,
+                    'residual_mean': float, 'residual_std': float,
+                    'quality_score': float, 'industry_group': str
+                }
+            config: 配对交易配置对象（PairsTradingConfig dataclass from src/config.py）
+
+        Returns:
+            Pairs: 新创建的 Pairs 实例对象
+
+        Example:
+            # main.py 中调用
+            for model_result in modeling_results:
+                pair = Pairs.from_model_result(self, model_result, self.config.pairs_trading)
+                # pair 是 Pairs 实例，可以调用实例方法
+                intent = pair.get_open_intent(amount, data)
+                if intent:
+                    tickets = order_executor.execute_open(intent)
+
+        与构造函数的对比：
+            # 方式 1：直接调用构造函数（不推荐）
+            pair = Pairs(self, model_result, self.config.pairs_trading)
+
+            # 方式 2：通过类方法工厂（推荐）✅
+            pair = Pairs.from_model_result(self, model_result, self.config.pairs_trading)
+
+            优势：语义清晰、与项目其他值对象一致、便于扩展
+        """
+        # 创建Pairs对象
+        pair = cls(algorithm, model_result, config)
+
+        # v7.12.0: 提取行业代码用于行业配额管理
+        symbol1 = model_result['symbol1']
+        try:
+            pair.industry_code = algorithm.Securities[symbol1].Fundamentals.AssetClassification.MorningstarIndustryGroupCode
+        except (AttributeError, KeyError):
+            algorithm.Debug(f"[Pairs] 警告: 无法获取{symbol1}的行业代码", 1)
+            pair.industry_code = None
+
+        return pair
+
 
     def __init__(self, algorithm, model_data, config):
         """
@@ -123,67 +194,6 @@ class Pairs:
         return True
 
 
-    @classmethod
-    def from_model_result(cls, algorithm, model_result: Dict, config) -> 'Pairs':
-        """
-        工厂方法：从贝叶斯建模结果创建 Pairs 对象
-
-        设计理念（与 PairData.from_clean_data() 保持一致）：
-        - 封装创建逻辑：调用者无需了解构造函数参数细节
-        - 语义清晰：明确表达"从建模结果创建"的意图
-        - 扩展性：未来可添加其他工厂方法（from_dict, from_historical_data）
-
-        技术细节：
-        - cls 是 Pairs 类本身（Python 自动传递）
-        - cls(...) 调用构造函数 __init__，创建并返回 Pairs 实例对象
-        - 返回值是 Pairs 实例，可直接调用实例方法（get_signal, open_position 等）
-
-        Args:
-            algorithm: QCAlgorithm 实例
-            model_result: BayesianModeler 输出的单个建模结果
-                格式: {
-                    'symbol1': Symbol, 'symbol2': Symbol,
-                    'alpha_mean': float, 'beta_mean': float,
-                    'residual_mean': float, 'residual_std': float,
-                    'quality_score': float, 'industry_group': str
-                }
-            config: 配对交易配置对象（PairsTradingConfig dataclass from src/config.py）
-
-        Returns:
-            Pairs: 新创建的 Pairs 实例对象
-
-        Example:
-            # main.py 中调用
-            for model_result in modeling_results:
-                pair = Pairs.from_model_result(self, model_result, self.config.pairs_trading)
-                # pair 是 Pairs 实例，可以调用实例方法
-                intent = pair.get_open_intent(amount, data)
-                if intent:
-                    tickets = order_executor.execute_open(intent)
-
-        与构造函数的对比：
-            # 方式 1：直接调用构造函数（不推荐）
-            pair = Pairs(self, model_result, self.config.pairs_trading)
-
-            # 方式 2：通过类方法工厂（推荐）✅
-            pair = Pairs.from_model_result(self, model_result, self.config.pairs_trading)
-
-            优势：语义清晰、与项目其他值对象一致、便于扩展
-        """
-        # 创建Pairs对象
-        pair = cls(algorithm, model_result, config)
-
-        # v7.12.0: 提取行业代码用于行业配额管理
-        symbol1 = model_result['symbol1']
-        try:
-            pair.industry_code = algorithm.Securities[symbol1].Fundamentals.AssetClassification.MorningstarIndustryGroupCode
-        except (AttributeError, KeyError):
-            algorithm.Debug(f"[Pairs] 警告: 无法获取{symbol1}的行业代码", 1)
-            pair.industry_code = None
-
-        return pair
-
-
     def set_industry_quota_tier(self, tier: str) -> None:
         """
         设置行业配额档次 (v7.32.0: 用于PairSelector调用)
@@ -205,6 +215,8 @@ class Pairs:
         """
         self.industry_quota_tier = tier
 
+
+    # ===== 2. 生命周期回调 =====
 
     def on_position_filled(self, action: str, fill_time, tickets, reason: str = None):
         """
@@ -288,6 +300,44 @@ class Pairs:
             self.entry_price2 = None
             self.exit_price1 = None
             self.exit_price2 = None
+
+
+    def _update_trade_stats(self):
+        """
+        更新交易历史统计 (加权平均累计)
+
+        在平仓时调用,计算本次交易收益并更新累计统计
+
+        计算逻辑:
+        - 本次交易PnL% = (pnl_dollars / pair_cost) * 100 (单次交易收益率)
+        - 累计美元PnL += pnl_dollars (分子累加)
+        - 累计保证金成本 += pair_cost (分母累加)
+        - 累计收益率 = (total_pnl_dollars / total_pair_cost) * 100 (加权平均,非简单相加)
+
+        设计理由:
+        加权平均考虑不同交易的成本差异,避免简单百分比相加的数学错误
+
+        调用时机:
+        在清零追踪变量之前调用 (此时 exit_price 已记录,可计算 PnL)
+        """
+        # 计算本次交易的美元PnL和保证金成本
+        pnl_dollars = self.get_pair_pnl()
+        pair_cost = self.get_pair_cost()
+
+        # 数据完整性检查
+        if pnl_dollars is None or pair_cost is None or pair_cost <= 0:
+            # 数据不完整,跳过统计更新 (理论上不应发生,因为on_position_filled时数据应完整)
+            return
+
+        # 累积美元PnL和成本(用于加权平均计算)
+        self.realized_pnl += pnl_dollars  # 分子: 已实现PnL
+        self.realized_cost += pair_cost   # 分母: 已实现成本
+
+        # 更新计数统计
+        self.trade_count += 1
+        if pnl_dollars > 0:
+            self.win_count += 1
+
 
     def _log_close_completion(self, reason: str):
         """
@@ -373,44 +423,9 @@ class Pairs:
                 level=1
             )
 
-    def _update_trade_stats(self):
-        """
-        更新交易历史统计 (加权平均累计)
 
-        在平仓时调用,计算本次交易收益并更新累计统计
-
-        计算逻辑:
-        - 本次交易PnL% = (pnl_dollars / pair_cost) * 100 (单次交易收益率)
-        - 累计美元PnL += pnl_dollars (分子累加)
-        - 累计保证金成本 += pair_cost (分母累加)
-        - 累计收益率 = (total_pnl_dollars / total_pair_cost) * 100 (加权平均,非简单相加)
-
-        设计理由:
-        加权平均考虑不同交易的成本差异,避免简单百分比相加的数学错误
-
-        调用时机:
-        在清零追踪变量之前调用 (此时 exit_price 已记录,可计算 PnL)
-        """
-        # 计算本次交易的美元PnL和保证金成本
-        pnl_dollars = self.get_pair_pnl()
-        pair_cost = self.get_pair_cost()
-
-        # 数据完整性检查
-        if pnl_dollars is None or pair_cost is None or pair_cost <= 0:
-            # 数据不完整,跳过统计更新 (理论上不应发生,因为on_position_filled时数据应完整)
-            return
-
-        # 累积美元PnL和成本(用于加权平均计算)
-        self.realized_pnl += pnl_dollars  # 分子: 已实现PnL
-        self.realized_cost += pair_cost   # 分母: 已实现成本
-
-        # 更新计数统计
-        self.trade_count += 1
-        if pnl_dollars > 0:
-            self.win_count += 1
-
-
-    # ===== 2. 基础数据访问(无依赖) =====
+    # ===== 3. 数据访问层 =====
+    # 3A. 实时数据查询
 
     def get_price(self, data):
         """
@@ -462,19 +477,19 @@ class Pairs:
 
         # 统一判断持仓模式(整合状态+方向)
         if qty1 == 0 and qty2 == 0:
-            position_mode = 'NONE'
+            position_mode = PositionMode.NONE
         elif qty1 > 0 and qty2 < 0:
-            position_mode = 'LONG_SPREAD'
+            position_mode = PositionMode.LONG_SPREAD
         elif qty1 < 0 and qty2 > 0:
-            position_mode = 'SHORT_SPREAD'
+            position_mode = PositionMode.SHORT_SPREAD
         elif qty1 != 0 and qty2 == 0:
-            position_mode = 'PARTIAL_LEG1'
+            position_mode = PositionMode.PARTIAL_LEG1
             self.algorithm.Debug(f"[持仓异常] {self.pair_id} 单边持仓LEG1: qty1={qty1:+.0f}")
         elif qty1 == 0 and qty2 != 0:
-            position_mode = 'PARTIAL_LEG2'
+            position_mode = PositionMode.PARTIAL_LEG2
             self.algorithm.Debug(f"[持仓异常] {self.pair_id} 单边持仓LEG2: qty2={qty2:+.0f}")
         else:  # 同向持仓
-            position_mode = 'ANOMALY_SAME'
+            position_mode = PositionMode.ANOMALY_SAME
             self.algorithm.Debug(f"[持仓异常] {self.pair_id} 同向持仓: qty1={qty1:+.0f}, qty2={qty2:+.0f}")
 
         return {'position_mode': position_mode, 'qty1': qty1, 'qty2': qty2, 'value1': value1, 'value2': value2}
@@ -504,110 +519,7 @@ class Pairs:
         return self.get_position_info()['position_mode']
 
 
-    def get_pair_holding_days(self) -> Optional[int]:
-        """
-        获取持仓时长(天数) - 从开仓到现在
-
-        Returns:
-            持仓天数 或 None(无持仓或无开仓时间)
-        """
-        if not self.has_normal_position():
-            return None
-
-        # 直接访问开仓时间属性
-        entry_time = self.pair_opened_time
-        if entry_time is not None:
-            return (self.algorithm.UtcTime - entry_time).days
-
-        return None
-
-
-    def get_max_holding_days(self) -> Optional[float]:
-        """
-        计算理论最大持仓天数 (v7.38.2: 基于指数衰减公式)
-
-        公式来源:
-        - 均值回归路径: Z(t) = Z_entry × (0.5)^(t/half_life)
-        - 求解半衰期数: n = ln(exit_threshold/entry_zscore) / ln(0.5)
-        - 最大持有天数: max_days = n × half_life
-
-        使用场景:
-        - 平仓日志输出 (显示动态超时阈值)
-        - 风控规则诊断 (PairHoldingTimeoutRule已内联此公式)
-
-        Returns:
-            理论最大持仓天数 或 None(数据不完整)
-        """
-        # 检查必需数据
-        if self.entry_zscore is None or self.half_life is None:
-            return None
-
-        # 从config读取出场阈值
-        exit_threshold = self.algorithm.config.pairs_trading.exit_threshold  # 0.3
-        entry_zscore = abs(self.entry_zscore)  # 取绝对值,如-1.9σ → 1.9
-
-        # 计算所需半衰期数
-        import math
-        n = math.log(exit_threshold / entry_zscore) / math.log(0.5)
-
-        # 计算最大持有天数
-        max_days = n * self.half_life
-
-        return max_days  
-
-
-    def get_pair_frozen_days(self) -> Optional[int]:
-        """
-        获取冷却时长(天数) - 从平仓到现在
-
-        与 get_pair_holding_days() 对称设计:
-        - get_pair_holding_days(): 持仓天数 (从开仓到现在)
-        - get_pair_frozen_days(): 冷却天数 (从平仓到现在)
-
-        Returns:
-            冷却天数 或 None(从未平仓)
-        """
-        if self.pair_closed_time is None:
-            return None  # 从未平仓
-
-        return (self.algorithm.UtcTime - self.pair_closed_time).days
-
-
-    def get_cooldown_days(self) -> int:
-        """
-        v7.28.0: NORMAL_SIGNAL从CLOSE_REASONS读取,风控规则由Rule层管理
-
-        设计理由:
-        - v7.28.0配置重构: cooldown_days迁移到risk_management
-        - NORMAL_SIGNAL (MEAN_REVERSION/PAIR_BREAK): 仍从CLOSE_REASONS读取
-        - 风控规则 (TIMEOUT/DRAWDOWN/CUMULATIVE_LOSS/ANOMALY): 由RiskBaseRule.config['cooldown_days']管理
-        - 兼容历史版本原因通过默认值兜底
-
-        Returns:
-            冷却期天数
-
-        冷却期分类 (v7.28.0):
-            MEAN_REVERSION: 10天 (从CLOSE_REASONS读取)
-            PAIR_BREAK: 10天 (从CLOSE_REASONS读取)
-            TIMEOUT/DRAWDOWN/CUMULATIVE_LOSS/ANOMALY: 由Rule层管理
-            其他: 10天 (默认值,兼容历史原因如NORMAL_EXIT/CLOSE)
-
-        注意:
-        - Portfolio级原因(PORTFOLIO_DRAWDOWN/ACCOUNT_BLOWUP)不参与per-pair冷却计算
-        - 风控规则的冷却期由RiskBaseRule从config['cooldown_days']读取
-        """
-        close_reasons = self.algorithm.config.constants['close_reasons']
-
-        # v7.28.0: 检查是否在CLOSE_REASONS中配置了cooldown_days
-        if self.last_close_reason in close_reasons:
-            reason_config = close_reasons[self.last_close_reason]
-            if 'cooldown_days' in reason_config:
-                return reason_config['cooldown_days']  # NORMAL_SIGNAL
-
-        # 风控规则: 由RiskBaseRule.config['cooldown_days']管理
-        # 返回默认值10天(仅用于向后兼容历史原因如NORMAL_EXIT/CLOSE)
-        return 10
-
+    # 3B. 财务计算
 
     def get_pair_pnl(self) -> Optional[float]:
         """
@@ -728,21 +640,39 @@ class Pairs:
         return margin1 + margin2
 
 
-    # ===== 3. 状态判断(依赖第2层) =====
+    def get_accum_return_pct(self) -> float:
+        """
+        获取累积收益率 (%) - 多次交易的加权平均收益
 
-    def has_position(self) -> bool:
-        """检查是否有持仓（优化后：使用 @property）"""
-        return self.position_mode != 'NONE'
+        计算公式:
+            累积收益率 = (realized_pnl / realized_cost) × 100
 
+        数学原理:
+            realized_pnl   = 第1笔PnL + 第2笔PnL + ... + 第N笔PnL
+            realized_cost  = 第1笔成本 + 第2笔成本 + ... + 第N笔成本
+            累积收益率    = (Σ PnL / Σ Cost) × 100  (加权平均,非简单平均)
 
-    def has_normal_position(self) -> bool:
-        """检查是否有正常持仓（优化后：使用 @property）"""
-        return self.position_mode in ['LONG_SPREAD', 'SHORT_SPREAD']
+        示例:
+            交易1: PnL=$500,  Cost=$10,000 → 收益率5%
+            交易2: PnL=-$200, Cost=$8,000  → 收益率-2.5%
+            交易3: PnL=$800,  Cost=$12,000 → 收益率6.67%
 
+            累积收益率 = (500-200+800) / (10000+8000+12000) × 100 = 3.67%
+            (注意: 不是 (5%-2.5%+6.67%)/3 = 3.06%)
 
-    def has_anomaly_position(self) -> bool:
-        """检查是否有异常持仓"""
-        return self.position_mode in ['PARTIAL_LEG1', 'PARTIAL_LEG2', 'ANOMALY_SAME']
+        Returns:
+            累积收益率百分比
+            - 示例: 15.8 表示累积 15.8% 收益
+            - 无交易时: 返回 0.0
+            - 有交易但成本为0时: 返回 0.0 (Fail-Safe)
+
+        调用方:
+            - IndustryQuotaManager: 计算行业加权收益率
+            - PerformanceAnalyzer: 生成配对历史报告
+        """
+        if self.realized_cost > 0:
+            return (self.realized_pnl / self.realized_cost) * 100
+        return 0.0
 
 
     def get_pair_position_value(self) -> float:
@@ -751,7 +681,131 @@ class Pairs:
         return info['value1'] + info['value2']
 
 
-    # ===== 4. 交易信号生成(依赖第2/3层) =====
+    # 3C. 时间查询
+
+    def get_pair_holding_days(self) -> Optional[int]:
+        """
+        获取持仓时长(天数) - 从开仓到现在
+
+        Returns:
+            持仓天数 或 None(无持仓或无开仓时间)
+        """
+        if not self.has_normal_position():
+            return None
+
+        # 直接访问开仓时间属性
+        entry_time = self.pair_opened_time
+        if entry_time is not None:
+            return (self.algorithm.UtcTime - entry_time).days
+
+        return None
+
+
+    def get_max_holding_days(self) -> Optional[float]:
+        """
+        计算理论最大持仓天数 (v7.38.2: 基于指数衰减公式)
+
+        公式来源:
+        - 均值回归路径: Z(t) = Z_entry × (0.5)^(t/half_life)
+        - 求解半衰期数: n = ln(exit_threshold/entry_zscore) / ln(0.5)
+        - 最大持有天数: max_days = n × half_life
+
+        使用场景:
+        - 平仓日志输出 (显示动态超时阈值)
+        - 风控规则诊断 (PairHoldingTimeoutRule已内联此公式)
+
+        Returns:
+            理论最大持仓天数 或 None(数据不完整)
+        """
+        # 检查必需数据
+        if self.entry_zscore is None or self.half_life is None:
+            return None
+
+        # 从config读取出场阈值
+        exit_threshold = self.algorithm.config.pairs_trading.exit_threshold  # 0.3
+        entry_zscore = abs(self.entry_zscore)  # 取绝对值,如-1.9σ → 1.9
+
+        # 计算所需半衰期数
+        import math
+        n = math.log(exit_threshold / entry_zscore) / math.log(0.5)
+
+        # 计算最大持有天数
+        max_days = n * self.half_life
+
+        return max_days
+
+
+    def get_pair_frozen_days(self) -> Optional[int]:
+        """
+        获取冷却时长(天数) - 从平仓到现在
+
+        与 get_pair_holding_days() 对称设计:
+        - get_pair_holding_days(): 持仓天数 (从开仓到现在)
+        - get_pair_frozen_days(): 冷却天数 (从平仓到现在)
+
+        Returns:
+            冷却天数 或 None(从未平仓)
+        """
+        if self.pair_closed_time is None:
+            return None  # 从未平仓
+
+        return (self.algorithm.UtcTime - self.pair_closed_time).days
+
+
+    def get_cooldown_days(self) -> int:
+        """
+        v7.28.0: NORMAL_SIGNAL从CLOSE_REASONS读取,风控规则由Rule层管理
+
+        设计理由:
+        - v7.28.0配置重构: cooldown_days迁移到risk_management
+        - NORMAL_SIGNAL (MEAN_REVERSION/PAIR_BREAK): 仍从CLOSE_REASONS读取
+        - 风控规则 (TIMEOUT/DRAWDOWN/CUMULATIVE_LOSS/ANOMALY): 由RiskBaseRule.config['cooldown_days']管理
+        - 兼容历史版本原因通过默认值兜底
+
+        Returns:
+            冷却期天数
+
+        冷却期分类 (v7.28.0):
+            MEAN_REVERSION: 10天 (从CLOSE_REASONS读取)
+            PAIR_BREAK: 10天 (从CLOSE_REASONS读取)
+            TIMEOUT/DRAWDOWN/CUMULATIVE_LOSS/ANOMALY: 由Rule层管理
+            其他: 10天 (默认值,兼容历史原因如NORMAL_EXIT/CLOSE)
+
+        注意:
+        - Portfolio级原因(PORTFOLIO_DRAWDOWN/ACCOUNT_BLOWUP)不参与per-pair冷却计算
+        - 风控规则的冷却期由RiskBaseRule从config['cooldown_days']读取
+        """
+        close_reasons = self.algorithm.config.constants['close_reasons']
+
+        # v7.28.0: 检查是否在CLOSE_REASONS中配置了cooldown_days
+        if self.last_close_reason in close_reasons:
+            reason_config = close_reasons[self.last_close_reason]
+            if 'cooldown_days' in reason_config:
+                return reason_config['cooldown_days']  # NORMAL_SIGNAL
+
+        # 风控规则: 由RiskBaseRule.config['cooldown_days']管理
+        # 返回默认值10天(仅用于向后兼容历史原因如NORMAL_EXIT/CLOSE)
+        return 10
+
+
+    # ===== 4. 状态判断(依赖第3层) =====
+
+    def has_position(self) -> bool:
+        """检查是否有持仓（优化后：使用 @property）"""
+        return self.position_mode != PositionMode.NONE
+
+
+    def has_normal_position(self) -> bool:
+        """检查是否有正常持仓（优化后：使用 @property）"""
+        return self.position_mode in [PositionMode.LONG_SPREAD, PositionMode.SHORT_SPREAD]
+
+
+    def has_anomaly_position(self) -> bool:
+        """检查是否有异常持仓"""
+        return self.position_mode in [PositionMode.PARTIAL_LEG1, PositionMode.PARTIAL_LEG2, PositionMode.ANOMALY_SAME]
+
+
+    # ===== 5. 信号生成(依赖第3/4层) =====
 
     def get_zscore(self, price1: float, price2: float) -> Optional[float]:
         """
@@ -849,7 +903,7 @@ class Pairs:
             return 'HOLD'
 
 
-    # ===== 5. 意图生成(依赖第2/3/4层) =====
+    # ===== 6. 意图生成(依赖第3/4/5层) =====
 
     def get_open_intent(self, amount_allocated: float, data):
         """
@@ -981,7 +1035,7 @@ class Pairs:
         )
 
 
-    # ===== 6. 资金计算(依赖第2层) =====
+    # ===== 7. 资源计算(依赖第3层) =====
 
     def calculate_leg_values(self, allocated_amount: float, signal: str, data):
         """
@@ -1085,33 +1139,6 @@ class Pairs:
         return value_1, value_2
 
 
-    # ===== 7. 辅助方法(无依赖) =====
-
-    def create_order_tag(self, action: str, reason: str = None):
-        """
-        创建标准化的订单Tag
-
-        Args:
-            action: OrderAction.OPEN 或 OrderAction.CLOSE
-            reason: 平仓原因 (仅用于 CLOSE 动作)
-                   可选值: 'CLOSE', 'STOP_LOSS', 'TIMEOUT', 'RISK_TRIGGER'
-
-        返回格式:
-            OPEN:  "('AAPL', 'MSFT')_OPEN_20240101_093000"
-            CLOSE: "('AAPL', 'MSFT')_CLOSE_STOP_LOSS_20240101_093000"
-
-        注意: 时间戳精确到秒,防止同一天内多次信号的Tag冲突
-        """
-        timestamp = self.algorithm.Time.strftime('%Y%m%d_%H%M%S')
-
-        if action == 'CLOSE' and reason:
-            # 平仓时包含reason
-            return f"{self.pair_id}_{action}_{reason}_{timestamp}"
-        else:
-            # 开仓时或没有reason时的标准格式
-            return f"{self.pair_id}_{action}_{timestamp}"
-
-
     def get_planned_allocation_pct(self) -> float:
         """
         计算基于质量分数和行业tier的计划分配比例 (v7.32.0: tier-based max_pct)
@@ -1141,3 +1168,28 @@ class Pairs:
         max_pct = tier_max_investment_ratio.get(tier, tier_max_investment_ratio['tier0'])
 
         return min_pct + self.quality_score * (max_pct - min_pct)
+
+
+    def create_order_tag(self, action: str, reason: str = None):
+        """
+        创建标准化的订单Tag
+
+        Args:
+            action: OrderAction.OPEN 或 OrderAction.CLOSE
+            reason: 平仓原因 (仅用于 CLOSE 动作)
+                   可选值: 'CLOSE', 'STOP_LOSS', 'TIMEOUT', 'RISK_TRIGGER'
+
+        返回格式:
+            OPEN:  "('AAPL', 'MSFT')_OPEN_20240101_093000"
+            CLOSE: "('AAPL', 'MSFT')_CLOSE_STOP_LOSS_20240101_093000"
+
+        注意: 时间戳精确到秒,防止同一天内多次信号的Tag冲突
+        """
+        timestamp = self.algorithm.Time.strftime('%Y%m%d_%H%M%S')
+
+        if action == 'CLOSE' and reason:
+            # 平仓时包含reason
+            return f"{self.pair_id}_{action}_{reason}_{timestamp}"
+        else:
+            # 开仓时或没有reason时的标准格式
+            return f"{self.pair_id}_{action}_{timestamp}"
