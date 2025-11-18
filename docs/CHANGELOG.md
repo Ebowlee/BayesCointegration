@@ -5,6 +5,73 @@
 ---
 
 
+## [v8.1.2_fix-statistics-field-names@20250118]
+
+### 版本概述
+修复v8.1.1统计日志显示错误,CointegrationAnalyzer返回字段与main.py消费字段名不匹配导致显示"0对...0个"。
+
+### 🐛 Hotfix: 统计字段名不匹配
+
+#### 问题描述
+
+**错误日志**:
+```
+[协整分析] 银行: 10只股票 → 配对45对 → P值通过2对 → 配额1 → 最终选取1对
+[协整分析] 半导体: 13只股票 → 配对78对 → P值通过1对 → 配额1 → 最终选取1对
+...
+[CointegrationAnalyzer] 候选配对0对 → 通过6对 | 行业分组0个  ← 应显示 "450对...6个"
+```
+
+**错误原因**: 生产者(CointegrationAnalyzer)与消费者(main.py)字段名不一致
+
+**字段对比**:
+| 统计项 | CointegrationAnalyzer返回 | main.py期望 | 结果 |
+|--------|--------------------------|------------|------|
+| 候选配对总数 | `total_pairs_tested` | `total_pairs` | dict.get() 返回默认值 0 |
+| 行业分组数量 | `industry_group_breakdown` (dict) | `industry_groups` (int) | dict.get() 返回默认值 0 |
+
+#### 修复内容
+
+**文件**: [main.py](../main.py#L153-L158)
+
+**Before (v8.1.1 - 字段名错误)**:
+```python
+self.Debug(
+    f"[CointegrationAnalyzer] 候选配对{coint_stats.get('total_pairs', 0)}对 → "
+    f"通过{len(raw_pairs)}对 | "
+    f"行业分组{coint_stats.get('industry_groups', 0)}个",
+    level=1
+)
+```
+
+**After (v8.1.2 - 字段名修复)**:
+```python
+self.Debug(
+    f"[CointegrationAnalyzer] 候选配对{coint_stats.get('total_pairs_tested', 0)}对 → "
+    f"通过{len(raw_pairs)}对 | "
+    f"行业分组{len(coint_stats.get('industry_group_breakdown', {}))}个",
+    level=1
+)
+```
+
+**变更**:
+- Line 153: `total_pairs` → `total_pairs_tested`
+- Line 156: `industry_groups` → `len(industry_group_breakdown)`
+
+#### 设计原则
+
+**为什么修改消费者而非生产者?**
+1. **语义性**: `total_pairs_tested` 比 `total_pairs` 更准确描述"测试的配对总数"
+2. **避免冗余**: 不在CointegrationAnalyzer添加重复字段
+3. **架构原则**: 遵循"消费者适配生产者"模式
+
+### 📝 相关文件
+- [main.py](../main.py#L153-L158) - 修正统计字段名
+- [src/analysis/CointegrationAnalyzer.py](../src/analysis/CointegrationAnalyzer.py#L99-L127) - 统计结构定义
+
+---
+
+
 ## [v8.1.1_fix-cointegration-config@20250118]
 
 ### 版本概述
