@@ -5,6 +5,57 @@
 ---
 
 
+## [v7.39.0_default-tier1@20250206]
+
+### 版本概述
+资金配置优化：将未设置tier的配对默认tier从tier0 (10% max)提升至tier1 (16% max)，解决warmup期间和新行业配对的低配置问题。
+
+### 🎯 核心改进
+
+#### 改进1: 默认tier从tier0改为tier1 (Pairs.py Line 1138)
+
+**问题背景**:
+- IndustryQuotaManager有90天warmup期
+- Warmup期间`calculate_quotas()`返回空dict `{}`
+- Pairs对象的`industry_quota_tier`保持None
+- 旧逻辑: `tier = self.industry_quota_tier if self.industry_quota_tier else 'tier0'`
+- 结果: 前90天所有配对限制在5-10%分配 (tier0: max_pct=0.10)
+
+**修改内容**:
+```python
+# 修改前 (v7.38.2)
+tier = self.industry_quota_tier if self.industry_quota_tier else 'tier0'
+
+# 修改后 (v7.39.0)
+tier = self.industry_quota_tier if self.industry_quota_tier else 'tier1'
+```
+
+**配置值** (config.py):
+- tier0: max_pct=0.10 (负收益行业)
+- tier1: max_pct=0.16 (默认/新行业)  ← 新默认值
+- tier2: max_pct=0.18 ([5%, 10%))
+- tier3: max_pct=0.20 ([10%, 15%))
+- tier4: max_pct=0.22 (≥15%)
+
+**影响分析**:
+- **修改前** (Q=0.65): `0.05 + 0.65 × (0.10 - 0.05) = 8.25%` → $8,250
+- **修改后** (Q=0.65): `0.05 + 0.65 × (0.16 - 0.05) = 12.15%` → $12,150
+- **提升**: +47% allocation (+$3,900 per pair)
+
+**适用场景**:
+- 前90天warmup期间的所有配对
+- 任何未被IndustryQuotaManager设置tier的新行业
+
+**向后兼容性**: ✅ 完全兼容
+- 已有tier设置的配对不受影响
+- 仅影响tier=None的fallback逻辑
+
+---
+
+### 📝 修改文件
+- `src/Pairs.py` (Lines 1116-1142): 修改`get_planned_allocation_pct()`默认tier和文档
+
+
 ## [v7.38.2_log-format-optimization@20250117]
 
 ### 版本概述
