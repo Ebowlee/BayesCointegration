@@ -222,9 +222,9 @@ class BayesianCointegrationStrategy(QCAlgorithm):
             # v7.32.0: 设置行业配额tier (用于get_planned_allocation_pct)
             industry_code = str(pair.industry_code) if pair.industry_code else None
             if industry_code and industry_code in industry_quotas:
-                tier = industry_quotas[industry_code].get('tier', 'tier0')
+                tier = industry_quotas[industry_code].get('tier', 'tier1')
             else:
-                tier = 'tier0'  # 默认tier0 (预热期或无历史数据)
+                tier = 'tier1'  # v7.39.1: 默认tier1 (预热期16%配置,避免资金低利用率)
             pair.set_industry_quota_tier(tier)
 
             new_pairs_dict[pair.pair_id] = pair

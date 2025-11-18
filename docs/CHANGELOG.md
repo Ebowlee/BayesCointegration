@@ -5,7 +5,52 @@
 ---
 
 
-## [v7.39.0_default-tier1@20250206]
+## [v7.39.1_hotfix-tier1-default@20250206]
+
+### 版本概述
+Hotfix: 修复v7.39.0的问题 - 默认tier设置位置错误。v7.39.0修改了Pairs.py的fallback逻辑,但main.py才是真正的tier赋值点,导致修复未生效。
+
+### 🐛 修复问题
+
+#### 问题分析: v7.39.0为何未生效
+
+**代码执行流程**:
+```
+main.py:227     → tier = 'tier0'  (显式赋值)
+main.py:228     → pair.set_industry_quota_tier('tier0')
+Pairs.__init__  → self.industry_quota_tier = 'tier0'  (不是None!)
+Pairs.get_planned_allocation_pct() → tier = self.industry_quota_tier if ... else 'tier1'
+                                   → 永远返回'tier0' (因为不是None,fallback不触发)
+```
+
+**Root Cause**: main.py:227显式设置`tier='tier0'`,导致Pairs.industry_quota_tier永远不是None,Pairs.py的fallback逻辑永远不会触发。
+
+#### 修复内容: 修改真正的赋值点 (main.py:227)
+
+```python
+# 修改前 (v7.32.0 - v7.39.0)
+else:
+    tier = 'tier0'  # 默认tier0 (预热期或无历史数据)
+
+# 修改后 (v7.39.1)
+else:
+    tier = 'tier1'  # v7.39.1: 默认tier1 (预热期16%配置,避免资金低利用率)
+```
+
+**同时修复**: main.py:225的dict.get()默认值也从'tier0'改为'tier1'
+
+### 📝 修改文件
+- `main.py` (Lines 225, 227): 修改默认tier赋值
+- `docs/CHANGELOG.md`: 记录v7.39.1 hotfix
+
+### 📊 预期效果
+- 预热期配对分配: 8-10% → 12-16% (Q=0.65: $8,250 → $12,150)
+- 新行业首次出现: 默认tier1而非tier0惩罚档
+
+---
+
+
+## [v7.39.0_default-tier1@20250206] ❌ 未生效 (已在v7.39.1修复)
 
 ### 版本概述
 资金配置优化：将未设置tier的配对默认tier从tier0 (10% max)提升至tier1 (16% max)，解决warmup期间和新行业配对的低配置问题。
