@@ -1121,21 +1121,22 @@ class Pairs:
 
         参数来源:
             - min_pct: PairsTradingConfig.min_investment_ratio (0.05)
-            - max_pct: PairsTradingConfig.tier_max_investment_ratio[tier] (0.10-0.20)
+            - max_pct: PairsTradingConfig.tier_max_investment_ratio[tier] (0.10-0.22)
             - quality_score: 配对质量分数 (0.0-1.0)
 
-        tier影响:
-            - tier0 (低回报行业): max_pct=0.10 → planned_pct范围 [0.05, 0.10]
-            - tier4 (高回报行业): max_pct=0.20 → planned_pct范围 [0.05, 0.20]
+        tier影响 (v7.39.0: 默认tier1):
+            - tier0 (负收益行业): max_pct=0.10 → planned_pct范围 [0.05, 0.10]
+            - tier1 (默认/新行业): max_pct=0.16 → planned_pct范围 [0.05, 0.16]
+            - tier4 (高回报行业): max_pct=0.22 → planned_pct范围 [0.05, 0.22]
 
         Returns:
-            计划分配比例 (0.05-0.20之间,取决于tier和quality_score)
+            计划分配比例 (0.05-0.22之间,取决于tier和quality_score)
         """
         # v7.32.0: 从PairsTradingConfig获取tier-based max_pct
         min_pct = self.config.min_investment_ratio
 
-        # 获取tier对应的max_pct (未设置tier时使用tier0兜底)
-        tier = self.industry_quota_tier if self.industry_quota_tier else 'tier0'
+        # 获取tier对应的max_pct (v7.39.0: 未设置tier时使用tier1兜底)
+        tier = self.industry_quota_tier if self.industry_quota_tier else 'tier1'
         tier_max_investment_ratio = self.algorithm.config.pairs_trading.tier_max_investment_ratio
         max_pct = tier_max_investment_ratio.get(tier, tier_max_investment_ratio['tier0'])
 
