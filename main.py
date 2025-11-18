@@ -150,14 +150,15 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         coint_pairs = coint_result['raw_pairs']
         coint_stats = coint_result['statistics']
 
-        # 输出协整统计
+        # 输出协整汇总 (在详细协整分析日志之后)
         industry_breakdown = coint_stats.get('industry_group_breakdown', {})
         industries_with_pairs = sum(1 for stats in industry_breakdown.values() if stats['pairs_found'] > 0)
 
         self.Debug(
-            f"[协整汇总] 候选配对{coint_stats.get('total_pairs_tested', 0)}对 → "
+            f"[协整汇总] 候选配对{coint_stats.get('total_pairs_tested', 0)}对 | "
+            f"{len(industry_breakdown)}个行业 → "
             f"通过{len(coint_pairs)}对 | "
-            f"有效行业{industries_with_pairs}个 (共{len(industry_breakdown)}个分组)",
+            f"有效行业{industries_with_pairs}个",
             level=1
         )
 
