@@ -208,9 +208,9 @@ class SectorBasedUniverseSelection(FineFundamentalUniverseSelectionModel):
             and x.SecurityReference.IPODate <= min_ipo_date     
         ]
 
-        # 步骤2: 按Volume降序排序 + 取TOP N
-        sorted_by_volume = sorted(filtered, key=lambda x: x.Volume, reverse=True)
-        top_n = sorted_by_volume[:max_coarse_stocks]
+        # 步骤2: 按DollarVolume降序排序 + 取TOP N
+        sorted_by_dollar_volume = sorted(filtered, key=lambda x: x.DollarVolume, reverse=True)
+        top_n = sorted_by_dollar_volume[:max_coarse_stocks]
 
         # 步骤3: 提取Symbol返回
         selected = [x.Symbol for x in top_n]
