@@ -423,6 +423,14 @@ class Pairs:
                 level=1
             )
 
+            # v7.39.0: 对冲漂移诊断 - 分析亏损原因(Alpha风险 vs Beta风险)
+            hedge_drift = self.get_hedge_drift()  # 自动使用exit_price
+            if hedge_drift is not None:
+                self.algorithm.Debug(
+                    f"[对冲诊断] {self.pair_id} | 平仓时漂移={hedge_drift:+.2f}%",
+                    level=1
+                )
+
 
     # ===== 3. 数据访问层 =====
     # 3A. 实时数据查询
@@ -638,6 +646,75 @@ class Pairs:
             margin2 = market_value2 * margin_long   # 多头保证金
 
         return margin1 + margin2
+
+
+    def get_hedge_drift(self) -> Optional[float]:
+        """
+        计算对冲漂移率 - 衡量持仓偏离完美对冲的程度
+
+        物理含义:
+            衡量当前持仓市值偏离"Dollar Neutral"的程度
+            Drift% = (Net Exposure / Gross Exposure) × 100
+
+        应用场景:
+            1. 持仓中: 使用实时价格监控对冲质量
+            2. 平仓后: 使用平仓价格分析亏损原因
+
+        价格选择逻辑:
+            - 如果 exit_price 存在 → 使用平仓价 (平仓后复盘)
+            - 否则 → 使用实时价格 (持仓中监控)
+
+        Returns:
+            对冲漂移率(%) 或 None(无持仓/数据异常)
+
+        数值解读:
+            - 0%: 完美对冲 (净敞口为0)
+            - 15%: 警戒区 (开始暴露于Beta风险)
+            - 30%+: 危险区 (类似单边持仓)
+            - 正值: 净多头敞口 (大盘涨我赚)
+            - 负值: 净空头敞口 (大盘跌我赚)
+
+        Example:
+            # 持仓中监控
+            drift = pair.get_hedge_drift()  # 自动使用实时价格
+            if drift and abs(drift) > 30:
+                self.Debug(f"[对冲警告] {pair.pair_id} 漂移{drift:.1f}%")
+
+            # 平仓后复盘 (在_log_close_completion中)
+            drift = pair.get_hedge_drift()  # 自动使用平仓价格
+            self.Debug(f"[对冲诊断] 平仓时漂移{drift:.1f}%")
+        """
+        # 1. 状态检查 (排除单腿/同向/无持仓)
+        if not self.has_normal_position():
+            return None
+
+        # 2. 智能价格选择
+        if self.exit_price1 is not None and self.exit_price2 is not None:
+            # 场景1: 平仓后 - 使用平仓价格
+            price1 = self.exit_price1
+            price2 = self.exit_price2
+        else:
+            # 场景2: 持仓中 - 使用实时价格
+            portfolio = self.algorithm.Portfolio
+            price1 = portfolio[self.symbol1].Price
+            price2 = portfolio[self.symbol2].Price
+
+        # 3. 计算两腿市值 (带符号)
+        val1 = self.tracked_qty1 * price1
+        val2 = self.tracked_qty2 * price2
+
+        # 4. 计算净敞口和总敞口
+        net_exposure = val1 + val2          # 理论应为0
+        gross_exposure = abs(val1) + abs(val2)
+
+        # 5. 防止除零
+        if gross_exposure == 0:
+            return None
+
+        # 6. 计算漂移率 (百分比)
+        drift = (net_exposure / gross_exposure) * 100
+
+        return drift
 
 
     def get_accum_return_pct(self) -> float:
