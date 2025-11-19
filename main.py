@@ -151,7 +151,9 @@ class BayesianCointegrationStrategy(QCAlgorithm):
             f"[数据处理] 输入{stats['total']}只 → "
             f"有效{stats['final_valid']}只 | "
             f"缺失{stats.get('data_missing', 0)}只 | "
-            f"不完整{stats.get('incomplete', 0)}只",
+            f"不完整{stats.get('incomplete', 0)}只 | "
+            f"高波动{stats.get('high_volatility', 0)}只 | "
+            f"极端跌幅{stats.get('extreme_drawdown', 0)}只",
             level=1
         )
 

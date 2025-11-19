@@ -1,5 +1,6 @@
 # region imports
 from AlgorithmImports import *
+import numpy as np
 import pandas as pd
 from typing import Dict, List, Tuple
 from collections import defaultdict
@@ -20,6 +21,8 @@ class DataProcessor:
         self.algorithm = algorithm
         self.lookback_days = analysis_config.lookback_days
         self.data_completeness_ratio = analysis_config.data_completeness_ratio
+        self.max_annualized_volatility = analysis_config.max_annualized_volatility
+        self.max_daily_drawdown = analysis_config.max_daily_drawdown
 
 
     def process(self, symbols: List[Symbol]) -> Dict:
@@ -98,6 +101,8 @@ class DataProcessor:
         2. 恰好252天数据
         3. 无任何缺失值(NaN)
         4. 所有价格>0
+        5. 年化波动率 <= 0.8 (80%)
+        6. 单日最大跌幅 >= -0.20 (-20%)
 
         Returns:
             (是否有效, 失败原因)
@@ -119,5 +124,18 @@ class DataProcessor:
         # 检查价格合理性(所有价格必须>0)
         if (close_series <= 0).any():
             return False, 'invalid_values'
+
+        # 检查5: 年化波动率
+        daily_returns = close_series.pct_change().dropna()
+        if len(daily_returns) > 0:
+            annualized_volatility = daily_returns.std() * np.sqrt(252)
+            if annualized_volatility > self.max_annualized_volatility:
+                return False, 'high_volatility'
+
+        # 检查6: 单日极端跌幅
+        if len(daily_returns) > 0:
+            min_return = daily_returns.min()
+            if min_return < self.max_daily_drawdown:
+                return False, 'extreme_drawdown'
 
         return True, ''

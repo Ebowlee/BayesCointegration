@@ -134,6 +134,8 @@ class AnalysisConfig:
     """分析模块配置 - 合并 analysis_shared 和 data_processor"""
     lookback_days: int = 252                                        # 历史数据回看天数
     data_completeness_ratio: float = 1.0                            # 数据完整性要求
+    max_annualized_volatility: float = 0.8                          # 年化波动率上限 (80%)
+    max_daily_drawdown: float = -0.20                               # 单日最大跌幅 (-20%)
 
 
 @dataclass
