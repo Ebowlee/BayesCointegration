@@ -268,6 +268,15 @@ git commit -m "docs: update CHANGELOG for v7.2.5"
   - **Cumulative Return Calculation**: `(total_pnl_dollars / total_pair_cost) * 100` (weighted average, not simple addition)
   - **Auto-update**: Statistics accumulated in `_update_trade_stats()` called by `on_position_filled()`
 - **Features**: Cooldown management, beta hedging, position tracking, intent generation, trade history (v7.7.0)
+- **Architecture** (v7.40.0): Six-Layer Hamburger Structure (六层汉堡结构)
+  - **Design Philosophy**: Code organized from "abstract to concrete, core computation to side effects"
+  - **Layer 1 (构造与配置)**: `__init__()`, `set_industry_quota_tier()` - Object initialization
+  - **Layer 2 (状态查询)**: `get_price()`, `get_position_info()`, `get_pair_cost()` - Data queries
+  - **Layer 3 (核心算力)**: `get_hedge_drift()`, `calculate_leg_values()` - Pure math calculations (Beta hedging)
+  - **Layer 4 (金融指标)**: `get_accum_return_pct()`, `get_pair_holding_days()` - Financial metrics
+  - **Layer 5 (决策与意图)**: `get_zscore()`, `get_signal()`, `get_open_intent()` - Trading decisions
+  - **Layer 6 (生命周期回调)**: `on_position_filled()`, `_update_trade_stats()` - External callbacks (side effects)
+  - **Symmetry**: Layer 1 ↔ Layer 6 (construction ↔ callbacks), Layer 3 ↔ Layer 4 (pure math ↔ domain logic)
 
 ### 3. OrderExecutor.py - Order Execution Engine (v7.0.0)
 - **Purpose**: Unified order execution engine (separates intent from execution)

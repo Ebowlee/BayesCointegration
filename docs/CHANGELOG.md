@@ -5,6 +5,66 @@
 ---
 
 
+## [v7.40.0_six-layer-hamburger-architecture@20250119]
+
+### 版本概述
+Pairs.py架构重构: 从7层扁平结构重组为6层"汉堡结构" (Hamburger Architecture),优化代码可读性和层次分离。
+
+### ♻️ 重构改进
+
+#### 六层汉堡结构 (Six-Layer Hamburger Architecture)
+
+**设计理念**: 代码组织遵循"从抽象到具体,从核心计算到副作用"原则
+
+**架构映射** (旧7层 → 新6层):
+
+| 旧结构 (7层) | 新结构 (6层) | 关键方法 | 设计意图 |
+|------------|------------|---------|---------|
+| 1. 初始化 | **1. 构造与配置** | `__init__()`, `set_industry_quota_tier()` | 对象初始化 |
+| 2. 生命周期回调 | *(移至第6层)* | - | 对称调整 |
+| 3. 数据访问层 | **2. 状态查询** | `get_price()`, `get_position_info()`, `get_pair_cost()` | 数据查询 |
+| - | **3. 核心算力** | `get_hedge_drift()`, `calculate_leg_values()` | 纯数学计算 (Beta对冲) |
+| 4. 状态判断 | *(合并到第2层)* | `has_position()`, `has_normal_position()` | 简化层次 |
+| 5. 信号生成 | **4. 金融指标** | `get_accum_return_pct()`, `get_pair_holding_days()` | 金融领域逻辑 |
+| 6. 意图生成 | **5. 决策与意图** | `get_zscore()`, `get_signal()`, `get_open_intent()` | 交易决策 |
+| 7. 资源计算 | *(废弃,并入第3层)* | `calculate_leg_values()` | 提升为核心算力 |
+| - | **6. 生命周期回调** | `on_position_filled()`, `_update_trade_stats()` | 外部触发 (副作用) |
+
+**关键移动**:
+1. **`calculate_leg_values()`**: Lines 1117 → Lines 507 (第7层 → 第3层核心算力)
+   - 理由: Beta对冲数学是核心算法,不应放在最后
+2. **生命周期回调**: Lines 221-433 → 文件末尾 (第2层 → 第6层)
+   - 理由: 外部触发的副作用方法应在底部,形成"构造↔回调"对称
+
+**对称设计**:
+- **垂直对称**: Layer 1 (构造) ↔ Layer 6 (回调)
+- **功能对称**: Layer 3 (纯数学) ↔ Layer 4 (领域逻辑)
+- **汉堡隐喻**: 顶层面包(初始化) + 中间肉饼(核心逻辑) + 底层面包(回调)
+
+**Docstring增强**:
+```python
+# calculate_leg_values - Line 509
+核心算力 - Beta对冲数学: 从分配资金计算两腿购买力,实现风险中性对冲
+
+# on_position_filled - Line 1062
+生命周期回调 - 订单成交后的状态更新 (由TicketsManager外部触发)
+```
+
+**文档更新**:
+- [CLAUDE.md](../CLAUDE.md#L271-L279): 新增"Architecture (v7.40.0)"章节
+- Layer标记注释: 从7个简化为6个,命名更加语义化
+
+### 📝 Breaking Changes
+无 - 纯内部重构,所有公开API签名保持不变
+
+### 🎯 预期收益
+- **可读性提升**: 代码流向更清晰(构造→查询→计算→指标→决策→回调)
+- **维护性提升**: 核心算法(`calculate_leg_values`)位置更合理
+- **教学价值**: "汉堡结构"易于理解和记忆
+
+---
+
+
 ## [v8.2.0_restore-pairdata-construction@20250118]
 
 ### 版本概述

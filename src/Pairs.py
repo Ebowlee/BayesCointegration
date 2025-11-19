@@ -216,224 +216,9 @@ class Pairs:
         self.industry_quota_tier = tier
 
 
-    # ===== 2. 生命周期回调 =====
+    # ===== 2. 状态查询 =====
 
-    def on_position_filled(self, action: str, fill_time, tickets, reason: str = None):
-        """
-        订单成交回调(由TicketsManager调用)
-
-        触发时机: TicketsManager检测到配对的所有订单都已Filled时
-
-        职责:
-        - OPEN: 记录开仓价格、数量、fill_zscore_open
-        - CLOSE: 记录平仓价格、平仓原因、fill_zscore_close、更新交易统计
-
-        Args:
-            action: OrderAction.OPEN 或 OrderAction.CLOSE
-            fill_time: 最后一条腿成交的时间(确保两腿都已成交)
-            tickets: List[OrderTicket] 成交的订单票据列表,用于提取实际成交数量
-            reason: 平仓原因 (仅CLOSE时有效, 参见 config.constants['close_reasons'])
-
-        技术说明:
-            - OrderTicket: QuantConnect SDK 订单票据类
-            - OrderStatus: QuantConnect SDK 订单状态枚举 (来自 AlgorithmImports)
-              包括: Filled, Canceled, Invalid, PartiallyFilled 等
-            - ticket.Status: 订单当前状态 (OrderStatus 枚举值)
-            - ticket.QuantityFilled: 实际成交数量
-            - ticket.AverageFillPrice: 平均成交价格
-        """
-        if action == 'OPEN':
-            self.pair_opened_time = fill_time
-
-            # 提取成交价格(用于计算fill_zscore)
-            fill_price1 = None
-            fill_price2 = None
-
-            # 从OrderTicket提取实际成交数量和均价
-            for ticket in tickets:
-                if ticket is not None and ticket.Status == OrderStatus.Filled:
-                    if ticket.Symbol == self.symbol1:
-                        self.tracked_qty1 = ticket.QuantityFilled
-                        self.entry_price1 = ticket.AverageFillPrice
-                        fill_price1 = ticket.AverageFillPrice  # 用于计算fill_zscore
-                    elif ticket.Symbol == self.symbol2:
-                        self.tracked_qty2 = ticket.QuantityFilled
-                        self.entry_price2 = ticket.AverageFillPrice
-                        fill_price2 = ticket.AverageFillPrice  # 用于计算fill_zscore
-
-            # 计算开仓成交时的Z-score(用于滑点分析)
-            if fill_price1 and fill_price2:
-                self.fill_zscore_open = self.get_zscore(fill_price1, fill_price2)
-
-        elif action == 'CLOSE':
-            self.pair_closed_time = fill_time
-            self.last_close_reason = reason  # 存储平仓原因(用于动态冷却期判断)
-
-            # 提取成交价格(用于计算fill_zscore)
-            fill_price1 = None
-            fill_price2 = None
-
-            # 记录平仓价格(用于后续PnL计算)
-            for ticket in tickets:
-                if ticket is not None and ticket.Status == OrderStatus.Filled:
-                    if ticket.Symbol == self.symbol1:
-                        self.exit_price1 = ticket.AverageFillPrice
-                        fill_price1 = ticket.AverageFillPrice  # 用于计算fill_zscore
-                    elif ticket.Symbol == self.symbol2:
-                        self.exit_price2 = ticket.AverageFillPrice
-                        fill_price2 = ticket.AverageFillPrice  # 用于计算fill_zscore
-
-            # 计算平仓成交时的Z-score(用于滑点分析)
-            if fill_price1 and fill_price2:
-                self.fill_zscore_close = self.get_zscore(fill_price1, fill_price2)
-
-            # 更新交易历史统计(先更新状态)
-            self._update_trade_stats()
-
-            # 输出平仓日志(读取已更新的realized_pnl/cost)
-            self._log_close_completion(reason)
-
-            # 清零所有追踪变量
-            self.tracked_qty1 = 0
-            self.tracked_qty2 = 0
-            self.entry_price1 = None
-            self.entry_price2 = None
-            self.exit_price1 = None
-            self.exit_price2 = None
-
-
-    def _update_trade_stats(self):
-        """
-        更新交易历史统计 (加权平均累计)
-
-        在平仓时调用,计算本次交易收益并更新累计统计
-
-        计算逻辑:
-        - 本次交易PnL% = (pnl_dollars / pair_cost) * 100 (单次交易收益率)
-        - 累计美元PnL += pnl_dollars (分子累加)
-        - 累计保证金成本 += pair_cost (分母累加)
-        - 累计收益率 = (total_pnl_dollars / total_pair_cost) * 100 (加权平均,非简单相加)
-
-        设计理由:
-        加权平均考虑不同交易的成本差异,避免简单百分比相加的数学错误
-
-        调用时机:
-        在清零追踪变量之前调用 (此时 exit_price 已记录,可计算 PnL)
-        """
-        # 计算本次交易的美元PnL和保证金成本
-        pnl_dollars = self.get_pair_pnl()
-        pair_cost = self.get_pair_cost()
-
-        # 数据完整性检查
-        if pnl_dollars is None or pair_cost is None or pair_cost <= 0:
-            # 数据不完整,跳过统计更新 (理论上不应发生,因为on_position_filled时数据应完整)
-            return
-
-        # 累积美元PnL和成本(用于加权平均计算)
-        self.realized_pnl += pnl_dollars  # 分子: 已实现PnL
-        self.realized_cost += pair_cost   # 分母: 已实现成本
-
-        # 更新计数统计
-        self.trade_count += 1
-        if pnl_dollars > 0:
-            self.win_count += 1
-
-
-    def _log_close_completion(self, reason: str):
-        """
-        输出平仓完成日志
-
-        调用时机: on_position_filled(CLOSE) 中，在 fill_zscore_close 计算完成后
-
-        职责:
-        - 计算本次交易PnL和累计收益率
-        - 格式化日志输出(包含Z-score轨迹)
-        - 根据平仓原因输出不同消息("Z-score回归" vs "Z-score超限")
-
-        Args:
-            reason: 平仓原因 (v7.12.0统一: NORMAL_EXIT/DRAWDOWN/ANOMALY/PORTFOLIO_DRAWDOWN/ACCOUNT_BLOWUP)
-        """
-        # 计算本次交易PnL
-        current_pnl = self.get_pair_pnl()
-        current_cost = self.get_pair_cost()
-        current_pnl_pct = (current_pnl / current_cost * 100) if (current_pnl and current_cost and current_cost > 0) else 0
-
-        # 计算累计收益率 (直接读取已更新的realized_pnl/cost)
-        total_pnl_pct = (self.realized_pnl / self.realized_cost * 100) if self.realized_cost > 0 else 0
-
-        # 交易序号(此时 trade_count 已在 _update_trade_stats 中递增)
-        trade_num = self.trade_count
-
-        # 提取Z-score数据
-        entry_z = self.entry_zscore if self.entry_zscore is not None else 0.0
-        close_z = self.fill_zscore_close if self.fill_zscore_close is not None else 0.0
-
-        # 从config.constants动态读取显示文本
-        close_reasons = self.algorithm.config.constants['close_reasons']
-        reason_text = close_reasons.get(reason, {}).get('display', '未知原因')
-
-        # v7.30.11: 根据reason从config读取真实冷却期(修复BUG: 之前错误使用get_cooldown_days()返回10天)
-        from datetime import timedelta
-
-        # 风控规则的冷却期从risk_management.pair_rules读取
-        risk_config = self.algorithm.config.risk_management.pair_rules
-        reason_to_config = {
-            'TIMEOUT': risk_config.holding_timeout.cooldown_days,              # 30天
-            'DRAWDOWN': risk_config.pair_drawdown.cooldown_days,               # 180天
-            'CUMULATIVE_LOSS': risk_config.pair_cumulative_loss.cooldown_days, # 360天
-            'ANOMALY': risk_config.pair_anomaly.cooldown_days,                 # 999999天
-        }
-
-        # 如果是风控原因，读取配置；否则使用默认10天
-        cooldown_days = reason_to_config.get(reason, self.get_cooldown_days())
-
-        # 计算持有天数
-        holding_days = self.get_pair_holding_days()
-
-        # v7.38.2: 计算理论最大持仓天数
-        max_days = self.get_max_holding_days()
-        max_days_str = f"{max_days:.0f}" if max_days is not None else "N/A"
-
-        # v7.37.1: 获取行业名称用于日志输出
-        industry_names = self.algorithm.config.constants['industry_names']
-        industry_name = industry_names.get(int(self.industry_code), '未知') if self.industry_code else '未知'
-
-        self.algorithm.Debug(
-            f"[平仓] {self.pair_id} | {industry_name} | {reason_text} | 持有{holding_days}天,最大{max_days_str}天 | "
-            f"PnL=${current_pnl:.2f} ({current_pnl_pct:+.1f}%) | "
-            f"累计{total_pnl_pct:+.1f}% | "
-            f"{entry_z:+.2f}σ → {close_z:+.2f}σ | "
-            f"第{trade_num}次交易 | "
-            f"冷却{cooldown_days}天",
-            level=0
-        )
-
-        # v7.28.2: 增强诊断 - 价格变化明细
-        if self.exit_price1 and self.exit_price2 and self.entry_price1 and self.entry_price2:
-            leg1_pnl = self.tracked_qty1 * (self.exit_price1 - self.entry_price1)
-            leg2_pnl = self.tracked_qty2 * (self.exit_price2 - self.entry_price2)
-
-            self.algorithm.Debug(
-                f"[PnL明细] {self.pair_id} "
-                f"| 开仓价=({self.entry_price1:.4f}, {self.entry_price2:.4f}) "
-                f"| 平仓价=({self.exit_price1:.4f}, {self.exit_price2:.4f}) "
-                f"| 数量=({self.tracked_qty1:+.0f}, {self.tracked_qty2:+.0f}) "
-                f"| leg1_pnl=${leg1_pnl:+.2f} "
-                f"| leg2_pnl=${leg2_pnl:+.2f}",
-                level=1
-            )
-
-            # v7.39.0: 对冲漂移诊断 - 分析亏损原因(Alpha风险 vs Beta风险)
-            hedge_drift = self.get_hedge_drift()  # 自动使用exit_price
-            if hedge_drift is not None:
-                self.algorithm.Debug(
-                    f"[对冲诊断] {self.pair_id} | 平仓时漂移={hedge_drift:+.2f}%",
-                    level=1
-                )
-
-
-    # ===== 3. 数据访问层 =====
-    # 3A. 实时数据查询
+    # 2A. 实时数据查询
 
     def get_price(self, data):
         """
@@ -648,6 +433,8 @@ class Pairs:
         return margin1 + margin2
 
 
+    # ===== 3. 核心算力 =====
+
     def get_hedge_drift(self) -> Optional[float]:
         """
         计算对冲漂移率 - 衡量持仓偏离完美对冲的程度
@@ -716,6 +503,110 @@ class Pairs:
 
         return drift
 
+
+    def calculate_leg_values(self, allocated_amount: float, signal: str, data):
+        """
+        核心算力 - Beta对冲数学: 从分配资金计算两腿购买力,实现风险中性对冲 (v7.34.0 CRITICAL FIX)
+
+        ========================================================================
+        CRITICAL FIX (v7.34.0): 修正Beta对冲公式
+        ========================================================================
+        旧版错误假设: 购买力比 = β, 即 x₁/m₁ = β × x₂/m₂  ❌ 错误!
+        正确对冲条件: 市值比 = β, 即 V₂ = β × V₁  ✓ 正确!
+
+        错误原因:
+        - 模型 ln(P₁) = α + β·ln(P₂) 表明 Symbol1 弹性是 Symbol2 的 β 倍
+        - 要对冲 Symbol1 更大的波动,必须用 β 倍的 Symbol2 市值来抵消
+        - 旧公式导致 28.1% 交易"两腿都亏损",Beta对冲从未真正生效
+
+        影响: 所有历史回测结果失效,需重新运行回测验证修复效果
+        ========================================================================
+
+        正确数学推导:
+        约束1: x₁ + x₂ = A (资金分配)
+        约束2: x₂/m₂ = β × x₁/m₁ (市值比 V₂ = β × V₁)
+
+        LONG_SPREAD (Symbol1多头 m₁=0.5, Symbol2空头 m₂=1.5):
+            x₂/1.5 = β × x₁/0.5
+            => x₂ = 3β × x₁
+            代入约束1: x₁ + 3β×x₁ = A
+            => x₁ = A/(1+3β), x₂ = 3βA/(1+3β)
+
+            市值验证:
+            V₁ = x₁/m₁ = 2A/(1+3β)
+            V₂ = x₂/m₂ = 2βA/(1+3β)
+            => V₂/V₁ = β ✓ 满足对冲条件
+
+        SHORT_SPREAD (Symbol1空头 m₁=1.5, Symbol2多头 m₂=0.5):
+            x₂/0.5 = β × x₁/1.5
+            => x₂ = β×x₁/3
+            代入约束1: x₁ + β×x₁/3 = A
+            => x₁ = 3A/(3+β), x₂ = βA/(3+β)
+
+            市值验证:
+            V₁ = x₁/m₁ = 2A/(3+β)
+            V₂ = x₂/m₂ = 2βA/(3+β)
+            => V₂/V₁ = β ✓ 满足对冲条件
+
+        参数:
+            allocated_amount: 分配的投资资金金额 (A)
+            signal: 交易信号 (LONG_SPREAD/SHORT_SPREAD)
+            data: 数据切片(用于获取当前价格)
+
+        返回:
+            (value_1, value_2): Symbol1和Symbol2的目标购买市值, 计算失败返回 (None, None)
+
+        关键设计:
+            - 公式只依赖β和保证金率,保证风险中性 (市值比 V₂/V₁ = β)
+            - 避免引入价格P₁,P₂,防止计算偏差
+            - v7.34.0修复后预期"两腿都亏损"从28.1%降至<10%
+        """
+        # 获取当前价格
+        prices = self.get_price(data)
+        if prices is None:
+            return None, None
+        price_1, price_2 = prices
+
+        # 避免除零
+        if price_1 <= 0 or price_2 <= 0:
+            self.algorithm.Debug(f"[计算失败] {self.pair_id} 价格异常: Symbol1={price_1}, Symbol2={price_2}")
+            return None, None
+
+        beta = abs(self.beta_mean) if abs(self.beta_mean) != 0 else 1
+
+        if signal == 'LONG_SPREAD':
+            # Symbol1多头(m₁=0.5), Symbol2空头(m₂=1.5)
+            # v7.34.0 修复: 正确公式 x₁ = A/(1+3β), x₂ = 3βA/(1+3β)
+            denominator = 1 + 3 * beta  # m₁ + β × m₂ = 0.5 + β × 1.5
+
+            x1 = allocated_amount / denominator
+            x2 = allocated_amount * 3 * beta / denominator
+
+            # 市值 = 资金 / 保证金率
+            value_1 = x1 / self.margin_long    # 2A/(1+3β)
+            value_2 = x2 / self.margin_short   # 2βA/(1+3β)
+
+        else:  # SHORT_SPREAD
+            # Symbol1空头(m₁=1.5), Symbol2多头(m₂=0.5)
+            # v7.34.0 修复: 正确公式 x₁ = 3A/(3+β), x₂ = βA/(3+β)
+            denominator = 3 + beta  # m₁ + β × m₂ = 1.5 + β × 0.5
+
+            x1 = allocated_amount * 3 / denominator
+            x2 = allocated_amount * beta / denominator
+
+            # 市值
+            value_1 = x1 / self.margin_short   # 2A/(3+β)
+            value_2 = x2 / self.margin_long    # 2βA/(3+β)
+
+        # 安全检查: 资金分配合理性
+        if x1 <= 0 or x2 <= 0:
+            self.algorithm.Debug(f"[计算失败] {self.pair_id} 资金分配异常: x1={x1:.2f}, x2={x2:.2f}")
+            return None, None
+
+        return value_1, value_2
+
+
+    # ===== 4. 金融指标 =====
 
     def get_accum_return_pct(self) -> float:
         """
@@ -865,8 +756,6 @@ class Pairs:
         return 10
 
 
-    # ===== 4. 状态判断(依赖第3层) =====
-
     def has_position(self) -> bool:
         """检查是否有持仓（优化后：使用 @property）"""
         return self.position_mode != PositionMode.NONE
@@ -882,7 +771,7 @@ class Pairs:
         return self.position_mode in [PositionMode.PARTIAL_LEG1, PositionMode.PARTIAL_LEG2, PositionMode.ANOMALY_SAME]
 
 
-    # ===== 5. 信号生成(依赖第3/4层) =====
+    # ===== 5. 决策与意图 =====
 
     def get_zscore(self, price1: float, price2: float) -> Optional[float]:
         """
@@ -979,8 +868,6 @@ class Pairs:
 
             return 'HOLD'
 
-
-    # ===== 6. 意图生成(依赖第3/4/5层) =====
 
     def get_open_intent(self, amount_allocated: float, data):
         """
@@ -1112,110 +999,6 @@ class Pairs:
         )
 
 
-    # ===== 7. 资源计算(依赖第3层) =====
-
-    def calculate_leg_values(self, allocated_amount: float, signal: str, data):
-        """
-        从分配资金计算两腿购买力,实现风险中性对冲 (v7.34.0 CRITICAL FIX)
-
-        ========================================================================
-        CRITICAL FIX (v7.34.0): 修正Beta对冲公式
-        ========================================================================
-        旧版错误假设: 购买力比 = β, 即 x₁/m₁ = β × x₂/m₂  ❌ 错误!
-        正确对冲条件: 市值比 = β, 即 V₂ = β × V₁  ✓ 正确!
-
-        错误原因:
-        - 模型 ln(P₁) = α + β·ln(P₂) 表明 Symbol1 弹性是 Symbol2 的 β 倍
-        - 要对冲 Symbol1 更大的波动,必须用 β 倍的 Symbol2 市值来抵消
-        - 旧公式导致 28.1% 交易"两腿都亏损",Beta对冲从未真正生效
-
-        影响: 所有历史回测结果失效,需重新运行回测验证修复效果
-        ========================================================================
-
-        正确数学推导:
-        约束1: x₁ + x₂ = A (资金分配)
-        约束2: x₂/m₂ = β × x₁/m₁ (市值比 V₂ = β × V₁)
-
-        LONG_SPREAD (Symbol1多头 m₁=0.5, Symbol2空头 m₂=1.5):
-            x₂/1.5 = β × x₁/0.5
-            => x₂ = 3β × x₁
-            代入约束1: x₁ + 3β×x₁ = A
-            => x₁ = A/(1+3β), x₂ = 3βA/(1+3β)
-
-            市值验证:
-            V₁ = x₁/m₁ = 2A/(1+3β)
-            V₂ = x₂/m₂ = 2βA/(1+3β)
-            => V₂/V₁ = β ✓ 满足对冲条件
-
-        SHORT_SPREAD (Symbol1空头 m₁=1.5, Symbol2多头 m₂=0.5):
-            x₂/0.5 = β × x₁/1.5
-            => x₂ = β×x₁/3
-            代入约束1: x₁ + β×x₁/3 = A
-            => x₁ = 3A/(3+β), x₂ = βA/(3+β)
-
-            市值验证:
-            V₁ = x₁/m₁ = 2A/(3+β)
-            V₂ = x₂/m₂ = 2βA/(3+β)
-            => V₂/V₁ = β ✓ 满足对冲条件
-
-        参数:
-            allocated_amount: 分配的投资资金金额 (A)
-            signal: 交易信号 (LONG_SPREAD/SHORT_SPREAD)
-            data: 数据切片(用于获取当前价格)
-
-        返回:
-            (value_1, value_2): Symbol1和Symbol2的目标购买市值, 计算失败返回 (None, None)
-
-        关键设计:
-            - 公式只依赖β和保证金率,保证风险中性 (市值比 V₂/V₁ = β)
-            - 避免引入价格P₁,P₂,防止计算偏差
-            - v7.34.0修复后预期"两腿都亏损"从28.1%降至<10%
-        """
-        # 获取当前价格
-        prices = self.get_price(data)
-        if prices is None:
-            return None, None
-        price_1, price_2 = prices
-
-        # 避免除零
-        if price_1 <= 0 or price_2 <= 0:
-            self.algorithm.Debug(f"[计算失败] {self.pair_id} 价格异常: Symbol1={price_1}, Symbol2={price_2}")
-            return None, None
-
-        beta = abs(self.beta_mean) if abs(self.beta_mean) != 0 else 1
-
-        if signal == 'LONG_SPREAD':
-            # Symbol1多头(m₁=0.5), Symbol2空头(m₂=1.5)
-            # v7.34.0 修复: 正确公式 x₁ = A/(1+3β), x₂ = 3βA/(1+3β)
-            denominator = 1 + 3 * beta  # m₁ + β × m₂ = 0.5 + β × 1.5
-
-            x1 = allocated_amount / denominator
-            x2 = allocated_amount * 3 * beta / denominator
-
-            # 市值 = 资金 / 保证金率
-            value_1 = x1 / self.margin_long    # 2A/(1+3β)
-            value_2 = x2 / self.margin_short   # 2βA/(1+3β)
-
-        else:  # SHORT_SPREAD
-            # Symbol1空头(m₁=1.5), Symbol2多头(m₂=0.5)
-            # v7.34.0 修复: 正确公式 x₁ = 3A/(3+β), x₂ = βA/(3+β)
-            denominator = 3 + beta  # m₁ + β × m₂ = 1.5 + β × 0.5
-
-            x1 = allocated_amount * 3 / denominator
-            x2 = allocated_amount * beta / denominator
-
-            # 市值
-            value_1 = x1 / self.margin_short   # 2A/(3+β)
-            value_2 = x2 / self.margin_long    # 2βA/(3+β)
-
-        # 安全检查: 资金分配合理性
-        if x1 <= 0 or x2 <= 0:
-            self.algorithm.Debug(f"[计算失败] {self.pair_id} 资金分配异常: x1={x1:.2f}, x2={x2:.2f}")
-            return None, None
-
-        return value_1, value_2
-
-
     def get_planned_allocation_pct(self) -> float:
         """
         计算基于质量分数和行业tier的计划分配比例 (v7.32.0: tier-based max_pct)
@@ -1270,3 +1053,219 @@ class Pairs:
         else:
             # 开仓时或没有reason时的标准格式
             return f"{self.pair_id}_{action}_{timestamp}"
+
+
+    # ===== 6. 生命周期回调 =====
+
+    def on_position_filled(self, action: str, fill_time, tickets, reason: str = None):
+        """
+        生命周期回调 - 订单成交后的状态更新 (由TicketsManager外部触发)
+
+        触发时机: TicketsManager检测到配对的所有订单都已Filled时
+
+        职责:
+        - OPEN: 记录开仓价格、数量、fill_zscore_open
+        - CLOSE: 记录平仓价格、平仓原因、fill_zscore_close、更新交易统计
+
+        Args:
+            action: OrderAction.OPEN 或 OrderAction.CLOSE
+            fill_time: 最后一条腿成交的时间(确保两腿都已成交)
+            tickets: List[OrderTicket] 成交的订单票据列表,用于提取实际成交数量
+            reason: 平仓原因 (仅CLOSE时有效, 参见 config.constants['close_reasons'])
+
+        技术说明:
+            - OrderTicket: QuantConnect SDK 订单票据类
+            - OrderStatus: QuantConnect SDK 订单状态枚举 (来自 AlgorithmImports)
+              包括: Filled, Canceled, Invalid, PartiallyFilled 等
+            - ticket.Status: 订单当前状态 (OrderStatus 枚举值)
+            - ticket.QuantityFilled: 实际成交数量
+            - ticket.AverageFillPrice: 平均成交价格
+        """
+        if action == 'OPEN':
+            self.pair_opened_time = fill_time
+
+            # 提取成交价格(用于计算fill_zscore)
+            fill_price1 = None
+            fill_price2 = None
+
+            # 从OrderTicket提取实际成交数量和均价
+            for ticket in tickets:
+                if ticket is not None and ticket.Status == OrderStatus.Filled:
+                    if ticket.Symbol == self.symbol1:
+                        self.tracked_qty1 = ticket.QuantityFilled
+                        self.entry_price1 = ticket.AverageFillPrice
+                        fill_price1 = ticket.AverageFillPrice  # 用于计算fill_zscore
+                    elif ticket.Symbol == self.symbol2:
+                        self.tracked_qty2 = ticket.QuantityFilled
+                        self.entry_price2 = ticket.AverageFillPrice
+                        fill_price2 = ticket.AverageFillPrice  # 用于计算fill_zscore
+
+            # 计算开仓成交时的Z-score(用于滑点分析)
+            if fill_price1 and fill_price2:
+                self.fill_zscore_open = self.get_zscore(fill_price1, fill_price2)
+
+        elif action == 'CLOSE':
+            self.pair_closed_time = fill_time
+            self.last_close_reason = reason  # 存储平仓原因(用于动态冷却期判断)
+
+            # 提取成交价格(用于计算fill_zscore)
+            fill_price1 = None
+            fill_price2 = None
+
+            # 记录平仓价格(用于后续PnL计算)
+            for ticket in tickets:
+                if ticket is not None and ticket.Status == OrderStatus.Filled:
+                    if ticket.Symbol == self.symbol1:
+                        self.exit_price1 = ticket.AverageFillPrice
+                        fill_price1 = ticket.AverageFillPrice  # 用于计算fill_zscore
+                    elif ticket.Symbol == self.symbol2:
+                        self.exit_price2 = ticket.AverageFillPrice
+                        fill_price2 = ticket.AverageFillPrice  # 用于计算fill_zscore
+
+            # 计算平仓成交时的Z-score(用于滑点分析)
+            if fill_price1 and fill_price2:
+                self.fill_zscore_close = self.get_zscore(fill_price1, fill_price2)
+
+            # 更新交易历史统计(先更新状态)
+            self._update_trade_stats()
+
+            # 输出平仓日志(读取已更新的realized_pnl/cost)
+            self._log_close_completion(reason)
+
+            # 清零所有追踪变量
+            self.tracked_qty1 = 0
+            self.tracked_qty2 = 0
+            self.entry_price1 = None
+            self.entry_price2 = None
+            self.exit_price1 = None
+            self.exit_price2 = None
+
+
+    def _update_trade_stats(self):
+        """
+        更新交易历史统计 (加权平均累计)
+
+        在平仓时调用,计算本次交易收益并更新累计统计
+
+        计算逻辑:
+        - 本次交易PnL% = (pnl_dollars / pair_cost) * 100 (单次交易收益率)
+        - 累计美元PnL += pnl_dollars (分子累加)
+        - 累计保证金成本 += pair_cost (分母累加)
+        - 累计收益率 = (total_pnl_dollars / total_pair_cost) * 100 (加权平均,非简单相加)
+
+        设计理由:
+        加权平均考虑不同交易的成本差异,避免简单百分比相加的数学错误
+
+        调用时机:
+        在清零追踪变量之前调用 (此时 exit_price 已记录,可计算 PnL)
+        """
+        # 计算本次交易的美元PnL和保证金成本
+        pnl_dollars = self.get_pair_pnl()
+        pair_cost = self.get_pair_cost()
+
+        # 数据完整性检查
+        if pnl_dollars is None or pair_cost is None or pair_cost <= 0:
+            # 数据不完整,跳过统计更新 (理论上不应发生,因为on_position_filled时数据应完整)
+            return
+
+        # 累积美元PnL和成本(用于加权平均计算)
+        self.realized_pnl += pnl_dollars  # 分子: 已实现PnL
+        self.realized_cost += pair_cost   # 分母: 已实现成本
+
+        # 更新计数统计
+        self.trade_count += 1
+        if pnl_dollars > 0:
+            self.win_count += 1
+
+
+    def _log_close_completion(self, reason: str):
+        """
+        输出平仓完成日志
+
+        调用时机: on_position_filled(CLOSE) 中，在 fill_zscore_close 计算完成后
+
+        职责:
+        - 计算本次交易PnL和累计收益率
+        - 格式化日志输出(包含Z-score轨迹)
+        - 根据平仓原因输出不同消息("Z-score回归" vs "Z-score超限")
+
+        Args:
+            reason: 平仓原因 (v7.12.0统一: NORMAL_EXIT/DRAWDOWN/ANOMALY/PORTFOLIO_DRAWDOWN/ACCOUNT_BLOWUP)
+        """
+        # 计算本次交易PnL
+        current_pnl = self.get_pair_pnl()
+        current_cost = self.get_pair_cost()
+        current_pnl_pct = (current_pnl / current_cost * 100) if (current_pnl and current_cost and current_cost > 0) else 0
+
+        # 计算累计收益率 (直接读取已更新的realized_pnl/cost)
+        total_pnl_pct = (self.realized_pnl / self.realized_cost * 100) if self.realized_cost > 0 else 0
+
+        # 交易序号(此时 trade_count 已在 _update_trade_stats 中递增)
+        trade_num = self.trade_count
+
+        # 提取Z-score数据
+        entry_z = self.entry_zscore if self.entry_zscore is not None else 0.0
+        close_z = self.fill_zscore_close if self.fill_zscore_close is not None else 0.0
+
+        # 从config.constants动态读取显示文本
+        close_reasons = self.algorithm.config.constants['close_reasons']
+        reason_text = close_reasons.get(reason, {}).get('display', '未知原因')
+
+        # v7.30.11: 根据reason从config读取真实冷却期(修复BUG: 之前错误使用get_cooldown_days()返回10天)
+        from datetime import timedelta
+
+        # 风控规则的冷却期从risk_management.pair_rules读取
+        risk_config = self.algorithm.config.risk_management.pair_rules
+        reason_to_config = {
+            'TIMEOUT': risk_config.holding_timeout.cooldown_days,              # 30天
+            'DRAWDOWN': risk_config.pair_drawdown.cooldown_days,               # 180天
+            'CUMULATIVE_LOSS': risk_config.pair_cumulative_loss.cooldown_days, # 360天
+            'ANOMALY': risk_config.pair_anomaly.cooldown_days,                 # 999999天
+        }
+
+        # 如果是风控原因，读取配置；否则使用默认10天
+        cooldown_days = reason_to_config.get(reason, self.get_cooldown_days())
+
+        # 计算持有天数
+        holding_days = self.get_pair_holding_days()
+
+        # v7.38.2: 计算理论最大持仓天数
+        max_days = self.get_max_holding_days()
+        max_days_str = f"{max_days:.0f}" if max_days is not None else "N/A"
+
+        # v7.37.1: 获取行业名称用于日志输出
+        industry_names = self.algorithm.config.constants['industry_names']
+        industry_name = industry_names.get(int(self.industry_code), '未知') if self.industry_code else '未知'
+
+        self.algorithm.Debug(
+            f"[平仓] {self.pair_id} | {industry_name} | {reason_text} | 持有{holding_days}天,最大{max_days_str}天 | "
+            f"PnL=${current_pnl:.2f} ({current_pnl_pct:+.1f}%) | "
+            f"累计{total_pnl_pct:+.1f}% | "
+            f"{entry_z:+.2f}σ → {close_z:+.2f}σ | "
+            f"第{trade_num}次交易 | "
+            f"冷却{cooldown_days}天",
+            level=0
+        )
+
+        # v7.28.2: 增强诊断 - 价格变化明细
+        if self.exit_price1 and self.exit_price2 and self.entry_price1 and self.entry_price2:
+            leg1_pnl = self.tracked_qty1 * (self.exit_price1 - self.entry_price1)
+            leg2_pnl = self.tracked_qty2 * (self.exit_price2 - self.entry_price2)
+
+            self.algorithm.Debug(
+                f"[PnL明细] {self.pair_id} "
+                f"| 开仓价=({self.entry_price1:.4f}, {self.entry_price2:.4f}) "
+                f"| 平仓价=({self.exit_price1:.4f}, {self.exit_price2:.4f}) "
+                f"| 数量=({self.tracked_qty1:+.0f}, {self.tracked_qty2:+.0f}) "
+                f"| leg1_pnl=${leg1_pnl:+.2f} "
+                f"| leg2_pnl=${leg2_pnl:+.2f}",
+                level=1
+            )
+
+            # v7.39.0: 对冲漂移诊断 - 分析亏损原因(Alpha风险 vs Beta风险)
+            hedge_drift = self.get_hedge_drift()  # 自动使用exit_price
+            if hedge_drift is not None:
+                self.algorithm.Debug(
+                    f"[对冲诊断] {self.pair_id} | 平仓时漂移={hedge_drift:+.2f}%",
+                    level=1
+                )
