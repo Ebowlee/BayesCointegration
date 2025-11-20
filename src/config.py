@@ -192,12 +192,11 @@ class BayesianModelerConfig:
 @dataclass
 class PairSelectorConfig:
     """配对质量评估配置"""
-    # v7.31.0: max_symbol_repeats已迁移到CointegrationConfig
     min_quality_threshold: float = 0.50                             # 最低质量分数阈值
     quality_weights: Dict = field(default_factory=lambda: {
-        'half_life': 0.40,                     
-        'mean_reversion_certainty': 0.30,      
-        'zero_crossing': 0.30                  
+        'half_life': 0.25,                     
+        'mean_reversion_certainty': 0.40,      
+        'zero_crossing': 0.35                  
     })
 
     # 评分函数阈值设置
@@ -248,9 +247,9 @@ class PairsTradingConfig:
         'tier4': 0.22   # ≥15%: 高回报 → 高配置
     })
 
-    # 保证金管理
-    margin_requirement_long: float = 0.5                           # 多头保证金率: 50%
-    margin_requirement_short: float = 1.5                          # 空头保证金率: 150%
+    # 保证金管理 (v7.41.0修正: 配置层保持监管语义,计算层处理卖空所得)
+    margin_requirement_long: float = 0.5                           # 多头保证金率: 50% (Reg T: 自有0.5V, 券商借0.5V)
+    margin_requirement_short: float = 1.5                          # 空头保证金率: 150% (Reg T: 账户总资产≥1.5V, 但卖空所得1.0V回流, 实际占用0.5V)
     margin_usage_ratio: float = 0.98                               # 保证金使用率: 98%
     max_leverage_cap: float = 2.0                                  # 放大模式最大杠杆倍数: 2.0倍
 

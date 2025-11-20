@@ -37,11 +37,6 @@ class Pairs:
         """
         工厂方法：从贝叶斯建模结果创建 Pairs 对象
 
-        设计理念（与 PairData.from_clean_data() 保持一致）：
-        - 封装创建逻辑：调用者无需了解构造函数参数细节
-        - 语义清晰：明确表达"从建模结果创建"的意图
-        - 扩展性：未来可添加其他工厂方法（from_dict, from_historical_data）
-
         技术细节：
         - cls 是 Pairs 类本身（Python 自动传递）
         - cls(...) 调用构造函数 __init__，创建并返回 Pairs 实例对象
@@ -61,29 +56,10 @@ class Pairs:
         Returns:
             Pairs: 新创建的 Pairs 实例对象
 
-        Example:
-            # main.py 中调用
-            for model_result in modeling_results:
-                pair = Pairs.from_model_result(self, model_result, self.config.pairs_trading)
-                # pair 是 Pairs 实例，可以调用实例方法
-                intent = pair.get_open_intent(amount, data)
-                if intent:
-                    tickets = order_executor.execute_open(intent)
-
-        与构造函数的对比：
-            # 方式 1：直接调用构造函数（不推荐）
-            pair = Pairs(self, model_result, self.config.pairs_trading)
-
-            # 方式 2：通过类方法工厂（推荐）✅
-            pair = Pairs.from_model_result(self, model_result, self.config.pairs_trading)
-
-            优势：语义清晰、与项目其他值对象一致、便于扩展
+        调用: main.py
         """
         # 创建Pairs对象
         pair = cls(algorithm, model_result, config)
-
-        # v7.40.8: industry_code已在数据流中传递(CointegrationAnalyzer → BayesianModeler → Pairs.__init__)
-        # 删除冗余提取逻辑(原Lines 85-91)
 
         return pair
 
@@ -158,6 +134,12 @@ class Pairs:
         """
         从新的Pairs对象更新统计参数(当配对重新出现时调用)
 
+        调用位置:
+            - PairsManager.update_pairs() (PairsManager.py:124)
+            - 触发时机: 每月选股后,配对ID已存在于all_pairs字典时
+            - 调用链路: OnSecuritiesChanged → _run_analysis_pipeline →
+                       步骤6-7 → PairsManager.update_pairs() → update_params()
+
         更新策略:
             - 有持仓: 不更新,保持参数冻结(维持开仓时的决策基础)
             - 无持仓: 完全更新所有模型参数
@@ -167,8 +149,14 @@ class Pairs:
             - 信号系统(Entry/Exit/Stop)已经能够处理beta变化风险
             - "让信号说话" - 不通过频繁调参来干预系统
 
+        Args:
+            new_pair: 新创建的Pairs对象(含最新建模结果)
+
         Returns:
-            bool: True=更新成功, False=有持仓未更新
+            bool: True=更新成功(无持仓), False=拒绝更新(有持仓)
+
+        Note:
+            v8.x.x当前状态: 步骤6-7待恢复,调用路径尚未激活
         """
         # 持仓检查:有持仓时不更新
         if self.has_position():
@@ -184,28 +172,6 @@ class Pairs:
         # 记录重新激活
         self.reactivation_count += 1
         return True
-
-
-    def set_industry_quota_tier(self, tier: str) -> None:
-        """
-        设置行业配额档次 (v7.32.0: 用于PairSelector调用)
-
-        Args:
-            tier: 行业配额档次 ('tier0'/'tier1'/'tier2'/'tier3'/'tier4')
-
-        Usage:
-            在PairSelector.select()中调用:
-            ```python
-            tier = industry_quotas.get(str(pair.industry_code), {}).get('tier', 'tier0')
-            pair.set_industry_quota_tier(tier)
-            ```
-
-        设计理念:
-            - 分离关注点: PairSelector负责设置tier, Pairs负责使用tier
-            - 延迟绑定: tier在创建后设置,而非构造时传入(避免from_model_result参数膨胀)
-            - 默认容错: 如果未设置,get_planned_allocation_pct()使用tier0兜底
-        """
-        self.industry_quota_tier = tier
 
 
     # ===== 2. 状态查询 =====
@@ -224,18 +190,6 @@ class Pairs:
         价格源区分:
         - TradeBar.Close: 用于决策(本方法) ← 当前bar的收盘价
         - Portfolio[].Price: 用于状态查询 ← 实时市场价格
-
-        Args:
-            data: QuantConnect data slice containing TradeBar objects
-
-        Returns:
-            tuple: (price1, price2) - Close prices from current bar
-            None: 如果数据缺失或价格无效
-
-        安全检查:
-        - symbol在data中存在
-        - data[symbol]不为None (防止QuantConnect数据缺失)
-        - data[symbol].Close有效且>0
         """
         # 增强检查: symbol存在且data不为None
         if (self.symbol1 in data and self.symbol2 in data and
@@ -252,71 +206,36 @@ class Pairs:
         return None
 
 
-    def get_position_info(self) -> Dict:
+    @property
+    def position_mode(self):
         """
-        获取完整的持仓信息(一次获取,避免重复查询)
-        使用tracked_qty避免Portfolio全局查询混淆
+        获取当前持仓模式 (属性调用 - v7.40.11终极简化版)
 
-        返回所有持仓相关信息
+        PositionMode 常量之一:
+        - NONE: 无持仓
+        - LONG_SPREAD / SHORT_SPREAD: 正常持仓
+        - PARTIAL_LEG1 / PARTIAL_LEG2 / ANOMALY_SAME: 异常持仓
         """
-        portfolio = self.algorithm.Portfolio
-
         # 使用配对专属的tracked_qty(从OrderTicket提取的实际成交数量)
         qty1 = self.tracked_qty1
         qty2 = self.tracked_qty2
 
-        # 市价仍需从Portfolio获取(需要当前价格)
-        if qty1 != 0:
-            value1 = abs(qty1 * portfolio[self.symbol1].Price)
-        else:
-            value1 = 0
-        if qty2 != 0:
-            value2 = abs(qty2 * portfolio[self.symbol2].Price)
-        else:
-            value2 = 0
-
         # 统一判断持仓模式(整合状态+方向)
         if qty1 == 0 and qty2 == 0:
-            position_mode = PositionMode.NONE
+            return PositionMode.NONE
         elif qty1 > 0 and qty2 < 0:
-            position_mode = PositionMode.LONG_SPREAD
+            return PositionMode.LONG_SPREAD
         elif qty1 < 0 and qty2 > 0:
-            position_mode = PositionMode.SHORT_SPREAD
+            return PositionMode.SHORT_SPREAD
         elif qty1 != 0 and qty2 == 0:
-            position_mode = PositionMode.PARTIAL_LEG1
             self.algorithm.Debug(f"[持仓异常] {self.pair_id} 单边持仓LEG1: qty1={qty1:+.0f}")
+            return PositionMode.PARTIAL_LEG1
         elif qty1 == 0 and qty2 != 0:
-            position_mode = PositionMode.PARTIAL_LEG2
             self.algorithm.Debug(f"[持仓异常] {self.pair_id} 单边持仓LEG2: qty2={qty2:+.0f}")
+            return PositionMode.PARTIAL_LEG2
         else:  # 同向持仓
-            position_mode = PositionMode.ANOMALY_SAME
             self.algorithm.Debug(f"[持仓异常] {self.pair_id} 同向持仓: qty1={qty1:+.0f}, qty2={qty2:+.0f}")
-
-        return {'position_mode': position_mode, 'qty1': qty1, 'qty2': qty2, 'value1': value1, 'value2': value2}
-
-
-    @property
-    def position_mode(self):
-        """
-        获取当前持仓模式（避免重复代码）
-
-        设计目标：
-        - 消除 has_position(), has_normal_position(), has_anomaly() 中的重复代码
-        - 提供清晰直观的接口：self.position_mode 比 self.get_position_info()['position_mode'] 更简洁
-        - 遵循 DRY 原则：字典键访问封装为属性，避免 4 处重复
-
-        实现细节：
-        - 内部调用 get_position_info()['position_mode']
-        - Portfolio.Price 是 O(1) 的字典查询（已被 QuantConnect 缓存）
-        - 无需额外缓存机制（性能成本 ~0.001ms，复杂度不值得）
-
-        Returns:
-            PositionMode 常量之一：
-            - NONE: 无持仓
-            - LONG_SPREAD / SHORT_SPREAD: 正常持仓
-            - PARTIAL_LEG1 / PARTIAL_LEG2 / ANOMALY_SAME: 异常持仓
-        """
-        return self.get_position_info()['position_mode']
+            return PositionMode.ANOMALY_SAME
 
 
     # 3B. 财务计算
@@ -325,35 +244,12 @@ class Pairs:
         """
         获取配对浮动盈亏 (Unrealized PnL)
 
-        v7.40.3: 简化价格逻辑(移除死代码) + 重命名强调"unrealized"语义
-
         计算公式:
         - 浮动PnL = (当前市值 - 开仓成本)
         - 当前市值 = qty1×price1 + qty2×price2  (考虑多空方向)
         - 开仓成本 = qty1×entry_price1 + qty2×entry_price2
-
-        关键设计:
-        - 使用tracked_qty避免Portfolio全局查询混淆
-        - 使用entry_price而非Portfolio.AveragePrice(全局均价)
-        - 空头的qty为负数,自动处理方向
-        - 完全配对专属计算,即使symbol出现在多个配对中也不会混淆
-
-        持仓类型支持:
-        - LONG_SPREAD/SHORT_SPREAD: 两腿浮动盈亏
-        - PARTIAL: 单腿浮动盈亏
-        - ANOMALY_SAME: 异常持仓浮动盈亏
-
-        设计说明:
-        - HWM追踪逻辑已迁移到 PairDrawdownRule
-        - 纯函数设计（无状态修改），遵循函数式编程原则
-        - 调用方: PairDrawdownRule, TradeAnalyzer, 行业统计(含异常持仓)
-        - v7.40.2: 放宽支持异常持仓 (PARTIAL/ANOMALY_SAME)
-        - v7.40.3: 移除死代码(exit_price分支) + 重命名(强调unrealized)
-
-        Returns:
-            float: 浮动盈亏(美元) | None: 无持仓或数据不完整
         """
-        # v7.40.2: 放宽至所有持仓类型(包括异常持仓)
+        # 支持所有持仓类型(包括异常持仓)
         if not self.has_position():
             return None
 
@@ -361,7 +257,7 @@ class Pairs:
         if self.entry_price1 is None or self.entry_price2 is None:
             return None
 
-        # v7.40.3: 简化 - 直接使用实时价格(has_position()保证exit_price=None)
+        # 使用实时价格
         portfolio = self.algorithm.Portfolio
         price1 = portfolio[self.symbol1].Price
         price2 = portfolio[self.symbol2].Price
@@ -390,21 +286,11 @@ class Pairs:
             - 用于ROI计算分母: ROI = PnL / invested_capital
             - 不区分多空方向，只关心总市值规模
 
-        设计理由 (v7.40.7)：
-            - **行业一致性**: 配对交易收益率计算的标准方法
-            - **数学简洁**: 避免Regulation T的0.5/1.5复杂性
-            - **语义正确**: "成本"应指投入资本，而非监管保证金
-
         Regulation T 保证金 (仅供参考，不用于ROI计算)：
             - 多头: 50% 保证金 (买入 $10,000 需要 $5,000 保证金)
             - 空头: 150% 保证金 (卖空 $10,000 需要 $15,000 保证金)
             - 旧版公式 (v7.40.6): margin1 + margin2 = 0.5×多 + 1.5×空
             - 问题: 导致ROI被人为压低约40%，不符合行业标准
-
-        防御性设计：
-            - v7.40.2前: has_normal_position() 只支持对冲配对
-            - v7.40.2后: has_position() 支持所有持仓(包括单腿和同向)
-            - v7.40.7: 统一使用投入资本公式，不区分LONG_SPREAD/SHORT_SPREAD
 
         调用方：
             - _update_trade_stats(): 计算ROI分母 (核心修复点)
@@ -412,32 +298,17 @@ class Pairs:
             - PairDrawdownRule.check(): 计算回撤率分母
             - PairCumulativeLoss.check(): 计算累计亏损率分母
             - PairsManager.get_industry_stats(): 行业统计保证金占用
-
-        Returns:
-            配对投入资本（美元）或 None（无持仓/数据不完整）
-
-        Example (修正后):
-            # LONG_SPREAD: qty1=+100, qty2=-100, price1=$50, price2=$50
-            # market_value1 = 100*50 = $5,000 (多头市值)
-            # market_value2 = 100*50 = $5,000 (空头市值)
-            # invested_capital = 0.5 × (5000 + 5000) = $5,000 ✓
-            #
-            # 对比旧版 (v7.40.6):
-            # margin1 + margin2 = 5000×0.5 + 5000×1.5 = $10,000 ❌
-            # 导致同样$500盈利: 旧版ROI=5%, 新版ROI=10%
         """
-        # v7.40.2: 放宽至所有持仓类型(包括异常持仓)
+        # 支持所有持仓类型(包括异常持仓)
         if not self.has_position():
             return None
 
         if self.entry_price1 is None or self.entry_price2 is None:
             return None
 
-        # 计算市值 (绝对值)
         market_value1 = abs(self.tracked_qty1 * self.entry_price1)
         market_value2 = abs(self.tracked_qty2 * self.entry_price2)
 
-        # v7.40.7: 行业标准公式 (不区分多空方向)
         return 0.5 * (market_value1 + market_value2)
 
 
@@ -449,18 +320,6 @@ class Pairs:
             - 返回所有已平仓交易的累计PnL（美元）
             - 每次平仓时在 _update_trade_stats() 中累加
             - 使用平仓价格计算（exit_price1/exit_price2）
-
-        使用场景：
-            - 行业统计：IndustryStats 计算行业累计收益
-            - 交易分析：计算配对历史表现
-            - 日志输出：显示配对累计盈亏
-
-        Returns：
-            float: 已实现盈亏总额（美元）
-
-        Example:
-            >>> pair.get_pair_realized_pnl()
-            15234.56  # 所有已平仓交易累计盈利$15,234.56
         """
         return self.pair_realized_pnl
 
@@ -473,20 +332,6 @@ class Pairs:
             - 返回所有已平仓交易的累计成本（美元）
             - 每次平仓时在 _update_trade_stats() 中累加
             - 成本 = 保证金占用（开仓时固定）
-
-        使用场景：
-            - 行业统计：IndustryStats 计算行业累计收益率
-            - 交易分析：计算加权平均收益率
-            - 风险分析：评估资金使用效率
-
-        Returns：
-            float: 历史成本总额（美元）
-
-        Example:
-            >>> pair.get_pair_historical_cost()
-            125000.00  # 所有已平仓交易累计成本$125,000
-            >>> pair.get_accum_return_pct()
-            12.19  # (15234.56 / 125000) * 100 = 12.19%
         """
         return self.pair_total_cost
 
@@ -500,27 +345,8 @@ class Pairs:
             - 正值: 净多头敞口 (市场涨我赚)
             - 负值: 净空头敞口 (市场跌我赚)
             - 0: 完美对冲
-
-        价格来源:
-            - 始终使用实时价格 (Portfolio.Price)
-            - 设计理由: "exposure"语义是当前持仓的市场暴露,不是历史回顾
-
-        应用场景:
-            - 行业级统计: IndustryStats 聚合净敞口
-            - 风险监控: 检查单边敞口风险
-            - v7.40.2: 支持异常持仓 (PARTIAL单边, ANOMALY_SAME放大敞口)
-            - 调用前提: has_position()=True
-
-        Returns:
-            float: 净敞口金额 (美元), None表示无持仓或数据异常
-
-        Example:
-            # LONG_SPREAD: qty1=+100, qty2=-100, price1=$50, price2=$48
-            # value1 = +100 * 50 = $5,000 (多头)
-            # value2 = -100 * 48 = -$4,800 (空头)
-            # net_exposure = 5000 + (-4800) = $200 (净多头)
         """
-        # v7.40.2: 放宽至所有持仓类型(包括异常持仓)
+        # 支持所有持仓类型(包括异常持仓)
         if not self.has_position():
             return None
 
@@ -546,27 +372,8 @@ class Pairs:
         物理含义:
             - 衡量配对的总市值规模 (不考虑方向)
             - 作为漂移率计算的分母
-
-        价格来源:
-            - 始终使用实时价格 (Portfolio.Price)
-            - 设计理由: "exposure"语义是当前持仓的市场暴露,不是历史回顾
-
-        应用场景:
-            - 行业级统计: IndustryStats 聚合总敞口
-            - 漂移率计算: drift = net_exposure / gross_exposure
-            - v7.40.2: 支持异常持仓 (PARTIAL单边, ANOMALY_SAME总敞口)
-            - 调用前提: has_position()=True
-
-        Returns:
-            float: 总敞口金额 (美元), None表示无持仓或数据异常
-
-        Example:
-            # LONG_SPREAD: qty1=+100, qty2=-100, price1=$50, price2=$48
-            # value1 = +100 * 50 = $5,000 (多头)
-            # value2 = -100 * 48 = -$4,800 (空头)
-            # gross_exposure = |5000| + |-4800| = $9,800 (总敞口)
         """
-        # v7.40.2: 放宽至所有持仓类型(包括异常持仓)
+        # 支持所有持仓类型(包括异常持仓)
         if not self.has_position():
             return None
 
@@ -596,10 +403,6 @@ class Pairs:
         应用场景:
             仅用于持仓中实时监控对冲质量
 
-        设计原则 (v7.40.1):
-            - DRY: 直接调用 get_net_exposure() 和 get_gross_exposure()
-            - 概念纯粹: exposure 只适用于活跃持仓,不支持平仓后复盘
-
         Returns:
             对冲漂移率(%) 或 None(无持仓/数据异常)
 
@@ -609,14 +412,8 @@ class Pairs:
             - 30%+: 危险区 (类似单边持仓)
             - 正值: 净多头敞口 (大盘涨我赚)
             - 负值: 净空头敞口 (大盘跌我赚)
-
-        Example:
-            # 持仓中监控
-            drift = pair.get_hedge_drift()
-            if drift and abs(drift) > 30:
-                self.Debug(f"[对冲警告] {pair.pair_id} 漂移{drift:.1f}%")
         """
-        # 直接调用已有方法 - DRY原则 (v7.40.1)
+        # 直接调用已有方法 
         net_exp = self.get_net_exposure()
         gross_exp = self.get_gross_exposure()
 
@@ -630,60 +427,60 @@ class Pairs:
 
     def calculate_leg_values(self, allocated_amount: float, signal: str, data):
         """
-        核心算力 - Beta对冲数学: 从分配资金计算两腿购买力,实现风险中性对冲 (v7.34.0 CRITICAL FIX)
+        核心算力 - Beta对冲数学: 从分配资金计算两腿购买力,实现风险中性对冲 (v7.41.0 统一化修复)
 
         ========================================================================
-        CRITICAL FIX (v7.34.0): 修正Beta对冲公式
+        CRITICAL FIX (v7.41.0): 统一Beta对冲公式 (修正Regulation T理解)
         ========================================================================
-        旧版错误假设: 购买力比 = β, 即 x₁/m₁ = β × x₂/m₂  ❌ 错误!
-        正确对冲条件: 市值比 = β, 即 V₂ = β × V₁  ✓ 正确!
+        错误根源 (v7.34.0及之前):
+        - 误将空头监管保证金要求 (150%) 视为实际资金成本
+        - 忽略了卖空所得 (100%) 立即回流到账户
+        - 导致公式中 m₂=1.5 错误,实际应为 m₂=0.5
 
-        错误原因:
-        - 模型 ln(P₁) = α + β·ln(P₂) 表明 Symbol1 弹性是 Symbol2 的 β 倍
-        - 要对冲 Symbol1 更大的波动,必须用 β 倍的 Symbol2 市值来抵消
-        - 旧公式导致 28.1% 交易"两腿都亏损",Beta对冲从未真正生效
+        正确理解 Regulation T:
+        - 做多 $V₁: 账户支付 $V₁, 券商借 0.5V₁ → 自有资金占用 = 0.5V₁
+        - 做空 $V₂: 账户需 1.5V₂ 资产, 但卖空所得 1.0V₂ 回流 → 自有资金占用 = 0.5V₂
 
-        影响: 所有历史回测结果失效,需重新运行回测验证修复效果
+        结论: 做多和做空的实际资金占用率都是 0.5 (m₁ = m₂ = 0.5)
+
+        影响:
+        - 资金利用率提升 3 倍 (从 ~33% → 理论最大值)
+        - 公式统一化 (LONG_SPREAD 和 SHORT_SPREAD 使用相同公式)
+        - 所有历史回测失效 (需重新运行验证)
         ========================================================================
 
-        正确数学推导:
+        统一数学推导 (LONG_SPREAD 和 SHORT_SPREAD 完全相同):
         约束1: x₁ + x₂ = A (资金分配)
-        约束2: x₂/m₂ = β × x₁/m₁ (市值比 V₂ = β × V₁)
+        约束2: V₂ = β × V₁ (市值比, 对冲条件)
 
-        LONG_SPREAD (Symbol1多头 m₁=0.5, Symbol2空头 m₂=1.5):
-            x₂/1.5 = β × x₁/0.5
-            => x₂ = 3β × x₁
-            代入约束1: x₁ + 3β×x₁ = A
-            => x₁ = A/(1+3β), x₂ = 3βA/(1+3β)
+        关键: 短腿市值计算需减去卖空所得 (m_short_actual = 1.5 - 1.0 = 0.5):
+            V₁ = x₁ / 0.5,  V₂ = x₂ / (1.5 - 1.0) = x₂ / 0.5
+            => x₂ / 0.5 = β × x₁ / 0.5
+            => x₂ = β × x₁
 
-            市值验证:
-            V₁ = x₁/m₁ = 2A/(1+3β)
-            V₂ = x₂/m₂ = 2βA/(1+3β)
-            => V₂/V₁ = β ✓ 满足对冲条件
+        代入约束1:
+            x₁ + β×x₁ = A
+            => x₁ = A / (1 + β)
+            => x₂ = βA / (1 + β)
 
-        SHORT_SPREAD (Symbol1空头 m₁=1.5, Symbol2多头 m₂=0.5):
-            x₂/0.5 = β × x₁/1.5
-            => x₂ = β×x₁/3
-            代入约束1: x₁ + β×x₁/3 = A
-            => x₁ = 3A/(3+β), x₂ = βA/(3+β)
+        市值:
+            V₁ = 2A / (1 + β)
+            V₂ = 2βA / (1 + β)
 
-            市值验证:
-            V₁ = x₁/m₁ = 2A/(3+β)
-            V₂ = x₂/m₂ = 2βA/(3+β)
-            => V₂/V₁ = β ✓ 满足对冲条件
+        验证: V₂ / V₁ = β ✓ 满足对冲条件
 
         参数:
             allocated_amount: 分配的投资资金金额 (A)
-            signal: 交易信号 (LONG_SPREAD/SHORT_SPREAD)
+            signal: 交易信号 (LONG_SPREAD/SHORT_SPREAD) - v7.41.0后不影响公式
             data: 数据切片(用于获取当前价格)
 
         返回:
             (value_1, value_2): Symbol1和Symbol2的目标购买市值, 计算失败返回 (None, None)
 
-        关键设计:
-            - 公式只依赖β和保证金率,保证风险中性 (市值比 V₂/V₁ = β)
-            - 避免引入价格P₁,P₂,防止计算偏差
-            - v7.34.0修复后预期"两腿都亏损"从28.1%降至<10%
+        关键改进:
+            - 统一公式 (删除 ~50 行分支逻辑)
+            - 资金利用率提升 3x
+            - 代码简洁性提升, 易于维护
         """
         # 获取当前价格
         prices = self.get_price_from_bar(data)
@@ -698,29 +495,15 @@ class Pairs:
 
         beta = abs(self.beta_mean) if abs(self.beta_mean) != 0 else 1
 
-        if signal == 'LONG_SPREAD':
-            # Symbol1多头(m₁=0.5), Symbol2空头(m₂=1.5)
-            # v7.34.0 修复: 正确公式 x₁ = A/(1+3β), x₂ = 3βA/(1+3β)
-            denominator = 1 + 3 * beta  # m₁ + β × m₂ = 0.5 + β × 1.5
+        # v7.41.0 统一公式 (LONG_SPREAD 和 SHORT_SPREAD 完全相同)
+        denominator = 1 + beta  # 统一分母
 
-            x1 = allocated_amount / denominator
-            x2 = allocated_amount * 3 * beta / denominator
+        x1 = allocated_amount / denominator       # A / (1 + β)
+        x2 = allocated_amount * beta / denominator  # βA / (1 + β)
 
-            # 市值 = 资金 / 保证金率
-            value_1 = x1 / self.margin_long    # 2A/(1+3β)
-            value_2 = x2 / self.margin_short   # 2βA/(1+3β)
-
-        else:  # SHORT_SPREAD
-            # Symbol1空头(m₁=1.5), Symbol2多头(m₂=0.5)
-            # v7.34.0 修复: 正确公式 x₁ = 3A/(3+β), x₂ = βA/(3+β)
-            denominator = 3 + beta  # m₁ + β × m₂ = 1.5 + β × 0.5
-
-            x1 = allocated_amount * 3 / denominator
-            x2 = allocated_amount * beta / denominator
-
-            # 市值
-            value_1 = x1 / self.margin_short   # 2A/(3+β)
-            value_2 = x2 / self.margin_long    # 2βA/(3+β)
+        # 市值计算 (关键: 短腿需减去卖空所得)
+        value_1 = x1 / self.margin_long              # x1 / 0.5 = 2A / (1 + β)
+        value_2 = x2 / (self.margin_short - 1.0)     # x2 / (1.5 - 1.0) = x2 / 0.5 = 2βA / (1 + β)
 
         # 安全检查: 资金分配合理性
         if x1 <= 0 or x2 <= 0:
@@ -1067,7 +850,7 @@ class Pairs:
         生成平仓意图（意图生成与执行分离）
 
         设计理念:
-        - 获取当前持仓信息
+        - 直接访问tracked_qty获取持仓数量 (v7.40.9优化: 避免字典创建开销)
         - 返回CloseIntent对象,交给OrderExecutor执行
         - 如果无持仓,返回None
 
@@ -1086,13 +869,10 @@ class Pairs:
         设计说明:
             - reason参数会编码到tag中(便于日志追踪和统计分析)
             - 支持单边持仓(qty1或qty2为0时,executor会自动跳过)
+            - v7.40.9: 改用直接属性访问,与on_position_filled()风格统一
         """
-        # 获取当前持仓
-        info = self.get_position_info()
-        qty1 = info['qty1']
-        qty2 = info['qty2']
-
-        if qty1 == 0 and qty2 == 0:
+        # 直接访问tracked_qty (v7.40.9: 无需字典查询)
+        if self.tracked_qty1 == 0 and self.tracked_qty2 == 0:
             return None  # 无持仓
 
         # 构建意图对象
@@ -1100,8 +880,8 @@ class Pairs:
             pair_id=self.pair_id,
             symbol1=self.symbol1,
             symbol2=self.symbol2,
-            qty1=qty1,
-            qty2=qty2,
+            qty1=self.tracked_qty1,  # 直接访问实例属性
+            qty2=self.tracked_qty2,  # 直接访问实例属性
             reason=reason,
             tag=self.create_order_tag('CLOSE', reason)
         )
