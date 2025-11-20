@@ -5,6 +5,112 @@
 ---
 
 
+## [v7.40.8_consolidate-industry-fields@20250120]
+
+### 版本概述
+消除架构冗余 - 统一使用 `industry_code` 字段(整数格式),删除冗余的 `industry_group` 字段
+
+### 🎯 设计理念
+**"DRY原则"** - 同一数据不应重复提取和存储
+
+### 🔍 问题根源
+
+#### 数据流冗余 (v7.12.0引入的技术债)
+**Before (v7.40.7)**:
+```python
+# CointegrationAnalyzer Line 197
+cointegrated_pairs.append({
+    'symbol1': symbol1,
+    'symbol2': symbol2,
+    'pvalue': pvalue,
+    'industry_group': ig_name  # ❌ 字符串格式 "31130"
+})
+
+# Pairs.__init__ Line 109-110
+self.industry_group = model_data['industry_group']  # ❌ 冗余字段1
+self.industry_code = None                             # ❌ 冗余字段2
+
+# Pairs.from_model_result Lines 85-91
+# ❌ 重复提取相同数据 (7行代码)
+symbol1 = model_result['symbol1']
+try:
+    pair.industry_code = algorithm.Securities[symbol1].Fundamentals.AssetClassification.MorningstarIndustryGroupCode
+except (AttributeError, KeyError):
+    algorithm.Debug(f"[Pairs] 警告: 无法获取{symbol1}的行业代码", 1)
+    pair.industry_code = None
+```
+
+**问题**:
+- `industry_group` (字符串 "31130") 和 `industry_code` (整数 31130) 是同一数据的不同表示
+- 数据在分析流程中已传递,却在 `Pairs.from_model_result()` 中重复提取
+- 浪费7行代码和1个字段用于存储相同信息
+
+### ✨ 核心变更
+
+#### 统一数据流 - 整数 industry_code
+**After (v7.40.8)**:
+
+**1. CointegrationAnalyzer ([Line 197](src/analysis/CointegrationAnalyzer.py#L197))**:
+```python
+# ✓ 直接传递整数格式
+cointegrated_pairs.append({
+    'symbol1': symbol1,
+    'symbol2': symbol2,
+    'pvalue': pvalue,
+    'industry_code': int(ig_name)  # v7.40.8: 统一使用整数格式
+})
+```
+
+**2. BayesianModeler ([Line 413](src/analysis/BayesianModeler.py#L413))**:
+```python
+# ✓ 字段名统一
+result = {
+    'symbol1': pair_data.symbol1,
+    'symbol2': pair_data.symbol2,
+    'industry_code': pair_info['industry_code'],  # v7.40.8: 统一使用整数格式
+    'modeling_type': prior_type,
+    'modeling_time': self.algorithm.Time,
+    **posterior_stats
+}
+```
+
+**3. Pairs.py**:
+```python
+# ✓ Lines 85-91: 删除冗余提取逻辑
+# v7.40.8: industry_code已在数据流中传递(CointegrationAnalyzer → BayesianModeler → Pairs.__init__)
+# 删除冗余提取逻辑(原Lines 85-91)
+
+# ✓ Line 104: 单一数据源
+self.industry_code = int(model_data['industry_code'])  # v7.40.8: 统一使用整数格式 (删除冗余industry_group字段)
+```
+
+### 📊 影响范围
+
+**修改文件**:
+- `src/analysis/CointegrationAnalyzer.py` (Line 197)
+- `src/analysis/BayesianModeler.py` (Line 413)
+- `src/Pairs.py` (Lines 85-91删除, Line 104-105修改)
+
+**收益**:
+- ✅ 删除1个冗余字段 (`industry_group`)
+- ✅ 删除7行冗余代码 (Lines 85-91)
+- ✅ 消除字符串/整数转换开销
+- ✅ 提升代码一致性
+
+**验证无影响**:
+- `src/PairsManager.py` 已使用 `industry_code` 无需修改
+- 所有行业统计模块已统一使用整数格式
+
+### 🎓 架构洞察
+
+`✶ Insight ─────────────────────────────────────`
+**技术债产生机制**: v7.12.0引入 `industry_code` 时未意识到 `industry_group` 已存储相同数据,导致双字段冗余
+**发现过程**: 用户Code Review发现 `from_model_result()` 重复提取行业信息,追溯数据流后确认冗余
+**重构原则**: 数据应在来源处(CointegrationAnalyzer)提取一次,沿数据流传递,避免重复查询
+`─────────────────────────────────────────────────`
+
+---
+
 ## [v7.40.7_critical-roi-fix@20250120]
 
 ### 版本概述 ⚠️ CRITICAL
