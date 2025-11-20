@@ -5,6 +5,90 @@
 ---
 
 
+## [v7.40.2_support-anomaly-position-calculation@20250120]
+
+### 版本概述
+放宽四个计算方法的持仓检查条件,从 `has_normal_position()` 改为 `has_position()`,支持异常持仓的风控数据统计。
+
+### 🎯 设计理念
+**"数据完整性优于语义纯粹性"** - 风控统计必须包含所有持仓类型,即使是异常情况
+
+### ✨ 核心变更
+
+#### 修改的四个方法
+所有方法统一从 `has_normal_position()` 改为 `has_position()`:
+
+1. **`get_pair_pnl()`** ([Pairs.py:340](src/Pairs.py#L340))
+   - 旧逻辑: 只计算 LONG_SPREAD/SHORT_SPREAD 的盈亏
+   - 新逻辑: 支持 PARTIAL/ANOMALY_SAME 的盈亏计算
+
+2. **`get_pair_cost()`** ([Pairs.py:407](src/Pairs.py#L407))
+   - 旧逻辑: 只计算对冲配对的保证金占用
+   - 新逻辑: 单腿持仓也有保证金占用,必须纳入统计
+
+3. **`get_net_exposure()`** ([Pairs.py:467](src/Pairs.py#L467))
+   - 旧逻辑: 只计算对冲配对的净敞口
+   - 新逻辑: PARTIAL单边敞口, ANOMALY_SAME放大敞口
+
+4. **`get_gross_exposure()`** ([Pairs.py:513](src/Pairs.py#L513))
+   - 旧逻辑: 只计算对冲配对的总敞口
+   - 新逻辑: 所有持仓类型都有总敞口
+
+### 📊 异常持仓的语义正确性
+
+| Position Mode | Net Exposure | Gross Exposure | PnL | Cost |
+|--------------|--------------|----------------|-----|------|
+| **LONG_SPREAD** | value1+value2 (小值) | \|v1\|+\|v2\| | 两腿盈亏 | 总保证金 |
+| **SHORT_SPREAD** | value1+value2 (小值) | \|v1\|+\|v2\| | 两腿盈亏 | 总保证金 |
+| **PARTIAL_LEG1** | value1 (单边) | \|value1\| | 单腿盈亏 | 单腿保证金 |
+| **PARTIAL_LEG2** | value2 (单边) | \|value2\| | 单腿盈亏 | 单腿保证金 |
+| **ANOMALY_SAME** | value1+value2 (放大) | \|v1\|+\|v2\| | 总盈亏 | 总保证金 |
+
+✅ **所有计算都有明确物理含义,符合风控需求**
+
+### 🎨 代码示例
+
+**修改前**:
+```python
+def get_net_exposure(self) -> Optional[float]:
+    if not self.has_normal_position():  # ❌ 排除异常持仓
+        return None
+    # ... 计算逻辑
+```
+
+**修改后**:
+```python
+def get_net_exposure(self) -> Optional[float]:
+    # v7.40.2: 放宽至所有持仓类型(包括异常持仓)
+    if not self.has_position():  # ✅ 包含异常持仓
+        return None
+    # ... 计算逻辑
+```
+
+### 🔄 影响分析
+
+#### 自动受益模块
+- **`PairsManager.get_industry_stats()`** ([PairsManager.py:332-338](src/PairsManager.py#L332-L338))
+  - 行业统计自动包含异常持仓的保证金占用和浮盈
+  - 无需修改调用代码,通过None判断即可兼容
+
+#### 无需修改模块
+- **现有调用者**: 都是通过None返回判断,逻辑不受影响
+- **方案C哲学**: 方法返回None由调用者决定如何处理
+
+### 📈 预期效果
+1. **风控数据完整性**: 行业统计不再遗漏异常持仓的保证金占用
+2. **风险监控准确性**: 单腿持仓的市场暴露被正确统计
+3. **对冲失衡诊断**: ANOMALY_SAME配对的放大敞口被检测到
+
+### 📝 技术说明
+- **向后兼容**: 现有调用者无需修改,通过None判断即可
+- **调用者透明**: PairsManager.get_industry_stats() 自动纳入异常数据
+- **防御性编程**: `has_position()` 仍会检查 position_mode != NONE
+
+---
+
+
 ## [v7.40.1_simplify-hedge-drift@20250120]
 
 ### 版本概述
