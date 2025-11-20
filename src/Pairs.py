@@ -107,8 +107,8 @@ class Pairs:
         self.symbol2 = model_data['symbol2']
         self.pair_id = (self.symbol1.Value, self.symbol2.Value)
         self.industry_group = model_data['industry_group']
-        self.industry_code = None  # v7.12.0: MorningstarIndustryGroupCode (在from_model_result中填充)
-        self.industry_quota_tier = None  # v7.32.0: 行业配额档次 ('tier0'/'tier1'/'tier2'/'tier3'/'tier4', 在PairSelector中填充)
+        self.industry_code = None                                               # v7.12.0: MorningstarIndustryGroupCode (在from_model_result中填充)
+        self.industry_quota_tier = None                                         # v7.32.0: 行业配额档次 ('tier0'/'tier1'/'tier2'/'tier3'/'tier4', 在PairSelector中填充)
 
         # === 统计参数(从贝叶斯建模获得) ===
         self.alpha_mean = model_data['alpha_mean']                              # 截距(对数空间)
@@ -120,12 +120,10 @@ class Pairs:
         self.half_life_std = model_data.get('half_life_std', 0)                 # v7.13.0: 半衰期不确定性(标准差)
 
         # === 交易阈值 (改良C方案 - 从pairs_trading统一读取) ===
-        self.entry_threshold_lower = config.entry_threshold_lower              # 1.2σ
-        self.entry_threshold_upper = config.entry_threshold_upper              # 1.8σ
-        self.exit_threshold = config.exit_threshold                            # 0.3σ
-        self.stop_loss_threshold = config.stop_loss_threshold                  # 2.3σ
-
-        # v7.10.6: 冷却天数已移至config.constants.close_reasons，通过get_cooldown_days()动态查询
+        self.entry_threshold_lower = config.entry_threshold_lower               # 1.2σ
+        self.entry_threshold_upper = config.entry_threshold_upper               # 1.8σ
+        self.exit_threshold = config.exit_threshold                             # 0.3σ
+        self.stop_loss_threshold = config.stop_loss_threshold                   # 2.3σ
 
         # === 保证金参数 ===
         self.margin_long = config.margin_requirement_long
@@ -332,13 +330,14 @@ class Pairs:
         设计说明:
         - HWM追踪逻辑已迁移到 PairDrawdownRule
         - 纯函数设计（无状态修改），遵循函数式编程原则
-        - 调用方: PairDrawdownRule, TradeAnalyzer
+        - 调用方: PairDrawdownRule, TradeAnalyzer, 行业统计(含异常持仓)
+        - v7.40.2: 放宽支持异常持仓 (PARTIAL/ANOMALY_SAME)
 
         返回:
             浮动盈亏(美元) 或 None(无持仓或数据不完整)
         """
-        # 必须有正常持仓
-        if not self.has_normal_position():
+        # v7.40.2: 放宽至所有持仓类型(包括异常持仓)
+        if not self.has_position():
             return None
 
         # 检查是否有开仓价格(防御性编程)
@@ -384,12 +383,14 @@ class Pairs:
         - 用于回撤率和收益率计算的分母
 
         防御性设计：
-        - has_normal_position() 已确保只有 LONG_SPREAD 或 SHORT_SPREAD
-        - 无需再次检查同向持仓（position_mode 已保证）
+        - v7.40.2前: has_normal_position() 只支持对冲配对
+        - v7.40.2后: has_position() 支持所有持仓(包括单腿和同向)
 
         调用方：
         - PairDrawdownRule.check()：计算回撤率
         - TradeAnalyzer.analyze_trade()：计算交易成本
+        - 行业统计(含异常持仓)
+        - v7.40.2: 放宽支持异常持仓 (PARTIAL单腿也有保证金占用)
 
         Returns:
             配对总保证金（美元）或 None（无持仓/数据不完整）
@@ -402,8 +403,8 @@ class Pairs:
             # margin2 = 5000 * 1.5 = $7,500 (空头保证金)
             # pair_cost = 2500 + 7500 = $10,000 (总保证金占用)
         """
-        # 基础检查（已包含同向排除）
-        if not self.has_normal_position():
+        # v7.40.2: 放宽至所有持仓类型(包括异常持仓)
+        if not self.has_position():
             return None
 
         if self.entry_price1 is None or self.entry_price2 is None:
@@ -450,7 +451,8 @@ class Pairs:
         应用场景:
             - 行业级统计: IndustryStats 聚合净敞口
             - 风险监控: 检查单边敞口风险
-            - 调用前提: 仅在 has_position()=True 时调用
+            - v7.40.2: 支持异常持仓 (PARTIAL单边, ANOMALY_SAME放大敞口)
+            - 调用前提: has_position()=True
 
         Returns:
             float: 净敞口金额 (美元), None表示无持仓或数据异常
@@ -461,10 +463,10 @@ class Pairs:
             # value2 = -100 * 48 = -$4,800 (空头)
             # net_exposure = 5000 + (-4800) = $200 (净多头)
         """
-        if not self.has_normal_position():
+        # v7.40.2: 放宽至所有持仓类型(包括异常持仓)
+        if not self.has_position():
             return None
 
-        # 使用实时价格 (v7.40.0修正: 移除exit_price逻辑)
         portfolio = self.algorithm.Portfolio
         price1 = portfolio[self.symbol1].Price
         price2 = portfolio[self.symbol2].Price
@@ -495,7 +497,8 @@ class Pairs:
         应用场景:
             - 行业级统计: IndustryStats 聚合总敞口
             - 漂移率计算: drift = net_exposure / gross_exposure
-            - 调用前提: 仅在 has_position()=True 时调用
+            - v7.40.2: 支持异常持仓 (PARTIAL单边, ANOMALY_SAME总敞口)
+            - 调用前提: has_position()=True
 
         Returns:
             float: 总敞口金额 (美元), None表示无持仓或数据异常
@@ -506,7 +509,8 @@ class Pairs:
             # value2 = -100 * 48 = -$4,800 (空头)
             # gross_exposure = |5000| + |-4800| = $9,800 (总敞口)
         """
-        if not self.has_normal_position():
+        # v7.40.2: 放宽至所有持仓类型(包括异常持仓)
+        if not self.has_position():
             return None
 
         # 使用实时价格 (v7.40.0修正: 移除exit_price逻辑)
