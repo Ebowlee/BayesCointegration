@@ -727,12 +727,6 @@ class Pairs:
         return 0.0
 
 
-    def get_pair_position_value(self) -> float:
-        """获取当前持仓市值(包括部分持仓)"""
-        info = self.get_position_info()
-        return info['value1'] + info['value2']
-
-
     # 3C. 时间查询
 
     def get_pair_holding_days(self) -> Optional[int]:

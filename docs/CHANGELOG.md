@@ -5,6 +5,95 @@
 ---
 
 
+## [v7.40.5_remove-redundant-position-value-method@20250120]
+
+### 版本概述
+删除冗余方法 `get_pair_position_value()`,该方法功能与 `get_net_exposure()` 完全重复。
+
+### 🎯 设计理念
+**"Dead Code清理 + 命名标准化"** - 删除零调用点的方法,保留术语更精确的替代方法
+
+### ✨ 核心变更
+
+#### 删除冗余方法 ([Pairs.py:730-733](src/Pairs.py#L730))
+```python
+# ❌ 已删除 - 功能重复
+def get_pair_position_value(self) -> float:
+    """获取当前持仓市值(包括部分持仓)"""
+    info = self.get_position_info()
+    return info['value1'] + info['value2']
+```
+
+**删除理由**:
+1. **零调用点**: 全代码库搜索无任何调用
+2. **功能重复**: 与 `get_net_exposure()` 计算完全相同 (都返回 `value1 + value2`)
+3. **命名劣势**: "position_value" 不如 "net_exposure" 精确
+   - "Net Exposure" = 金融行业标准术语 (净敞口)
+   - "Position Value" = 通用术语,语义不够精确
+
+#### 保留的等价方法 ([Pairs.py:633-675](src/Pairs.py#L633))
+```python
+# ✓ 保留 - 命名更精确,文档完整
+def get_net_exposure(self) -> Optional[float]:
+    """
+    计算净敞口 (Dollar Net Exposure) - v7.40.0
+
+    公式:
+        Net Exposure = value1 + value2
+
+    语义:
+        - 正值: 净多头敞口 (long bias)
+        - 负值: 净空头敞口 (short bias)
+        - 接近0: 市场中性 (market neutral)
+    """
+    if not self.has_position():
+        return None
+
+    portfolio = self.algorithm.Portfolio
+    price1 = portfolio[self.symbol1].Price
+    price2 = portfolio[self.symbol2].Price
+
+    val1 = self.tracked_qty1 * price1
+    val2 = self.tracked_qty2 * price2
+
+    return val1 + val2
+```
+
+### 🔧 修改详情
+
+#### 文件修改清单
+1. **src/Pairs.py** - 删除第730-733行 (方法定义)
+
+### 💡 技术洞察
+
+#### Dead Code的识别标准
+1. **静态分析**: 全局搜索无调用点
+2. **功能重复**: 与现有方法计算逻辑相同
+3. **命名劣势**: 替代方法命名更符合行业标准
+
+#### 命名精确性的价值
+```python
+# 金融术语的精确性层级:
+"Net Exposure"      # 最精确 - 行业标准,语义明确
+"Position Value"    # 中等 - 通用,但不够精确
+"Pair Value"        # 最模糊 - 可能指多种概念
+```
+
+**为什么 "Net Exposure" 更好**:
+- **行业标准**: 风控报告中的标准指标
+- **语义精确**: 明确表示多空敞口的代数和
+- **符号意义**: 正负值有明确的风险含义 (long bias vs short bias)
+
+### ⚠️ 破坏性变更
+无 - 该方法无调用点,删除不影响任何功能
+
+### 📚 相关版本
+- **v7.40.0** - 引入 `get_net_exposure()` 方法 (行业级敞口计算)
+- **v7.40.4** - 标准化方法命名 (`get_price_from_bar`)
+
+---
+
+
 ## [v7.40.4_rename-get-price-to-get-price-from-bar@20250120]
 
 ### 版本概述
