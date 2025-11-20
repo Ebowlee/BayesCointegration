@@ -5,6 +5,63 @@
 ---
 
 
+## [v7.40.1_simplify-hedge-drift@20250120]
+
+### 版本概述
+简化 `get_hedge_drift()` 方法,遵循DRY原则和概念纯粹性原则。
+
+### ♻️ 重构改进
+
+#### 移除"事后复盘"特性
+- **旧设计**: `get_hedge_drift()` 支持两种场景
+  - 持仓中监控: 使用实时价格
+  - 平仓后诊断: 使用 `exit_price` 复盘
+- **新设计**: 仅支持持仓中监控 (exposure = 实时概念)
+- **理由**: "exposure" 语义应为"当前持仓的市场暴露",不是历史回顾
+
+#### DRY原则实践
+**旧实现** (70行,代码重复):
+```python
+# 重复计算净敞口和总敞口
+val1 = self.tracked_qty1 * price1
+val2 = self.tracked_qty2 * price2
+net_exposure = val1 + val2
+gross_exposure = abs(val1) + abs(val2)
+```
+
+**新实现** (35行,直接调用):
+```python
+# 复用已有方法 - DRY原则
+net_exp = self.get_net_exposure()
+gross_exp = self.get_gross_exposure()
+
+if net_exp is None or gross_exp is None or gross_exp == 0:
+    return None
+
+return (net_exp / gross_exp) * 100
+```
+
+#### 影响分析
+- ✅ **代码简化**: 从70行减少到35行 (减少50%)
+- ✅ **概念纯粹**: exposure 语义统一为"实时持仓市场暴露"
+- ✅ **DRY原则**: 消除重复的市值计算逻辑
+- ✅ **维护成本**: 单一职责,未来修改只需改一处
+- ❌ **功能移除**: `_log_close_completion()` 中的对冲漂移诊断不再输出
+  - 原因: 平仓后 `has_normal_position()` 返回 False → `get_hedge_drift()` 返回 None
+  - 影响: Lines 1318-1324 的 `if hedge_drift is not None:` 自动跳过
+
+### 📄 文件变更
+- `src/Pairs.py` (Lines 527-567): 简化 `get_hedge_drift()` 实现
+- `src/Pairs.py` (Line 1319): 添加注释说明新行为
+
+### 🔍 设计哲学
+- **概念纯粹性**: Exposure 只适用于活跃持仓,不支持平仓后复盘
+- **DRY原则**: 避免重复实现相同的计算逻辑
+- **单一职责**: 每个方法只做一件事,做好一件事
+
+---
+
+
 ## [v7.40.0_six-layer-hamburger-architecture@20250119]
 
 ### 版本概述
