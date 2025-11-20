@@ -122,7 +122,7 @@ class PairHoldingTimeoutRule(RiskRule):
         # 5. 判断是否超过动态阈值
         if holding_days > max_days:
             # v7.34.2: Fail-Safe检查 - 仅验证PnL数据完整性
-            pair_pnl = pair.get_pair_pnl()
+            pair_pnl = pair.get_pair_unrealized_pnl()
 
             # PnL数据完整性检查
             if pair_pnl is None:

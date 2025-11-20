@@ -5,6 +5,86 @@
 ---
 
 
+## [v7.40.3_simplify-unrealized-pnl@20250120]
+
+### 版本概述
+简化 `get_pair_pnl()` 并重命名为 `get_pair_unrealized_pnl()`,移除死代码并强化语义。
+
+### 🎯 设计理念
+**"名实相符 + 消除死代码"** - 方法名应明确表达用途,代码逻辑应简洁无冗余
+
+### ✨ 核心变更
+
+#### 1. 移除死代码 ([Pairs.py:315](src/Pairs.py#L315))
+- **问题**: if/else exit_price分支是死代码
+- **原因**: `has_position()=True` 保证 `exit_price=None`
+- **修复**: 直接使用 `Portfolio[symbol].Price` 获取实时价格
+
+**修改前**:
+```python
+# 获取当前市场价格
+if self.exit_price1 is None or self.exit_price2 is None:
+    # 持仓中: 使用实时价格(浮动PnL)
+    portfolio = self.algorithm.Portfolio
+    price1 = portfolio[self.symbol1].Price
+    price2 = portfolio[self.symbol2].Price
+else:
+    # 已平仓: 使用成交价格(最终PnL) ← 死代码,永远不会执行
+    price1 = self.exit_price1
+    price2 = self.exit_price2
+```
+
+**修改后**:
+```python
+# v7.40.3: 简化 - 直接使用实时价格(has_position()保证exit_price=None)
+portfolio = self.algorithm.Portfolio
+price1 = portfolio[self.symbol1].Price
+price2 = portfolio[self.symbol2].Price
+```
+
+#### 2. 方法重命名
+- **旧名称**: `get_pair_pnl()` (语义模糊)
+- **新名称**: `get_pair_unrealized_pnl()` (明确表达"浮动盈亏")
+- **金融术语对应**: Unrealized PnL (未实现盈亏/浮动盈亏)
+
+### 🔧 修改详情
+
+#### 调用点更新列表 (6处)
+所有调用 `get_pair_pnl()` 的位置已更新为 `get_pair_unrealized_pnl()`:
+
+| 文件 | 行号 | 调用上下文 |
+|------|------|-----------|
+| **src/Pairs.py** | 1222 | `_update_trade_stats()` - 计算本次交易美元PnL |
+| **src/Pairs.py** | 1255 | `_log_close_completion()` - 计算本次交易PnL |
+| **src/PairsManager.py** | 336 | `get_industry_stats()` - 行业浮动盈亏统计 |
+| **src/risk/PairDrawdown.py** | 116 | `check()` - 单次交易回撤检测 |
+| **src/risk/PairCumulativeLoss.py** | 106 | `check()` - 累计亏损检测 |
+| **src/risk/PairHoldingTimeout.py** | 125 | `check()` - 持仓超时Fail-Safe检查 |
+
+### ♻️ 向后兼容性
+- **Breaking Change**: 方法名变更,需要全局重命名
+- **逻辑兼容**: 计算结果完全相同,无功能变化
+- **代码简化**: 移除12行死代码 (if/else分支 + 注释)
+
+### 📊 代码质量改进
+1. **简洁性提升**: 移除冗余逻辑分支
+2. **可读性提升**: 方法名明确表达"浮动盈亏"含义
+3. **维护性提升**: 消除混淆点(为什么有两个价格分支?)
+
+### 🔍 设计洞察
+**为何v7.40.2后出现死代码?**
+- v7.40.2将 `has_normal_position()` 改为 `has_position()`
+- 前置条件保证: 有持仓 → position_mode != NONE → exit_price 必为 None
+- else分支(使用exit_price)成为永远无法到达的死代码
+
+**为何v7.40.1未发现此问题?**
+- v7.40.1只修改了 `get_hedge_drift()` (暴露计算方法)
+- `get_pair_pnl()` 没有暴露计算逻辑,不在v7.40.1范围内
+- 用户在v7.40.2完成后手动review代码时发现此问题
+
+---
+
+
 ## [v7.40.2_support-anomaly-position-calculation@20250120]
 
 ### 版本概述

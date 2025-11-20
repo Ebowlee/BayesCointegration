@@ -312,14 +312,16 @@ class Pairs:
 
     # 3B. 财务计算
 
-    def get_pair_pnl(self) -> Optional[float]:
+    def get_pair_unrealized_pnl(self) -> Optional[float]:
         """
-        计算配对当前浮动盈亏（纯数据计算，无副作用）
+        获取配对浮动盈亏 (Unrealized PnL)
 
-        公式:
-        - 当前市值 = qty1 * current_price1 + qty2 * current_price2
-        - 开仓成本 = qty1 * entry_price1 + qty2 * entry_price2
-        - PnL = 当前市值 - 开仓成本
+        v7.40.3: 简化价格逻辑(移除死代码) + 重命名强调"unrealized"语义
+
+        计算公式:
+        - 浮动PnL = (当前市值 - 开仓成本)
+        - 当前市值 = qty1×price1 + qty2×price2  (考虑多空方向)
+        - 开仓成本 = qty1×entry_price1 + qty2×entry_price2
 
         关键设计:
         - 使用tracked_qty避免Portfolio全局查询混淆
@@ -327,14 +329,20 @@ class Pairs:
         - 空头的qty为负数,自动处理方向
         - 完全配对专属计算,即使symbol出现在多个配对中也不会混淆
 
+        持仓类型支持:
+        - LONG_SPREAD/SHORT_SPREAD: 两腿浮动盈亏
+        - PARTIAL: 单腿浮动盈亏
+        - ANOMALY_SAME: 异常持仓浮动盈亏
+
         设计说明:
         - HWM追踪逻辑已迁移到 PairDrawdownRule
         - 纯函数设计（无状态修改），遵循函数式编程原则
         - 调用方: PairDrawdownRule, TradeAnalyzer, 行业统计(含异常持仓)
         - v7.40.2: 放宽支持异常持仓 (PARTIAL/ANOMALY_SAME)
+        - v7.40.3: 移除死代码(exit_price分支) + 重命名(强调unrealized)
 
-        返回:
-            浮动盈亏(美元) 或 None(无持仓或数据不完整)
+        Returns:
+            float: 浮动盈亏(美元) | None: 无持仓或数据不完整
         """
         # v7.40.2: 放宽至所有持仓类型(包括异常持仓)
         if not self.has_position():
@@ -344,16 +352,10 @@ class Pairs:
         if self.entry_price1 is None or self.entry_price2 is None:
             return None
 
-        # 获取当前市场价格
-        if self.exit_price1 is None or self.exit_price2 is None:
-            # 持仓中: 使用实时价格(浮动PnL)
-            portfolio = self.algorithm.Portfolio
-            price1 = portfolio[self.symbol1].Price
-            price2 = portfolio[self.symbol2].Price
-        else:
-            # 已平仓: 使用成交价格(最终PnL)
-            price1 = self.exit_price1
-            price2 = self.exit_price2
+        # v7.40.3: 简化 - 直接使用实时价格(has_position()保证exit_price=None)
+        portfolio = self.algorithm.Portfolio
+        price1 = portfolio[self.symbol1].Price
+        price2 = portfolio[self.symbol2].Price
 
         # 计算当前市值(考虑方向: 多头为正,空头为负)
         current_value = (self.tracked_qty1 * price1 + self.tracked_qty2 * price2)
@@ -1217,7 +1219,7 @@ class Pairs:
         在清零追踪变量之前调用 (此时 exit_price 已记录,可计算 PnL)
         """
         # 计算本次交易的美元PnL和保证金成本
-        pnl_dollars = self.get_pair_pnl()
+        pnl_dollars = self.get_pair_unrealized_pnl()
         pair_cost = self.get_pair_cost()
 
         # 数据完整性检查
@@ -1250,7 +1252,7 @@ class Pairs:
             reason: 平仓原因 (v7.12.0统一: NORMAL_EXIT/DRAWDOWN/ANOMALY/PORTFOLIO_DRAWDOWN/ACCOUNT_BLOWUP)
         """
         # 计算本次交易PnL
-        current_pnl = self.get_pair_pnl()
+        current_pnl = self.get_pair_unrealized_pnl()
         current_cost = self.get_pair_cost()
         current_pnl_pct = (current_pnl / current_cost * 100) if (current_pnl and current_cost and current_cost > 0) else 0
 

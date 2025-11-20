@@ -113,7 +113,7 @@ class PairDrawdownRule(RiskRule):
 
         # 3. 单次交易回撤检测
         # 获取当前 PnL 和保证金成本 (Pairs 提供数据)
-        pnl = pair.get_pair_pnl()
+        pnl = pair.get_pair_unrealized_pnl()
         pair_cost = pair.get_pair_cost()
 
         # 数据完整性检查

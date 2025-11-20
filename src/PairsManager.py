@@ -264,3 +264,117 @@ class PairsManager:
     def log_statistics(self):
         """输出统计信息 - 使用 get_statistics()"""
         pass
+
+
+    # ===== 5. 行业情报站 (v7.40.0) =====
+
+    def get_industry_stats(self):
+        """
+        行业情报站 - 聚合行业级统计数据 (v7.40.0)
+
+        职责:
+            1. 按行业分组聚合配对数据
+            2. 计算7项核心指标 (持仓数, 净敞口, 漂移, 保证金, 浮盈, 累积收益, 胜率)
+            3. 过滤无意义行业 (无持仓且无历史交易)
+            4. 查询行业名称 (从config.constants['industry_names'])
+            5. 创建 IndustryStats 对象并返回 IndustryStatsCollection
+
+        使用场景:
+            - 日志输出: 输出行业级监控数据
+            - 风险监控: 检查行业集中度和对冲失衡
+            - 行业配额调整: 基于行业收益率动态调整配额
+
+        Returns:
+            IndustryStatsCollection: 行业统计集合容器
+
+        Example:
+            >>> industry_stats = pairs_manager.get_industry_stats()
+            >>> for industry_code, stats in industry_stats.items():
+            >>>     self.Debug(stats.to_log_string())
+
+            输出示例:
+            [行业统计] 半导体(31130): 持仓3对 | 净敞口$-5,200 | 漂移-2.1% |
+                       保证金$12,000 | 浮动盈亏$+850 | 累积收益+12.3% | 胜率66.7%
+        """
+        from src.industry import IndustryStats, IndustryStatsCollection
+        from collections import defaultdict
+
+        # === 步骤1: 按行业分组聚合数据 ===
+        industry_data = defaultdict(lambda: {
+            'position_count': 0,
+            'net_exposure': 0.0,
+            'gross_exposure': 0.0,
+            'margin_used': 0.0,
+            'unrealized_pnl': 0.0,
+            'realized_pnl': 0.0,
+            'realized_cost': 0.0,
+            'total_trades': 0,
+            'winning_trades': 0
+        })
+
+        # 遍历所有配对聚合数据
+        for _, pair in self.all_pairs.items():
+            industry_code = str(pair.industry_code)
+            data = industry_data[industry_code]
+
+            # 统计1-2: 持仓数和净敞口 (方案C: 只在内层检查)
+            net_exp = pair.get_net_exposure() 
+            if net_exp is not None:
+                data['position_count'] += 1  # 从净敞口返回值推导持仓数
+                data['net_exposure'] += net_exp
+
+            # 统计3: 总敞口
+            gross_exp = pair.get_gross_exposure()  
+            if gross_exp is not None:
+                data['gross_exposure'] += gross_exp
+
+            # 统计4-5: 保证金和浮盈
+            margin = pair.get_pair_cost()
+            if margin is not None:
+                data['margin_used'] += margin
+
+            pnl = pair.get_pair_unrealized_pnl()
+            if pnl is not None:
+                data['unrealized_pnl'] += pnl
+
+            # 统计6-7: 已实现盈亏和成本 (所有配对都累加历史数据)
+            data['realized_pnl'] += pair.total_pnl_dollars
+            data['realized_cost'] += pair.total_pair_cost
+
+            # 统计8-9: 交易次数和盈利次数
+            data['total_trades'] += pair.trade_count
+            data['winning_trades'] += pair.win_count
+
+        # === 步骤2: 过滤空行业 (无持仓且无历史交易) ===
+        filtered_data = {
+            industry_code: data
+            for industry_code, data in industry_data.items()
+            if data['position_count'] > 0 or data['total_trades'] > 0
+        }
+
+        # === 步骤3: 查询行业名称 (factory责任) ===
+        industry_names = self.algorithm.config.constants['industry_names']
+
+        # === 步骤4: 创建 IndustryStats 对象 ===
+        stats_dict = {}
+        for industry_code, data in filtered_data.items():
+            # 查询行业名称 (如果映射缺失则显示"未知")
+            industry_name = industry_names.get(int(industry_code), f'未知{industry_code}')
+
+            # 创建 IndustryStats 对象
+            stats_dict[industry_code] = IndustryStats(
+                industry_code=industry_code,
+                industry_name=industry_name,
+                position_count=data['position_count'],
+                net_exposure=data['net_exposure'],
+                gross_exposure=data['gross_exposure'],
+                margin_used=data['margin_used'],
+                unrealized_pnl=data['unrealized_pnl'],
+                realized_pnl=data['realized_pnl'],
+                realized_cost=data['realized_cost'],
+                total_trades=data['total_trades'],
+                winning_trades=data['winning_trades']
+            )
+
+        # === 步骤5: 返回 IndustryStatsCollection ===
+        return IndustryStatsCollection(stats_dict)
