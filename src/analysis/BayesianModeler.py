@@ -410,7 +410,7 @@ class BayesianModeler:
         result = {
             'symbol1': pair_data.symbol1,
             'symbol2': pair_data.symbol2,
-            'industry_group': pair_info['industry_group'],
+            'industry_code': pair_info['industry_code'],  # v7.40.8: 统一使用整数格式
             'modeling_type': prior_type,
             'modeling_time': self.algorithm.Time,
             **posterior_stats

@@ -82,13 +82,8 @@ class Pairs:
         # 创建Pairs对象
         pair = cls(algorithm, model_result, config)
 
-        # v7.12.0: 提取行业代码用于行业配额管理
-        symbol1 = model_result['symbol1']
-        try:
-            pair.industry_code = algorithm.Securities[symbol1].Fundamentals.AssetClassification.MorningstarIndustryGroupCode
-        except (AttributeError, KeyError):
-            algorithm.Debug(f"[Pairs] 警告: 无法获取{symbol1}的行业代码", 1)
-            pair.industry_code = None
+        # v7.40.8: industry_code已在数据流中传递(CointegrationAnalyzer → BayesianModeler → Pairs.__init__)
+        # 删除冗余提取逻辑(原Lines 85-91)
 
         return pair
 
@@ -106,8 +101,7 @@ class Pairs:
         self.symbol1 = model_data['symbol1']
         self.symbol2 = model_data['symbol2']
         self.pair_id = (self.symbol1.Value, self.symbol2.Value)
-        self.industry_group = model_data['industry_group']
-        self.industry_code = None                                               # v7.12.0: MorningstarIndustryGroupCode (在from_model_result中填充)
+        self.industry_code = int(model_data['industry_code'])                  # v7.40.8: 统一使用整数格式 (删除冗余industry_group字段)
         self.industry_quota_tier = None                                         # v7.32.0: 行业配额档次 ('tier0'/'tier1'/'tier2'/'tier3'/'tier4', 在PairSelector中填充)
 
         # === 统计参数(从贝叶斯建模获得) ===

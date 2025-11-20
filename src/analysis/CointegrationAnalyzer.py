@@ -194,7 +194,7 @@ class CointegrationAnalyzer:
                         'symbol1': symbol1,
                         'symbol2': symbol2,
                         'pvalue': pvalue,
-                        'industry_group': ig_name
+                        'industry_code': int(ig_name)  # v7.40.8: 统一使用整数格式
                     })
 
             except ValueError:
