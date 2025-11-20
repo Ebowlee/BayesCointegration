@@ -136,8 +136,8 @@ class Pairs:
         # === 交易历史统计 (已平仓交易 - 加权平均累计) ===
         self.trade_count = 0                                                   # 历史总交易次数
         self.win_count = 0                                                     # 历史盈利次数
-        self.realized_pnl = 0.0                                                # 已实现PnL (已平仓交易累计,加权平均分子)
-        self.realized_cost = 0.0                                               # 已实现成本 (已平仓交易累计,加权平均分母)
+        self.pair_realized_pnl = 0.0                                           # 已实现PnL (已平仓交易累计,加权平均分子)
+        self.pair_total_cost = 0.0                                             # 已实现成本 (已平仓交易累计,加权平均分母)
 
         # === 时间追踪 ===
         self.pair_opened_time = None                                           # 配对开仓时间(双腿都成交的时刻)
@@ -386,39 +386,51 @@ class Pairs:
 
     def get_pair_cost(self) -> Optional[float]:
         """
-        计算配对总保证金占用（Total Margin Required）
+        计算配对投入资本 (Invested Capital) - v7.40.7 修正
 
-        公式：
-        - 多头腿：market_value * margin_requirement_long (0.5)
-        - 空头腿：market_value * margin_requirement_short (1.5)
+        行业标准公式：
+            invested_capital = 0.5 × (market_value1 + market_value2)
 
-        金融原理：
-        - Regulation T 保证金规则：
-          * 多头：50% 保证金（买入 $10,000 需要 $5,000 保证金）
-          * 空头：150% 保证金（卖空 $10,000 需要 $15,000 保证金 = $10,000 借券 + $5,000 保证金）
-        - pair_cost 表示"实际占用的保证金"，而非"控制的市值"
-        - 用于回撤率和收益率计算的分母
+        物理含义：
+            - 表示实际投入的自有资金 (配对交易的成本基础)
+            - 用于ROI计算分母: ROI = PnL / invested_capital
+            - 不区分多空方向，只关心总市值规模
+
+        设计理由 (v7.40.7)：
+            - **行业一致性**: 配对交易收益率计算的标准方法
+            - **数学简洁**: 避免Regulation T的0.5/1.5复杂性
+            - **语义正确**: "成本"应指投入资本，而非监管保证金
+
+        Regulation T 保证金 (仅供参考，不用于ROI计算)：
+            - 多头: 50% 保证金 (买入 $10,000 需要 $5,000 保证金)
+            - 空头: 150% 保证金 (卖空 $10,000 需要 $15,000 保证金)
+            - 旧版公式 (v7.40.6): margin1 + margin2 = 0.5×多 + 1.5×空
+            - 问题: 导致ROI被人为压低约40%，不符合行业标准
 
         防御性设计：
-        - v7.40.2前: has_normal_position() 只支持对冲配对
-        - v7.40.2后: has_position() 支持所有持仓(包括单腿和同向)
+            - v7.40.2前: has_normal_position() 只支持对冲配对
+            - v7.40.2后: has_position() 支持所有持仓(包括单腿和同向)
+            - v7.40.7: 统一使用投入资本公式，不区分LONG_SPREAD/SHORT_SPREAD
 
         调用方：
-        - PairDrawdownRule.check()：计算回撤率
-        - TradeAnalyzer.analyze_trade()：计算交易成本
-        - 行业统计(含异常持仓)
-        - v7.40.2: 放宽支持异常持仓 (PARTIAL单腿也有保证金占用)
+            - _update_trade_stats(): 计算ROI分母 (核心修复点)
+            - _log_close_completion(): 显示当前收益率
+            - PairDrawdownRule.check(): 计算回撤率分母
+            - PairCumulativeLoss.check(): 计算累计亏损率分母
+            - PairsManager.get_industry_stats(): 行业统计保证金占用
 
         Returns:
-            配对总保证金（美元）或 None（无持仓/数据不完整）
+            配对投入资本（美元）或 None（无持仓/数据不完整）
 
-        Example:
+        Example (修正后):
             # LONG_SPREAD: qty1=+100, qty2=-100, price1=$50, price2=$50
-            # market_value1 = 100*50 = $5,000 (多头)
-            # market_value2 = 100*50 = $5,000 (空头)
-            # margin1 = 5000 * 0.5 = $2,500 (多头保证金)
-            # margin2 = 5000 * 1.5 = $7,500 (空头保证金)
-            # pair_cost = 2500 + 7500 = $10,000 (总保证金占用)
+            # market_value1 = 100*50 = $5,000 (多头市值)
+            # market_value2 = 100*50 = $5,000 (空头市值)
+            # invested_capital = 0.5 × (5000 + 5000) = $5,000 ✓
+            #
+            # 对比旧版 (v7.40.6):
+            # margin1 + margin2 = 5000×0.5 + 5000×1.5 = $10,000 ❌
+            # 导致同样$500盈利: 旧版ROI=5%, 新版ROI=10%
         """
         # v7.40.2: 放宽至所有持仓类型(包括异常持仓)
         if not self.has_position():
@@ -427,28 +439,62 @@ class Pairs:
         if self.entry_price1 is None or self.entry_price2 is None:
             return None
 
-        # 获取保证金率
-        margin_long = self.margin_long    # 0.5（多头50%）
-        margin_short = self.margin_short  # 1.5（空头150%）
-
-        # 计算市值
+        # 计算市值 (绝对值)
         market_value1 = abs(self.tracked_qty1 * self.entry_price1)
         market_value2 = abs(self.tracked_qty2 * self.entry_price2)
 
-        # 根据 qty1 符号判断方向
-        # has_normal_position() 已保证：
-        # - qty1 > 0 → LONG_SPREAD  (qty2 < 0)
-        # - qty1 < 0 → SHORT_SPREAD (qty2 > 0)
-        if self.tracked_qty1 > 0:
-            # LONG_SPREAD：symbol1 多头，symbol2 空头
-            margin1 = market_value1 * margin_long   # 多头保证金
-            margin2 = market_value2 * margin_short  # 空头保证金
-        else:
-            # SHORT_SPREAD：symbol1 空头，symbol2 多头
-            margin1 = market_value1 * margin_short  # 空头保证金
-            margin2 = market_value2 * margin_long   # 多头保证金
+        # v7.40.7: 行业标准公式 (不区分多空方向)
+        return 0.5 * (market_value1 + market_value2)
 
-        return margin1 + margin2
+
+    def get_pair_realized_pnl(self) -> float:
+        """
+        获取已实现盈亏（历史累计）- v7.40.6
+
+        职责：
+            - 返回所有已平仓交易的累计PnL（美元）
+            - 每次平仓时在 _update_trade_stats() 中累加
+            - 使用平仓价格计算（exit_price1/exit_price2）
+
+        使用场景：
+            - 行业统计：IndustryStats 计算行业累计收益
+            - 交易分析：计算配对历史表现
+            - 日志输出：显示配对累计盈亏
+
+        Returns：
+            float: 已实现盈亏总额（美元）
+
+        Example:
+            >>> pair.get_pair_realized_pnl()
+            15234.56  # 所有已平仓交易累计盈利$15,234.56
+        """
+        return self.pair_realized_pnl
+
+
+    def get_pair_historical_cost(self) -> float:
+        """
+        获取历史成本（历史累计）- v7.40.6
+
+        职责：
+            - 返回所有已平仓交易的累计成本（美元）
+            - 每次平仓时在 _update_trade_stats() 中累加
+            - 成本 = 保证金占用（开仓时固定）
+
+        使用场景：
+            - 行业统计：IndustryStats 计算行业累计收益率
+            - 交易分析：计算加权平均收益率
+            - 风险分析：评估资金使用效率
+
+        Returns：
+            float: 历史成本总额（美元）
+
+        Example:
+            >>> pair.get_pair_historical_cost()
+            125000.00  # 所有已平仓交易累计成本$125,000
+            >>> pair.get_accum_return_pct()
+            12.19  # (15234.56 / 125000) * 100 = 12.19%
+        """
+        return self.pair_total_cost
 
 
     def get_net_exposure(self) -> Optional[float]:
@@ -697,12 +743,12 @@ class Pairs:
         获取累积收益率 (%) - 多次交易的加权平均收益
 
         计算公式:
-            累积收益率 = (realized_pnl / realized_cost) × 100
+            累积收益率 = (pair_realized_pnl / pair_total_cost) × 100
 
         数学原理:
-            realized_pnl   = 第1笔PnL + 第2笔PnL + ... + 第N笔PnL
-            realized_cost  = 第1笔成本 + 第2笔成本 + ... + 第N笔成本
-            累积收益率    = (Σ PnL / Σ Cost) × 100  (加权平均,非简单平均)
+            pair_realized_pnl = 第1笔PnL + 第2笔PnL + ... + 第N笔PnL
+            pair_total_cost   = 第1笔成本 + 第2笔成本 + ... + 第N笔成本
+            累积收益率       = (Σ PnL / Σ Cost) × 100  (加权平均,非简单平均)
 
         示例:
             交易1: PnL=$500,  Cost=$10,000 → 收益率5%
@@ -722,8 +768,8 @@ class Pairs:
             - IndustryQuotaManager: 计算行业加权收益率
             - PerformanceAnalyzer: 生成配对历史报告
         """
-        if self.realized_cost > 0:
-            return (self.realized_pnl / self.realized_cost) * 100
+        if self.pair_total_cost > 0:
+            return (self.pair_realized_pnl / self.pair_total_cost) * 100
         return 0.0
 
 
@@ -1211,38 +1257,60 @@ class Pairs:
 
     def _update_trade_stats(self):
         """
-        更新交易历史统计 (加权平均累计)
+        更新交易历史统计 (加权平均累计) - v7.40.6 修复
 
-        在平仓时调用,计算本次交易收益并更新累计统计
+        在平仓时调用，使用平仓价格计算已实现PnL
+
+        关键修复:
+        - 使用 exit_price1/exit_price2 计算 PnL（而非实时价格）
+        - 调用时机：exit_price 已记录，tracked_qty 尚未清零
 
         计算逻辑:
-        - 本次交易PnL% = (pnl_dollars / pair_cost) * 100 (单次交易收益率)
-        - 累计美元PnL += pnl_dollars (分子累加)
-        - 累计保证金成本 += pair_cost (分母累加)
-        - 累计收益率 = (total_pnl_dollars / total_pair_cost) * 100 (加权平均,非简单相加)
-
-        设计理由:
-        加权平均考虑不同交易的成本差异,避免简单百分比相加的数学错误
+        - 本次交易PnL = (平仓市值 - 开仓成本)
+        - 平仓市值 = qty1×exit_price1 + qty2×exit_price2
+        - 开仓成本 = qty1×entry_price1 + qty2×entry_price2
+        - 累计PnL += 本次PnL (加权平均分子)
+        - 累计成本 += 本次成本 (加权平均分母)
 
         调用时机:
-        在清零追踪变量之前调用 (此时 exit_price 已记录,可计算 PnL)
+        on_position_filled(CLOSE) 中，在清零追踪变量之前调用
+        此时 exit_price 已记录，tracked_qty 尚未清零
         """
-        # 计算本次交易的美元PnL和保证金成本
-        pnl_dollars = self.get_pair_unrealized_pnl()
-        pair_cost = self.get_pair_cost()
-
-        # 数据完整性检查
-        if pnl_dollars is None or pair_cost is None or pair_cost <= 0:
-            # 数据不完整,跳过统计更新 (理论上不应发生,因为on_position_filled时数据应完整)
+        # === 步骤1：数据完整性检查 ===
+        if self.entry_price1 is None or self.entry_price2 is None:
+            self.algorithm.Debug(f"[统计错误] {self.pair_id} 缺少开仓价格", 1)
             return
 
-        # 累积美元PnL和成本(用于加权平均计算)
-        self.realized_pnl += pnl_dollars  # 分子: 已实现PnL
-        self.realized_cost += pair_cost   # 分母: 已实现成本
+        if self.exit_price1 is None or self.exit_price2 is None:
+            self.algorithm.Debug(f"[统计错误] {self.pair_id} 缺少平仓价格", 1)
+            return
 
-        # 更新计数统计
+        # === 步骤2：使用平仓价格计算已实现PnL ===
+        # 平仓市值（考虑方向：多头为正，空头为负）
+        exit_value = (self.tracked_qty1 * self.exit_price1 +
+                      self.tracked_qty2 * self.exit_price2)
+
+        # 开仓成本
+        entry_value = (self.tracked_qty1 * self.entry_price1 +
+                       self.tracked_qty2 * self.entry_price2)
+
+        # 已实现PnL = 平仓市值 - 开仓成本
+        pnl = exit_value - entry_value
+
+        # === 步骤3：计算保证金成本（与旧代码一致）===
+        cost = self.get_pair_cost()  # 保证金占用（开仓时固定）
+
+        if cost is None or cost <= 0:
+            self.algorithm.Debug(f"[统计错误] {self.pair_id} 保证金成本异常: {cost}", 1)
+            return
+
+        # === 步骤4：累加到历史统计 ===
+        self.pair_realized_pnl += pnl   # 分子：已实现PnL（使用平仓价格）
+        self.pair_total_cost += cost  # 分母：已实现成本（保证金占用）
+
+        # === 步骤5：更新计数统计 ===
         self.trade_count += 1
-        if pnl_dollars > 0:
+        if pnl > 0:
             self.win_count += 1
 
 
@@ -1265,8 +1333,8 @@ class Pairs:
         current_cost = self.get_pair_cost()
         current_pnl_pct = (current_pnl / current_cost * 100) if (current_pnl and current_cost and current_cost > 0) else 0
 
-        # 计算累计收益率 (直接读取已更新的realized_pnl/cost)
-        total_pnl_pct = (self.realized_pnl / self.realized_cost * 100) if self.realized_cost > 0 else 0
+        # 计算累计收益率 (直接读取已更新的pair_realized_pnl/pair_total_cost)
+        total_pnl_pct = (self.pair_realized_pnl / self.pair_total_cost * 100) if self.pair_total_cost > 0 else 0
 
         # 交易序号(此时 trade_count 已在 _update_trade_stats 中递增)
         trade_num = self.trade_count
