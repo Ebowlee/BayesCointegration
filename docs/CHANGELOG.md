@@ -5,6 +5,68 @@
 ---
 
 
+## [v7.40.4_rename-get-price-to-get-price-from-bar@20250120]
+
+### 版本概述
+将 `get_price()` 重命名为 `get_price_from_bar()`,使用金融行业标准术语,明确区分TradeBar价格和Portfolio价格。
+
+### 🎯 设计理念
+**"术语标准化 + 职责明确化"** - 使用行业标准术语"bar"(K线),明确方法从TradeBar获取收盘价用于决策
+
+### ✨ 核心变更
+
+#### 1. 方法重命名 ([Pairs.py:221](src/Pairs.py#L221))
+- **旧名称**: `get_price()` (通用,未区分价格来源)
+- **新名称**: `get_price_from_bar()` (明确从TradeBar获取)
+- **术语对齐**: 与QuantConnect的TradeBar命名一致
+
+**命名理由**:
+- **"bar"** = OHLC bar (金融行业标准术语)
+- 区分两种价格源:
+  - `get_price_from_bar(data)`: TradeBar.Close (用于决策)
+  - `Portfolio[symbol].Price`: 实时市场价格 (用于状态查询)
+
+#### 2. 增强方法文档
+**新增说明**:
+- **用途**: 信号生成, 意图生成, Beta对冲计算
+- **价格源区分**: TradeBar.Close vs Portfolio[].Price
+- **TradeBar解释**: QuantConnect data slice返回的K线对象
+
+### 🔧 修改详情
+
+#### 文件修改清单
+1. **src/Pairs.py** - 方法定义 + 4处调用
+   - L221: 方法定义及文档更新
+   - L649: `calculate_leg_values()` 调用更新
+   - L875: `get_zscore()` 文档示例更新
+   - L914: `get_signal()` 调用更新
+   - L998: `get_open_intent()` 调用更新
+
+### 💡 技术洞察
+
+#### TradeBar vs Portfolio价格的使用场景
+```python
+# ✓ 决策场景 - 使用TradeBar收盘价
+prices = pair.get_price_from_bar(data)  # 获取当前bar收盘价
+zscore = pair.get_zscore(prices[0], prices[1])  # 基于收盘价计算信号
+
+# ✓ 状态查询 - 使用Portfolio实时价格
+price1 = Portfolio[symbol1].Price  # 实时市场价格
+unrealized_pnl = pair.get_pair_unrealized_pnl()  # 基于实时价格计算浮盈
+```
+
+#### 术语标准化的价值
+- **行业通用**: "bar" = K线 (全球通用术语)
+- **避免歧义**: 比"data"更精确 (data可能包含其他数据类型)
+- **框架一致**: 与QuantConnect的`TradeBar`类命名对齐
+
+### 🔍 验证要点
+1. 所有调用点已更新 (4处代码 + 1处文档示例)
+2. 方法文档清晰说明TradeBar概念和价格源区分
+3. 无正则表达式遗漏调用 (`\.get_price\(` 搜索结果为空)
+
+---
+
 ## [v7.40.3_simplify-unrealized-pnl@20250120]
 
 ### 版本概述

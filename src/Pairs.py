@@ -218,10 +218,25 @@ class Pairs:
 
     # 2A. 实时数据查询
 
-    def get_price(self, data):
+    def get_price_from_bar(self, data):
         """
-        从data slice获取最新价格
-        返回: (price1, price2) 或 None
+        从TradeBar获取Close价格
+
+        用途:
+        - 信号生成: 基于bar收盘价计算Z-score
+        - 意图生成: 基于bar收盘价计算开仓数量
+        - Beta对冲: 基于bar收盘价计算腿位价值
+
+        价格源区分:
+        - TradeBar.Close: 用于决策(本方法) ← 当前bar的收盘价
+        - Portfolio[].Price: 用于状态查询 ← 实时市场价格
+
+        Args:
+            data: QuantConnect data slice containing TradeBar objects
+
+        Returns:
+            tuple: (price1, price2) - Close prices from current bar
+            None: 如果数据缺失或价格无效
 
         安全检查:
         - symbol在data中存在
@@ -631,7 +646,7 @@ class Pairs:
             - v7.34.0修复后预期"两腿都亏损"从28.1%降至<10%
         """
         # 获取当前价格
-        prices = self.get_price(data)
+        prices = self.get_price_from_bar(data)
         if prices is None:
             return None, None
         price_1, price_2 = prices
@@ -857,7 +872,7 @@ class Pairs:
 
         使用场景:
             # 场景1: 信号生成时
-            prices = self.get_price(data)
+            prices = self.get_price_from_bar(data)
             if prices:
                 zscore = self.get_zscore(prices[0], prices[1])
 
@@ -896,7 +911,7 @@ class Pairs:
         一步到位的接口,内部自动计算所需信息
         """
         # 获取价格（数据获取在调用者）
-        prices = self.get_price(data)
+        prices = self.get_price_from_bar(data)
         if prices is None:
             return 'NO_DATA'
 
@@ -980,7 +995,7 @@ class Pairs:
             return None  # 市值计算失败
 
         # 获取价格
-        prices = self.get_price(data)
+        prices = self.get_price_from_bar(data)
         if prices is None:
             return None  # 价格获取失败
         price1, price2 = prices
