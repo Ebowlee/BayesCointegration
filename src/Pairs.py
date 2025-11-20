@@ -433,23 +433,111 @@ class Pairs:
         return margin1 + margin2
 
 
+    def get_net_exposure(self) -> Optional[float]:
+        """
+        计算净敞口 (Dollar Net Exposure) - v7.40.0
+
+        公式:
+            Net Exposure = value1 + value2
+            - 正值: 净多头敞口 (市场涨我赚)
+            - 负值: 净空头敞口 (市场跌我赚)
+            - 0: 完美对冲
+
+        价格来源:
+            - 始终使用实时价格 (Portfolio.Price)
+            - 设计理由: "exposure"语义是当前持仓的市场暴露,不是历史回顾
+
+        应用场景:
+            - 行业级统计: IndustryStats 聚合净敞口
+            - 风险监控: 检查单边敞口风险
+            - 调用前提: 仅在 has_position()=True 时调用
+
+        Returns:
+            float: 净敞口金额 (美元), None表示无持仓或数据异常
+
+        Example:
+            # LONG_SPREAD: qty1=+100, qty2=-100, price1=$50, price2=$48
+            # value1 = +100 * 50 = $5,000 (多头)
+            # value2 = -100 * 48 = -$4,800 (空头)
+            # net_exposure = 5000 + (-4800) = $200 (净多头)
+        """
+        if not self.has_normal_position():
+            return None
+
+        # 使用实时价格 (v7.40.0修正: 移除exit_price逻辑)
+        portfolio = self.algorithm.Portfolio
+        price1 = portfolio[self.symbol1].Price
+        price2 = portfolio[self.symbol2].Price
+
+        # 计算两腿市值 (带符号)
+        val1 = self.tracked_qty1 * price1
+        val2 = self.tracked_qty2 * price2
+
+        # 净敞口 = 两腿市值之和
+        return val1 + val2
+
+
+    def get_gross_exposure(self) -> Optional[float]:
+        """
+        计算总敞口 (Dollar Gross Exposure) - v7.40.0
+
+        公式:
+            Gross Exposure = |value1| + |value2|
+
+        物理含义:
+            - 衡量配对的总市值规模 (不考虑方向)
+            - 作为漂移率计算的分母
+
+        价格来源:
+            - 始终使用实时价格 (Portfolio.Price)
+            - 设计理由: "exposure"语义是当前持仓的市场暴露,不是历史回顾
+
+        应用场景:
+            - 行业级统计: IndustryStats 聚合总敞口
+            - 漂移率计算: drift = net_exposure / gross_exposure
+            - 调用前提: 仅在 has_position()=True 时调用
+
+        Returns:
+            float: 总敞口金额 (美元), None表示无持仓或数据异常
+
+        Example:
+            # LONG_SPREAD: qty1=+100, qty2=-100, price1=$50, price2=$48
+            # value1 = +100 * 50 = $5,000 (多头)
+            # value2 = -100 * 48 = -$4,800 (空头)
+            # gross_exposure = |5000| + |-4800| = $9,800 (总敞口)
+        """
+        if not self.has_normal_position():
+            return None
+
+        # 使用实时价格 (v7.40.0修正: 移除exit_price逻辑)
+        portfolio = self.algorithm.Portfolio
+        price1 = portfolio[self.symbol1].Price
+        price2 = portfolio[self.symbol2].Price
+
+        # 计算两腿市值 (带符号)
+        val1 = self.tracked_qty1 * price1
+        val2 = self.tracked_qty2 * price2
+
+        # 总敞口 = 两腿市值绝对值之和
+        return abs(val1) + abs(val2)
+
+
     # ===== 3. 核心算力 =====
 
     def get_hedge_drift(self) -> Optional[float]:
         """
-        计算对冲漂移率 - 衡量持仓偏离完美对冲的程度
+        计算对冲漂移率 - 衡量持仓偏离完美对冲的程度 (v7.40.1)
 
         物理含义:
             衡量当前持仓市值偏离"Dollar Neutral"的程度
             Drift% = (Net Exposure / Gross Exposure) × 100
 
         应用场景:
-            1. 持仓中: 使用实时价格监控对冲质量
-            2. 平仓后: 使用平仓价格分析亏损原因
+            仅用于持仓中实时监控对冲质量
 
-        价格选择逻辑:
-            - 如果 exit_price 存在 → 使用平仓价 (平仓后复盘)
-            - 否则 → 使用实时价格 (持仓中监控)
+        设计原则 (v7.40.1):
+            - DRY: 直接调用 get_net_exposure() 和 get_gross_exposure()
+            - 概念纯粹: exposure 只适用于活跃持仓,不支持平仓后复盘
 
         Returns:
             对冲漂移率(%) 或 None(无持仓/数据异常)
@@ -463,45 +551,20 @@ class Pairs:
 
         Example:
             # 持仓中监控
-            drift = pair.get_hedge_drift()  # 自动使用实时价格
+            drift = pair.get_hedge_drift()
             if drift and abs(drift) > 30:
                 self.Debug(f"[对冲警告] {pair.pair_id} 漂移{drift:.1f}%")
-
-            # 平仓后复盘 (在_log_close_completion中)
-            drift = pair.get_hedge_drift()  # 自动使用平仓价格
-            self.Debug(f"[对冲诊断] 平仓时漂移{drift:.1f}%")
         """
-        # 1. 状态检查 (排除单腿/同向/无持仓)
-        if not self.has_normal_position():
+        # 直接调用已有方法 - DRY原则 (v7.40.1)
+        net_exp = self.get_net_exposure()
+        gross_exp = self.get_gross_exposure()
+
+        # 防御性检查
+        if net_exp is None or gross_exp is None or gross_exp == 0:
             return None
 
-        # 2. 智能价格选择
-        if self.exit_price1 is not None and self.exit_price2 is not None:
-            # 场景1: 平仓后 - 使用平仓价格
-            price1 = self.exit_price1
-            price2 = self.exit_price2
-        else:
-            # 场景2: 持仓中 - 使用实时价格
-            portfolio = self.algorithm.Portfolio
-            price1 = portfolio[self.symbol1].Price
-            price2 = portfolio[self.symbol2].Price
-
-        # 3. 计算两腿市值 (带符号)
-        val1 = self.tracked_qty1 * price1
-        val2 = self.tracked_qty2 * price2
-
-        # 4. 计算净敞口和总敞口
-        net_exposure = val1 + val2          # 理论应为0
-        gross_exposure = abs(val1) + abs(val2)
-
-        # 5. 防止除零
-        if gross_exposure == 0:
-            return None
-
-        # 6. 计算漂移率 (百分比)
-        drift = (net_exposure / gross_exposure) * 100
-
-        return drift
+        # 计算漂移率 (百分比)
+        return (net_exp / gross_exp) * 100
 
 
     def calculate_leg_values(self, allocated_amount: float, signal: str, data):
@@ -898,11 +961,6 @@ class Pairs:
             if intent:
                 tickets = order_executor.execute_open(intent)
                 tickets_manager.register_tickets(pair.pair_id, tickets, OrderAction.OPEN)
-
-        与旧版open_position()的对比:
-            旧版: pair.open_position(signal, amount, data) → [ticket1, ticket2]
-            新版: pair.get_open_intent(amount, data) → Intent → executor.execute() → tickets
-            优势: Pairs不再依赖algorithm.MarketOrder(),职责更清晰
         """
         # 自动检测信号
         signal = self.get_signal(data)
@@ -968,12 +1026,7 @@ class Pairs:
             intent = pair.get_close_intent(reason='STOP_LOSS')
             if intent:
                 tickets = order_executor.execute_close(intent)
-                tickets_manager.register_tickets(pair.pair_id, tickets, OrderAction.CLOSE)
-
-        与旧版close_position()的对比:
-            旧版: pair.close_position(reason) → [ticket1, ticket2]
-            新版: pair.get_close_intent(reason) → Intent → executor.execute() → tickets
-            优势: Pairs不再依赖algorithm.MarketOrder(),职责更清晰
+                tickets_manager.register_tickets(pair.pair_id, tickets, OrderAction.CLOSE
 
         设计说明:
             - reason参数会编码到tag中(便于日志追踪和统计分析)
@@ -1263,7 +1316,8 @@ class Pairs:
             )
 
             # v7.39.0: 对冲漂移诊断 - 分析亏损原因(Alpha风险 vs Beta风险)
-            hedge_drift = self.get_hedge_drift()  # 自动使用exit_price
+            # v7.40.1: 简化后此功能不再输出(平仓后exposure=None)
+            hedge_drift = self.get_hedge_drift()
             if hedge_drift is not None:
                 self.algorithm.Debug(
                     f"[对冲诊断] {self.pair_id} | 平仓时漂移={hedge_drift:+.2f}%",
