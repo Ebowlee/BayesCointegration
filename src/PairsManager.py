@@ -431,18 +431,18 @@ class PairsManager:
             if gross_exp is not None:
                 data['gross_exposure'] += gross_exp
 
-            # 统计4-5: 保证金和浮盈
-            margin = pair.get_pair_cost()
-            if margin is not None:
-                data['margin_used'] += margin
+            # 统计4-5: 投入资本和浮盈
+            invested = pair.get_pair_invested_capital()
+            if invested is not None:
+                data['margin_used'] += invested
 
             pnl = pair.get_pair_unrealized_pnl()
             if pnl is not None:
                 data['unrealized_pnl'] += pnl
 
-            # 统计6-7: 已实现盈亏和成本 (所有配对都累加历史数据)
+            # 统计6-7: 已实现盈亏和投入资本 (所有配对都累加历史数据)
             data['realized_pnl'] += pair.get_pair_realized_pnl()
-            data['realized_cost'] += pair.get_pair_historical_cost()
+            data['realized_cost'] += pair.pair_total_invested_capital  # v7.51.0: 直接访问属性
 
             # 统计8-9: 交易次数和盈利次数
             data['total_trades'] += pair.trade_count

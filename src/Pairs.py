@@ -105,7 +105,7 @@ class Pairs:
         self.trade_count = 0                                                   # 历史总交易次数
         self.win_count = 0                                                     # 历史盈利次数
         self.pair_realized_pnl = 0.0                                           # 已实现PnL (已平仓交易累计,加权平均分子)
-        self.pair_total_cost = 0.0                                             # 已实现成本 (已平仓交易累计,加权平均分母)
+        self.pair_total_invested_capital = 0.0                                  # 已实现投入资本 (已平仓交易累计,加权平均分母)
 
         # === 时间追踪 ===
         self.pair_opened_time = None                                           # 配对开仓时间(双腿都成交的时刻)
@@ -170,9 +170,146 @@ class Pairs:
         return True
 
 
-    # ===== 2. 状态查询 =====
+    # ===== 2. 纯计算层 (Pure Computation) =====
+    # 特征: @staticmethod, 无self依赖, 纯函数, 可独立单元测试
 
-    # 2A. 实时数据查询
+    @staticmethod
+    def _calculate_zscore_pure(price1: float, price2: float,
+                                alpha: float, beta: float,
+                                residual_mean: float, residual_std: float) -> Optional[float]:
+        """
+        纯计算: Z-score (v7.50.0 分层重构)
+
+        公式:
+            log_residual = ln(price1) - (alpha + beta × ln(price2))
+            zscore = (log_residual - residual_mean) / residual_std
+
+        Args:
+            price1: symbol1的价格
+            price2: symbol2的价格
+            alpha: 截距 (对数空间)
+            beta: 斜率 (对数空间)
+            residual_mean: 残差均值
+            residual_std: 残差标准差
+
+        Returns:
+            Z-score值 或 None (计算失败时)
+
+        设计原则:
+            - 无self依赖: 所有参数显式传入
+            - 可测试性: 可用简单assert测试, 无需mock QuantConnect
+        """
+        # 参数校验
+        if price1 <= 0 or price2 <= 0 or residual_std <= 0:
+            return None
+
+        try:
+            log_residual = np.log(price1) - (alpha + beta * np.log(price2))
+            zscore = (log_residual - residual_mean) / residual_std
+            return zscore
+        except (ValueError, ZeroDivisionError, OverflowError):
+            return None
+
+    @staticmethod
+    def _calculate_leg_values_pure(
+        allocated_amount: float,
+        signal: str,
+        beta: float,
+        margin_long: float,
+        margin_short: float
+    ) -> Tuple[Optional[float], Optional[float]]:
+        """
+        纯计算: Beta对冲两腿市值 (v7.50.0 分层重构)
+
+        核心公式 (v7.42.0):
+            LONG_SPREAD: γ₁ = β·(m_S-1)/m_L
+            SHORT_SPREAD: γ₂ = β·m_L/(m_S-1)
+
+        Args:
+            allocated_amount: 分配资金 (A)
+            signal: 交易信号 ('LONG_SPREAD' 或 'SHORT_SPREAD')
+            beta: Beta系数绝对值 (用于对冲比例计算)
+            margin_long: 做多保证金率 (如0.5)
+            margin_short: 做空初始保证金率 (如1.5)
+
+        Returns:
+            (value_1, value_2): 两腿目标市值, 失败返回(None, None)
+
+        设计原则:
+            - 无self依赖: 所有参数显式传入
+            - 无日志输出: 错误由上层处理
+            - 可测试性: 纯数学计算, 可独立单元测试
+        """
+        # 参数校验
+        if allocated_amount <= 0 or beta <= 0:
+            return None, None
+        if margin_long <= 0 or margin_short <= 1:
+            return None, None
+
+        k_S = margin_short - 1.0  # 做空实际本金占用系数
+
+        if signal == 'LONG_SPREAD':
+            gamma = beta * k_S / margin_long
+            x1 = allocated_amount / (1 + gamma)
+            x2 = allocated_amount * gamma / (1 + gamma)
+            value_1 = x1 / margin_long
+            value_2 = x2 / k_S
+
+        elif signal == 'SHORT_SPREAD':
+            gamma = beta * margin_long / k_S
+            x1 = allocated_amount / (1 + gamma)
+            x2 = allocated_amount * gamma / (1 + gamma)
+            value_1 = x1 / k_S
+            value_2 = x2 / margin_long
+
+        else:
+            return None, None
+
+        # 安全检查: 资金分配合理性
+        if x1 <= 0 or x2 <= 0:
+            return None, None
+
+        return value_1, value_2
+
+    @staticmethod
+    def _calculate_invested_capital_pure(
+        qty1: float, qty2: float,
+        entry_price1: float, entry_price2: float
+    ) -> Optional[float]:
+        """
+        纯计算: 配对投入资本 (v7.51.0 术语规范化)
+
+        行业标准公式：
+            invested_capital = 0.5 × (market_value1 + market_value2)
+
+        Args:
+            qty1: symbol1持仓数量
+            qty2: symbol2持仓数量
+            entry_price1: symbol1入场价
+            entry_price2: symbol2入场价
+
+        Returns:
+            投入资本 或 None (参数无效时)
+
+        设计原则:
+            - 无self依赖: 所有参数显式传入
+            - 可测试性: 纯数学计算, 可独立单元测试
+        """
+        # 参数校验
+        if entry_price1 is None or entry_price2 is None:
+            return None
+        if entry_price1 <= 0 or entry_price2 <= 0:
+            return None
+
+        market_value1 = abs(qty1 * entry_price1)
+        market_value2 = abs(qty2 * entry_price2)
+
+        return 0.5 * (market_value1 + market_value2)
+
+
+    # ===== 3. 数据访问层 (Data Access) =====
+
+    # 3A. 实时数据查询
 
     def get_price_from_bar(self, data):
         """
@@ -287,9 +424,11 @@ class Pairs:
         return pnl
 
 
-    def get_pair_cost(self) -> Optional[float]:
+    def get_pair_invested_capital(self) -> Optional[float]:
         """
-        计算配对投入资本 (Invested Capital) - v7.40.7 修正
+        数据访问层: 获取配对投入资本 (v7.51.0 术语规范化)
+
+        职责: 读取self属性, 委托给纯计算层
 
         行业标准公式：
             invested_capital = 0.5 × (market_value1 + market_value2)
@@ -299,30 +438,26 @@ class Pairs:
             - 用于ROI计算分母: ROI = PnL / invested_capital
             - 不区分多空方向，只关心总市值规模
 
-        Regulation T 保证金 (仅供参考，不用于ROI计算)：
-            - 多头: 50% 保证金 (买入 $10,000 需要 $5,000 保证金)
-            - 空头: 150% 保证金 (卖空 $10,000 需要 $15,000 保证金)
-            - 旧版公式 (v7.40.6): margin1 + margin2 = 0.5×多 + 1.5×空
-            - 问题: 导致ROI被人为压低约40%，不符合行业标准
-
         调用方：
-            - _update_trade_stats(): 计算ROI分母 (核心修复点)
+            - _update_trade_stats(): 计算ROI分母
             - _log_close_completion(): 显示当前收益率
             - PairDrawdownRule.check(): 计算回撤率分母
             - PairCumulativeLoss.check(): 计算累计亏损率分母
             - PairsManager.get_industry_stats(): 行业统计保证金占用
+
+        设计演进:
+            v7.40.7: 修正为行业标准公式
+            v7.50.0: 计算逻辑提取到 _calculate_pair_cost_pure()
+            v7.51.0: 重命名 get_pair_cost → get_pair_invested_capital
         """
         # 支持所有持仓类型(包括异常持仓)
         if not self.has_position():
             return None
 
-        if self.entry_price1 is None or self.entry_price2 is None:
-            return None
-
-        market_value1 = abs(self.tracked_qty1 * self.entry_price1)
-        market_value2 = abs(self.tracked_qty2 * self.entry_price2)
-
-        return 0.5 * (market_value1 + market_value2)
+        return self._calculate_invested_capital_pure(
+            self.tracked_qty1, self.tracked_qty2,
+            self.entry_price1, self.entry_price2
+        )
 
 
     def get_pair_realized_pnl(self) -> float:
@@ -335,18 +470,6 @@ class Pairs:
             - 使用平仓价格计算（exit_price1/exit_price2）
         """
         return self.pair_realized_pnl
-
-
-    def get_pair_historical_cost(self) -> float:
-        """
-        获取历史成本（历史累计）- v7.40.6
-
-        职责：
-            - 返回所有已平仓交易的累计成本（美元）
-            - 每次平仓时在 _update_trade_stats() 中累加
-            - 成本 = 保证金占用（开仓时固定）
-        """
-        return self.pair_total_cost
 
 
     def get_net_exposure(self) -> Optional[float]:
@@ -403,7 +526,8 @@ class Pairs:
         return abs(val1) + abs(val2)
 
 
-    # ===== 3. 核心算力 =====
+    # ===== 4. 业务逻辑层 (Business Logic) =====
+    # 特征: 组合数据访问层方法, 包含条件判断, 实现复杂计算
 
     def get_hedge_drift(self) -> Optional[float]:
         """
@@ -438,77 +562,49 @@ class Pairs:
         return (net_exp / gross_exp) * 100
 
 
-    def calculate_leg_values(self, allocated_amount: float, signal: str, data):
+    def get_leg_values(self, allocated_amount: float, signal: str, data):
         """
-        Beta对冲市值计算 - 从分配资金计算两腿目标市值 (v7.42.0通用化)
+        数据访问层: 获取Beta对冲两腿市值 (v7.50.0 分层重构)
 
-        核心改进 (v7.42.0):
-            区分 LONG_SPREAD 和 SHORT_SPREAD 的保证金分配逻辑
-            支持任意保证金率配置 (m_L, m_S),消除 m_L = k_S 的特例假设
-
-        通用公式:
-            LONG_SPREAD: γ₁ = β·(m_S-1)/m_L
-            SHORT_SPREAD: γ₂ = β·m_L/(m_S-1)
-            特例: 当 m_L = m_S-1 时, γ₁ = γ₂ = β (v7.41.0等价)
+        职责: 读取self属性, 委托给纯计算层
+        重命名: calculate_leg_values → get_leg_values (符合数据访问层命名规范)
 
         Args:
             allocated_amount: 分配资金 (A)
             signal: 交易信号 ('LONG_SPREAD' 或 'SHORT_SPREAD')
-            data: 数据切片 (获取当前价格)
+            data: 数据切片 (获取当前价格 - 用于验证)
 
         Returns:
             (value_1, value_2): 两腿目标市值, 失败返回(None, None)
+
+        设计演进:
+            v7.42.0: 通用化公式, 支持任意保证金率配置
+            v7.50.0: 计算逻辑提取到 _calculate_leg_values_pure()
         """
-        # 获取当前价格
+        # 获取当前价格 (用于验证)
         prices = self.get_price_from_bar(data)
         if prices is None:
             return None, None
         price_1, price_2 = prices
 
-        # 避免除零
+        # 价格有效性检查
         if price_1 <= 0 or price_2 <= 0:
             self.algorithm.Debug(f"[计算失败] {self.pair_id} 价格异常: Symbol1={price_1}, Symbol2={price_2}")
             return None, None
 
+        # 准备参数并调用纯计算层
         beta = abs(self.beta_mean) if abs(self.beta_mean) != 0 else 1
 
-        # 保证金率参数 (从config读取)
-        m_L = self.margin_long                # 做多保证金率 (如0.5)
-        m_S = self.margin_short               # 做空初始保证金率 (如1.5)
-        k_S = m_S - 1.0                       # 做空实际本金占用系数 (如0.5)
+        result = self._calculate_leg_values_pure(
+            allocated_amount, signal, beta,
+            self.margin_long, self.margin_short
+        )
 
-        # v7.42.0: 区分 LONG_SPREAD 和 SHORT_SPREAD
-        if signal == 'LONG_SPREAD':
-            # LONG_SPREAD 公式: γ₁ = β·(m_S-1)/m_L
-            gamma = beta * k_S / m_L
-            x1 = allocated_amount / (1 + gamma)     # Leg1 做多保证金
-            x2 = allocated_amount * gamma / (1 + gamma)  # Leg2 做空保证金
+        # 处理纯计算层返回的错误
+        if result[0] is None:
+            self.algorithm.Debug(f"[计算失败] {self.pair_id} 信号={signal}, 资金={allocated_amount:.2f}")
 
-            # 市值计算
-            value_1 = x1 / m_L    # Leg1 Long: V₁ = x₁/m_L
-            value_2 = x2 / k_S    # Leg2 Short: V₂ = x₂/(m_S-1)
-
-        elif signal == 'SHORT_SPREAD':
-            # SHORT_SPREAD 公式: γ₂ = β·m_L/(m_S-1)
-            gamma = beta * m_L / k_S
-            x1 = allocated_amount / (1 + gamma)     # Leg1 做空保证金
-            x2 = allocated_amount * gamma / (1 + gamma)  # Leg2 做多保证金
-
-            # 市值计算
-            value_1 = x1 / k_S    # Leg1 Short: V₁ = x₁/(m_S-1)
-            value_2 = x2 / m_L    # Leg2 Long: V₂ = x₂/m_L
-
-        else:
-            # 容错: 信号无效
-            self.algorithm.Debug(f"[计算失败] {self.pair_id} 信号无效: {signal}")
-            return None, None
-
-        # 安全检查: 资金分配合理性
-        if x1 <= 0 or x2 <= 0:
-            self.algorithm.Debug(f"[计算失败] {self.pair_id} 资金分配异常: x1={x1:.2f}, x2={x2:.2f}")
-            return None, None
-
-        return value_1, value_2
+        return result
 
 
     # 3C. 时间查询
@@ -586,13 +682,14 @@ class Pairs:
         return (self.algorithm.UtcTime - self.pair_closed_time).days
 
 
-    # ===== 5. 决策与意图 =====
+    # ===== 5. 外部接口层 (Public API) =====
+    # 特征: 对外暴露的核心接口, 整合各层实现完整功能
 
     def get_zscore(self, price1: float, price2: float) -> Optional[float]:
         """
-        计算配对的Z-score (通用方法)
+        数据访问层: 获取Z-score (v7.50.0 分层重构)
 
-        职责: 纯计算逻辑, 不涉及数据获取
+        职责: 读取self属性, 委托给纯计算层
 
         参数:
             price1: symbol1的价格
@@ -611,29 +708,13 @@ class Pairs:
             fill_zscore = self.get_zscore(ticket1.AverageFillPrice, ticket2.AverageFillPrice)
 
         设计演进:
-            原设计: 接受data参数, 内部调用get_price()获取价格
-            新设计: 接受价格参数, 职责更单一, 支持多种价格来源(实时/成交/历史)
+            v7.50.0: 计算逻辑提取到 _calculate_zscore_pure(), 此方法仅负责读取参数并调用
         """
-        # 价格有效性检查
-        if price1 <= 0 or price2 <= 0:
-            return None
-
-        # 安全检查
-        if self.residual_std <= 0:
-            return None
-
-        try:
-            # 计算对数空间的残差(与贝叶斯模型一致)
-            log_residual = np.log(price1) - (self.alpha_mean + self.beta_mean * np.log(price2))
-
-            # 计算Z-score
-            zscore = (log_residual - self.residual_mean) / self.residual_std
-
-            return zscore
-
-        except (ValueError, ZeroDivisionError, OverflowError):
-            # 处理极端情况（如price<=0导致np.log失败）
-            return None
+        return self._calculate_zscore_pure(
+            price1, price2,
+            self.alpha_mean, self.beta_mean,
+            self.residual_mean, self.residual_std
+        )
 
 
     def get_signal(self, data):
@@ -707,7 +788,7 @@ class Pairs:
         执行流程:
         1. 调用get_signal()检测信号类型
         2. 如果不是LONG_SPREAD或SHORT_SPREAD,返回None
-        3. 计算目标市值(调用calculate_leg_values)
+        3. 计算目标市值(调用get_leg_values)
         4. 获取当前价格
         5. 计算目标数量(整数股)
         6. 构建OpenIntent对象并返回
@@ -732,7 +813,7 @@ class Pairs:
             return None  # 无开仓信号
 
         # 计算目标市值
-        value1, value2 = self.calculate_leg_values(amount_allocated, signal, data)
+        value1, value2 = self.get_leg_values(amount_allocated, signal, data)
         if value1 is None or value2 is None:
             return None  # 市值计算失败
 
@@ -834,7 +915,8 @@ class Pairs:
             return f"{self.pair_id}_{action}"
 
 
-    # ===== 6. 生命周期回调 =====
+    # ===== 6. 生命周期回调 (Lifecycle Callbacks) =====
+    # 特征: 由外部系统调用的回调方法, 处理状态更新
 
     def on_position_filled(self, action: str, fill_time, tickets, reason: str = None):
         """
@@ -962,16 +1044,16 @@ class Pairs:
         # 已实现PnL = 平仓市值 - 开仓成本
         pnl = exit_value - entry_value
 
-        # === 步骤3：计算保证金成本（与旧代码一致）===
-        cost = self.get_pair_cost()  # 保证金占用（开仓时固定）
+        # === 步骤3：计算投入资本（与旧代码一致）===
+        invested_capital = self.get_pair_invested_capital()  # 投入资本（开仓时固定）
 
-        if cost is None or cost <= 0:
-            self.algorithm.Debug(f"[统计错误] {self.pair_id} 保证金成本异常: {cost}", 1)
+        if invested_capital is None or invested_capital <= 0:
+            self.algorithm.Debug(f"[统计错误] {self.pair_id} 投入资本异常: {invested_capital}", 1)
             return
 
         # === 步骤4：累加到历史统计 ===
         self.pair_realized_pnl += pnl   # 分子：已实现PnL（使用平仓价格）
-        self.pair_total_cost += cost  # 分母：已实现成本（保证金占用）
+        self.pair_total_invested_capital += invested_capital  # 分母：已实现投入资本
 
         # === 步骤5：更新计数统计 ===
         self.trade_count += 1
@@ -995,11 +1077,11 @@ class Pairs:
         """
         # 计算本次交易PnL
         current_pnl = self.get_pair_unrealized_pnl()
-        current_cost = self.get_pair_cost()
-        current_pnl_pct = (current_pnl / current_cost * 100) if (current_pnl and current_cost and current_cost > 0) else 0
+        current_invested = self.get_pair_invested_capital()
+        current_pnl_pct = (current_pnl / current_invested * 100) if (current_pnl and current_invested and current_invested > 0) else 0
 
-        # 计算累计收益率 (直接读取已更新的pair_realized_pnl/pair_total_cost)
-        total_pnl_pct = (self.pair_realized_pnl / self.pair_total_cost * 100) if self.pair_total_cost > 0 else 0
+        # 计算累计收益率 (直接读取已更新的pair_realized_pnl/pair_total_invested_capital)
+        total_pnl_pct = (self.pair_realized_pnl / self.pair_total_invested_capital * 100) if self.pair_total_invested_capital > 0 else 0
 
         # 交易序号(此时 trade_count 已在 _update_trade_stats 中递增)
         trade_num = self.trade_count

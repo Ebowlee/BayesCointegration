@@ -104,12 +104,12 @@ class PairCumulativeLossRule(RiskRule):
         if pair.trade_count == 0:
             # 第1次交易: 使用当前浮动PnL计算累计收益率
             current_pnl = pair.get_pair_unrealized_pnl()
-            current_cost = pair.get_pair_cost()
+            current_invested = pair.get_pair_invested_capital()  # v7.51.0: 术语规范化
 
-            if current_pnl is None or current_cost is None or current_cost <= 0:
+            if current_pnl is None or current_invested is None or current_invested <= 0:
                 return False, ""
 
-            cumulative_return = current_pnl / current_cost  # 浮动收益率
+            cumulative_return = current_pnl / current_invested  # 浮动收益率
         else:
             # 历史交易: 使用已平仓交易的累计收益率
             if pair.realized_cost <= 0:
