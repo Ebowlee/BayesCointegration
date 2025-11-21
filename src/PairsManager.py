@@ -24,6 +24,10 @@ class IndustryData:
         投入资本维度:
             - current_invested_capital: 当前投入资本 (持仓中配对的投入)
             - past_invested_capital: 历史投入资本 (已平仓交易的累计投入)
+        交易质量维度 (v7.57.0):
+            - trade_count: 交易次数 (已平仓交易计数)
+            - win_count: 盈利次数 (pnl > 0 的交易计数)
+            - past_total_holding_days: 累计持仓天数 (已平仓交易)
 
     使用场景:
         - 由 PairsManager._aggregate_*() 方法创建
@@ -34,7 +38,10 @@ class IndustryData:
                  unrealized_pnl: float = 0.0,
                  realized_pnl: float = 0.0,
                  current_invested_capital: float = 0.0,
-                 past_invested_capital: float = 0.0):
+                 past_invested_capital: float = 0.0,
+                 trade_count: int = 0,
+                 win_count: int = 0,
+                 past_total_holding_days: float = 0.0):
         """
         初始化行业数据对象
 
@@ -44,12 +51,19 @@ class IndustryData:
             realized_pnl: 已实现盈亏 (已平仓累计)
             current_invested_capital: 当前投入资本 (持仓中)
             past_invested_capital: 历史投入资本 (已平仓累计)
+            trade_count: 交易次数 (已平仓交易计数, v7.57.0)
+            win_count: 盈利次数 (pnl > 0, v7.57.0)
+            past_total_holding_days: 累计持仓天数 (已平仓交易, v7.57.0)
         """
         self.industry_code = industry_code
         self.unrealized_pnl = unrealized_pnl
         self.realized_pnl = realized_pnl
         self.current_invested_capital = current_invested_capital
         self.past_invested_capital = past_invested_capital
+        # 交易质量维度 (v7.57.0)
+        self.trade_count = trade_count
+        self.win_count = win_count
+        self.past_total_holding_days = past_total_holding_days
 
 
 class PairsManager:
@@ -92,12 +106,12 @@ class PairsManager:
         self.all_pairs = {}  # {pair_id: Pairs对象}
 
         # === 分类索引 (只存储pair_id) - v7.53.0 简化为两分类 ===
-        self.current_selected_pair_ids = set()              # 本轮被PairSelector选中
-        self.past_selected_pair_ids = set()                 # 历史配对 (曾被选中,本轮未选中)
+        self.current_selected_pair_ids = set()                      # 本轮被PairSelector选中
+        self.past_selected_pair_ids = set()                         # 历史配对 (曾被选中,本轮未选中)
 
         # === 统计信息 ===
-        self.update_count = 0                                   # 更新次数(选股轮次)
-        self.last_update_time = None                            # 上次更新时间
+        self.update_count = 0                                       # 更新次数(选股轮次)
+        self.last_update_time = None                                # 上次更新时间
 
 
     # ===== 2. 纯计算层 (Pure Computation) =====
@@ -243,6 +257,33 @@ class PairsManager:
 
         return industry_data
 
+    def _aggregate_trade_stats(self) -> Dict[str, IndustryData]:
+        """
+        聚合交易质量统计 (v7.57.0)
+
+        数据源:
+            - pair.trade_count: 交易次数 (已平仓交易计数)
+            - pair.win_count: 盈利次数 (pnl > 0)
+            - pair.pair_past_total_holding_days: 累计持仓天数 (已平仓交易)
+
+        Returns:
+            Dict[str, IndustryData]: 行业代码 → IndustryData 对象
+        """
+        industry_data: Dict[str, IndustryData] = {}
+
+        for _, pair in self.all_pairs.items():
+            industry_code = str(pair.industry_code)
+
+            if industry_code not in industry_data:
+                industry_data[industry_code] = IndustryData(industry_code)
+
+            # 聚合交易质量统计
+            industry_data[industry_code].trade_count += pair.trade_count
+            industry_data[industry_code].win_count += pair.win_count
+            industry_data[industry_code].past_total_holding_days += pair.pair_past_total_holding_days
+
+        return industry_data
+
 
     # ===== 4. 业务逻辑层 (Business Logic) =====
     # 特征: 组合数据访问层方法, 包含条件判断, 实现复杂业务逻辑
@@ -310,8 +351,8 @@ class PairsManager:
         }
 
 
-    # ----- 5B. 情报中心 (行业统计查询 - v7.56.1 重组) -----
-    # 设计: 三组对称结构 (PnL组 / 投入资本组 / ROI组)
+    # ----- 5B. 情报中心 (行业统计查询 - v7.57.0 扩展) -----
+    # 设计: 四组对称结构 (PnL组 / 投入资本组 / ROI组 / 交易质量组)
 
     # --- PnL 组 (4个方法) ---
 
@@ -396,6 +437,45 @@ class PairsManager:
         if total_invested <= 0:
             return 0.0
         return self.get_total_pnl() / total_invested
+
+    # --- 交易质量组 (3个方法, v7.57.0) ---
+
+    def get_industry_trade_count(self, industry_code: str) -> int:
+        """获取指定行业的交易次数 (已平仓交易计数)"""
+        industry_data = self._aggregate_trade_stats()
+        if industry_code in industry_data:
+            return industry_data[industry_code].trade_count
+        return 0
+
+    def get_industry_win_rate(self, industry_code: str) -> float:
+        """
+        获取指定行业的胜率 (win_count / trade_count)
+
+        Returns:
+            胜率 (如 0.65 表示 65%), 无交易时返回 0.0
+        """
+        industry_data = self._aggregate_trade_stats()
+        if industry_code not in industry_data:
+            return 0.0
+        data = industry_data[industry_code]
+        if data.trade_count <= 0:
+            return 0.0
+        return data.win_count / data.trade_count
+
+    def get_industry_avg_holding_days(self, industry_code: str) -> float:
+        """
+        获取指定行业的平均持仓天数 (past_total_holding_days / trade_count)
+
+        Returns:
+            平均持仓天数, 无交易时返回 0.0
+        """
+        industry_data = self._aggregate_trade_stats()
+        if industry_code not in industry_data:
+            return 0.0
+        data = industry_data[industry_code]
+        if data.trade_count <= 0:
+            return 0.0
+        return data.past_total_holding_days / data.trade_count
 
 
     # ----- 5C. 诊断统计 -----

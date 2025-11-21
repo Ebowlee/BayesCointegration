@@ -105,7 +105,8 @@ class Pairs:
         self.trade_count = 0                                                   # 历史总交易次数
         self.win_count = 0                                                     # 历史盈利次数
         self.pair_realized_pnl = 0.0                                           # 已实现PnL (已平仓交易累计,加权平均分子)
-        self.pair_past_invested_capital = 0.0                                   # 已平仓累计投入资本 (加权平均分母)
+        self.pair_past_invested_capital = 0.0                                  # 已平仓累计投入资本 (加权平均分母)
+        self.pair_past_total_holding_days = 0.0                                # 已平仓累计持仓天数 (v7.57.0)
 
         # === 时间追踪 ===
         self.pair_opened_time = None                                           # 配对开仓时间(双腿都成交的时刻)
@@ -1052,6 +1053,11 @@ class Pairs:
         self.trade_count += 1
         if pnl > 0:
             self.win_count += 1
+
+        # === 步骤6：累加持仓天数 (v7.57.0) ===
+        if self.pair_opened_time and self.pair_closed_time:
+            holding_days = (self.pair_closed_time - self.pair_opened_time).days
+            self.pair_past_total_holding_days += holding_days
 
 
     def _log_close_completion(self, reason: str):
