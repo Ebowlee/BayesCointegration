@@ -237,42 +237,18 @@ class PairsManager:
 
     # ----- 5A. 配对查询接口 -----
 
-    @property
-    def tradeable_ids(self) -> Set:
-        """
-        可交易配对ID集合 (v7.53.0 简化版)
-
-        可交易 = 本轮选中 + 历史配对中有持仓的
-
-        设计说明:
-            - 本轮选中: 全部可交易
-            - 历史配对: 只有仍有持仓的才可交易 (需要平仓)
-            - 动态计算: 每次调用时检查 has_position()
-
-        Returns:
-            Set[tuple]: 可交易配对的 pair_id 集合
-        """
-        # 历史配对中有持仓的 (需要平仓管理)
-        past_with_position = {
-            pid for pid in self.past_selected_pair_ids
-            if self.all_pairs[pid].has_position()
-        }
-        return self.current_selected_pair_ids | past_with_position
-
-
     def get_pairs_with_position(self) -> Dict:
         """
-        获取所有有持仓的可交易配对
+        获取所有有持仓的配对 (v7.55.0 简化)
 
         Returns:
             Dict[tuple, Pairs]: {pair_id: Pairs对象}
         """
-        result = {}
-        for pair_id in self.tradeable_ids:
-            pair = self.all_pairs[pair_id]
-            if pair.has_position():
-                result[pair_id] = pair
-        return result
+        return {
+            pair_id: pair
+            for pair_id, pair in self.all_pairs.items()
+            if pair.has_position()
+        }
 
 
     # ----- 5B. 情报中心 (行业统计查询) -----
@@ -426,7 +402,7 @@ class PairsManager:
             'past_selected_count': len(self.past_selected_pair_ids),
             'past_with_position_count': past_with_position_count,
             'total_count': len(self.all_pairs),
-            'tradeable_count': len(self.tradeable_ids),
+            'position_count': len(self.get_pairs_with_position()),
             'last_update_time': self.last_update_time
         }
 
