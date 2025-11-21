@@ -5,6 +5,127 @@
 ---
 
 
+## [v7.42.0_generalize-beta-hedging@20250121]
+
+### 版本概述
+通用Beta对冲公式 - 区分LONG_SPREAD和SHORT_SPREAD,消除特例假设,支持任意保证金率配置
+
+### 🎯 核心改进
+
+#### 问题诊断
+**v7.41.0的隐患** (数值巧合导致的脆弱设计):
+```python
+# v7.41.0 统一公式 (假设 m_L = k_S = 0.5)
+denominator = 1 + beta
+x1 = allocated_amount / denominator       # A / (1 + β)
+x2 = allocated_amount * beta / denominator  # βA / (1 + β)
+
+# 市值计算 (两腿使用相同转换逻辑)
+value_1 = x1 / 0.5              # x1 / m_L
+value_2 = x2 / 0.5              # x2 / (m_S - 1.0)
+```
+
+**核心问题**:
+- 资金分配公式 `x1 = A/(1+β), x2 = βA/(1+β)` 只在**特例** `m_L = k_S` 下成立
+- 当券商规则变化(如港股 `m_L=0.6, k_S=0.4`)时,Beta对冲会失效
+
+#### 解决方案
+**v7.42.0 通用公式** (显式编码数学结构):
+
+**LONG_SPREAD**:
+```python
+# 资金分配系数: γ₁ = β·(m_S-1)/m_L
+gamma = beta * (margin_short - 1.0) / margin_long
+x1 = allocated_amount / (1 + gamma)     # Leg1 做多保证金
+x2 = allocated_amount * gamma / (1 + gamma)  # Leg2 做空保证金
+
+# 市值计算
+value_1 = x1 / margin_long              # V₁ = x₁/m_L
+value_2 = x2 / (margin_short - 1.0)     # V₂ = x₂/(m_S-1)
+```
+
+**SHORT_SPREAD**:
+```python
+# 资金分配系数: γ₂ = β·m_L/(m_S-1)
+gamma = beta * margin_long / (margin_short - 1.0)
+x1 = allocated_amount / (1 + gamma)     # Leg1 做空保证金
+x2 = allocated_amount * gamma / (1 + gamma)  # Leg2 做多保证金
+
+# 市值计算
+value_1 = x1 / (margin_short - 1.0)     # V₁ = x₁/(m_S-1)
+value_2 = x2 / margin_long              # V₂ = x₂/m_L
+```
+
+**数学验证**:
+- 对冲约束: $V_2 = \beta \cdot V_1$ ✓
+- 资金约束: $x_1 + x_2 = A$ ✓
+- 特例兼容: 当 $m_L = m_S - 1$ 时, $\gamma_1 = \gamma_2 = \beta$ (v7.41.0等价) ✓
+
+### 📊 向后兼容性
+
+**美股默认配置** (m_L=0.5, m_S=1.5):
+```python
+# v7.41.0 特例公式
+gamma = beta  # (因为 k_S/m_L = 0.5/0.5 = 1)
+
+# v7.42.0 通用公式 (LONG_SPREAD)
+gamma = beta * 0.5 / 0.5 = beta  # ✓ 数值等价
+
+# v7.42.0 通用公式 (SHORT_SPREAD)
+gamma = beta * 0.5 / 0.5 = beta  # ✓ 数值等价
+```
+
+**结论**:
+- **不影响历史回测**: 特例下行为完全一致
+- **无Breaking Change**: 现有功能保持不变
+
+### 🌏 未来扩展能力
+
+**港股规则示例** (假设 m_L=0.6, m_S=1.4):
+```python
+# LONG_SPREAD
+gamma_1 = 0.8 * 0.4 / 0.6 = 0.533  # (不同于v7.41.0的0.8)
+
+# SHORT_SPREAD
+gamma_2 = 0.8 * 0.6 / 0.4 = 1.2    # (不同于v7.41.0的0.8)
+
+# Beta对冲验证
+# 假设 A=10000, β=0.8
+# LONG_SPREAD: x1=6521.74, x2=3478.26 → V1=10869.57, V2=8695.65 → V2/V1=0.8 ✓
+# SHORT_SPREAD: x1=4545.45, x2=5454.55 → V1=11363.64, V2=9090.91 → V2/V1=0.8 ✓
+```
+
+### 🔧 技术细节
+
+#### 修改文件
+- **src/Pairs.py**: `calculate_leg_values` 方法 (Lines 428-498)
+
+#### 代码变化
+- **删除**: v7.41.0统一公式 (5行)
+- **新增**: LONG_SPREAD/SHORT_SPREAD分支逻辑 (~30行)
+- **净增**: ~25行 (提升可维护性和扩展性)
+
+#### 依赖配置
+- `self.margin_long`: 做多保证金率 (从config.py读取)
+- `self.margin_short`: 做空初始保证金率 (从config.py读取)
+
+### 📝 Breaking Changes
+- **无**: 特例下行为不变,通用性扩展不影响现有功能
+
+### 🎓 设计理念
+
+**架构权衡**:
+- **牺牲**: 10行代码的简洁性 (统一公式的优雅)
+- **换取**: 10年的扩展性 (适配不同市场规则)
+- **关键洞察**: "数值相等"≠"逻辑等价" - 前者是巧合,后者是设计
+
+**可维护性提升**:
+- 显式编码LONG_SPREAD/SHORT_SPREAD的不同数学结构
+- 参数变化时无需重新推导公式,直接修改配置即可
+- 便于单元测试验证不同保证金率场景
+
+---
+
 ## [v7.41.0_unify-beta-hedging-formula@20250120] ⚠️ BREAKING CHANGE
 
 ### 版本概述

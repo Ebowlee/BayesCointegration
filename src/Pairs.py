@@ -427,21 +427,20 @@ class Pairs:
 
     def calculate_leg_values(self, allocated_amount: float, signal: str, data):
         """
-        Beta对冲市值计算 - 从分配资金计算两腿目标市值 (v7.41.0修正)
+        Beta对冲市值计算 - 从分配资金计算两腿目标市值 (v7.42.0通用化)
 
-        核心修正 (v7.41.0):
-            配置层: margin_short=1.5 (Reg T监管语义)
-            计算层: value_2 = x2/(margin_short-1.0) (减去卖空所得)
-            结果: 做多和做空的实际资金占用率都是0.5
+        核心改进 (v7.42.0):
+            区分 LONG_SPREAD 和 SHORT_SPREAD 的保证金分配逻辑
+            支持任意保证金率配置 (m_L, m_S),消除 m_L = k_S 的特例假设
 
-        统一公式 (LONG_SPREAD和SHORT_SPREAD相同):
-            x₁ = A/(1+β), x₂ = βA/(1+β)
-            V₁ = 2A/(1+β), V₂ = 2βA/(1+β)
-            验证: V₂/V₁ = β ✓
+        通用公式:
+            LONG_SPREAD: γ₁ = β·(m_S-1)/m_L
+            SHORT_SPREAD: γ₂ = β·m_L/(m_S-1)
+            特例: 当 m_L = m_S-1 时, γ₁ = γ₂ = β (v7.41.0等价)
 
         Args:
             allocated_amount: 分配资金 (A)
-            signal: 交易信号 (v7.41.0后不影响公式)
+            signal: 交易信号 ('LONG_SPREAD' 或 'SHORT_SPREAD')
             data: 数据切片 (获取当前价格)
 
         Returns:
@@ -460,15 +459,36 @@ class Pairs:
 
         beta = abs(self.beta_mean) if abs(self.beta_mean) != 0 else 1
 
-        # v7.41.0 统一公式 (LONG_SPREAD 和 SHORT_SPREAD 完全相同)
-        denominator = 1 + beta  # 统一分母
+        # 保证金率参数 (从config读取)
+        m_L = self.margin_long                # 做多保证金率 (如0.5)
+        m_S = self.margin_short               # 做空初始保证金率 (如1.5)
+        k_S = m_S - 1.0                       # 做空实际本金占用系数 (如0.5)
 
-        x1 = allocated_amount / denominator       # A / (1 + β)
-        x2 = allocated_amount * beta / denominator  # βA / (1 + β)
+        # v7.42.0: 区分 LONG_SPREAD 和 SHORT_SPREAD
+        if signal == 'LONG_SPREAD':
+            # LONG_SPREAD 公式: γ₁ = β·(m_S-1)/m_L
+            gamma = beta * k_S / m_L
+            x1 = allocated_amount / (1 + gamma)     # Leg1 做多保证金
+            x2 = allocated_amount * gamma / (1 + gamma)  # Leg2 做空保证金
 
-        # 市值计算 (关键: 短腿需减去卖空所得)
-        value_1 = x1 / self.margin_long              # x1 / 0.5 = 2A / (1 + β)
-        value_2 = x2 / (self.margin_short - 1.0)     # x2 / (1.5 - 1.0) = x2 / 0.5 = 2βA / (1 + β)
+            # 市值计算
+            value_1 = x1 / m_L    # Leg1 Long: V₁ = x₁/m_L
+            value_2 = x2 / k_S    # Leg2 Short: V₂ = x₂/(m_S-1)
+
+        elif signal == 'SHORT_SPREAD':
+            # SHORT_SPREAD 公式: γ₂ = β·m_L/(m_S-1)
+            gamma = beta * m_L / k_S
+            x1 = allocated_amount / (1 + gamma)     # Leg1 做空保证金
+            x2 = allocated_amount * gamma / (1 + gamma)  # Leg2 做多保证金
+
+            # 市值计算
+            value_1 = x1 / k_S    # Leg1 Short: V₁ = x₁/(m_S-1)
+            value_2 = x2 / m_L    # Leg2 Long: V₂ = x₂/m_L
+
+        else:
+            # 容错: 信号无效
+            self.algorithm.Debug(f"[计算失败] {self.pair_id} 信号无效: {signal}")
+            return None, None
 
         # 安全检查: 资金分配合理性
         if x1 <= 0 or x2 <= 0:
