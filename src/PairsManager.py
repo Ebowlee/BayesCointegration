@@ -28,6 +28,9 @@ class IndustryData:
             - trade_count: 交易次数 (已平仓交易计数)
             - win_count: 盈利次数 (pnl > 0 的交易计数)
             - past_total_holding_days: 累计持仓天数 (已平仓交易)
+        敞口维度 (v7.59.0, 内部字段用于计算 drift):
+            - net_exposure: 净敞口 (long_value - short_value)
+            - gross_exposure: 总敞口 (long_value + short_value)
 
     使用场景:
         - 由 PairsManager._aggregate_*() 方法创建
@@ -41,7 +44,9 @@ class IndustryData:
                  past_invested_capital: float = 0.0,
                  trade_count: int = 0,
                  win_count: int = 0,
-                 past_total_holding_days: float = 0.0):
+                 past_total_holding_days: float = 0.0,
+                 net_exposure: float = 0.0,
+                 gross_exposure: float = 0.0):
         """
         初始化行业数据对象
 
@@ -54,6 +59,8 @@ class IndustryData:
             trade_count: 交易次数 (已平仓交易计数, v7.57.0)
             win_count: 盈利次数 (pnl > 0, v7.57.0)
             past_total_holding_days: 累计持仓天数 (已平仓交易, v7.57.0)
+            net_exposure: 净敞口 (v7.59.0, 内部字段)
+            gross_exposure: 总敞口 (v7.59.0, 内部字段)
         """
         self.industry_code = industry_code
         self.unrealized_pnl = unrealized_pnl
@@ -64,6 +71,9 @@ class IndustryData:
         self.trade_count = trade_count
         self.win_count = win_count
         self.past_total_holding_days = past_total_holding_days
+        # 敞口维度 (v7.59.0)
+        self.net_exposure = net_exposure
+        self.gross_exposure = gross_exposure
 
 
 class PairsManager:
@@ -137,11 +147,11 @@ class PairsManager:
 
     def _aggregate_all_industry_data(self) -> Dict[str, IndustryData]:
         """
-        一次遍历聚合所有行业数据 (v7.58.0 合并优化)
+        一次遍历聚合所有行业数据 (v7.59.0 敞口扩展)
 
         设计理念:
-            - 将5个独立聚合方法合并为1个,避免重复遍历 all_pairs
-            - 一次遍历填充 IndustryData 的所有8个字段
+            - 将独立聚合方法合并为1个,避免重复遍历 all_pairs
+            - 一次遍历填充 IndustryData 的所有10个字段
 
         数据源:
             PnL维度:
@@ -154,6 +164,9 @@ class PairsManager:
                 - pair.trade_count: 交易次数
                 - pair.win_count: 盈利次数
                 - pair.pair_past_total_holding_days: 累计持仓天数
+            敞口维度 (v7.59.0):
+                - pair.get_net_exposure(): 净敞口 (持仓中)
+                - pair.get_gross_exposure(): 总敞口 (持仓中)
 
         Returns:
             Dict[str, IndustryData]: 行业代码 → IndustryData 对象 (完整填充)
@@ -190,6 +203,14 @@ class PairsManager:
             data.trade_count += pair.trade_count
             data.win_count += pair.win_count
             data.past_total_holding_days += pair.pair_past_total_holding_days
+
+            # === 敞口维度 (v7.59.0) ===
+            net_exp = pair.get_net_exposure()
+            if net_exp is not None:
+                data.net_exposure += net_exp
+            gross_exp = pair.get_gross_exposure()
+            if gross_exp is not None:
+                data.gross_exposure += gross_exp
 
         return industry_data
 
@@ -261,7 +282,7 @@ class PairsManager:
 
 
     # ----- 5B. 情报中心 (行业统计查询 - v7.58.0 统一聚合) -----
-    # 设计: 四组对称结构 (PnL组 / 投入资本组 / ROI组 / 交易质量组)
+    # 设计: 五组对称结构 (PnL组 / 投入资本组 / ROI组 / 交易质量组 / Drift组)
     # 优化: 所有查询统一调用 _aggregate_all_industry_data(), 一次遍历
 
     # --- PnL 组 (4个方法) ---
@@ -395,6 +416,42 @@ class PairsManager:
         if data.trade_count <= 0:
             return 0.0
         return data.past_total_holding_days / data.trade_count
+
+    # --- Drift 组 (2个方法, v7.59.0) ---
+
+    def get_industry_drift(self, industry_code: str) -> float:
+        """
+        获取指定行业的 Drift (net_exposure / gross_exposure)
+
+        Drift = 净敞口 / 总敞口
+            - 0 表示完美对冲
+            - 正值表示净多头偏离
+            - 负值表示净空头偏离
+
+        Returns:
+            Drift 比例 (如 0.05 表示 5% 偏离), 无持仓时返回 0.0
+        """
+        industry_data = self._aggregate_all_industry_data()
+        if industry_code not in industry_data:
+            return 0.0
+        data = industry_data[industry_code]
+        if data.gross_exposure <= 0:
+            return 0.0
+        return data.net_exposure / data.gross_exposure
+
+    def get_total_drift(self) -> float:
+        """
+        获取全局 Drift (sum(net_exposure) / sum(gross_exposure))
+
+        Returns:
+            Drift 比例 (如 0.05 表示 5% 偏离), 无持仓时返回 0.0
+        """
+        industry_data = self._aggregate_all_industry_data()
+        total_net = sum(d.net_exposure for d in industry_data.values())
+        total_gross = sum(d.gross_exposure for d in industry_data.values())
+        if total_gross <= 0:
+            return 0.0
+        return total_net / total_gross
 
 
     # ----- 5C. 诊断统计 -----
