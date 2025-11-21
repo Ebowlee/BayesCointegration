@@ -6,7 +6,7 @@ from typing import Dict, Set
 
 class IndustryData:
     """
-    行业数据对象 - Value Object (v7.52.1)
+    行业数据对象 - Value Object (v7.54.0)
 
     设计原则:
         - 纯数据对象: 存储单个行业的聚合统计
@@ -14,24 +14,31 @@ class IndustryData:
         - 外部类: 与 PairsManager 同级,便于测试和访问
 
     职责:
-        - 存储行业级聚合数据 (目前只有 unrealized_pnl)
+        - 存储行业级聚合数据
         - 提供类型安全的属性访问
 
+    字段说明:
+        - unrealized_pnl: 未实现盈亏 (所有持仓配对的浮动盈亏之和)
+        - realized_pnl: 已实现盈亏 (所有已平仓交易的累计盈亏)
+
     使用场景:
-        - 由 PairsManager._aggregate_unrealized_pnl() 创建
-        - 供查询接口 get_industry_unrealized_pnl() 返回数据
+        - 由 PairsManager._aggregate_unrealized_pnl() 创建 (未实现盈亏)
+        - 由 PairsManager._aggregate_realized_pnl() 创建 (已实现盈亏)
+        - 供查询接口 get_industry_*_pnl() / get_total_*_pnl() 返回数据
     """
 
-    def __init__(self, industry_code: str,unrealized_pnl: float = 0.0):
+    def __init__(self, industry_code: str, unrealized_pnl: float = 0.0, realized_pnl: float = 0.0):
         """
         初始化行业数据对象
 
         Args:
             industry_code: 行业代码 (字符串格式)
             unrealized_pnl: 未实现盈亏 (所有持仓配对的浮动盈亏之和)
+            realized_pnl: 已实现盈亏 (所有已平仓交易的累计盈亏)
         """
         self.industry_code = industry_code
         self.unrealized_pnl = unrealized_pnl
+        self.realized_pnl = realized_pnl
 
 
 class PairsManager:
@@ -141,6 +148,43 @@ class PairsManager:
         return industry_data
 
 
+    def _aggregate_realized_pnl(self) -> Dict[str, IndustryData]:
+        """
+        聚合已实现盈亏 (专用聚合方法 - v7.54.0)
+
+        职责:
+            - 遍历所有配对,按行业分组聚合 realized_pnl
+            - 返回 IndustryData 对象 (类型安全)
+
+        流程:
+            1. 遍历 all_pairs
+            2. 按 industry_code 分组
+            3. 累加每个配对的 get_pair_realized_pnl()
+            4. 返回 {industry_code: IndustryData} 字典
+
+        Returns:
+            Dict[str, IndustryData]: 行业代码 → IndustryData 对象
+
+        Example:
+            >>> data = self._aggregate_realized_pnl()
+            >>> data['31169001'].realized_pnl  # 软件行业已实现盈亏
+        """
+        industry_data: Dict[str, IndustryData] = {}
+
+        for _, pair in self.all_pairs.items():
+            industry_code = str(pair.industry_code)
+
+            # 懒创建 IndustryData 对象
+            if industry_code not in industry_data:
+                industry_data[industry_code] = IndustryData(industry_code)
+
+            # 聚合已实现盈亏
+            realized_pnl = pair.get_pair_realized_pnl()
+            industry_data[industry_code].realized_pnl += realized_pnl
+
+        return industry_data
+
+
     # ===== 4. 业务逻辑层 (Business Logic) =====
     # 特征: 组合数据访问层方法, 包含条件判断, 实现复杂业务逻辑
 
@@ -186,70 +230,6 @@ class PairsManager:
 
         # 输出统计
         self.log_statistics()
-
-
-    # ----- 4B. 配置查询路由 -----
-
-    def get_cooldown_required_days(self, last_close_reason: str) -> int:
-        """
-        查询冷却期需要天数
-
-        职责: 统一配置查询路由,消除Pairs对全局配置的依赖
-
-        Args:
-            last_close_reason: 平仓原因 (MEAN_REVERSION/PAIR_BREAK/TIMEOUT等)
-
-        Returns:
-            冷却期天数
-
-        配置来源:
-            - NORMAL_SIGNAL: config.constants['close_reasons'][reason]['cooldown_days']
-            - 风控规则: config.risk_management.pair_rules[rule_name].cooldown_days
-            - 默认兜底: 10天
-        """
-        close_reasons = self.algorithm.config.constants['close_reasons']
-
-        # NORMAL_SIGNAL: 从CLOSE_REASONS读取
-        if last_close_reason in close_reasons:
-            reason_config = close_reasons[last_close_reason]
-            return reason_config.get('cooldown_days', 10)
-
-        # 风控规则: 从risk_management.pair_rules读取
-        risk_config = self.algorithm.config.risk_management.pair_rules
-        reason_to_config = {
-            'TIMEOUT': risk_config.holding_timeout.cooldown_days,
-            'DRAWDOWN': risk_config.pair_drawdown.cooldown_days,
-            'CUMULATIVE_LOSS': risk_config.pair_cumulative_loss.cooldown_days,
-            'ANOMALY': risk_config.pair_anomaly.cooldown_days,
-        }
-
-        return reason_to_config.get(last_close_reason, 10)
-
-
-    def get_planned_allocation_pct(self, pair) -> float:
-        """
-        计算配对的计划分配比例
-
-        计算逻辑:
-            planned_pct = min_pct + quality_score × (max_pct - min_pct)
-
-        Args:
-            pair: Pairs对象 (提供quality_score和industry_code)
-
-        Returns:
-            计划分配比例 (0.05-0.22之间)
-        """
-        config = self.algorithm.config.pairs_trading
-        min_pct = config.min_investment_ratio
-
-        # 查询行业tier
-        tier = self._get_industry_tier(pair.industry_code)
-
-        # 获取tier对应的max_pct
-        tier_max = config.tier_max_investment_ratio
-        max_pct = tier_max.get(tier, tier_max['tier1'])
-
-        return min_pct + pair.quality_score * (max_pct - min_pct)
 
 
     # ===== 5. 外部接口层 (Public API) =====
@@ -371,6 +351,55 @@ class PairsManager:
         return pairs_unrealized_pnl[:n]
 
 
+    def get_industry_realized_pnl(self, industry_code: str) -> float:
+        """
+        获取指定行业的已实现盈亏 (行业级查询 - v7.54.0)
+
+        Args:
+            industry_code: 行业代码 (字符串格式)
+
+        Returns:
+            该行业所有已平仓交易的累计盈亏之和
+
+        数据流:
+            Pairs.get_pair_realized_pnl()
+                ↓
+            _aggregate_realized_pnl() → Dict[str, IndustryData]
+                ↓
+            get_industry_realized_pnl() → float (单行业)
+
+        Example:
+            >>> pnl = pairs_manager.get_industry_realized_pnl('31169001')
+            >>> print(f"软件行业已实现盈亏: ${pnl:,.2f}")
+        """
+        industry_data = self._aggregate_realized_pnl()
+        if industry_code in industry_data:
+            return industry_data[industry_code].realized_pnl
+        return 0.0
+
+
+    def get_total_realized_pnl(self) -> float:
+        """
+        获取全局已实现盈亏 (跨行业聚合 - v7.54.0)
+
+        Returns:
+            所有行业已实现盈亏之和
+
+        数据流:
+            Pairs.get_pair_realized_pnl()
+                ↓
+            _aggregate_realized_pnl() → Dict[str, IndustryData]
+                ↓
+            get_total_realized_pnl() → float (全局汇总)
+
+        Example:
+            >>> total_pnl = pairs_manager.get_total_realized_pnl()
+            >>> print(f"全局已实现盈亏: ${total_pnl:,.2f}")
+        """
+        industry_data = self._aggregate_realized_pnl()
+        return sum(data.realized_pnl for data in industry_data.values())
+
+
     # ----- 5C. 诊断统计 -----
 
     def get_statistics(self) -> Dict:
@@ -405,3 +434,68 @@ class PairsManager:
     def log_statistics(self):
         """输出统计信息 - 使用 get_statistics()"""
         pass
+
+
+    # ===== 6. 待重构区域 (Pending Refactor) =====
+    # 注: 以下方法未来将迁移到其他模块 (如 ExecutionManager 或独立的 ConfigRouter)
+
+    def get_cooldown_required_days(self, last_close_reason: str) -> int:
+        """
+        查询冷却期需要天数
+
+        职责: 统一配置查询路由,消除Pairs对全局配置的依赖
+
+        Args:
+            last_close_reason: 平仓原因 (MEAN_REVERSION/PAIR_BREAK/TIMEOUT等)
+
+        Returns:
+            冷却期天数
+
+        配置来源:
+            - NORMAL_SIGNAL: config.constants['close_reasons'][reason]['cooldown_days']
+            - 风控规则: config.risk_management.pair_rules[rule_name].cooldown_days
+            - 默认兜底: 10天
+        """
+        close_reasons = self.algorithm.config.constants['close_reasons']
+
+        # NORMAL_SIGNAL: 从CLOSE_REASONS读取
+        if last_close_reason in close_reasons:
+            reason_config = close_reasons[last_close_reason]
+            return reason_config.get('cooldown_days', 10)
+
+        # 风控规则: 从risk_management.pair_rules读取
+        risk_config = self.algorithm.config.risk_management.pair_rules
+        reason_to_config = {
+            'TIMEOUT': risk_config.holding_timeout.cooldown_days,
+            'DRAWDOWN': risk_config.pair_drawdown.cooldown_days,
+            'CUMULATIVE_LOSS': risk_config.pair_cumulative_loss.cooldown_days,
+            'ANOMALY': risk_config.pair_anomaly.cooldown_days,
+        }
+
+        return reason_to_config.get(last_close_reason, 10)
+
+
+    def get_planned_allocation_pct(self, pair) -> float:
+        """
+        计算配对的计划分配比例
+
+        计算逻辑:
+            planned_pct = min_pct + quality_score × (max_pct - min_pct)
+
+        Args:
+            pair: Pairs对象 (提供quality_score和industry_code)
+
+        Returns:
+            计划分配比例 (0.05-0.22之间)
+        """
+        config = self.algorithm.config.pairs_trading
+        min_pct = config.min_investment_ratio
+
+        # 查询行业tier
+        tier = self._get_industry_tier(pair.industry_code)
+
+        # 获取tier对应的max_pct
+        tier_max = config.tier_max_investment_ratio
+        max_pct = tier_max.get(tier, tier_max['tier1'])
+
+        return min_pct + pair.quality_score * (max_pct - min_pct)
