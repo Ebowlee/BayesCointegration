@@ -200,7 +200,7 @@ class PairsManager:
         """
         聚合当前投入资本 (持仓中 - v7.56.0)
 
-        数据源: pair.get_pair_invested_capital() (持仓中配对的投入资本)
+        数据源: pair.get_pair_current_invested_capital() (持仓中配对的投入资本)
 
         Returns:
             Dict[str, IndustryData]: 行业代码 → IndustryData 对象
@@ -214,7 +214,7 @@ class PairsManager:
                 industry_data[industry_code] = IndustryData(industry_code)
 
             # 聚合当前投入资本 (只有持仓中的配对有值)
-            invested = pair.get_pair_invested_capital()
+            invested = pair.get_pair_current_invested_capital()
             if invested is not None:
                 industry_data[industry_code].current_invested_capital += invested
 
@@ -225,7 +225,7 @@ class PairsManager:
         """
         聚合历史投入资本 (已平仓累计 - v7.56.1 重命名)
 
-        数据源: pair.pair_historical_invested_capital (已平仓交易的累计投入)
+        数据源: pair.pair_past_invested_capital (已平仓交易的累计投入)
 
         Returns:
             Dict[str, IndustryData]: 行业代码 → IndustryData 对象
@@ -239,7 +239,7 @@ class PairsManager:
                 industry_data[industry_code] = IndustryData(industry_code)
 
             # 聚合历史投入资本
-            industry_data[industry_code].past_invested_capital += pair.pair_historical_invested_capital
+            industry_data[industry_code].past_invested_capital += pair.pair_past_invested_capital
 
         return industry_data
 

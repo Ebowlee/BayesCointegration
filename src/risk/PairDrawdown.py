@@ -82,7 +82,7 @@ class PairDrawdownRule(RiskRule):
         v7.31.0: RiskManager已在check()前统一检查冷却期,此处检查成为Fail-Safe机制
 
         Args:
-            pair: Pairs对象,必须实现 get_pair_pnl(), get_pair_invested_capital() 方法
+            pair: Pairs对象,必须实现 get_pair_unrealized_pnl(), get_pair_current_invested_capital() 方法
 
         Returns:
             (is_triggered, description)
@@ -114,7 +114,7 @@ class PairDrawdownRule(RiskRule):
         # 3. 单次交易回撤检测
         # 获取当前 PnL 和投入资本 (Pairs 提供数据)
         pnl = pair.get_pair_unrealized_pnl()
-        invested_capital = pair.get_pair_invested_capital()
+        invested_capital = pair.get_pair_current_invested_capital()
 
         # 数据完整性检查
         if pnl is None or invested_capital is None or invested_capital <= 0:

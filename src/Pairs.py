@@ -105,7 +105,7 @@ class Pairs:
         self.trade_count = 0                                                   # 历史总交易次数
         self.win_count = 0                                                     # 历史盈利次数
         self.pair_realized_pnl = 0.0                                           # 已实现PnL (已平仓交易累计,加权平均分子)
-        self.pair_historical_invested_capital = 0.0                            # 已平仓累计投入资本 (加权平均分母, v7.56.0重命名)
+        self.pair_past_invested_capital = 0.0                                   # 已平仓累计投入资本 (加权平均分母)
 
         # === 时间追踪 ===
         self.pair_opened_time = None                                           # 配对开仓时间(双腿都成交的时刻)
@@ -416,9 +416,9 @@ class Pairs:
         return pnl
 
 
-    def get_pair_invested_capital(self) -> Optional[float]:
+    def get_pair_current_invested_capital(self) -> Optional[float]:
         """
-        数据访问层: 获取配对投入资本 (v7.51.0 术语规范化)
+        数据访问层: 获取配对当前投入资本 (持仓中)
 
         职责: 读取self属性, 委托给纯计算层
 
@@ -435,12 +435,13 @@ class Pairs:
             - _log_close_completion(): 显示当前收益率
             - PairDrawdownRule.check(): 计算回撤率分母
             - PairCumulativeLoss.check(): 计算累计亏损率分母
-            - PairsManager.get_industry_stats(): 行业统计保证金占用
+            - PairsManager._aggregate_current_invested_capital(): 行业聚合
 
         设计演进:
             v7.40.7: 修正为行业标准公式
             v7.50.0: 计算逻辑提取到 _calculate_pair_cost_pure()
             v7.51.0: 重命名 get_pair_cost → get_pair_invested_capital
+            v7.56.2: 重命名 get_pair_invested_capital → get_pair_current_invested_capital
         """
         # 支持所有持仓类型(包括异常持仓)
         if not self.has_position():
@@ -1037,7 +1038,7 @@ class Pairs:
         pnl = exit_value - entry_value
 
         # === 步骤3：计算投入资本（与旧代码一致）===
-        invested_capital = self.get_pair_invested_capital()  # 投入资本（开仓时固定）
+        invested_capital = self.get_pair_current_invested_capital()  # 投入资本（开仓时固定）
 
         if invested_capital is None or invested_capital <= 0:
             self.algorithm.Debug(f"[统计错误] {self.pair_id} 投入资本异常: {invested_capital}", 1)
@@ -1045,7 +1046,7 @@ class Pairs:
 
         # === 步骤4：累加到历史统计 ===
         self.pair_realized_pnl += pnl   # 分子：已实现PnL（使用平仓价格）
-        self.pair_historical_invested_capital += invested_capital  # 分母：已平仓累计投入资本
+        self.pair_past_invested_capital += invested_capital  # 分母：已平仓累计投入资本
 
         # === 步骤5：更新计数统计 ===
         self.trade_count += 1
@@ -1069,11 +1070,11 @@ class Pairs:
         """
         # 计算本次交易PnL
         current_pnl = self.get_pair_unrealized_pnl()
-        current_invested = self.get_pair_invested_capital()
+        current_invested = self.get_pair_current_invested_capital()
         current_pnl_pct = (current_pnl / current_invested * 100) if (current_pnl and current_invested and current_invested > 0) else 0
 
-        # 计算累计收益率 (直接读取已更新的pair_realized_pnl/pair_historical_invested_capital)
-        total_pnl_pct = (self.pair_realized_pnl / self.pair_historical_invested_capital * 100) if self.pair_historical_invested_capital > 0 else 0
+        # 计算累计收益率 (直接读取已更新的pair_realized_pnl/pair_past_invested_capital)
+        total_pnl_pct = (self.pair_realized_pnl / self.pair_past_invested_capital * 100) if self.pair_past_invested_capital > 0 else 0
 
         # 交易序号(此时 trade_count 已在 _update_trade_stats 中递增)
         trade_num = self.trade_count
