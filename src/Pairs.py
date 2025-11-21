@@ -237,7 +237,24 @@ class Pairs:
             return PositionMode.ANOMALY_SAME
 
 
-    # 3B. 财务计算
+    # 2B. 持仓状态查询 (依赖 position_mode)
+
+    def has_position(self) -> bool:
+        """检查是否有持仓（任何类型）"""
+        return self.position_mode != PositionMode.NONE
+
+
+    def has_normal_position(self) -> bool:
+        """检查是否有正常持仓（LONG_SPREAD 或 SHORT_SPREAD）"""
+        return self.position_mode in [PositionMode.LONG_SPREAD, PositionMode.SHORT_SPREAD]
+
+
+    def has_anomaly_position(self) -> bool:
+        """检查是否有异常持仓（单边或同向）"""
+        return self.position_mode in [PositionMode.PARTIAL_LEG1, PositionMode.PARTIAL_LEG2, PositionMode.ANOMALY_SAME]
+
+
+    # 2C. 财务计算
 
     def get_pair_unrealized_pnl(self) -> Optional[float]:
         """
@@ -570,21 +587,6 @@ class Pairs:
             return None  # 从未平仓
 
         return (self.algorithm.UtcTime - self.pair_closed_time).days
-
-
-    def has_position(self) -> bool:
-        """检查是否有持仓（优化后：使用 @property）"""
-        return self.position_mode != PositionMode.NONE
-
-
-    def has_normal_position(self) -> bool:
-        """检查是否有正常持仓（优化后：使用 @property）"""
-        return self.position_mode in [PositionMode.LONG_SPREAD, PositionMode.SHORT_SPREAD]
-
-
-    def has_anomaly_position(self) -> bool:
-        """检查是否有异常持仓"""
-        return self.position_mode in [PositionMode.PARTIAL_LEG1, PositionMode.PARTIAL_LEG2, PositionMode.ANOMALY_SAME]
 
 
     # ===== 5. 决策与意图 =====
