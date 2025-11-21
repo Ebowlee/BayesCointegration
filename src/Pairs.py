@@ -78,7 +78,6 @@ class Pairs:
         self.symbol2 = model_data['symbol2']
         self.pair_id = (self.symbol1.Value, self.symbol2.Value)
         self.industry_code = int(model_data['industry_code'])                  # v7.40.8: 统一使用整数格式 (删除冗余industry_group字段)
-        self.industry_quota_tier = None                                         # v7.32.0: 行业配额档次 ('tier0'/'tier1'/'tier2'/'tier3'/'tier4', 在PairSelector中填充)
 
         # === 统计参数(从贝叶斯建模获得) ===
         self.alpha_mean = model_data['alpha_mean']                              # 截距(对数空间)
@@ -573,8 +572,6 @@ class Pairs:
         return (self.algorithm.UtcTime - self.pair_closed_time).days
 
 
-
-
     def has_position(self) -> bool:
         """检查是否有持仓（优化后：使用 @property）"""
         return self.position_mode != PositionMode.NONE
@@ -803,37 +800,6 @@ class Pairs:
             reason=reason,
             tag=self.create_order_tag('CLOSE', reason)
         )
-
-
-    def get_planned_allocation_pct(self) -> float:
-        """
-        计算基于质量分数和行业tier的计划分配比例 (v7.32.0: tier-based max_pct)
-
-        计算逻辑:
-            planned_pct = min_pct + quality_score × (max_pct - min_pct)
-
-        参数来源:
-            - min_pct: PairsTradingConfig.min_investment_ratio (0.05)
-            - max_pct: PairsTradingConfig.tier_max_investment_ratio[tier] (0.10-0.22)
-            - quality_score: 配对质量分数 (0.0-1.0)
-
-        tier影响 (v7.39.0: 默认tier1):
-            - tier0 (负收益行业): max_pct=0.10 → planned_pct范围 [0.05, 0.10]
-            - tier1 (默认/新行业): max_pct=0.16 → planned_pct范围 [0.05, 0.16]
-            - tier4 (高回报行业): max_pct=0.22 → planned_pct范围 [0.05, 0.22]
-
-        Returns:
-            计划分配比例 (0.05-0.22之间,取决于tier和quality_score)
-        """
-        # v7.32.0: 从PairsTradingConfig获取tier-based max_pct
-        min_pct = self.config.min_investment_ratio
-
-        # 获取tier对应的max_pct (v7.39.0: 未设置tier时使用tier1兜底)
-        tier = self.industry_quota_tier if self.industry_quota_tier else 'tier1'
-        tier_max_investment_ratio = self.algorithm.config.pairs_trading.tier_max_investment_ratio
-        max_pct = tier_max_investment_ratio.get(tier, tier_max_investment_ratio['tier0'])
-
-        return min_pct + self.quality_score * (max_pct - min_pct)
 
 
     def create_order_tag(self, action: str, reason: str = None):

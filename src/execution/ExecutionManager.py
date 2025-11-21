@@ -353,10 +353,8 @@ class ExecutionManager:
 
 
             if signal in ['LONG_SPREAD', 'SHORT_SPREAD']:
-                planned_pct = pair.get_planned_allocation_pct()  # v7.32.0: 现在基于industry_quota_tier
+                planned_pct = self.pairs_manager.get_planned_allocation_pct(pair)  # v7.45.0: 迁移至PairsManager
                 candidates.append((pair, signal, pair.quality_score, planned_pct))
-
-        # v7.32.0: 删除自适应max_pct计算逻辑 (已迁移到Pairs.get_planned_allocation_pct内部,基于industry_quota_tier)
 
         # 按质量分数降序排序
         candidates.sort(key=lambda x: x[2], reverse=True)

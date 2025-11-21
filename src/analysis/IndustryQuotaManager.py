@@ -14,7 +14,7 @@ class IndustryQuotaManager:
     - 180天后: 每月根据加权收益率动态调整配额 (4档配额: 1/3/6/9)
 
     加权收益率计算:
-        weighted_return = sum(total_pnl_dollars) / sum(total_pair_cost)
+        weighted_return = sum(pair_realized_pnl) / sum(pair_total_cost)
 
     配额分层:
         ≤0.05 (5%)   → 1个配对
@@ -23,7 +23,7 @@ class IndustryQuotaManager:
         >0.20 (20%+) → 9个配对
 
     设计特点:
-    - 数据驱动: 从Pairs对象读取交易历史 (trade_count, total_pnl_dollars, total_pair_cost)
+    - 数据驱动: 从Pairs对象读取交易历史 (trade_count, pair_realized_pnl, pair_total_cost)
     - 无状态: 每次调用calculate_quotas()即时计算,不存储历史数据
     - 行业聚合: 按MorningstarIndustryGroupCode分组聚合收益
     - 动态调整: 每月更新一次配额 (在协整检测前调用)
@@ -84,7 +84,7 @@ class IndustryQuotaManager:
         1. 检查是否过了预热期 (algorithm.Time - algorithm.StartDate > warmup_days)
         2. 如果预热期: 返回空字典 (CointegrationAnalyzer使用default_quota)
         3. 如果正常期:
-            a. 遍历所有Pairs对象,聚合每个行业的total_pnl_dollars和total_pair_cost
+            a. 遍历所有Pairs对象,聚合每个行业的pair_realized_pnl和pair_total_cost
             b. 计算每个行业的加权收益率 = sum(pnl) / sum(cost)
             c. 根据收益率分层,返回对应配额和tier信息
         """
@@ -219,7 +219,7 @@ class IndustryQuotaManager:
 
     def _get_tier_by_return(self, weighted_return: float) -> str:
         """
-        根据加权收益率计算tier (v7.35.0: 用于Pairs.get_planned_allocation_pct)
+        根据加权收益率计算tier (v7.45.0: 用于PairsManager.get_planned_allocation_pct)
 
         Args:
             weighted_return: 加权收益率 (小数, 如0.05表示5%)

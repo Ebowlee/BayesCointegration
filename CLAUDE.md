@@ -253,7 +253,7 @@ git commit -m "docs: update CHANGELOG for v7.2.5"
   - `get_zscore()`: Calculate current Z-score
   - `get_open_intent()`: Generate opening intent (returns OpenIntent object - v7.0.0)
   - `get_close_intent()`: Generate closing intent (returns CloseIntent object - v7.0.0)
-  - `get_position_info()`: Query position status (with @property position_mode - v6.9.3)
+  - `position_mode`: Property for querying position status (v7.40.11 - direct implementation without intermediate method)
   - `get_pair_pnl()`: Calculate PnL in two modes: real-time (持仓中) or final (已平仓) - v7.0.0
   - `get_pair_cost()`: Calculate total margin required for the pair
   - `get_pair_holding_days()`: Calculate holding days (data query for PairHoldingTimeoutRule)
@@ -270,8 +270,8 @@ git commit -m "docs: update CHANGELOG for v7.2.5"
 - **Features**: Cooldown management, beta hedging, position tracking, intent generation, trade history (v7.7.0)
 - **Architecture** (v7.40.0): Six-Layer Hamburger Structure (六层汉堡结构)
   - **Design Philosophy**: Code organized from "abstract to concrete, core computation to side effects"
-  - **Layer 1 (构造与配置)**: `__init__()`, `set_industry_quota_tier()` - Object initialization
-  - **Layer 2 (状态查询)**: `get_price()`, `get_position_info()`, `get_pair_cost()` - Data queries
+  - **Layer 1 (构造与配置)**: `__init__()` - Object initialization (v7.45.0: tier管理迁移至PairsManager)
+  - **Layer 2 (状态查询)**: `get_price()`, `position_mode` (property), `get_pair_cost()` - Data queries (v7.40.11 - direct property access)
   - **Layer 3 (核心算力)**: `get_hedge_drift()`, `calculate_leg_values()` - Pure math calculations (Beta hedging)
   - **Layer 4 (金融指标)**: `get_accum_return_pct()`, `get_pair_holding_days()` - Financial metrics
   - **Layer 5 (决策与意图)**: `get_zscore()`, `get_signal()`, `get_open_intent()` - Trading decisions
@@ -307,10 +307,10 @@ git commit -m "docs: update CHANGELOG for v7.2.5"
   - Clear separation of intent and execution
 
 ### 5. PairsManager.py - Lifecycle Management
-- **Purpose**: Manage all pairs through their lifecycle (storage and classification only)
-- **Design Principle** (v7.0.7): "Storage vs Business Logic" separation
-  - **Responsible for**: Storing pairs, state classification, simple queries
-  - **NOT responsible for**: Signal aggregation, risk analysis, fund allocation (delegated to ExecutionManager and RiskManager)
+- **Purpose**: Manage all pairs through their lifecycle (storage, classification, and config queries)
+- **Design Principle** (v7.45.0): "Storage + Config Query Router" separation
+  - **Responsible for**: Storing pairs, state classification, simple queries, config lookups (cooldown, tier, allocation)
+  - **NOT responsible for**: Signal aggregation, risk analysis, order execution (delegated to ExecutionManager and RiskManager)
 - **State Management** (v7.0.7 - PairState unified):
   - **COINTEGRATED**: Currently passing cointegration tests (本轮通过协整检验)
   - **LEGACY**: Have positions but failed recent tests (历史配对但仍有持仓)
@@ -318,14 +318,15 @@ git commit -m "docs: update CHANGELOG for v7.2.5"
 - **PairState Class** (v7.0.7): Merged PairClassifier into PairState
   - Contains both state constants and `classify()` method
   - Simplifies architecture by combining related functionality
-- **Key Methods** (v7.0.7 updated):
+- **Key Methods** (v7.45.0 updated):
   - `update_pairs()`: Update pair collection from monthly selection
-  - `get_tradeable_pairs()`: Get cointegrated + legacy pairs (renamed from get_all_tradeable_pairs)
+  - `get_tradeable_pairs()`: Get cointegrated + legacy pairs
   - `get_pairs_with_position()`: Filter pairs with positions (simple query)
   - `get_pairs_without_position()`: Filter pairs without positions (simple query)
   - `get_pair_by_id()`: Retrieve specific pair by ID
-  - `has_tradeable_pairs()`: Check if any tradeable pairs exist (O(1) performance)
-  - `reclassify_pairs()`: Reclassify pairs using PairState.classify()
+  - `get_cooldown_required_days()`: Query cooldown days from config (v7.44.0)
+  - `get_planned_allocation_pct()`: Calculate allocation percentage based on tier and quality (v7.45.0)
+  - `_get_industry_tier()`: Internal method to query industry tier (v7.45.0)
 
 ### 6. risk/RiskManager.py - Two-Tier Risk Control
 - **Purpose**: Risk detection and analysis (execution handled by main.py)
@@ -676,7 +677,7 @@ The strategy implemented **dynamic cooldown periods** based on exit reasons:
 ### State Management
 - **Pair States**: Active (tradeable), Legacy (position only), Dormant (inactive)
 - **Order States**: NONE (no orders) / PENDING (executing) / COMPLETED (filled) / ANOMALY (canceled/invalid)
-- **Position Tracking**: Direct Portfolio queries via Pairs.get_position_info()
+- **Position Tracking**: Direct property access via `pair.position_mode` (v7.40.11 - zero-cost property access)
 - **Risk State**: High water marks tracked in risk module classes
 - **Cooldown Tracking**: Per-pair cooldown managed in Pairs objects
 - **Margin Constraints**: Dynamic margin buffer (5% of MarginRemaining) and allocation tracked in main.py

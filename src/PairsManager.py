@@ -276,6 +276,68 @@ class PairsManager:
         return reason_to_config.get(last_close_reason, 10)
 
 
+    def get_planned_allocation_pct(self, pair) -> float:
+        """
+        计算配对的计划分配比例 (v7.45.0: 从Pairs迁移)
+
+        职责: 统一配置查询路由,Pairs只需提供quality_score
+
+        计算逻辑:
+            planned_pct = min_pct + quality_score × (max_pct - min_pct)
+
+        参数来源:
+            - min_pct: PairsTradingConfig.min_investment_ratio (0.05)
+            - max_pct: PairsTradingConfig.tier_max_investment_ratio[tier] (0.10-0.22)
+            - quality_score: 配对质量分数 (0.0-1.0)
+
+        tier影响:
+            - tier0 (负收益行业): max_pct=0.10 → planned_pct范围 [0.05, 0.10]
+            - tier1 (默认/新行业): max_pct=0.16 → planned_pct范围 [0.05, 0.16]
+            - tier4 (高回报行业): max_pct=0.22 → planned_pct范围 [0.05, 0.22]
+
+        Args:
+            pair: Pairs对象 (提供quality_score和industry_code)
+
+        Returns:
+            计划分配比例 (0.05-0.22之间,取决于tier和quality_score)
+        """
+        config = self.algorithm.config.pairs_trading
+        min_pct = config.min_investment_ratio
+
+        # 查询行业tier
+        tier = self._get_industry_tier(pair.industry_code)
+
+        # 获取tier对应的max_pct
+        tier_max = config.tier_max_investment_ratio
+        max_pct = tier_max.get(tier, tier_max['tier1'])
+
+        return min_pct + pair.quality_score * (max_pct - min_pct)
+
+
+    def _get_industry_tier(self, industry_code: int) -> str:
+        """
+        查询行业tier (v7.45.0: 内部配置查询方法)
+
+        数据来源:
+            - 有IndustryQuotaManager: 从动态配额中读取tier
+            - 无IndustryQuotaManager: 返回默认值'tier1'
+
+        Args:
+            industry_code: 行业代码 (MorningstarIndustryGroupCode)
+
+        Returns:
+            'tier0'/'tier1'/'tier2'/'tier3'/'tier4'
+        """
+        # 如果有IndustryQuotaManager,从中查询tier
+        if hasattr(self.algorithm, 'industry_quota_manager'):
+            quotas = self.algorithm.industry_quota_manager.get_industry_quotas()
+            industry_key = str(industry_code)
+            if industry_key in quotas:
+                return quotas[industry_key].get('tier', 'tier1')
+
+        return 'tier1'  # 默认tier
+
+
     # ===== 4. 日志与统计 =====
 
     def get_statistics(self) -> Dict:
