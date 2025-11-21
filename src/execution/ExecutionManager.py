@@ -110,7 +110,7 @@ class ExecutionManager:
         # 检查2: Pairs层面cooldown (MEAN_REVERSION/PAIR_BREAK信号)
         elapsed = pair.get_cooldown_elapsed_days()
         if elapsed is not None:
-            required = pair.get_cooldown_required_days()
+            required = self.pairs_manager.get_cooldown_required_days(pair.last_close_reason)
             if elapsed < required:
                 return True
 

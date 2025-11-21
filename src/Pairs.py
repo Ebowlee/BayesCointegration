@@ -562,7 +562,7 @@ class Pairs:
 
         术语说明 (v7.43.0):
         - elapsed days: 已经过去的天数 (时间管理标准术语)
-        - 配合 get_cooldown_required_days() 使用: elapsed < required 判断是否仍在冷却期
+        - 配合 PairsManager.get_cooldown_required_days() 使用 (v7.44.0迁移)
 
         Returns:
             已过天数 或 None(从未平仓)
@@ -573,43 +573,6 @@ class Pairs:
         return (self.algorithm.UtcTime - self.pair_closed_time).days
 
 
-    def get_cooldown_required_days(self) -> int:
-        """
-        获取冷却期需要天数 - 从配置读取 (v7.43.0重命名)
-
-        设计理由 (v7.28.0):
-        - NORMAL_SIGNAL (MEAN_REVERSION/PAIR_BREAK): 从CLOSE_REASONS读取
-        - 风控规则 (TIMEOUT/DRAWDOWN/CUMULATIVE_LOSS/ANOMALY): 由RiskBaseRule.config['cooldown_days']管理
-        - 兼容历史版本原因通过默认值兜底
-
-        术语说明 (v7.43.0):
-        - required days: 需要等待的天数 (时间管理标准术语)
-        - 配合 get_cooldown_elapsed_days() 使用: elapsed < required 判断是否仍在冷却期
-
-        Returns:
-            需要的冷却期天数
-
-        冷却期分类 (v7.28.0):
-            MEAN_REVERSION: 10天 (从CLOSE_REASONS读取)
-            PAIR_BREAK: 10天 (从CLOSE_REASONS读取)
-            TIMEOUT/DRAWDOWN/CUMULATIVE_LOSS/ANOMALY: 由Rule层管理
-            其他: 10天 (默认值,兼容历史原因如NORMAL_EXIT/CLOSE)
-
-        注意:
-        - Portfolio级原因(PORTFOLIO_DRAWDOWN/ACCOUNT_BLOWUP)不参与per-pair冷却计算
-        - 风控规则的冷却期由RiskBaseRule从config['cooldown_days']读取
-        """
-        close_reasons = self.algorithm.config.constants['close_reasons']
-
-        # v7.28.0: 检查是否在CLOSE_REASONS中配置了cooldown_days
-        if self.last_close_reason in close_reasons:
-            reason_config = close_reasons[self.last_close_reason]
-            if 'cooldown_days' in reason_config:
-                return reason_config['cooldown_days']  # NORMAL_SIGNAL
-
-        # 风控规则: 由RiskBaseRule.config['cooldown_days']管理
-        # 返回默认值10天(仅用于向后兼容历史原因如NORMAL_EXIT/CLOSE)
-        return 10
 
 
     def has_position(self) -> bool:
@@ -1076,20 +1039,8 @@ class Pairs:
         close_reasons = self.algorithm.config.constants['close_reasons']
         reason_text = close_reasons.get(reason, {}).get('display', '未知原因')
 
-        # v7.30.11: 根据reason从config读取真实冷却期(修复BUG: 之前错误使用get_cooldown_days()返回10天)
-        from datetime import timedelta
-
-        # 风控规则的冷却期从risk_management.pair_rules读取
-        risk_config = self.algorithm.config.risk_management.pair_rules
-        reason_to_config = {
-            'TIMEOUT': risk_config.holding_timeout.cooldown_days,              # 30天
-            'DRAWDOWN': risk_config.pair_drawdown.cooldown_days,               # 180天
-            'CUMULATIVE_LOSS': risk_config.pair_cumulative_loss.cooldown_days, # 360天
-            'ANOMALY': risk_config.pair_anomaly.cooldown_days,                 # 999999天
-        }
-
-        # 如果是风控原因，读取配置；否则使用默认10天
-        cooldown_days = reason_to_config.get(reason, self.get_cooldown_days())
+        # v7.44.0: 调用PairsManager统一配置查询
+        cooldown_days = self.algorithm.pairs_manager.get_cooldown_required_days(reason)
 
         # 计算持有天数
         holding_days = self.get_pair_holding_days()

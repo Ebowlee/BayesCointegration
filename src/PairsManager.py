@@ -235,6 +235,47 @@ class PairsManager:
         return self.all_pairs.get(pair_id)
 
 
+    def get_cooldown_required_days(self, last_close_reason: str) -> int:
+        """
+        查询冷却期需要天数 (v7.44.0: 从Pairs迁移至PairsManager)
+
+        职责: 统一配置查询路由,消除Pairs对全局配置的依赖
+
+        设计理由:
+            - Pairs职责: 提供数据 (pair_closed_time, last_close_reason)
+            - PairsManager职责: 查询全局配置 (冷却期规则)
+            - 收益: 修复风控规则硬编码bug + 消除重复逻辑 + 恢复职责边界
+
+        Args:
+            last_close_reason: 平仓原因 (MEAN_REVERSION/PAIR_BREAK/TIMEOUT等)
+
+        Returns:
+            冷却期天数
+
+        配置来源:
+            - NORMAL_SIGNAL: config.constants['close_reasons'][reason]['cooldown_days']
+            - 风控规则: config.risk_management.pair_rules[rule_name].cooldown_days
+            - 默认兜底: 10天
+        """
+        close_reasons = self.algorithm.config.constants['close_reasons']
+
+        # NORMAL_SIGNAL: 从CLOSE_REASONS读取
+        if last_close_reason in close_reasons:
+            reason_config = close_reasons[last_close_reason]
+            return reason_config.get('cooldown_days', 10)
+
+        # 风控规则: 从risk_management.pair_rules读取
+        risk_config = self.algorithm.config.risk_management.pair_rules
+        reason_to_config = {
+            'TIMEOUT': risk_config.holding_timeout.cooldown_days,              # 30天
+            'DRAWDOWN': risk_config.pair_drawdown.cooldown_days,               # 180天
+            'CUMULATIVE_LOSS': risk_config.pair_cumulative_loss.cooldown_days, # 360天
+            'ANOMALY': risk_config.pair_anomaly.cooldown_days,                 # 999999天
+        }
+
+        return reason_to_config.get(last_close_reason, 10)
+
+
     # ===== 4. 日志与统计 =====
 
     def get_statistics(self) -> Dict:
@@ -338,8 +379,8 @@ class PairsManager:
                 data['unrealized_pnl'] += pnl
 
             # 统计6-7: 已实现盈亏和成本 (所有配对都累加历史数据)
-            data['realized_pnl'] += pair.total_pnl_dollars
-            data['realized_cost'] += pair.total_pair_cost
+            data['realized_pnl'] += pair.get_pair_realized_pnl()
+            data['realized_cost'] += pair.get_pair_historical_cost()
 
             # 统计8-9: 交易次数和盈利次数
             data['total_trades'] += pair.trade_count

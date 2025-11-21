@@ -5,6 +5,82 @@
 ---
 
 
+## [v7.44.0_migrate-cooldown-query-to-pairsmanager@20250121]
+
+### 版本概述
+架构重构 - 将冷却期查询职责从Pairs迁移到PairsManager,恢复职责边界
+
+### 🎯 核心改进
+
+#### 问题诊断
+**职责错位导致的三个问题**:
+```python
+# v7.43.0 及之前版本
+class Pairs:
+    def get_cooldown_required_days(self) -> int:
+        # ❌ 问题1: 查询全局配置 (config.constants, config.risk_management.pair_rules)
+        # ❌ 问题2: 风控规则硬编码返回10天 (未查询Rule层配置)
+        # ❌ 问题3: _log_close_completion()中重复相同查询逻辑 (14行重复)
+        return 10  # 风控规则兜底硬编码
+
+# 职责冲突:
+# - Pairs应该: 提供数据 (pair_closed_time, last_close_reason)
+# - Pairs不应该: 查询全局配置 (违反"Tell, Don't Ask"原则)
+```
+
+#### 解决方案
+**v7.44.0 职责分离**:
+```python
+# PairsManager: 配置管理者 (新增职责)
+class PairsManager:
+    def get_cooldown_required_days(self, last_close_reason: str) -> int:
+        """统一配置查询路由"""
+        # ✅ NORMAL_SIGNAL: 从config.constants['close_reasons']读取
+        # ✅ 风控规则: 从config.risk_management.pair_rules读取
+        # ✅ 默认兜底: 10天
+
+# Pairs: 数据提供者 (只保留数据查询)
+class Pairs:
+    def get_cooldown_elapsed_days(self) -> Optional[int]:
+        """只提供数据: 已过天数"""
+        return (algorithm.UtcTime - self.pair_closed_time).days
+
+    # ❌ get_cooldown_required_days() 方法移除
+```
+
+### 📋 Breaking Changes
+
+**API迁移**:
+```python
+# ❌ 旧代码 (v7.43.0)
+required = pair.get_cooldown_required_days()
+
+# ✅ 新代码 (v7.44.0)
+required = pairs_manager.get_cooldown_required_days(pair.last_close_reason)
+```
+
+**受影响代码**:
+- `ExecutionManager.is_pair_in_cooldown()` (Line 113)
+- `Pairs._log_close_completion()` (Line 1043)
+
+### 🐛 Fixed
+- **风控规则冷却期错误**: Pairs.get_cooldown_required_days()对风控规则(TIMEOUT/DRAWDOWN/CUMULATIVE_LOSS/ANOMALY)硬编码返回10天,现已正确查询config.risk_management.pair_rules配置
+
+### ♻️ Refactored
+- **消除重复代码**: 删除Pairs._log_close_completion()中的14行重复逻辑,改为调用PairsManager方法
+
+### ✅ Added
+- `PairsManager.get_cooldown_required_days(last_close_reason: str) -> int` - 统一配置查询路由
+
+### ❌ Removed
+- `Pairs.get_cooldown_required_days() -> int` - 迁移到PairsManager
+
+### 🔄 Changed
+- `Pairs.get_cooldown_elapsed_days()` docstring - 更新配合方法说明 (v7.44.0迁移)
+
+---
+
+
 ## [v7.43.0_rename-cooldown-methods@20250121]
 
 ### 版本概述
