@@ -348,19 +348,20 @@ class IndustryQuotaConfig:
     warmup_days: int = 90                                                   # 自适应行业偏好预热时间
     default_quota: int = 1                                                  # 每个行业初始的协整对配额数量
 
-    # 回报率与配额数量的关系 (v7.35.0: 更保守的阈值和配额)
+    # 综合得分与配额数量的关系 (v7.60.0: composite_score = ROI × WIN_RATE)
+    # 示例: 10%ROI × 60%胜率 = 0.06
     tier_thresholds: Dict[str, float] = field(default_factory=lambda: {
-        'tier0': 0.00,                                                      # 负收益
-        'tier1': 0.05,                                                      # [0%, 5%)
-        'tier2': 0.10,                                                      # [5%, 10%)
-        'tier3': 0.15                                                       # [10%, 15%)
+        'tier0': 0.00,                                                      # 负收益或亏损
+        'tier1': 0.03,                                                      # 约 6%ROI × 50%胜率
+        'tier2': 0.06,                                                      # 约 10%ROI × 60%胜率
+        'tier3': 0.10                                                       # 约 15%ROI × 67%胜率
     })
     tier_quotas: Dict[str, int] = field(default_factory=lambda: {
-        'tier0': 1,                                                         # <0%: 负收益 → 最低配额
-        'tier1': 2,                                                         # [0%, 5%)
-        'tier2': 3,                                                         # [5%, 10%)
-        'tier3': 4,                                                         # [10%, 15%)
-        'tier4': 5                                                          # ≥15%: 高回报 → 高配额
+        'tier0': 1,                                                         # <0: 负得分 → 最低配额
+        'tier1': 2,                                                         # [0, 0.03)
+        'tier2': 3,                                                         # [0.03, 0.06)
+        'tier3': 4,                                                         # [0.06, 0.10)
+        'tier4': 5                                                          # ≥0.10: 高ROI + 高胜率
     })
 
 

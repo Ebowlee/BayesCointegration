@@ -454,40 +454,186 @@ class PairsManager:
         return total_net / total_gross
 
 
-    # ----- 5C. 诊断统计 -----
+    # ----- 5D. 投资分配中心 - 行业配额管理 (v7.60.0) -----
+    # 设计: 综合 ROI × WIN_RATE 复合评分确定配额
+    # 复用: 情报中心的 get_industry_roi() 和 get_industry_win_rate()
 
-    def get_statistics(self) -> Dict:
+    def _is_in_warmup_period(self) -> bool:
         """
-        获取配对管理统计信息 (v7.53.0 简化为两分类)
+        检查是否在预热期 (前180天)
 
         Returns:
-            Dict: 包含update_count, current_selected_count等字段
-
-        使用场景:
-            - 日志输出
-            - 监控面板
-            - 单元测试
+            True: 在预热期，使用默认配额
+            False: 预热期结束，使用动态配额
         """
-        # 计算历史配对中有持仓的数量
-        past_with_position_count = sum(
-            1 for pid in self.past_selected_pair_ids
-            if self.all_pairs[pid].has_position()
-        )
+        warmup_days = self.config.industry_quota.warmup_days
+        days_running = (self.algorithm.Time - self.algorithm.StartDate).days
+        return days_running < warmup_days
 
-        return {
-            'update_count': self.update_count,
-            'current_selected_count': len(self.current_selected_pair_ids),
-            'past_selected_count': len(self.past_selected_pair_ids),
-            'past_with_position_count': past_with_position_count,
-            'total_count': len(self.all_pairs),
-            'position_count': len(self.get_pairs_with_position()),
-            'last_update_time': self.last_update_time
-        }
+    def _calculate_composite_score(self, industry_code: str) -> float:
+        """
+        计算行业综合得分 = ROI × WIN_RATE
 
+        设计理念:
+            - 乘法复合: 自动惩罚低胜率的高收益 (可能是运气)
+            - 数学意义: 期望收益 = 每笔收益 × 成功概率
 
-    def log_statistics(self):
-        """输出统计信息 - 使用 get_statistics()"""
-        pass
+        Args:
+            industry_code: 行业代码
+
+        Returns:
+            综合得分 (通常在 -0.05 ~ 0.15 范围)
+
+        示例:
+            - 行业A: ROI=20%, WIN_RATE=80% → 0.20 × 0.80 = 0.16
+            - 行业B: ROI=30%, WIN_RATE=50% → 0.30 × 0.50 = 0.15
+            - 行业A 虽然ROI低，但综合得分更高 (更稳定)
+        """
+        roi = self.get_industry_roi(industry_code)
+        win_rate = self.get_industry_win_rate(industry_code)
+        return roi * win_rate
+
+    def _get_tier_by_composite_score(self, score: float) -> str:
+        """
+        根据综合得分确定tier
+
+        Args:
+            score: 综合得分 (ROI × WIN_RATE)
+
+        Returns:
+            tier名称 ('tier0'/'tier1'/'tier2'/'tier3'/'tier4')
+
+        分层逻辑 (基于 ROI × WIN_RATE 乘积):
+            score < 0.00  → tier0 (负收益或亏损)
+            score < 0.03  → tier1 (约 6%ROI × 50%胜率)
+            score < 0.06  → tier2 (约 10%ROI × 60%胜率)
+            score < 0.10  → tier3 (约 15%ROI × 67%胜率)
+            score >= 0.10 → tier4 (高ROI + 高胜率)
+        """
+        thresholds = self.config.industry_quota.tier_thresholds
+        if score < thresholds['tier0']:
+            return 'tier0'
+        elif score < thresholds['tier1']:
+            return 'tier1'
+        elif score < thresholds['tier2']:
+            return 'tier2'
+        elif score < thresholds['tier3']:
+            return 'tier3'
+        else:
+            return 'tier4'
+
+    def _get_quota_by_tier(self, tier: str) -> int:
+        """
+        根据tier获取配额
+
+        Args:
+            tier: tier名称 ('tier0'-'tier4')
+
+        Returns:
+            配额数量 (1/2/3/4/5)
+        """
+        quotas = self.config.industry_quota.tier_quotas
+        return quotas.get(tier, quotas['tier0'])
+
+    def get_industry_quota(self, industry_code: str) -> int:
+        """
+        获取单个行业的配对配额
+
+        Args:
+            industry_code: 行业代码
+
+        Returns:
+            配额数量 (1-5)
+
+        逻辑:
+            1. 预热期: 返回默认配额 (1)
+            2. 正常期: 计算 composite_score → tier → quota
+        """
+        # 预热期使用默认配额
+        if self._is_in_warmup_period():
+            return self.config.industry_quota.default_quota
+
+        # 检查是否有交易历史
+        trade_count = self.get_industry_trade_count(industry_code)
+        if trade_count == 0:
+            return self.config.industry_quota.default_quota
+
+        # 计算综合得分并获取配额
+        score = self._calculate_composite_score(industry_code)
+        tier = self._get_tier_by_composite_score(score)
+        return self._get_quota_by_tier(tier)
+
+    def get_all_industry_quotas(self) -> Dict[str, Dict]:
+        """
+        获取所有行业的配额信息 (兼容 IndustryQuotaManager 返回格式)
+
+        Returns:
+            {
+                industry_code: {
+                    'quota': int,
+                    'tier': str,
+                    'composite_score': float
+                }
+            }
+
+            预热期返回空字典 (由调用方使用默认配额)
+        """
+        # 预热期返回空字典
+        if self._is_in_warmup_period():
+            warmup_days = self.config.industry_quota.warmup_days
+            days_running = (self.algorithm.Time - self.algorithm.StartDate).days
+            self.algorithm.Debug(
+                f"[行业配额] 预热期 ({days_running}/{warmup_days}天), "
+                f"所有行业使用默认配额: {self.config.industry_quota.default_quota}"
+            )
+            return {}
+
+        # 收集所有有交易历史的行业
+        industry_data = self._aggregate_all_industry_data()
+        result = {}
+        industry_names = self.config.constants['industry_names']
+        default_quota = self.config.industry_quota.default_quota
+
+        for industry_code, data in industry_data.items():
+            # 跳过无交易历史的行业
+            if data.trade_count == 0:
+                continue
+
+            # 计算综合得分
+            total_invested = data.current_invested_capital + data.past_invested_capital
+            total_pnl = data.unrealized_pnl + data.realized_pnl
+            roi = total_pnl / total_invested if total_invested > 0 else 0.0
+            win_rate = data.win_count / data.trade_count if data.trade_count > 0 else 0.0
+            composite_score = roi * win_rate
+
+            # 获取tier和配额
+            tier = self._get_tier_by_composite_score(composite_score)
+            quota = self._get_quota_by_tier(tier)
+
+            result[industry_code] = {
+                'quota': quota,
+                'tier': tier,
+                'composite_score': composite_score
+            }
+
+            # 日志输出 (只显示非默认配额)
+            if quota != default_quota:
+                industry_name = industry_names.get(int(industry_code), f'未知({industry_code})')
+                self.algorithm.Debug(
+                    f"[行业配额] {industry_name}: "
+                    f"ROI={roi*100:+.1f}%, 胜率={win_rate*100:.1f}% "
+                    f"→ 综合得分={composite_score:.4f} → tier={tier}, 配额={quota}",
+                    level=1
+                )
+
+        # 汇总日志
+        non_default = {k: v for k, v in result.items() if v['quota'] != default_quota}
+        if not non_default:
+            self.algorithm.Debug(
+                f"[行业配额] 本月所有行业使用默认配额: {default_quota}"
+            )
+
+        return result
 
 
     # ===== 6. 待重构区域 (Pending Refactor) =====
@@ -531,10 +677,12 @@ class PairsManager:
 
     def get_planned_allocation_pct(self, pair) -> float:
         """
-        计算配对的计划分配比例
+        计算配对的计划分配比例 (v7.60.0: 使用 composite_score)
 
         计算逻辑:
-            planned_pct = min_pct + quality_score × (max_pct - min_pct)
+            1. 计算行业 composite_score = ROI × WIN_RATE
+            2. 根据 composite_score 确定 tier
+            3. planned_pct = min_pct + quality_score × (max_pct - min_pct)
 
         Args:
             pair: Pairs对象 (提供quality_score和industry_code)
@@ -545,11 +693,20 @@ class PairsManager:
         config = self.algorithm.config.pairs_trading
         min_pct = config.min_investment_ratio
 
-        # 查询行业tier
-        tier = self._get_industry_tier(pair.industry_code)
+        # 查询行业tier (v7.60.0: 使用 composite_score 计算)
+        industry_code = str(pair.industry_code)
+
+        # 预热期或无交易历史时使用默认tier
+        if self._is_in_warmup_period():
+            tier = 'tier0'
+        elif self.get_industry_trade_count(industry_code) == 0:
+            tier = 'tier0'
+        else:
+            score = self._calculate_composite_score(industry_code)
+            tier = self._get_tier_by_composite_score(score)
 
         # 获取tier对应的max_pct
         tier_max = config.tier_max_investment_ratio
-        max_pct = tier_max.get(tier, tier_max['tier1'])
+        max_pct = tier_max.get(tier, tier_max['tier0'])
 
         return min_pct + pair.quality_score * (max_pct - min_pct)
