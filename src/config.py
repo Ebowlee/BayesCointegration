@@ -226,8 +226,8 @@ class PairSelectorConfig:
 
 
 @dataclass
-class PairsTradingConfig:
-    """配对交易配置 - 信号/仓位参数"""
+class PairsConfig:
+    """配对配置 - Pairs.py 使用 (v7.61.0 从 PairsTradingConfig 拆分)"""
 
     # 信号阈值
     entry_threshold_lower: float = 1.2                             # 入场Z-score下限
@@ -235,21 +235,45 @@ class PairsTradingConfig:
     exit_threshold: float = 0.3                                    # 出场Z-score阈值
     stop_loss_threshold: float = 2.3                               # 止损Z-score阈值
 
-    # 仓位管理参数
-    min_investment_ratio: float = 0.05                             # 质量最低(0.0分)配对投资比例: 5%
+    # 保证金计算参数 (v7.41.0: 配置层保持监管语义)
+    margin_requirement_long: float = 0.5                           # 多头保证金率: 50%
+    margin_requirement_short: float = 1.5                          # 空头保证金率: 150%
 
-    # v7.35.0: 基于行业tier的最大投资比例映射 (更保守的配置)
-    tier_max_investment_ratio: Dict[str, float] = field(default_factory=lambda: {
-        'tier0': 0.10,  # <0%: 负收益 → 最低配置
-        'tier1': 0.16,  # [0%, 5%)
-        'tier2': 0.18,  # [5%, 10%)
-        'tier3': 0.20,  # [10%, 15%)
-        'tier4': 0.22   # ≥15%: 高回报 → 高配置
+
+@dataclass
+class PairsManagerConfig:
+    """配对管理配置 - PairsManager.py 使用 (v7.61.0 合并 IndustryQuotaConfig)"""
+
+    # 预热期配置
+    warmup_days: int = 90                                          # 自适应行业偏好预热时间
+
+    # 配额系统 (v7.60.0: composite_score = ROI × WIN_RATE)
+    default_quota: int = 1                                         # 每个行业初始的协整对配额数量
+    tier_thresholds: Dict[str, float] = field(default_factory=lambda: {
+        'tier0': 0.00,                                             # 负收益或亏损
+        'tier1': 0.03,                                             # 约 6%ROI × 50%胜率
+        'tier2': 0.06,                                             # 约 10%ROI × 60%胜率
+        'tier3': 0.10                                              # 约 15%ROI × 67%胜率
+    })
+    tier_quotas: Dict[str, int] = field(default_factory=lambda: {
+        'tier0': 1,                                                # <0: 负得分 → 最低配额
+        'tier1': 2,                                                # [0, 0.03)
+        'tier2': 3,                                                # [0.03, 0.06)
+        'tier3': 4,                                                # [0.06, 0.10)
+        'tier4': 5                                                 # ≥0.10: 高ROI + 高胜率
     })
 
-    # 保证金管理 (v7.41.0修正: 配置层保持监管语义,计算层处理卖空所得)
-    margin_requirement_long: float = 0.5                           # 多头保证金率: 50% (Reg T: 自有0.5V, 券商借0.5V)
-    margin_requirement_short: float = 1.5                          # 空头保证金率: 150% (Reg T: 账户总资产≥1.5V, 但卖空所得1.0V回流, 实际占用0.5V)
+    # 投资分配参数
+    min_investment_ratio: float = 0.05                             # 质量最低(0.0分)配对投资比例: 5%
+    tier_max_investment_ratio: Dict[str, float] = field(default_factory=lambda: {
+        'tier0': 0.10,                                             # <0%: 负收益 → 最低配置
+        'tier1': 0.16,                                             # [0%, 5%)
+        'tier2': 0.18,                                             # [5%, 10%)
+        'tier3': 0.20,                                             # [10%, 15%)
+        'tier4': 0.22                                              # ≥15%: 高回报 → 高配置
+    })
+
+    # 保证金管理
     margin_usage_ratio: float = 0.98                               # 保证金使用率: 98%
     max_leverage_cap: float = 2.0                                  # 放大模式最大杠杆倍数: 2.0倍
 
@@ -342,27 +366,6 @@ class RiskManagementConfig:
     pair_rules: PairRulesConfig = field(default_factory=PairRulesConfig)
 
 
-@dataclass
-class IndustryQuotaConfig:
-    """行业配额配置"""
-    warmup_days: int = 90                                                   # 自适应行业偏好预热时间
-    default_quota: int = 1                                                  # 每个行业初始的协整对配额数量
-
-    # 综合得分与配额数量的关系 (v7.60.0: composite_score = ROI × WIN_RATE)
-    # 示例: 10%ROI × 60%胜率 = 0.06
-    tier_thresholds: Dict[str, float] = field(default_factory=lambda: {
-        'tier0': 0.00,                                                      # 负收益或亏损
-        'tier1': 0.03,                                                      # 约 6%ROI × 50%胜率
-        'tier2': 0.06,                                                      # 约 10%ROI × 60%胜率
-        'tier3': 0.10                                                       # 约 15%ROI × 67%胜率
-    })
-    tier_quotas: Dict[str, int] = field(default_factory=lambda: {
-        'tier0': 1,                                                         # <0: 负得分 → 最低配额
-        'tier1': 2,                                                         # [0, 0.03)
-        'tier2': 3,                                                         # [0.03, 0.06)
-        'tier3': 4,                                                         # [0.06, 0.10)
-        'tier4': 5                                                          # ≥0.10: 高ROI + 高胜率
-    })
 
 
 # ============================================================================
@@ -521,14 +524,14 @@ class StrategyConfig:
         # 7. 配对选择配置
         self.pair_selector = PairSelectorConfig()
 
-        # 8. 配对交易配置
-        self.pairs_trading = PairsTradingConfig()
+        # 8. 配对配置 (v7.61.0: 拆分为 pairs + pairs_manager)
+        self.pairs = PairsConfig()
 
-        # 9. 风险管理配置
+        # 9. 配对管理配置 (v7.61.0: 合并 industry_quota)
+        self.pairs_manager = PairsManagerConfig()
+
+        # 10. 风险管理配置
         self.risk_management = RiskManagementConfig()
-
-        # 10. 行业配额配置
-        self.industry_quota = IndustryQuotaConfig()
 
         # 11. 常量配置 (保持dict - 枚举性质)
         self.constants = self._init_constants()

@@ -22,7 +22,7 @@ class CointegrationAnalyzer:
             algorithm: QCAlgorithm实例
             module_config: 模块配置对象 (CointegrationConfig dataclass)
             industry_quotas: 行业配额字典 {industry_code: {'quota': int, 'tier': str, 'weighted_return': float}}
-                - 如果为None或空字典,使用默认配额 (从config.industry_quota.default_quota读取)
+                - 如果为None或空字典,使用默认配额 (从config.pairs_manager.default_quota读取)
                 - 如果提供,使用动态配额
         """
         self.algorithm = algorithm
@@ -34,7 +34,7 @@ class CointegrationAnalyzer:
         self.max_stocks_per_industry = module_config.max_stocks_per_industry
 
         self.industry_quotas = industry_quotas if industry_quotas else {}
-        self.default_quota = algorithm.config.industry_quota.default_quota
+        self.default_quota = algorithm.config.pairs_manager.default_quota
         self.max_symbol_repeats = module_config.max_symbol_repeats
 
 

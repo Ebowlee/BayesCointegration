@@ -31,7 +31,7 @@ class IndustryQuotaManager:
     使用示例:
     ```python
     # main.py初始化:
-    self.industry_quota_manager = IndustryQuotaManager(self, config.industry_quota)
+    self.industry_quota_manager = IndustryQuotaManager(self, config.pairs_manager)
 
     # 月度协整检测前:
     industry_quotas = self.industry_quota_manager.calculate_quotas(

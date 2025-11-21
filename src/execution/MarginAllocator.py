@@ -68,10 +68,10 @@ class MarginAllocator:
         self.algorithm = algorithm
         self.config = config
 
-        # 从config提取关键参数
-        pairs_config = config.pairs_trading
-        self.margin_usage_ratio = pairs_config.margin_usage_ratio  # 0.98
-        self.max_leverage_cap = pairs_config.max_leverage_cap      # 2.0 (v7.30.11)
+        # 从config提取关键参数 (v7.61.0: pairs_trading → pairs_manager)
+        pm_config = config.pairs_manager
+        self.margin_usage_ratio = pm_config.margin_usage_ratio  # 0.98
+        self.max_leverage_cap = pm_config.max_leverage_cap      # 2.0 (v7.30.11)
 
         # 记录初始保证金(分配基准,整个回测周期固定)
         self.initial_available_fund = algorithm.Portfolio.MarginRemaining
@@ -80,7 +80,7 @@ class MarginAllocator:
         self.fixed_buffer = self.initial_available_fund * (1 - self.margin_usage_ratio)
 
         # 最小投资额(从config直接计算: initial_cash × min_investment_ratio)
-        self.min_investment_amount = (config.main.cash * config.pairs_trading.min_investment_ratio)
+        self.min_investment_amount = (config.main.cash * pm_config.min_investment_ratio)
 
 
 

@@ -642,7 +642,7 @@ class Pairs:
             return None
 
         # 从config读取出场阈值
-        exit_threshold = self.algorithm.config.pairs_trading.exit_threshold  # 0.3
+        exit_threshold = self.algorithm.config.pairs.exit_threshold  # 0.3
         entry_zscore = abs(self.entry_zscore)  # 取绝对值,如-1.9σ → 1.9
 
         # 计算所需半衰期数

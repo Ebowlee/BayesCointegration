@@ -466,7 +466,7 @@ class PairsManager:
             True: 在预热期，使用默认配额
             False: 预热期结束，使用动态配额
         """
-        warmup_days = self.config.industry_quota.warmup_days
+        warmup_days = self.config.pairs_manager.warmup_days
         days_running = (self.algorithm.Time - self.algorithm.StartDate).days
         return days_running < warmup_days
 
@@ -510,7 +510,7 @@ class PairsManager:
             score < 0.10  → tier3 (约 15%ROI × 67%胜率)
             score >= 0.10 → tier4 (高ROI + 高胜率)
         """
-        thresholds = self.config.industry_quota.tier_thresholds
+        thresholds = self.config.pairs_manager.tier_thresholds
         if score < thresholds['tier0']:
             return 'tier0'
         elif score < thresholds['tier1']:
@@ -532,7 +532,7 @@ class PairsManager:
         Returns:
             配额数量 (1/2/3/4/5)
         """
-        quotas = self.config.industry_quota.tier_quotas
+        quotas = self.config.pairs_manager.tier_quotas
         return quotas.get(tier, quotas['tier0'])
 
     def get_industry_quota(self, industry_code: str) -> int:
@@ -551,12 +551,12 @@ class PairsManager:
         """
         # 预热期使用默认配额
         if self._is_in_warmup_period():
-            return self.config.industry_quota.default_quota
+            return self.config.pairs_manager.default_quota
 
         # 检查是否有交易历史
         trade_count = self.get_industry_trade_count(industry_code)
         if trade_count == 0:
-            return self.config.industry_quota.default_quota
+            return self.config.pairs_manager.default_quota
 
         # 计算综合得分并获取配额
         score = self._calculate_composite_score(industry_code)
@@ -573,11 +573,11 @@ class PairsManager:
         """
         # 预热期返回空字典
         if self._is_in_warmup_period():
-            warmup_days = self.config.industry_quota.warmup_days
+            warmup_days = self.config.pairs_manager.warmup_days
             days_running = (self.algorithm.Time - self.algorithm.StartDate).days
             self.algorithm.Debug(
                 f"[行业配额] 预热期 ({days_running}/{warmup_days}天), "
-                f"所有行业使用默认配额: {self.config.industry_quota.default_quota}"
+                f"所有行业使用默认配额: {self.config.pairs_manager.default_quota}"
             )
             return {}
 
@@ -585,7 +585,7 @@ class PairsManager:
         industry_data = self._aggregate_all_industry_data()
         result = {}
         industry_names = self.config.constants['industry_names']
-        default_quota = self.config.industry_quota.default_quota
+        default_quota = self.config.pairs_manager.default_quota
 
         for industry_code, data in industry_data.items():
             if data.trade_count == 0:
@@ -675,7 +675,7 @@ class PairsManager:
         Returns:
             计划分配比例 (0.05-0.22之间)
         """
-        config = self.algorithm.config.pairs_trading
+        config = self.algorithm.config.pairs_manager
         min_pct = config.min_investment_ratio
 
         # 查询行业tier (v7.60.0: 使用 composite_score 计算)
