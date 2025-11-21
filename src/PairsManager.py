@@ -6,7 +6,7 @@ from typing import Dict, Set
 
 class IndustryData:
     """
-    行业数据对象 - Value Object (v7.54.0)
+    行业数据对象 - Value Object (v7.56.0)
 
     设计原则:
         - 纯数据对象: 存储单个行业的聚合统计
@@ -17,28 +17,39 @@ class IndustryData:
         - 存储行业级聚合数据
         - 提供类型安全的属性访问
 
-    字段说明:
-        - unrealized_pnl: 未实现盈亏 (所有持仓配对的浮动盈亏之和)
-        - realized_pnl: 已实现盈亏 (所有已平仓交易的累计盈亏)
+    字段说明 (对称设计):
+        PnL维度:
+            - unrealized_pnl: 未实现盈亏 (持仓中配对的浮动盈亏)
+            - realized_pnl: 已实现盈亏 (已平仓交易的累计盈亏)
+        投入资本维度:
+            - current_invested_capital: 当前投入资本 (持仓中配对的投入)
+            - historical_invested_capital: 历史投入资本 (已平仓交易的累计投入)
 
     使用场景:
-        - 由 PairsManager._aggregate_unrealized_pnl() 创建 (未实现盈亏)
-        - 由 PairsManager._aggregate_realized_pnl() 创建 (已实现盈亏)
-        - 供查询接口 get_industry_*_pnl() / get_total_*_pnl() 返回数据
+        - 由 PairsManager._aggregate_*() 方法创建
+        - 供查询接口 get_industry_*() / get_total_*() 返回数据
     """
 
-    def __init__(self, industry_code: str, unrealized_pnl: float = 0.0, realized_pnl: float = 0.0):
+    def __init__(self, industry_code: str,
+                 unrealized_pnl: float = 0.0,
+                 realized_pnl: float = 0.0,
+                 current_invested_capital: float = 0.0,
+                 historical_invested_capital: float = 0.0):
         """
         初始化行业数据对象
 
         Args:
             industry_code: 行业代码 (字符串格式)
-            unrealized_pnl: 未实现盈亏 (所有持仓配对的浮动盈亏之和)
-            realized_pnl: 已实现盈亏 (所有已平仓交易的累计盈亏)
+            unrealized_pnl: 未实现盈亏 (持仓中)
+            realized_pnl: 已实现盈亏 (已平仓累计)
+            current_invested_capital: 当前投入资本 (持仓中)
+            historical_invested_capital: 历史投入资本 (已平仓累计)
         """
         self.industry_code = industry_code
         self.unrealized_pnl = unrealized_pnl
         self.realized_pnl = realized_pnl
+        self.current_invested_capital = current_invested_capital
+        self.historical_invested_capital = historical_invested_capital
 
 
 class PairsManager:
@@ -181,6 +192,54 @@ class PairsManager:
             # 聚合已实现盈亏
             realized_pnl = pair.get_pair_realized_pnl()
             industry_data[industry_code].realized_pnl += realized_pnl
+
+        return industry_data
+
+
+    def _aggregate_current_invested_capital(self) -> Dict[str, IndustryData]:
+        """
+        聚合当前投入资本 (持仓中 - v7.56.0)
+
+        数据源: pair.get_pair_invested_capital() (持仓中配对的投入资本)
+
+        Returns:
+            Dict[str, IndustryData]: 行业代码 → IndustryData 对象
+        """
+        industry_data: Dict[str, IndustryData] = {}
+
+        for _, pair in self.all_pairs.items():
+            industry_code = str(pair.industry_code)
+
+            if industry_code not in industry_data:
+                industry_data[industry_code] = IndustryData(industry_code)
+
+            # 聚合当前投入资本 (只有持仓中的配对有值)
+            invested = pair.get_pair_invested_capital()
+            if invested is not None:
+                industry_data[industry_code].current_invested_capital += invested
+
+        return industry_data
+
+
+    def _aggregate_historical_invested_capital(self) -> Dict[str, IndustryData]:
+        """
+        聚合历史投入资本 (已平仓累计 - v7.56.0)
+
+        数据源: pair.pair_historical_invested_capital (已平仓交易的累计投入)
+
+        Returns:
+            Dict[str, IndustryData]: 行业代码 → IndustryData 对象
+        """
+        industry_data: Dict[str, IndustryData] = {}
+
+        for _, pair in self.all_pairs.items():
+            industry_code = str(pair.industry_code)
+
+            if industry_code not in industry_data:
+                industry_data[industry_code] = IndustryData(industry_code)
+
+            # 聚合历史投入资本
+            industry_data[industry_code].historical_invested_capital += pair.pair_historical_invested_capital
 
         return industry_data
 
@@ -374,6 +433,60 @@ class PairsManager:
         """
         industry_data = self._aggregate_realized_pnl()
         return sum(data.realized_pnl for data in industry_data.values())
+
+
+    def get_industry_current_invested_capital(self, industry_code: str) -> float:
+        """
+        获取指定行业的当前投入资本 (持仓中 - v7.56.0)
+
+        Args:
+            industry_code: 行业代码
+
+        Returns:
+            该行业所有持仓配对的当前投入资本之和
+        """
+        industry_data = self._aggregate_current_invested_capital()
+        if industry_code in industry_data:
+            return industry_data[industry_code].current_invested_capital
+        return 0.0
+
+
+    def get_total_current_invested_capital(self) -> float:
+        """
+        获取全局当前投入资本 (持仓中 - v7.56.0)
+
+        Returns:
+            所有持仓配对的当前投入资本之和
+        """
+        industry_data = self._aggregate_current_invested_capital()
+        return sum(data.current_invested_capital for data in industry_data.values())
+
+
+    def get_industry_historical_invested_capital(self, industry_code: str) -> float:
+        """
+        获取指定行业的历史投入资本 (已平仓累计 - v7.56.0)
+
+        Args:
+            industry_code: 行业代码
+
+        Returns:
+            该行业所有已平仓交易的累计投入资本
+        """
+        industry_data = self._aggregate_historical_invested_capital()
+        if industry_code in industry_data:
+            return industry_data[industry_code].historical_invested_capital
+        return 0.0
+
+
+    def get_total_historical_invested_capital(self) -> float:
+        """
+        获取全局历史投入资本 (已平仓累计 - v7.56.0)
+
+        Returns:
+            所有已平仓交易的累计投入资本
+        """
+        industry_data = self._aggregate_historical_invested_capital()
+        return sum(data.historical_invested_capital for data in industry_data.values())
 
 
     # ----- 5C. 诊断统计 -----

@@ -105,7 +105,7 @@ class Pairs:
         self.trade_count = 0                                                   # 历史总交易次数
         self.win_count = 0                                                     # 历史盈利次数
         self.pair_realized_pnl = 0.0                                           # 已实现PnL (已平仓交易累计,加权平均分子)
-        self.pair_total_invested_capital = 0.0                                  # 已实现投入资本 (已平仓交易累计,加权平均分母)
+        self.pair_historical_invested_capital = 0.0                            # 已平仓累计投入资本 (加权平均分母, v7.56.0重命名)
 
         # === 时间追踪 ===
         self.pair_opened_time = None                                           # 配对开仓时间(双腿都成交的时刻)
@@ -1045,7 +1045,7 @@ class Pairs:
 
         # === 步骤4：累加到历史统计 ===
         self.pair_realized_pnl += pnl   # 分子：已实现PnL（使用平仓价格）
-        self.pair_total_invested_capital += invested_capital  # 分母：已实现投入资本
+        self.pair_historical_invested_capital += invested_capital  # 分母：已平仓累计投入资本
 
         # === 步骤5：更新计数统计 ===
         self.trade_count += 1
@@ -1072,8 +1072,8 @@ class Pairs:
         current_invested = self.get_pair_invested_capital()
         current_pnl_pct = (current_pnl / current_invested * 100) if (current_pnl and current_invested and current_invested > 0) else 0
 
-        # 计算累计收益率 (直接读取已更新的pair_realized_pnl/pair_total_invested_capital)
-        total_pnl_pct = (self.pair_realized_pnl / self.pair_total_invested_capital * 100) if self.pair_total_invested_capital > 0 else 0
+        # 计算累计收益率 (直接读取已更新的pair_realized_pnl/pair_historical_invested_capital)
+        total_pnl_pct = (self.pair_realized_pnl / self.pair_historical_invested_capital * 100) if self.pair_historical_invested_capital > 0 else 0
 
         # 交易序号(此时 trade_count 已在 _update_trade_stats 中递增)
         trade_num = self.trade_count
