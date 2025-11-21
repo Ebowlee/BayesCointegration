@@ -135,152 +135,61 @@ class PairsManager:
         return self.all_pairs.get(pair_id)
 
 
-    def _aggregate_unrealized_pnl(self) -> Dict[str, IndustryData]:
+    def _aggregate_all_industry_data(self) -> Dict[str, IndustryData]:
         """
-        聚合未实现盈亏 (专用聚合方法 - v7.52.1)
+        一次遍历聚合所有行业数据 (v7.58.0 合并优化)
 
-        职责:
-            - 遍历所有配对,按行业分组聚合 unrealized_pnl
-            - 返回 IndustryData 对象 (类型安全)
-
-        流程:
-            1. 遍历 all_pairs
-            2. 按 industry_code 分组
-            3. 累加每个配对的 get_pair_unrealized_pnl()
-            4. 返回 {industry_code: IndustryData} 字典
-
-        Returns:
-            Dict[str, IndustryData]: 行业代码 → IndustryData 对象
-
-        Example:
-            >>> data = self._aggregate_unrealized_pnl()
-            >>> data['31169001'].unrealized_pnl  # 软件行业浮盈
-        """
-        industry_data: Dict[str, IndustryData] = {}
-
-        for _, pair in self.all_pairs.items():
-            industry_code = str(pair.industry_code)
-
-            # 懒创建 IndustryData 对象
-            if industry_code not in industry_data:
-                industry_data[industry_code] = IndustryData(industry_code)
-
-            # 聚合未实现盈亏
-            unrealized_pnl = pair.get_pair_unrealized_pnl()
-            if unrealized_pnl is not None:
-                industry_data[industry_code].unrealized_pnl += unrealized_pnl
-
-        return industry_data
-
-
-    def _aggregate_realized_pnl(self) -> Dict[str, IndustryData]:
-        """
-        聚合已实现盈亏 (专用聚合方法 - v7.54.0)
-
-        职责:
-            - 遍历所有配对,按行业分组聚合 realized_pnl
-            - 返回 IndustryData 对象 (类型安全)
-
-        流程:
-            1. 遍历 all_pairs
-            2. 按 industry_code 分组
-            3. 累加每个配对的 get_pair_realized_pnl()
-            4. 返回 {industry_code: IndustryData} 字典
-
-        Returns:
-            Dict[str, IndustryData]: 行业代码 → IndustryData 对象
-
-        Example:
-            >>> data = self._aggregate_realized_pnl()
-            >>> data['31169001'].realized_pnl  # 软件行业已实现盈亏
-        """
-        industry_data: Dict[str, IndustryData] = {}
-
-        for _, pair in self.all_pairs.items():
-            industry_code = str(pair.industry_code)
-
-            # 懒创建 IndustryData 对象
-            if industry_code not in industry_data:
-                industry_data[industry_code] = IndustryData(industry_code)
-
-            # 聚合已实现盈亏
-            realized_pnl = pair.get_pair_realized_pnl()
-            industry_data[industry_code].realized_pnl += realized_pnl
-
-        return industry_data
-
-
-    def _aggregate_current_invested_capital(self) -> Dict[str, IndustryData]:
-        """
-        聚合当前投入资本 (持仓中 - v7.56.0)
-
-        数据源: pair.get_pair_current_invested_capital() (持仓中配对的投入资本)
-
-        Returns:
-            Dict[str, IndustryData]: 行业代码 → IndustryData 对象
-        """
-        industry_data: Dict[str, IndustryData] = {}
-
-        for _, pair in self.all_pairs.items():
-            industry_code = str(pair.industry_code)
-
-            if industry_code not in industry_data:
-                industry_data[industry_code] = IndustryData(industry_code)
-
-            # 聚合当前投入资本 (只有持仓中的配对有值)
-            invested = pair.get_pair_current_invested_capital()
-            if invested is not None:
-                industry_data[industry_code].current_invested_capital += invested
-
-        return industry_data
-
-
-    def _aggregate_past_invested_capital(self) -> Dict[str, IndustryData]:
-        """
-        聚合历史投入资本 (已平仓累计 - v7.56.1 重命名)
-
-        数据源: pair.pair_past_invested_capital (已平仓交易的累计投入)
-
-        Returns:
-            Dict[str, IndustryData]: 行业代码 → IndustryData 对象
-        """
-        industry_data: Dict[str, IndustryData] = {}
-
-        for _, pair in self.all_pairs.items():
-            industry_code = str(pair.industry_code)
-
-            if industry_code not in industry_data:
-                industry_data[industry_code] = IndustryData(industry_code)
-
-            # 聚合历史投入资本
-            industry_data[industry_code].past_invested_capital += pair.pair_past_invested_capital
-
-        return industry_data
-
-    def _aggregate_trade_stats(self) -> Dict[str, IndustryData]:
-        """
-        聚合交易质量统计 (v7.57.0)
+        设计理念:
+            - 将5个独立聚合方法合并为1个,避免重复遍历 all_pairs
+            - 一次遍历填充 IndustryData 的所有8个字段
 
         数据源:
-            - pair.trade_count: 交易次数 (已平仓交易计数)
-            - pair.win_count: 盈利次数 (pnl > 0)
-            - pair.pair_past_total_holding_days: 累计持仓天数 (已平仓交易)
+            PnL维度:
+                - pair.get_pair_unrealized_pnl(): 未实现盈亏 (持仓中)
+                - pair.pair_realized_pnl: 已实现盈亏 (已平仓累计)
+            投入资本维度:
+                - pair.get_pair_current_invested_capital(): 当前投入 (持仓中)
+                - pair.pair_past_invested_capital: 历史投入 (已平仓累计)
+            交易质量维度:
+                - pair.trade_count: 交易次数
+                - pair.win_count: 盈利次数
+                - pair.pair_past_total_holding_days: 累计持仓天数
 
         Returns:
-            Dict[str, IndustryData]: 行业代码 → IndustryData 对象
+            Dict[str, IndustryData]: 行业代码 → IndustryData 对象 (完整填充)
+
+        Example:
+            >>> data = self._aggregate_all_industry_data()
+            >>> data['31169001'].unrealized_pnl      # 软件行业浮盈
+            >>> data['31169001'].win_count           # 软件行业盈利次数
         """
         industry_data: Dict[str, IndustryData] = {}
 
         for _, pair in self.all_pairs.items():
             industry_code = str(pair.industry_code)
 
+            # 懒创建 IndustryData 对象
             if industry_code not in industry_data:
                 industry_data[industry_code] = IndustryData(industry_code)
 
-            # 聚合交易质量统计
-            industry_data[industry_code].trade_count += pair.trade_count
-            industry_data[industry_code].win_count += pair.win_count
-            industry_data[industry_code].past_total_holding_days += pair.pair_past_total_holding_days
+            data = industry_data[industry_code]
+
+            # === PnL维度 ===
+            unrealized_pnl = pair.get_pair_unrealized_pnl()
+            if unrealized_pnl is not None:
+                data.unrealized_pnl += unrealized_pnl
+            data.realized_pnl += pair.pair_realized_pnl
+
+            # === 投入资本维度 ===
+            current_invested = pair.get_pair_current_invested_capital()
+            if current_invested is not None:
+                data.current_invested_capital += current_invested
+            data.past_invested_capital += pair.pair_past_invested_capital
+
+            # === 交易质量维度 ===
+            data.trade_count += pair.trade_count
+            data.win_count += pair.win_count
+            data.past_total_holding_days += pair.pair_past_total_holding_days
 
         return industry_data
 
@@ -351,66 +260,68 @@ class PairsManager:
         }
 
 
-    # ----- 5B. 情报中心 (行业统计查询 - v7.57.0 扩展) -----
+    # ----- 5B. 情报中心 (行业统计查询 - v7.58.0 统一聚合) -----
     # 设计: 四组对称结构 (PnL组 / 投入资本组 / ROI组 / 交易质量组)
+    # 优化: 所有查询统一调用 _aggregate_all_industry_data(), 一次遍历
 
     # --- PnL 组 (4个方法) ---
 
     def get_industry_unrealized_pnl(self, industry_code: str) -> float:
         """获取指定行业的未实现盈亏 (持仓中浮盈)"""
-        industry_data = self._aggregate_unrealized_pnl()
+        industry_data = self._aggregate_all_industry_data()
         if industry_code in industry_data:
             return industry_data[industry_code].unrealized_pnl
         return 0.0
 
     def get_industry_realized_pnl(self, industry_code: str) -> float:
         """获取指定行业的已实现盈亏 (已平仓累计)"""
-        industry_data = self._aggregate_realized_pnl()
+        industry_data = self._aggregate_all_industry_data()
         if industry_code in industry_data:
             return industry_data[industry_code].realized_pnl
         return 0.0
 
     def get_industry_total_pnl(self, industry_code: str) -> float:
         """获取指定行业的总盈亏 (unrealized + realized)"""
-        return (self.get_industry_unrealized_pnl(industry_code) +
-                self.get_industry_realized_pnl(industry_code))
+        industry_data = self._aggregate_all_industry_data()
+        if industry_code not in industry_data:
+            return 0.0
+        data = industry_data[industry_code]
+        return data.unrealized_pnl + data.realized_pnl
 
     def get_total_pnl(self) -> float:
         """获取全局总盈亏 (所有行业 unrealized + realized)"""
-        unrealized = sum(data.unrealized_pnl
-                         for data in self._aggregate_unrealized_pnl().values())
-        realized = sum(data.realized_pnl
-                       for data in self._aggregate_realized_pnl().values())
-        return unrealized + realized
+        industry_data = self._aggregate_all_industry_data()
+        return sum(d.unrealized_pnl + d.realized_pnl for d in industry_data.values())
 
     # --- 投入资本组 (4个方法) ---
 
     def get_industry_current_invested_capital(self, industry_code: str) -> float:
         """获取指定行业的当前投入资本 (持仓中)"""
-        industry_data = self._aggregate_current_invested_capital()
+        industry_data = self._aggregate_all_industry_data()
         if industry_code in industry_data:
             return industry_data[industry_code].current_invested_capital
         return 0.0
 
     def get_industry_past_invested_capital(self, industry_code: str) -> float:
         """获取指定行业的历史投入资本 (已平仓累计)"""
-        industry_data = self._aggregate_past_invested_capital()
+        industry_data = self._aggregate_all_industry_data()
         if industry_code in industry_data:
             return industry_data[industry_code].past_invested_capital
         return 0.0
 
     def get_industry_total_invested_capital(self, industry_code: str) -> float:
         """获取指定行业的总投入资本 (current + past)"""
-        return (self.get_industry_current_invested_capital(industry_code) +
-                self.get_industry_past_invested_capital(industry_code))
+        industry_data = self._aggregate_all_industry_data()
+        if industry_code not in industry_data:
+            return 0.0
+        data = industry_data[industry_code]
+        return data.current_invested_capital + data.past_invested_capital
 
     def get_total_invested_capital(self) -> float:
         """获取全局总投入资本 (所有行业 current + past)"""
-        current = sum(data.current_invested_capital
-                      for data in self._aggregate_current_invested_capital().values())
-        past = sum(data.past_invested_capital
-                   for data in self._aggregate_past_invested_capital().values())
-        return current + past
+        industry_data = self._aggregate_all_industry_data()
+        return sum(d.current_invested_capital + d.past_invested_capital
+                   for d in industry_data.values())
 
     # --- ROI 组 (2个方法) ---
 
@@ -421,10 +332,15 @@ class PairsManager:
         Returns:
             ROI 百分比 (如 0.15 表示 15%), 无投入资本时返回 0.0
         """
-        total_invested = self.get_industry_total_invested_capital(industry_code)
+        industry_data = self._aggregate_all_industry_data()
+        if industry_code not in industry_data:
+            return 0.0
+        data = industry_data[industry_code]
+        total_pnl = data.unrealized_pnl + data.realized_pnl
+        total_invested = data.current_invested_capital + data.past_invested_capital
         if total_invested <= 0:
             return 0.0
-        return self.get_industry_total_pnl(industry_code) / total_invested
+        return total_pnl / total_invested
 
     def get_total_roi(self) -> float:
         """
@@ -433,16 +349,19 @@ class PairsManager:
         Returns:
             ROI 百分比 (如 0.15 表示 15%), 无投入资本时返回 0.0
         """
-        total_invested = self.get_total_invested_capital()
+        industry_data = self._aggregate_all_industry_data()
+        total_pnl = sum(d.unrealized_pnl + d.realized_pnl for d in industry_data.values())
+        total_invested = sum(d.current_invested_capital + d.past_invested_capital
+                             for d in industry_data.values())
         if total_invested <= 0:
             return 0.0
-        return self.get_total_pnl() / total_invested
+        return total_pnl / total_invested
 
     # --- 交易质量组 (3个方法, v7.57.0) ---
 
     def get_industry_trade_count(self, industry_code: str) -> int:
         """获取指定行业的交易次数 (已平仓交易计数)"""
-        industry_data = self._aggregate_trade_stats()
+        industry_data = self._aggregate_all_industry_data()
         if industry_code in industry_data:
             return industry_data[industry_code].trade_count
         return 0
@@ -454,7 +373,7 @@ class PairsManager:
         Returns:
             胜率 (如 0.65 表示 65%), 无交易时返回 0.0
         """
-        industry_data = self._aggregate_trade_stats()
+        industry_data = self._aggregate_all_industry_data()
         if industry_code not in industry_data:
             return 0.0
         data = industry_data[industry_code]
@@ -469,7 +388,7 @@ class PairsManager:
         Returns:
             平均持仓天数, 无交易时返回 0.0
         """
-        industry_data = self._aggregate_trade_stats()
+        industry_data = self._aggregate_all_industry_data()
         if industry_code not in industry_data:
             return 0.0
         data = industry_data[industry_code]
