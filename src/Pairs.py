@@ -498,43 +498,6 @@ class Pairs:
         return value_1, value_2
 
 
-    # ===== 4. 金融指标 =====
-
-    def get_accum_return_pct(self) -> float:
-        """
-        获取累积收益率 (%) - 多次交易的加权平均收益
-
-        计算公式:
-            累积收益率 = (pair_realized_pnl / pair_total_cost) × 100
-
-        数学原理:
-            pair_realized_pnl = 第1笔PnL + 第2笔PnL + ... + 第N笔PnL
-            pair_total_cost   = 第1笔成本 + 第2笔成本 + ... + 第N笔成本
-            累积收益率       = (Σ PnL / Σ Cost) × 100  (加权平均,非简单平均)
-
-        示例:
-            交易1: PnL=$500,  Cost=$10,000 → 收益率5%
-            交易2: PnL=-$200, Cost=$8,000  → 收益率-2.5%
-            交易3: PnL=$800,  Cost=$12,000 → 收益率6.67%
-
-            累积收益率 = (500-200+800) / (10000+8000+12000) × 100 = 3.67%
-            (注意: 不是 (5%-2.5%+6.67%)/3 = 3.06%)
-
-        Returns:
-            累积收益率百分比
-            - 示例: 15.8 表示累积 15.8% 收益
-            - 无交易时: 返回 0.0
-            - 有交易但成本为0时: 返回 0.0 (Fail-Safe)
-
-        调用方:
-            - IndustryQuotaManager: 计算行业加权收益率
-            - PerformanceAnalyzer: 生成配对历史报告
-        """
-        if self.pair_total_cost > 0:
-            return (self.pair_realized_pnl / self.pair_total_cost) * 100
-        return 0.0
-
-
     # 3C. 时间查询
 
     def get_pair_holding_days(self) -> Optional[int]:
@@ -589,16 +552,20 @@ class Pairs:
         return max_days
 
 
-    def get_pair_frozen_days(self) -> Optional[int]:
+    def get_cooldown_elapsed_days(self) -> Optional[int]:
         """
-        获取冷却时长(天数) - 从平仓到现在
+        获取冷却期已过天数 - 从平仓到现在 (v7.43.0重命名)
 
         与 get_pair_holding_days() 对称设计:
         - get_pair_holding_days(): 持仓天数 (从开仓到现在)
-        - get_pair_frozen_days(): 冷却天数 (从平仓到现在)
+        - get_cooldown_elapsed_days(): 冷却已过天数 (从平仓到现在)
+
+        术语说明 (v7.43.0):
+        - elapsed days: 已经过去的天数 (时间管理标准术语)
+        - 配合 get_cooldown_required_days() 使用: elapsed < required 判断是否仍在冷却期
 
         Returns:
-            冷却天数 或 None(从未平仓)
+            已过天数 或 None(从未平仓)
         """
         if self.pair_closed_time is None:
             return None  # 从未平仓
@@ -606,18 +573,21 @@ class Pairs:
         return (self.algorithm.UtcTime - self.pair_closed_time).days
 
 
-    def get_cooldown_days(self) -> int:
+    def get_cooldown_required_days(self) -> int:
         """
-        v7.28.0: NORMAL_SIGNAL从CLOSE_REASONS读取,风控规则由Rule层管理
+        获取冷却期需要天数 - 从配置读取 (v7.43.0重命名)
 
-        设计理由:
-        - v7.28.0配置重构: cooldown_days迁移到risk_management
-        - NORMAL_SIGNAL (MEAN_REVERSION/PAIR_BREAK): 仍从CLOSE_REASONS读取
+        设计理由 (v7.28.0):
+        - NORMAL_SIGNAL (MEAN_REVERSION/PAIR_BREAK): 从CLOSE_REASONS读取
         - 风控规则 (TIMEOUT/DRAWDOWN/CUMULATIVE_LOSS/ANOMALY): 由RiskBaseRule.config['cooldown_days']管理
         - 兼容历史版本原因通过默认值兜底
 
+        术语说明 (v7.43.0):
+        - required days: 需要等待的天数 (时间管理标准术语)
+        - 配合 get_cooldown_elapsed_days() 使用: elapsed < required 判断是否仍在冷却期
+
         Returns:
-            冷却期天数
+            需要的冷却期天数
 
         冷却期分类 (v7.28.0):
             MEAN_REVERSION: 10天 (从CLOSE_REASONS读取)

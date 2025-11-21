@@ -63,7 +63,7 @@ class ExecutionManager:
 
     def is_pair_in_cooldown(self, pair) -> bool:
         """
-        统一的配对冷却期检查 (v7.16.0: 合并risk + normal cooldown)
+        统一的配对冷却期检查 (v7.43.0: 更新术语 elapsed/required)
 
         检查逻辑:
         1. 检查Rule cooldown (风控触发的冷却: TIMEOUT/DRAWDOWN/ANOMALY)
@@ -82,6 +82,11 @@ class ExecutionManager:
         - PORTFOLIO_RISK: Portfolio风控触发 (PORTFOLIO_DRAWDOWN, ACCOUNT_BLOWUP)
           - 冷却期: 360天/永久
           - 管理: 全局cooldown (不参与per-pair检查)
+
+        术语说明 (v7.43.0):
+        - elapsed: 已经过去的天数 (从平仓到现在)
+        - required: 需要等待的天数 (从配置读取)
+        - 判断逻辑: elapsed < required → 仍在冷却期
 
         Args:
             pair: Pairs对象
@@ -103,10 +108,10 @@ class ExecutionManager:
                 return True
 
         # 检查2: Pairs层面cooldown (MEAN_REVERSION/PAIR_BREAK信号)
-        frozen_days = pair.get_pair_frozen_days()
-        if frozen_days is not None:
-            cooldown_days = pair.get_cooldown_days()
-            if frozen_days < cooldown_days:
+        elapsed = pair.get_cooldown_elapsed_days()
+        if elapsed is not None:
+            required = pair.get_cooldown_required_days()
+            if elapsed < required:
                 return True
 
         return False
