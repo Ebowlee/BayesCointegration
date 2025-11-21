@@ -232,10 +232,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # 缓存供后续步骤使用
         self.selected_pairs = selected_pairs
 
-        self.Debug(
-            f"[PairSelector] 筛选{len(selected_pairs)}个高质量配对",
-            level=1
-        )
+        self.Debug(f"[PairSelector] 筛选{len(selected_pairs)}个高质量配对", level=1)
 
         self.Debug(f"[Analysis] 步骤5完成 - 等待步骤6-7恢复", level=1)
 

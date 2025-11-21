@@ -14,7 +14,7 @@ MarginAllocator - Level 1 全局资金分配器 (v7.30.8: 双模式分配)
 - 无状态: 每次allocate_margin()独立计算,使用调用时的快照
 
 不负责:
-- ❌ Level 2配对内部分配(symbol1 vs symbol2) - 由Pairs.calculate_leg_values负责
+- ❌ Level 2配对内部分配(symbol1 vs symbol2) - 由Pairs.get_leg_values负责
 - ❌ 订单执行 - 由OrderExecutor负责
 - ❌ 信号生成 - 由Pairs.get_signal负责
 """

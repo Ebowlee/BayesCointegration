@@ -88,11 +88,10 @@ class PairAnomalyRule(RiskRule):
         if not pair.has_anomaly_position():
             return False, ""
 
-        # 4. 获取持仓详情用于生成描述
-        info = pair.get_position_info()
-        mode = info['position_mode']
-        qty1 = info['qty1']
-        qty2 = info['qty2']
+        # 4. 获取持仓详情用于生成描述 (v7.40.10: 直接属性访问)
+        mode = pair.position_mode
+        qty1 = pair.tracked_qty1
+        qty2 = pair.tracked_qty2
 
         # 5. 根据异常类型生成描述
         if mode == PositionMode.PARTIAL_LEG1:

@@ -111,7 +111,7 @@ class TicketsManager:
         if action == 'CLOSE' and reason:
             self._pair_close_reasons[pair_id] = reason
 
-        # 建立OrderId→pair_id映射
+        # 建立OrderId→pair_id映射（多对一的映射）
         for ticket in tickets:
             if ticket is not None:
                 self.order_to_pair[ticket.OrderId] = pair_id
