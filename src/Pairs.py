@@ -817,7 +817,7 @@ class Pairs:
 
     def create_order_tag(self, action: str, reason: str = None):
         """
-        创建标准化的订单Tag
+        创建标准化的订单Tag (v7.48.0: 移除timestamp)
 
         Args:
             action: OrderAction.OPEN 或 OrderAction.CLOSE
@@ -825,19 +825,16 @@ class Pairs:
                    可选值: 'CLOSE', 'STOP_LOSS', 'TIMEOUT', 'RISK_TRIGGER'
 
         返回格式:
-            OPEN:  "('AAPL', 'MSFT')_OPEN_20240101_093000"
-            CLOSE: "('AAPL', 'MSFT')_CLOSE_STOP_LOSS_20240101_093000"
+            OPEN:  "('AAPL', 'MSFT')_OPEN"
+            CLOSE: "('AAPL', 'MSFT')_CLOSE_STOP_LOSS"
 
-        注意: 时间戳精确到秒,防止同一天内多次信号的Tag冲突
+        注意: 订单追踪通过TicketsManager的OrderId→PairId映射实现,
+              Tag仅作为人类可读标识符,无需timestamp区分
         """
-        timestamp = self.algorithm.Time.strftime('%Y%m%d_%H%M%S')
-
         if action == 'CLOSE' and reason:
-            # 平仓时包含reason
-            return f"{self.pair_id}_{action}_{reason}_{timestamp}"
+            return f"{self.pair_id}_{action}_{reason}"
         else:
-            # 开仓时或没有reason时的标准格式
-            return f"{self.pair_id}_{action}_{timestamp}"
+            return f"{self.pair_id}_{action}"
 
 
     # ===== 6. 生命周期回调 =====
