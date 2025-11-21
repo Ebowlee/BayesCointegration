@@ -23,7 +23,7 @@ class IndustryData:
             - realized_pnl: 已实现盈亏 (已平仓交易的累计盈亏)
         投入资本维度:
             - current_invested_capital: 当前投入资本 (持仓中配对的投入)
-            - historical_invested_capital: 历史投入资本 (已平仓交易的累计投入)
+            - past_invested_capital: 历史投入资本 (已平仓交易的累计投入)
 
     使用场景:
         - 由 PairsManager._aggregate_*() 方法创建
@@ -34,7 +34,7 @@ class IndustryData:
                  unrealized_pnl: float = 0.0,
                  realized_pnl: float = 0.0,
                  current_invested_capital: float = 0.0,
-                 historical_invested_capital: float = 0.0):
+                 past_invested_capital: float = 0.0):
         """
         初始化行业数据对象
 
@@ -43,13 +43,13 @@ class IndustryData:
             unrealized_pnl: 未实现盈亏 (持仓中)
             realized_pnl: 已实现盈亏 (已平仓累计)
             current_invested_capital: 当前投入资本 (持仓中)
-            historical_invested_capital: 历史投入资本 (已平仓累计)
+            past_invested_capital: 历史投入资本 (已平仓累计)
         """
         self.industry_code = industry_code
         self.unrealized_pnl = unrealized_pnl
         self.realized_pnl = realized_pnl
         self.current_invested_capital = current_invested_capital
-        self.historical_invested_capital = historical_invested_capital
+        self.past_invested_capital = past_invested_capital
 
 
 class PairsManager:
@@ -221,9 +221,9 @@ class PairsManager:
         return industry_data
 
 
-    def _aggregate_historical_invested_capital(self) -> Dict[str, IndustryData]:
+    def _aggregate_past_invested_capital(self) -> Dict[str, IndustryData]:
         """
-        聚合历史投入资本 (已平仓累计 - v7.56.0)
+        聚合历史投入资本 (已平仓累计 - v7.56.1 重命名)
 
         数据源: pair.pair_historical_invested_capital (已平仓交易的累计投入)
 
@@ -239,7 +239,7 @@ class PairsManager:
                 industry_data[industry_code] = IndustryData(industry_code)
 
             # 聚合历史投入资本
-            industry_data[industry_code].historical_invested_capital += pair.pair_historical_invested_capital
+            industry_data[industry_code].past_invested_capital += pair.pair_historical_invested_capital
 
         return industry_data
 
@@ -310,183 +310,92 @@ class PairsManager:
         }
 
 
-    # ----- 5B. 情报中心 (行业统计查询) -----
+    # ----- 5B. 情报中心 (行业统计查询 - v7.56.1 重组) -----
+    # 设计: 三组对称结构 (PnL组 / 投入资本组 / ROI组)
+
+    # --- PnL 组 (4个方法) ---
 
     def get_industry_unrealized_pnl(self, industry_code: str) -> float:
-        """
-        获取指定行业的未实现盈亏 (行业级查询 - v7.52.1)
-
-        Args:
-            industry_code: 行业代码 (字符串格式)
-
-        Returns:
-            该行业所有持仓配对的未实现盈亏之和
-
-        数据流:
-            Pairs.get_pair_unrealized_pnl()
-                ↓
-            _aggregate_unrealized_pnl() → Dict[str, IndustryData]
-                ↓
-            get_industry_unrealized_pnl() → float (单行业)
-
-        Example:
-            >>> pnl = pairs_manager.get_industry_unrealized_pnl('31169001')
-            >>> print(f"软件行业浮盈: ${pnl:,.2f}")
-        """
+        """获取指定行业的未实现盈亏 (持仓中浮盈)"""
         industry_data = self._aggregate_unrealized_pnl()
         if industry_code in industry_data:
             return industry_data[industry_code].unrealized_pnl
         return 0.0
 
-
-    def get_total_unrealized_pnl(self) -> float:
-        """
-        获取全局未实现盈亏 (跨行业聚合 - v7.52.1)
-
-        Returns:
-            所有行业未实现盈亏之和
-
-        数据流:
-            Pairs.get_pair_unrealized_pnl()
-                ↓
-            _aggregate_unrealized_pnl() → Dict[str, IndustryData]
-                ↓
-            get_total_unrealized_pnl() → float (全局汇总)
-
-        Example:
-            >>> total_pnl = pairs_manager.get_total_unrealized_pnl()
-            >>> print(f"全局浮盈: ${total_pnl:,.2f}")
-        """
-        industry_data = self._aggregate_unrealized_pnl()
-        return sum(data.unrealized_pnl for data in industry_data.values())
-
-
-    def get_top_pairs_by_unrealized_pnl(self, n: int = 5, ascending: bool = False) -> list:
-        """
-        获取未实现盈亏排名前N的配对 (通用查询 - v7.52.2)
-
-        Args:
-            n: 返回数量 (默认5)
-            ascending: True=从小到大(亏损最多), False=从大到小(盈利最多)
-
-        Returns:
-            List[Tuple[pair_id, unrealized_pnl]]: [(pair_id, unrealized_pnl), ...]
-
-        Example:
-            >>> top5 = pairs_manager.get_top_pairs_by_unrealized_pnl(n=5)
-            >>> top10_loss = pairs_manager.get_top_pairs_by_unrealized_pnl(n=10, ascending=True)
-        """
-        pairs_unrealized_pnl = []
-        for pair_id, pair in self.all_pairs.items():
-            unrealized_pnl = pair.get_pair_unrealized_pnl()
-            if unrealized_pnl is not None:
-                pairs_unrealized_pnl.append((pair_id, unrealized_pnl))
-
-        pairs_unrealized_pnl.sort(key=lambda x: x[1], reverse=not ascending)
-        return pairs_unrealized_pnl[:n]
-
-
     def get_industry_realized_pnl(self, industry_code: str) -> float:
-        """
-        获取指定行业的已实现盈亏 (行业级查询 - v7.54.0)
-
-        Args:
-            industry_code: 行业代码 (字符串格式)
-
-        Returns:
-            该行业所有已平仓交易的累计盈亏之和
-
-        数据流:
-            Pairs.get_pair_realized_pnl()
-                ↓
-            _aggregate_realized_pnl() → Dict[str, IndustryData]
-                ↓
-            get_industry_realized_pnl() → float (单行业)
-
-        Example:
-            >>> pnl = pairs_manager.get_industry_realized_pnl('31169001')
-            >>> print(f"软件行业已实现盈亏: ${pnl:,.2f}")
-        """
+        """获取指定行业的已实现盈亏 (已平仓累计)"""
         industry_data = self._aggregate_realized_pnl()
         if industry_code in industry_data:
             return industry_data[industry_code].realized_pnl
         return 0.0
 
+    def get_industry_total_pnl(self, industry_code: str) -> float:
+        """获取指定行业的总盈亏 (unrealized + realized)"""
+        return (self.get_industry_unrealized_pnl(industry_code) +
+                self.get_industry_realized_pnl(industry_code))
 
-    def get_total_realized_pnl(self) -> float:
-        """
-        获取全局已实现盈亏 (跨行业聚合 - v7.54.0)
+    def get_total_pnl(self) -> float:
+        """获取全局总盈亏 (所有行业 unrealized + realized)"""
+        unrealized = sum(data.unrealized_pnl
+                         for data in self._aggregate_unrealized_pnl().values())
+        realized = sum(data.realized_pnl
+                       for data in self._aggregate_realized_pnl().values())
+        return unrealized + realized
 
-        Returns:
-            所有行业已实现盈亏之和
-
-        数据流:
-            Pairs.get_pair_realized_pnl()
-                ↓
-            _aggregate_realized_pnl() → Dict[str, IndustryData]
-                ↓
-            get_total_realized_pnl() → float (全局汇总)
-
-        Example:
-            >>> total_pnl = pairs_manager.get_total_realized_pnl()
-            >>> print(f"全局已实现盈亏: ${total_pnl:,.2f}")
-        """
-        industry_data = self._aggregate_realized_pnl()
-        return sum(data.realized_pnl for data in industry_data.values())
-
+    # --- 投入资本组 (4个方法) ---
 
     def get_industry_current_invested_capital(self, industry_code: str) -> float:
-        """
-        获取指定行业的当前投入资本 (持仓中 - v7.56.0)
-
-        Args:
-            industry_code: 行业代码
-
-        Returns:
-            该行业所有持仓配对的当前投入资本之和
-        """
+        """获取指定行业的当前投入资本 (持仓中)"""
         industry_data = self._aggregate_current_invested_capital()
         if industry_code in industry_data:
             return industry_data[industry_code].current_invested_capital
         return 0.0
 
-
-    def get_total_current_invested_capital(self) -> float:
-        """
-        获取全局当前投入资本 (持仓中 - v7.56.0)
-
-        Returns:
-            所有持仓配对的当前投入资本之和
-        """
-        industry_data = self._aggregate_current_invested_capital()
-        return sum(data.current_invested_capital for data in industry_data.values())
-
-
-    def get_industry_historical_invested_capital(self, industry_code: str) -> float:
-        """
-        获取指定行业的历史投入资本 (已平仓累计 - v7.56.0)
-
-        Args:
-            industry_code: 行业代码
-
-        Returns:
-            该行业所有已平仓交易的累计投入资本
-        """
-        industry_data = self._aggregate_historical_invested_capital()
+    def get_industry_past_invested_capital(self, industry_code: str) -> float:
+        """获取指定行业的历史投入资本 (已平仓累计)"""
+        industry_data = self._aggregate_past_invested_capital()
         if industry_code in industry_data:
-            return industry_data[industry_code].historical_invested_capital
+            return industry_data[industry_code].past_invested_capital
         return 0.0
 
+    def get_industry_total_invested_capital(self, industry_code: str) -> float:
+        """获取指定行业的总投入资本 (current + past)"""
+        return (self.get_industry_current_invested_capital(industry_code) +
+                self.get_industry_past_invested_capital(industry_code))
 
-    def get_total_historical_invested_capital(self) -> float:
+    def get_total_invested_capital(self) -> float:
+        """获取全局总投入资本 (所有行业 current + past)"""
+        current = sum(data.current_invested_capital
+                      for data in self._aggregate_current_invested_capital().values())
+        past = sum(data.past_invested_capital
+                   for data in self._aggregate_past_invested_capital().values())
+        return current + past
+
+    # --- ROI 组 (2个方法) ---
+
+    def get_industry_roi(self, industry_code: str) -> float:
         """
-        获取全局历史投入资本 (已平仓累计 - v7.56.0)
+        获取指定行业的ROI (total_pnl / total_invested_capital)
 
         Returns:
-            所有已平仓交易的累计投入资本
+            ROI 百分比 (如 0.15 表示 15%), 无投入资本时返回 0.0
         """
-        industry_data = self._aggregate_historical_invested_capital()
-        return sum(data.historical_invested_capital for data in industry_data.values())
+        total_invested = self.get_industry_total_invested_capital(industry_code)
+        if total_invested <= 0:
+            return 0.0
+        return self.get_industry_total_pnl(industry_code) / total_invested
+
+    def get_total_roi(self) -> float:
+        """
+        获取全局ROI (total_pnl / total_invested_capital)
+
+        Returns:
+            ROI 百分比 (如 0.15 表示 15%), 无投入资本时返回 0.0
+        """
+        total_invested = self.get_total_invested_capital()
+        if total_invested <= 0:
+            return 0.0
+        return self.get_total_pnl() / total_invested
 
 
     # ----- 5C. 诊断统计 -----
