@@ -565,17 +565,10 @@ class PairsManager:
 
     def get_all_industry_quotas(self) -> Dict[str, Dict]:
         """
-        获取所有行业的配额信息 (兼容 IndustryQuotaManager 返回格式)
+        获取所有行业的配额信息 (v7.60.1: 复用 get_industry_quota)
 
         Returns:
-            {
-                industry_code: {
-                    'quota': int,
-                    'tier': str,
-                    'composite_score': float
-                }
-            }
-
+            {industry_code: {'quota': int, 'tier': str, 'composite_score': float}}
             预热期返回空字典 (由调用方使用默认配额)
         """
         # 预热期返回空字典
@@ -588,50 +581,42 @@ class PairsManager:
             )
             return {}
 
-        # 收集所有有交易历史的行业
+        # 遍历所有行业，复用单个查询方法
         industry_data = self._aggregate_all_industry_data()
         result = {}
         industry_names = self.config.constants['industry_names']
         default_quota = self.config.industry_quota.default_quota
 
         for industry_code, data in industry_data.items():
-            # 跳过无交易历史的行业
             if data.trade_count == 0:
                 continue
 
-            # 计算综合得分
-            total_invested = data.current_invested_capital + data.past_invested_capital
-            total_pnl = data.unrealized_pnl + data.realized_pnl
-            roi = total_pnl / total_invested if total_invested > 0 else 0.0
-            win_rate = data.win_count / data.trade_count if data.trade_count > 0 else 0.0
-            composite_score = roi * win_rate
-
-            # 获取tier和配额
-            tier = self._get_tier_by_composite_score(composite_score)
+            # 复用已有方法 (避免重复计算)
+            score = self._calculate_composite_score(industry_code)
+            tier = self._get_tier_by_composite_score(score)
             quota = self._get_quota_by_tier(tier)
 
             result[industry_code] = {
                 'quota': quota,
                 'tier': tier,
-                'composite_score': composite_score
+                'composite_score': score
             }
 
             # 日志输出 (只显示非默认配额)
             if quota != default_quota:
+                roi = self.get_industry_roi(industry_code)
+                win_rate = self.get_industry_win_rate(industry_code)
                 industry_name = industry_names.get(int(industry_code), f'未知({industry_code})')
                 self.algorithm.Debug(
                     f"[行业配额] {industry_name}: "
                     f"ROI={roi*100:+.1f}%, 胜率={win_rate*100:.1f}% "
-                    f"→ 综合得分={composite_score:.4f} → tier={tier}, 配额={quota}",
+                    f"→ 综合得分={score:.4f} → tier={tier}, 配额={quota}",
                     level=1
                 )
 
         # 汇总日志
-        non_default = {k: v for k, v in result.items() if v['quota'] != default_quota}
-        if not non_default:
-            self.algorithm.Debug(
-                f"[行业配额] 本月所有行业使用默认配额: {default_quota}"
-            )
+        if not any(v['quota'] != default_quota for v in result.values()):
+            self.algorithm.Debug(f"[行业配额] 本月所有行业使用默认配额: {default_quota}")
 
         return result
 
