@@ -643,48 +643,59 @@ class Pairs:
         """
         获取交易信号 (cooldown检查在ExecutionManager中进行)
         一步到位的接口,内部自动计算所需信息
+
+        信号类型:
+        - 无持仓: LONG_SPREAD / SHORT_SPREAD / WAIT / NO_DATA
+        - 有持仓: CLOSE / PAIR_BREAK / HOLD / NO_DATA
+
+        改良C方案阈值:
+        - 入场区间: [1.2σ, 1.8σ]
+        - 出场阈值: 0.3σ
+        - 止损阈值: 2.3σ (方向感知)
         """
-        # 获取价格（数据获取在调用者）
+        # 获取价格
         prices = self.get_price_from_bar(data)
         if prices is None:
             return 'NO_DATA'
 
         price1, price2 = prices
 
-        # 计算zscore（使用通用方法）
+        # 计算zscore
         zscore = self.get_zscore(price1, price2)
         if zscore is None:
             return 'NO_DATA'
 
-        # 内部检查持仓
-        has_position = self.has_normal_position()
+        # 获取持仓模式
+        position_mode = self.position_mode
 
-        # 生成信号 (改良C方案[1.2σ, 1.8σ])
-        if not has_position:
+        # === 无持仓: 入场信号 ===
+        if position_mode == PositionMode.NONE:
             abs_zscore = abs(zscore)
 
             # 检查是否在有效区间内 (改良C方案: 1.2-1.8σ)
             if self.entry_threshold_lower <= abs_zscore <= self.entry_threshold_upper:
-                # Z-score高,spread偏高,做空
-                if zscore > 0:
-                    self.entry_zscore = zscore  # 信号触发时记录entry_zscore(而非get_open_intent()时,避免市场波动导致不一致)
-                    return 'SHORT_SPREAD'
-                # Z-score低,spread偏低,做多
-                else:
-                    self.entry_zscore = zscore  # 信号触发时记录entry_zscore(而非get_open_intent()时,避免市场波动导致不一致)
-                    return 'LONG_SPREAD'
+                self.entry_zscore = zscore  # 信号触发时记录
+                # Z-score高 → spread偏高 → 做空spread
+                # Z-score低 → spread偏低 → 做多spread
+                return 'SHORT_SPREAD' if zscore > 0 else 'LONG_SPREAD'
             else:
-                # 区间外: |zscore| < 1.2σ (信号弱) 或 > 1.8σ (留0.5σ缓冲给止损)
+                # 区间外: |zscore| < 1.2σ (信号弱) 或 > 1.8σ (留缓冲给止损)
                 return 'WAIT'
-        else:
-            # 有持仓时的出场信号 (止损阈值2.3σ,配合1.8σ上限,留0.5σ缓冲,避免即开即止)
-            if abs(zscore) > self.stop_loss_threshold:
-                return 'PAIR_BREAK'  # 协整破裂 (Z-score超限)
 
-            if abs(zscore) < self.exit_threshold:
-                return 'CLOSE'
+        # === 有持仓: 出场信号 ===
+        # 方向感知止损 (v7.47.0): 只在亏损方向触发
+        # - LONG_SPREAD: 入场时 zscore < 0, 亏损方向是更负
+        # - SHORT_SPREAD: 入场时 zscore > 0, 亏损方向是更正
+        if position_mode == PositionMode.LONG_SPREAD and zscore < -self.stop_loss_threshold:
+            return 'PAIR_BREAK'  # LONG_SPREAD亏损止损
+        elif position_mode == PositionMode.SHORT_SPREAD and zscore > self.stop_loss_threshold:
+            return 'PAIR_BREAK'  # SHORT_SPREAD亏损止损
 
-            return 'HOLD'
+        # 正常出场: Z-score回归到均值附近
+        if abs(zscore) < self.exit_threshold:
+            return 'CLOSE'
+
+        return 'HOLD'
 
 
     def get_open_intent(self, amount_allocated: float, data):
