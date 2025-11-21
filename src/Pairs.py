@@ -128,19 +128,20 @@ class Pairs:
         self.exit_price2 = None                                                # symbol2平仓价(None=持仓中, 有值=已平仓)
 
 
-    def update_params(self, new_pair) -> bool:
+    def update_params(self, new_pair):
         """
-        从新的Pairs对象更新统计参数(当配对重新出现时调用)
+        从新的Pairs对象更新统计参数 (v7.53.2: 单一职责重构)
 
         调用位置:
-            - PairsManager.update_pairs() (PairsManager.py:124)
+            - PairsManager.update_pairs() (PairsManager.py)
             - 触发时机: 每月选股后,配对ID已存在于all_pairs字典时
             - 调用链路: OnSecuritiesChanged → _run_analysis_pipeline →
                        步骤6-7 → PairsManager.update_pairs() → update_params()
 
-        更新策略:
-            - 有持仓: 不更新,保持参数冻结(维持开仓时的决策基础)
-            - 无持仓: 完全更新所有模型参数
+        单一职责原则 (v7.53.2):
+            - 本方法只负责更新参数
+            - 持仓检查由调用方 (PairsManager.update_pairs) 在外部处理
+            - 这样做的好处: 调用方可以根据持仓状态做额外处理(如日志预警)
 
         设计理念:
             - 持仓期间参数冻结,避免"参数漂移"导致信号混乱
@@ -150,24 +151,15 @@ class Pairs:
         Args:
             new_pair: 新创建的Pairs对象(含最新建模结果)
 
-        Returns:
-            bool: True=更新成功(无持仓), False=拒绝更新(有持仓)
-
         Note:
             v8.x.x当前状态: 步骤6-7待恢复,调用路径尚未激活
         """
-        # 持仓检查:有持仓时不更新
-        if self.has_position():
-            return False
-
-        # 无持仓时:更新所有贝叶斯模型参数
+        # 更新所有贝叶斯模型参数
         self.alpha_mean = new_pair.alpha_mean
         self.beta_mean = new_pair.beta_mean
         self.residual_mean = new_pair.residual_mean
         self.residual_std = new_pair.residual_std
         self.quality_score = new_pair.quality_score
-
-        return True
 
 
     # ===== 2. 纯计算层 (Pure Computation) =====

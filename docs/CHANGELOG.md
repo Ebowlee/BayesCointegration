@@ -5,6 +5,77 @@
 ---
 
 
+## [v7.53.2_incremental-index-update@20251121]
+
+### 版本概述
+架构重构 - 使用增量集合操作替代全量重建，简化配对分类逻辑
+
+### 🎯 核心改进
+
+#### 问题诊断
+**v7.53.0-v7.53.1 存在的冗余**:
+```python
+# update_pairs() 和 reclassify_pairs() 职责重叠
+def update_pairs(self, new_pairs_dict):
+    # ... 更新配对 ...
+    self.reclassify_pairs(current_pair_ids)  # 全量重建索引
+
+def reclassify_pairs(self, current_pair_ids):
+    self.current_selected_pair_ids.clear()  # ❌ O(n) 全量清空
+    self.past_selected_pair_ids.clear()
+    for pair_id in self.all_pairs.keys():   # ❌ O(n) 全量遍历
+        # 逐个分类...
+```
+
+#### 解决方案
+**v7.53.2 增量集合操作**:
+```python
+def update_pairs(self, new_pairs_dict):
+    new_pair_ids = set(new_pairs_dict.keys())
+
+    # Step 1: 更新 all_pairs (持仓检查放在外面, 单一职责)
+    for pair_id, new_pair in new_pairs_dict.items():
+        if pair_id in self.all_pairs:
+            old_pair = self.all_pairs[pair_id]
+            if not old_pair.has_position():  # ✅ 外部检查
+                old_pair.update_params(new_pair)
+        else:
+            self.all_pairs[pair_id] = new_pair
+
+    # Step 2: 增量索引更新 (只处理变化的配对)
+    demoted_ids = self.current_selected_pair_ids - new_pair_ids  # ✅ O(变化量)
+    self.past_selected_pair_ids |= demoted_ids
+    self.current_selected_pair_ids -= demoted_ids
+    self.current_selected_pair_ids |= new_pair_ids
+```
+
+### ♻️ Refactored
+
+#### PairsManager.py
+- **`update_pairs()`**: 重写为增量集合操作版本
+  - 使用 `demoted_ids = current - new` 计算降级配对
+  - 使用 `|=` 和 `-=` 进行增量索引更新
+  - 持仓检查放在外部，遵循单一职责
+
+#### Pairs.py
+- **`update_params()`**: 移除内部 `has_position()` 检查
+  - 单一职责: 只负责更新参数
+  - 持仓检查由调用方 PairsManager.update_pairs() 处理
+
+### ❌ Removed
+- `PairsManager.reclassify_pairs()` - 逻辑合并到 `update_pairs()`
+- `PairState.classify()` - 增量更新不再需要逐个分类
+
+### 🔄 Changed
+- `PairState` 类简化为纯常量类 (只保留 CURRENT_SELECTED/PAST_SELECTED 常量)
+
+### 📊 性能提升
+- 时间复杂度: O(n) → O(变化量)
+- 代码行数: 删除约30行冗余代码
+
+---
+
+
 ## [v7.44.0_migrate-cooldown-query-to-pairsmanager@20250121]
 
 ### 版本概述
