@@ -34,24 +34,6 @@ class IndustryData:
         self.unrealized_pnl = unrealized_pnl
 
 
-class PairState:
-    """
-    配对状态常量 (v7.53.2 简化为纯常量类)
-
-    两分类原则 (基于本轮PairSelector选中结果):
-        - CURRENT_SELECTED: 本轮被PairSelector选中
-        - PAST_SELECTED: 历史配对 (曾被选中,本轮未选中)
-
-    设计说明:
-        - 使用类常量而非 Enum: 保持与其他常量类(TradingSignal, PositionMode)一致
-        - 持仓状态通过查询获取: 不再作为分类维度,改用 has_position() 查询
-        - v7.53.2: 移除 classify() 方法,改用增量集合操作在 update_pairs() 中直接处理
-    """
-    # 状态常量
-    CURRENT_SELECTED = 'current_selected'  # 本轮被PairSelector选中
-    PAST_SELECTED = 'past_selected'        # 历史配对 (曾被选中,本轮未选中)
-
-
 class PairsManager:
     """
     配对管理器 - 管理整个回测周期内所有配对的生命周期
@@ -62,9 +44,9 @@ class PairsManager:
         3. 情报中心 (行业级数据聚合与查询)
         4. 配置查询路由 (冷却期、分配比例)
 
-    架构设计 (v7.52.0 经典5层):
+    架构设计 (v7.53.4 经典5层):
         - 1. 初始化层: __init__
-        - 2. 纯计算层: PairState.classify (外部类)
+        - 2. 纯计算层: (保留位置, 目前为空)
         - 3. 数据访问层: 读取数据, 委托纯计算
         - 4. 业务逻辑层: 组合数据访问, 条件判断
         - 5. 外部接口层: 对外暴露的核心接口
@@ -102,7 +84,7 @@ class PairsManager:
 
     # ===== 2. 纯计算层 (Pure Computation) =====
     # 特征: @staticmethod, 无self依赖, 纯函数, 可独立单元测试
-    # 注: v7.53.2 重构后, 分类逻辑改用增量集合操作在 update_pairs() 中直接处理
+    # 注: v7.53.4 - 分类逻辑改用增量集合操作, 纯计算层暂时为空
 
 
     # ===== 3. 数据访问层 (Data Access) =====

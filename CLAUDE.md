@@ -311,13 +311,10 @@ git commit -m "docs: update CHANGELOG for v7.2.5"
 - **Design Principle** (v7.45.0): "Storage + Config Query Router" separation
   - **Responsible for**: Storing pairs, state classification, simple queries, config lookups (cooldown, tier, allocation)
   - **NOT responsible for**: Signal aggregation, risk analysis, order execution (delegated to ExecutionManager and RiskManager)
-- **State Management** (v7.0.7 - PairState unified):
-  - **COINTEGRATED**: Currently passing cointegration tests (本轮通过协整检验)
-  - **LEGACY**: Have positions but failed recent tests (历史配对但仍有持仓)
-  - **ARCHIVED**: No positions and failed tests (历史配对且无持仓)
-- **PairState Class** (v7.0.7): Merged PairClassifier into PairState
-  - Contains both state constants and `classify()` method
-  - Simplifies architecture by combining related functionality
+- **State Management** (v7.53.4 - 增量集合管理):
+  - **current_selected_pair_ids**: 本轮被PairSelector选中的配对
+  - **past_selected_pair_ids**: 历史配对 (曾被选中,本轮未选中)
+  - **持仓状态**: 通过 `has_position()` 动态查询,不作为分类维度
 - **Key Methods** (v7.45.0 updated):
   - `update_pairs()`: Update pair collection from monthly selection
   - `get_tradeable_pairs()`: Get cointegrated + legacy pairs
