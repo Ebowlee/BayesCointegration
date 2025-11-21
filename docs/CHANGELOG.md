@@ -5,6 +5,85 @@
 ---
 
 
+## [v7.43.0_rename-cooldown-methods@20250121]
+
+### 版本概述
+API重命名 - 消除冷却期方法的语义混淆,采用行业标准术语 elapsed/required
+
+### 🎯 核心改进
+
+#### 问题诊断
+**语义重叠导致的命名混淆**:
+```python
+# v7.42.0 及之前版本
+def get_pair_frozen_days(self) -> Optional[int]:  # 返回"已过天数"
+def get_cooldown_days(self) -> int:               # 返回"需要天数"
+
+# 问题:
+# 1. "frozen" vs "cooldown" 都表示"冷却",难以区分
+# 2. 方法名未体现返回值的时间语义 (elapsed vs required)
+# 3. 代码中的变量名 frozen_days vs cooldown_days 增加认知负担
+```
+
+#### 解决方案
+**v7.43.0 行业标准术语**:
+```python
+# 新API (采用时间管理标准术语)
+def get_cooldown_elapsed_days(self) -> Optional[int]:  # elapsed: 已过天数
+def get_cooldown_required_days(self) -> int:           # required: 需要天数
+
+# 优势:
+# 1. elapsed/required 是时间管理行业标准术语
+# 2. 方法名清晰表达返回值语义
+# 3. 代码逻辑 elapsed < required 直观易懂
+```
+
+### 📋 Breaking Changes
+
+**API重命名** (影响: Pairs类和ExecutionManager类):
+
+| 旧方法名                   | 新方法名                          | 变化说明                |
+|---------------------------|----------------------------------|------------------------|
+| `get_pair_frozen_days()`  | `get_cooldown_elapsed_days()`    | 语义更清晰 (已过天数)    |
+| `get_cooldown_days()`     | `get_cooldown_required_days()`   | 语义更清晰 (需要天数)    |
+
+**迁移指南**:
+```python
+# 旧代码 (v7.42.0 及之前)
+frozen_days = pair.get_pair_frozen_days()
+if frozen_days is not None:
+    cooldown_days = pair.get_cooldown_days()
+    if frozen_days < cooldown_days:
+        return True
+
+# 新代码 (v7.43.0)
+elapsed = pair.get_cooldown_elapsed_days()
+if elapsed is not None:
+    required = pair.get_cooldown_required_days()
+    if elapsed < required:
+        return True
+```
+
+### 📝 文件变更
+
+- **src/Pairs.py** (Lines 555-612):
+  - `get_pair_frozen_days()` → `get_cooldown_elapsed_days()`
+  - `get_cooldown_days()` → `get_cooldown_required_days()`
+  - 新增"术语说明"文档块解释 elapsed/required 概念
+
+- **src/execution/ExecutionManager.py** (Lines 64-117):
+  - 更新 `is_pair_in_cooldown()` 方法中的3处调用
+  - 变量名同步更新: `frozen_days` → `elapsed`, `cooldown_days` → `required`
+  - 新增"术语说明"文档块
+
+### 💡 设计理念
+
+**命名一致性 vs 代码简洁性**:
+- **取舍**: 牺牲10行代码简洁性,换取10年代码可维护性
+- **原则**: `elapsed < required` 比 `frozen < cooldown` 更容易理解
+- **收益**: 消除心智负担,遵循时间管理行业标准
+
+
 ## [v7.42.0_generalize-beta-hedging@20250121]
 
 ### 版本概述
