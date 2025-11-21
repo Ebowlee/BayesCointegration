@@ -100,7 +100,6 @@ class Pairs:
 
         # === 历史追踪 ===
         self.creation_time = algorithm.Time                                    # 首次创建时间
-        self.reactivation_count = 0                                            # 重新激活次数(配对消失又出现)
 
         # === 交易历史统计 (已平仓交易 - 加权平均累计) ===
         self.trade_count = 0                                                   # 历史总交易次数
@@ -168,8 +167,6 @@ class Pairs:
         self.residual_std = new_pair.residual_std
         self.quality_score = new_pair.quality_score
 
-        # 记录重新激活
-        self.reactivation_count += 1
         return True
 
 
