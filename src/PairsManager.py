@@ -123,6 +123,16 @@ class PairsManager:
         self.update_count = 0                                       # 更新次数(选股轮次)
         self.last_update_time = None                                # 上次更新时间
 
+        # === 固定初始资金基准（整个回测周期不变，v7.62.1）===
+        self.INITIAL_CAPITAL = algorithm.Portfolio.TotalPortfolioValue
+        self.FIXED_BUFFER = self.INITIAL_CAPITAL * (1 - config.pairs_manager.margin_usage_ratio)
+
+        algorithm.Debug(
+            f"[PairsManager] 初始化完成: "
+            f"初始资金=${self.INITIAL_CAPITAL:,.0f}, "
+            f"固定Buffer=${self.FIXED_BUFFER:,.0f} ({(1-config.pairs_manager.margin_usage_ratio)*100:.0f}%)"
+        )
+
 
     # ===== 2. 纯计算层 (Pure Computation) =====
     # 特征: @staticmethod, 无self依赖, 纯函数, 可独立单元测试
@@ -627,41 +637,32 @@ class PairsManager:
 
     def get_available_margin(self) -> float:
         """
-        获取当前可用保证金
+        获取当前可用保证金（v7.62.1: 使用固定 buffer）
 
         公式:
-            available = Portfolio.MarginRemaining - fixed_buffer
-            fixed_buffer = initial_margin × (1 - margin_usage_ratio)
+            available = Portfolio.MarginRemaining - FIXED_BUFFER
+            FIXED_BUFFER = INITIAL_CAPITAL × (1 - margin_usage_ratio)
 
         设计要点:
-            - fixed_buffer 是全局固定值（基于初始资金，整个回测周期不变）
-            - margin_usage_ratio 从 config.pairs_manager 读取（默认 98%）
+            - FIXED_BUFFER 在 __init__ 时计算，整个回测周期不变
             - 用于预留交易手续费，防止 margin call
 
         Returns:
             可用保证金（美元），最小为 0
 
         示例:
-            初始: MarginRemaining=$100k, margin_usage_ratio=98%
-            → fixed_buffer = $100k × 2% = $2k
-            → available = $100k - $2k = $98k
+            初始: INITIAL_CAPITAL=$100k, margin_usage_ratio=98%
+            → FIXED_BUFFER = $2k（固定）
 
-            开仓$50k后: MarginRemaining=$50k
-            → available = $50k - $2k = $48k
+            盈利20%后: MarginRemaining=$120k
+            → available = $120k - $2k = $118k（buffer 仍为 $2k）
 
-            接近耗尽: MarginRemaining=$1k
-            → available = max(0, $1k - $2k) = $0（防止负数）
+            亏损20%后: MarginRemaining=$80k
+            → available = $80k - $2k = $78k（buffer 仍为 $2k）
         """
-        # 获取初始保证金（回测周期固定）
-        initial_margin = self.algorithm.Portfolio.TotalPortfolioValue
-
-        # 计算固定 buffer
-        margin_usage_ratio = self.config.pairs_manager.margin_usage_ratio  # 0.98
-        fixed_buffer = initial_margin * (1 - margin_usage_ratio)
-
-        # 当前可用保证金
+        # 直接使用初始化时计算的固定 buffer
         current_margin = self.algorithm.Portfolio.MarginRemaining
-        available = current_margin - fixed_buffer
+        available = current_margin - self.FIXED_BUFFER  # 使用固定值
 
         return max(0, available)
 
