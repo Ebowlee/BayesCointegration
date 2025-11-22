@@ -275,7 +275,6 @@ class PairsManagerConfig:
 
     # 保证金管理
     margin_usage_ratio: float = 0.98                               # 保证金使用率: 98%
-    max_leverage_cap: float = 2.0                                  # 放大模式最大杠杆倍数: 2.0倍
 
 
 @dataclass

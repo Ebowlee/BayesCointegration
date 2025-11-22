@@ -669,7 +669,7 @@ class PairsManager:
 
     def allocate_margin_to_candidates(self, entry_candidates: List[tuple]) -> Dict[tuple, float]:
         """
-        为入场候选配对分配保证金（v7.62.0: 双模式分配）
+        为入场候选配对分配保证金（v7.62.2: 极简比例分配）
 
         Args:
             entry_candidates: [(pair, signal, quality_score, planned_pct), ...]
@@ -686,74 +686,62 @@ class PairsManager:
                 ...
             }
 
-        核心算法（v7.30.8 双模式分配）:
-            1. 获取当前可用保证金
-            2. 判断分配模式:
-               - 放大模式（current >= initial）: 盈利后使用 current × planned_pct，上限 2 倍杠杆
-               - 保护模式（current < initial）: 亏损时使用 min(current, initial × planned_pct)
-            3. 遍历 candidates（按质量分数降序）:
-               a. 根据模式计算分配额
-               b. 如果 >= 最小投资额: 执行分配并扣减可用资金
-               c. 如果 < 最小投资额: 跳过该配对
-            4. 返回所有成功分配的配对及其金额
+        核心算法（v7.62.2 极简比例分配）:
+            1. 获取初始可用保证金（固定基准，只调用一次）
+            2. 计算最小投资门槛（基于固定的 INITIAL_CAPITAL）
+            3. 顺序分配（按质量分数降序遍历）:
+               a. 分配额 = 初始可用 × 计划比例（所有配对使用相同基准）
+               b. 如果 ≥ 门槛 且 剩余资金充足: 执行分配并扣减追踪器
+               c. 否则: 跳过该配对
+            4. 返回分配结果
+
+        设计理念:
+            - 比例分配天然具备动态缩放: 盈利放大，亏损收缩
+            - 固定基准确保公平: 所有候选配对基于同一个 initial_available
+            - 固定门槛提供保护: 极端亏损时自动过滤小额分配
+            - 无需模式判断: 数学自动处理，代码简洁优雅
+
+        数学示例:
+            初始: INITIAL_CAPITAL=$100k, 盈利到$200k
+            initial_available = $196k (假设buffer=$4k)
+            min_threshold = $100k × 5% = $5k (固定)
+
+            配对A: planned_pct=15% → $196k × 15% = $29.4k ✅
+            配对B: planned_pct=12% → $196k × 12% = $23.5k ✅
+            (两个配对都基于$196k计算，公平分配)
         """
         allocations = {}
 
-        # === Step 1: 获取当前可用保证金 ===
-        current_available = self.get_available_margin()
+        # === Step 1: 获取初始可用保证金（固定基准）===
+        initial_available = self.get_available_margin()
 
-        # 计算最小投资额
-        min_investment_ratio = self.config.pairs_manager.min_investment_ratio  # 0.05
-        min_investment_amount = self.algorithm.Portfolio.TotalPortfolioValue * min_investment_ratio
+        # 计算最小投资门槛（基于固定的 INITIAL_CAPITAL）
+        min_threshold = self.INITIAL_CAPITAL * self.config.pairs_manager.min_investment_ratio
 
-        # 检查是否低于最小阈值
-        if current_available < min_investment_amount:
+        # 资金充足性检查
+        if initial_available < min_threshold:
             self.algorithm.Debug(
                 f"[资金分配] 可用保证金不足: "
-                f"${current_available:,.0f} < 最小投资${min_investment_amount:,.0f}"
+                f"${initial_available:,.0f} < 最小门槛${min_threshold:,.0f} "
+                f"({self.config.pairs_manager.min_investment_ratio*100:.0f}%初始资金)"
             )
             return {}
 
-        # === Step 2: 判断分配模式（v7.30.8）===
-        initial_margin = self.algorithm.Portfolio.TotalPortfolioValue
-        max_leverage_cap = self.config.pairs_manager.max_leverage_cap  # 2.0
+        # === Step 2: 顺序分配 ===
+        remaining_available = initial_available  # 追踪剩余资金
 
-        if current_available >= initial_margin:
-            # 放大模式: 盈利后放大规模
-            allocation_mode = "GROWTH"
-            max_cap = initial_margin * max_leverage_cap
-        else:
-            # 保护模式: 亏损时收缩规模
-            allocation_mode = "PROTECT"
-            max_cap = initial_margin
+        for pair, signal, quality_score, planned_pct in entry_candidates:
+            # 基于固定基准计算分配额（天然动态缩放）
+            planned_allocated = initial_available * planned_pct
 
-        # === Step 3: 遍历 candidates 进行分配 ===
-        for idx, (pair, signal, quality_score, planned_pct) in enumerate(entry_candidates, 1):
-            if allocation_mode == "GROWTH":
-                # 放大模式: 基于当前资金，但有上限保护
-                planned_allocated = min(
-                    current_available * planned_pct,
-                    max_cap * planned_pct
-                )
-            else:
-                # 保护模式: 保持 baseline constraint
-                planned_allocated = min(
-                    current_available,
-                    initial_margin * planned_pct
-                )
-
-            # 判断是否满足最小投资门槛
-            if planned_allocated >= min_investment_amount:
-                # 满足条件: 执行分配流程
+            # 检查门槛 + 检查剩余资金
+            if planned_allocated >= min_threshold and remaining_available >= planned_allocated:
                 allocations[pair.pair_id] = planned_allocated
-
-                # 扣减剩余资金
-                current_available = current_available - planned_allocated
+                remaining_available -= planned_allocated
             else:
-                # 不满足条件: 跳过此配对，继续尝试下一个
-                continue
+                continue  # 跳过该配对
 
-        # === Step 4: 返回分配结果 ===
+        # === Step 3: 返回分配结果 ===
         return allocations
 
 
