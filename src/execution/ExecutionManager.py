@@ -36,27 +36,22 @@ class ExecutionManager:
     - 完全统一的执行接口
     """
 
-    def __init__(self, algorithm, pairs_manager, risk_manager, tickets_manager, order_executor, margin_allocator):
+    def __init__(self, algorithm, pairs_manager, risk_manager, tickets_manager, order_executor):
         """
-        初始化统一执行器 (v7.7.0: 删除trade_analyzer参数)
+        初始化统一执行器 (v7.62.0: 删除margin_allocator参数,资金分配迁移至PairsManager)
 
         Args:
             algorithm: QuantConnect算法实例
-            pairs_manager: 配对管理器
+            pairs_manager: 配对管理器(v7.62.0新增资金分配职责)
             risk_manager: 风控管理器(用于cooldown检查)
             tickets_manager: 订单追踪管理器
             order_executor: 订单执行器
-            margin_allocator: 资金分配器
         """
         self.algorithm = algorithm
         self.pairs_manager = pairs_manager
         self.risk_manager = risk_manager
         self.tickets_manager = tickets_manager
         self.order_executor = order_executor
-        self.margin_allocator = margin_allocator
-
-        # 从margin_allocator获取min_investment_amount（避免重复计算）
-        self.min_investment_amount = margin_allocator.min_investment_amount
 
 
     # ===== Cooldown检查方法 =====
@@ -390,8 +385,8 @@ class ExecutionManager:
         if not entry_candidates:
             return
 
-        # Step 2: 使用MarginAllocator分配资金
-        allocations = self.margin_allocator.allocate_margin(entry_candidates)
+        # Step 2: 使用PairsManager分配资金 (v7.62.0: 从MarginAllocator迁移)
+        allocations = self.pairs_manager.allocate_margin_to_candidates(entry_candidates)
         if not allocations:
             return  # 无可分配资金或候选配对
 

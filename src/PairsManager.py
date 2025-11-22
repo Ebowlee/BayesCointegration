@@ -621,6 +621,141 @@ class PairsManager:
         return result
 
 
+    # ----- 5D.2 资金分配管理 (v7.62.0 从 MarginAllocator 迁移) -----
+    # 职责: 计算可用保证金 + 为入场候选配对分配资金
+    # 设计: 双模式分配(放大 vs 保护) + Fixed Buffer
+
+    def get_available_margin(self) -> float:
+        """
+        获取当前可用保证金
+
+        公式:
+            available = Portfolio.MarginRemaining - fixed_buffer
+            fixed_buffer = initial_margin × (1 - margin_usage_ratio)
+
+        设计要点:
+            - fixed_buffer 是全局固定值（基于初始资金，整个回测周期不变）
+            - margin_usage_ratio 从 config.pairs_manager 读取（默认 98%）
+            - 用于预留交易手续费，防止 margin call
+
+        Returns:
+            可用保证金（美元），最小为 0
+
+        示例:
+            初始: MarginRemaining=$100k, margin_usage_ratio=98%
+            → fixed_buffer = $100k × 2% = $2k
+            → available = $100k - $2k = $98k
+
+            开仓$50k后: MarginRemaining=$50k
+            → available = $50k - $2k = $48k
+
+            接近耗尽: MarginRemaining=$1k
+            → available = max(0, $1k - $2k) = $0（防止负数）
+        """
+        # 获取初始保证金（回测周期固定）
+        initial_margin = self.algorithm.Portfolio.TotalPortfolioValue
+
+        # 计算固定 buffer
+        margin_usage_ratio = self.config.pairs_manager.margin_usage_ratio  # 0.98
+        fixed_buffer = initial_margin * (1 - margin_usage_ratio)
+
+        # 当前可用保证金
+        current_margin = self.algorithm.Portfolio.MarginRemaining
+        available = current_margin - fixed_buffer
+
+        return max(0, available)
+
+
+    def allocate_margin_to_candidates(self, entry_candidates: List[tuple]) -> Dict[tuple, float]:
+        """
+        为入场候选配对分配保证金（v7.62.0: 双模式分配）
+
+        Args:
+            entry_candidates: [(pair, signal, quality_score, planned_pct), ...]
+                - pair: Pairs 对象
+                - signal: TradingSignal（LONG_SPREAD/SHORT_SPREAD）
+                - quality_score: 配对质量分数（0-1）
+                - planned_pct: 计划分配比例（由 get_planned_allocation_pct 计算）
+
+        Returns:
+            Dict[pair_id, allocated_amount]
+            {
+                ('AAPL', 'MSFT'): 25000.0,
+                ('GOOG', 'GOOGL'): 20000.0,
+                ...
+            }
+
+        核心算法（v7.30.8 双模式分配）:
+            1. 获取当前可用保证金
+            2. 判断分配模式:
+               - 放大模式（current >= initial）: 盈利后使用 current × planned_pct，上限 2 倍杠杆
+               - 保护模式（current < initial）: 亏损时使用 min(current, initial × planned_pct)
+            3. 遍历 candidates（按质量分数降序）:
+               a. 根据模式计算分配额
+               b. 如果 >= 最小投资额: 执行分配并扣减可用资金
+               c. 如果 < 最小投资额: 跳过该配对
+            4. 返回所有成功分配的配对及其金额
+        """
+        allocations = {}
+
+        # === Step 1: 获取当前可用保证金 ===
+        current_available = self.get_available_margin()
+
+        # 计算最小投资额
+        min_investment_ratio = self.config.pairs_manager.min_investment_ratio  # 0.05
+        min_investment_amount = self.algorithm.Portfolio.TotalPortfolioValue * min_investment_ratio
+
+        # 检查是否低于最小阈值
+        if current_available < min_investment_amount:
+            self.algorithm.Debug(
+                f"[资金分配] 可用保证金不足: "
+                f"${current_available:,.0f} < 最小投资${min_investment_amount:,.0f}"
+            )
+            return {}
+
+        # === Step 2: 判断分配模式（v7.30.8）===
+        initial_margin = self.algorithm.Portfolio.TotalPortfolioValue
+        max_leverage_cap = self.config.pairs_manager.max_leverage_cap  # 2.0
+
+        if current_available >= initial_margin:
+            # 放大模式: 盈利后放大规模
+            allocation_mode = "GROWTH"
+            max_cap = initial_margin * max_leverage_cap
+        else:
+            # 保护模式: 亏损时收缩规模
+            allocation_mode = "PROTECT"
+            max_cap = initial_margin
+
+        # === Step 3: 遍历 candidates 进行分配 ===
+        for idx, (pair, signal, quality_score, planned_pct) in enumerate(entry_candidates, 1):
+            if allocation_mode == "GROWTH":
+                # 放大模式: 基于当前资金，但有上限保护
+                planned_allocated = min(
+                    current_available * planned_pct,
+                    max_cap * planned_pct
+                )
+            else:
+                # 保护模式: 保持 baseline constraint
+                planned_allocated = min(
+                    current_available,
+                    initial_margin * planned_pct
+                )
+
+            # 判断是否满足最小投资门槛
+            if planned_allocated >= min_investment_amount:
+                # 满足条件: 执行分配流程
+                allocations[pair.pair_id] = planned_allocated
+
+                # 扣减剩余资金
+                current_available = current_available - planned_allocated
+            else:
+                # 不满足条件: 跳过此配对，继续尝试下一个
+                continue
+
+        # === Step 4: 返回分配结果 ===
+        return allocations
+
+
     # ===== 6. 待重构区域 (Pending Refactor) =====
     # 注: 以下方法未来将迁移到其他模块 (如 ExecutionManager 或独立的 ConfigRouter)
 
