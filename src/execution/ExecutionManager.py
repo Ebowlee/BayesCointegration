@@ -318,124 +318,64 @@ class ExecutionManager:
                         self.algorithm.record_close_stat(intent.reason)
 
 
-    def get_entry_candidates(self, pairs_without_position: dict, data) -> list:
+    def handle_normal_open_intents(self, allocated_candidates: List[tuple]):
         """
-        获取所有有开仓信号的配对，按质量分数降序排序
+        处理正常交易的开仓Intent (v7.63.0: 简化为纯执行层)
 
-        职责: ExecutionManager 负责"执行准备"逻辑
-        - 遍历配对获取信号（调用 Pairs.get_signal()）
-        - 过滤开仓信号
-        - 计算计划分配比例(v7.30.0: 自适应max_pct)
-        - 按质量分数排序
+        职责: 接收PairsManager筛选和分配好的候选,执行开仓订单
 
         Args:
-            pairs_without_position: 无持仓的可交易配对字典 {pair_id: Pairs对象}
-            data: 数据切片
-
-        Returns:
-            List[(pair, signal, quality_score, planned_pct), ...] 按质量降序排序
-
-        设计理念:
-            - 信号聚合属于"执行准备"，不属于"配对管理"
-            - 调用 pair.get_signal() 等业务逻辑是执行器的职责
-            - PairsManager 只负责存储和分类，不应调用业务逻辑
-        """
-
-        candidates = []
-
-        for pair in pairs_without_position.values():
-            signal = pair.get_signal(data)
-
-
-            if signal in ['LONG_SPREAD', 'SHORT_SPREAD']:
-                planned_pct = self.pairs_manager.get_planned_allocation_pct(pair)  # v7.45.0: 迁移至PairsManager
-                candidates.append((pair, signal, pair.quality_score, planned_pct))
-
-        # 按质量分数降序排序
-        candidates.sort(key=lambda x: x[2], reverse=True)
-
-        return candidates
-
-
-    def handle_normal_open_intents(self, pairs_without_position, data):
-        """
-        处理正常交易的开仓Intent
-
-        职责: 开仓协调和执行
-
-        Args:
-            pairs_without_position: 无持仓配对字典 {pair_id: Pairs}
-            data: 数据切片
+            allocated_candidates: [(pair, signal, allocated_margin), ...]
+                已完成筛选+排序+资金分配的候选列表
+                - pair: Pairs对象
+                - signal: TradingSignal (LONG_SPREAD/SHORT_SPREAD)
+                - allocated_margin: 分配的保证金金额
 
         执行流程:
-        1. 获取开仓候选(get_entry_candidates)
-        2. 使用MarginAllocator分配资金
-        3. 逐个执行开仓(检查: 订单锁 + 风险冷却 + 普通冷却)
-        4. 生成Intent并通过order_executor执行,注册订单
+        1. 遍历已分配的候选配对
+        2. 生成开仓Intent (pair.get_open_intent)
+        3. 执行订单 (order_executor.execute_open,自动注册到TicketsManager)
+        4. 记录开仓日志
 
-        设计特点:
-        - 委托MarginAllocator进行资金分配
-        - 双重cooldown检查: 风险冷却(30天) + 普通冷却(10天)
-        - 质量分数驱动的分配比例
-        - 简洁的开仓循环
-        - 命名与handle_*_risk_intents()保持一致(Intent Pattern)
+        设计特点 (v7.63.0):
+        - PairsManager完成筛选+分配 → ExecutionManager只负责执行
+        - 删除get_entry_candidates: 职责已迁移至PairsManager
+        - 删除资金分配逻辑: 候选已携带allocated_margin
+        - 删除订单锁和冷却期检查: PairsManager已过滤
+        - 保留开仓日志: 记录行业、质量、Z-score、分配金额
         """
-        # Step 1: 获取开仓候选(已按质量降序)
-        entry_candidates = self.get_entry_candidates(pairs_without_position, data)
-        if not entry_candidates:
+        if not allocated_candidates:
             return
 
-        # Step 2: 使用PairsManager分配资金 (v7.62.0: 从MarginAllocator迁移)
-        allocations = self.pairs_manager.allocate_margin_to_candidates(entry_candidates)
-        if not allocations:
-            return  # 无可分配资金或候选配对
-
-
-        # Step 3: 逐个开仓
-        for pair_id, amount_allocated in allocations.items():
-            pair = self.pairs_manager.get_pair_by_id(pair_id)
-
-            # 检查1: 订单锁定检查
-            if self.tickets_manager.is_pair_locked(pair_id):
-                continue
-
-            # 检查2: 统一冷却期检查 (v7.16.0: 合并risk + normal cooldown)
-            if self.is_pair_in_cooldown(pair):
-                continue
-
-            # 执行开仓并注册订单追踪
-            intent = pair.get_open_intent(amount_allocated, data)
+        for pair, signal, allocated_margin in allocated_candidates:
+            # 生成开仓Intent
+            intent = pair.get_open_intent(allocated_margin, self.algorithm.CurrentSlice)
             if not intent:
                 continue
 
-            success = self.order_executor.execute_open(intent)  # 自动注册到TicketsManager
-            if success:
-                # v7.36.1: 查询quality_score和行业名称
-                quality_score = next(
-                    (score for p, _, score, _ in entry_candidates if p.pair_id == pair_id),
-                    None
-                )
+            # 执行订单 (自动注册到TicketsManager)
+            success = self.order_executor.execute_open(intent)
+            if not success:
+                continue
 
-                # 获取行业名称
-                industry_names = self.algorithm.config.constants['industry_names']
-                industry_name = industry_names.get(int(pair.industry_code), f'未知({pair.industry_code})')
+            # 记录开仓日志 (v7.36.1格式: 行业|质量|Z-score|分配金额)
+            industry_names = self.algorithm.config.constants['industry_names']
+            industry_name = industry_names.get(int(pair.industry_code), f'未知({pair.industry_code})')
 
-                # 计算简化质量标签 (Q= 格式)
-                if quality_score is not None:
-                    if quality_score >= 0.80:
-                        quality_label = "Q=≥0.80"
-                    elif quality_score >= 0.70:
-                        quality_label = "Q=0.70-0.80"
-                    elif quality_score >= 0.60:
-                        quality_label = "Q=0.60-0.70"
-                    else:
-                        quality_label = f"Q={quality_score:.2f}"
-                else:
-                    quality_label = "Q=未知"  # fallback
+            # 计算质量标签
+            quality_score = pair.quality_score
+            if quality_score >= 0.80:
+                quality_label = "Q=≥0.80"
+            elif quality_score >= 0.70:
+                quality_label = "Q=0.70-0.80"
+            elif quality_score >= 0.60:
+                quality_label = "Q=0.60-0.70"
+            else:
+                quality_label = f"Q={quality_score:.2f}"
 
-                # v7.36.1: 开仓日志 - 显示行业、质量标签、Z-score和分配金额
-                entry_z = pair.entry_zscore if pair.entry_zscore is not None else 0.0
-                self.algorithm.Debug(
-                    f"[开仓] {pair_id} | {industry_name} | {quality_label} | "
-                    f"Z-score={entry_z:+.2f}σ | 分配=${amount_allocated:,.0f}"
-                )
+            # 输出日志
+            entry_z = pair.entry_zscore if pair.entry_zscore is not None else 0.0
+            self.algorithm.Debug(
+                f"[开仓] {pair.pair_id} | {industry_name} | {quality_label} | "
+                f"Z-score={entry_z:+.2f}σ | 分配=${allocated_margin:,.0f}"
+            )

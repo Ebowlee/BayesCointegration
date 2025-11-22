@@ -1,6 +1,6 @@
 # region imports
 from AlgorithmImports import *
-from typing import Dict, Set
+from typing import Dict, Set, List
 # endregion
 
 
@@ -745,6 +745,107 @@ class PairsManager:
         return allocations
 
 
+    def get_planned_allocation_pct(self, pair) -> float:
+        """
+        计算配对的计划分配比例 (v7.60.0: 使用 composite_score)
+
+        计算逻辑:
+            1. 计算行业 composite_score = ROI × WIN_RATE
+            2. 根据 composite_score 确定 tier
+            3. planned_pct = min_pct + quality_score × (max_pct - min_pct)
+
+        Args:
+            pair: Pairs对象 (提供quality_score和industry_code)
+
+        Returns:
+            计划分配比例 (0.05-0.22之间)
+        """
+        config = self.algorithm.config.pairs_manager
+        min_pct = config.min_investment_ratio
+
+        # 查询行业tier (v7.60.0: 使用 composite_score 计算)
+        industry_code = str(pair.industry_code)
+
+        # 预热期或无交易历史时使用默认tier
+        if self._is_in_warmup_period():
+            tier = 'tier0'
+        elif self.get_industry_trade_count(industry_code) == 0:
+            tier = 'tier0'
+        else:
+            score = self._calculate_composite_score(industry_code)
+            tier = self._get_tier_by_composite_score(score)
+
+        # 获取tier对应的max_pct
+        tier_max = config.tier_max_investment_ratio
+        max_pct = tier_max.get(tier, tier_max['tier0'])
+
+        return min_pct + pair.quality_score * (max_pct - min_pct)
+
+
+    def get_entry_candidates_with_allocation(self, data) -> List[tuple]:
+        """
+        获取开仓候选并完成资金分配 (v7.63.0: PairsManager接管筛选职责)
+
+        核心理念:
+            只有本轮通过协整+质量筛选的配对才配得上开仓交易
+            past_selected已失去协整关系,只能被动平仓,不能主动开仓
+
+        Returns:
+            [(pair, signal, allocated_margin), ...]
+            按质量分数降序排列,已完成资金分配
+
+        步骤:
+            1. 从current_selected中筛选有信号+无持仓的配对
+            2. 按质量分数降序排序
+            3. 计算planned_pct并构建中间列表
+            4. 调用allocate_margin_to_candidates进行资金分配
+            5. 合并分配结果,返回最终列表
+        """
+        # Step 1: 筛选候选池 (只要current_selected)
+        candidates_with_signal = []
+
+        for pair_id in self.current_selected_pair_ids:
+            pair = self.all_pairs[pair_id]
+
+            # 过滤条件: 有开仓信号 + 无持仓 + 不在冷却期 + 无订单锁
+            signal = pair.get_signal(data)
+            if signal not in ['LONG_SPREAD', 'SHORT_SPREAD']:
+                continue
+
+            if pair.has_position():
+                continue
+
+            if pair.is_in_cooldown():
+                continue
+
+            if self.algorithm.tickets_manager.is_pair_locked(pair.pair_id):
+                continue
+
+            candidates_with_signal.append(pair)
+
+        # Step 2: 按质量分数降序排序
+        candidates_with_signal.sort(key=lambda p: p.quality_score, reverse=True)
+
+        # Step 3: 构建中间列表 (添加planned_pct)
+        entry_candidates = []
+        for pair in candidates_with_signal:
+            signal = pair.get_signal(data)
+            planned_pct = self.get_planned_allocation_pct(pair)
+            entry_candidates.append((pair, signal, pair.quality_score, planned_pct))
+
+        # Step 4: 资金分配
+        allocations = self.allocate_margin_to_candidates(entry_candidates)
+
+        # Step 5: 合并分配结果
+        final_candidates = []
+        for pair, signal, quality_score, planned_pct in entry_candidates:
+            allocated = allocations.get(pair.pair_id)
+            if allocated:
+                final_candidates.append((pair, signal, allocated))
+
+        return final_candidates
+
+
     # ===== 6. 待重构区域 (Pending Refactor) =====
     # 注: 以下方法未来将迁移到其他模块 (如 ExecutionManager 或独立的 ConfigRouter)
 
@@ -784,38 +885,3 @@ class PairsManager:
         return reason_to_config.get(last_close_reason, 10)
 
 
-    def get_planned_allocation_pct(self, pair) -> float:
-        """
-        计算配对的计划分配比例 (v7.60.0: 使用 composite_score)
-
-        计算逻辑:
-            1. 计算行业 composite_score = ROI × WIN_RATE
-            2. 根据 composite_score 确定 tier
-            3. planned_pct = min_pct + quality_score × (max_pct - min_pct)
-
-        Args:
-            pair: Pairs对象 (提供quality_score和industry_code)
-
-        Returns:
-            计划分配比例 (0.05-0.22之间)
-        """
-        config = self.algorithm.config.pairs_manager
-        min_pct = config.min_investment_ratio
-
-        # 查询行业tier (v7.60.0: 使用 composite_score 计算)
-        industry_code = str(pair.industry_code)
-
-        # 预热期或无交易历史时使用默认tier
-        if self._is_in_warmup_period():
-            tier = 'tier0'
-        elif self.get_industry_trade_count(industry_code) == 0:
-            tier = 'tier0'
-        else:
-            score = self._calculate_composite_score(industry_code)
-            tier = self._get_tier_by_composite_score(score)
-
-        # 获取tier对应的max_pct
-        tier_max = config.tier_max_investment_ratio
-        max_pct = tier_max.get(tier, tier_max['tier0'])
-
-        return min_pct + pair.quality_score * (max_pct - min_pct)
