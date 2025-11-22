@@ -5,6 +5,106 @@
 ---
 
 
+## [v7.64.0_remove-quota-from-pairsmanager@20251123]
+
+### 版本概述
+架构修复 - 删除 PairsManager 中设计错误的协整配额方法
+
+### 🎯 核心问题
+
+#### 时间逻辑错误
+**v7.60.0-v7.63.0 存在的设计缺陷**:
+```python
+# 错误假设: PairsManager 可以为协整分析提供配额
+class PairsManager:
+    def get_industry_quota(self, industry_code: str) -> int:
+        # ❌ 问题: Pairs 在协整分析**之后**才创建
+        score = self._calculate_composite_score(industry_code)
+        # ↑ 依赖 self.all_pairs 中的历史数据
+
+    def get_all_industry_quotas(self) -> Dict[str, Dict]:
+        # ❌ 问题: PairsManager 在 Pairs 创建**之后**才更新
+        # ↑ 无法为协整分析 (Time 2) 提供配额
+
+# 正确的时间线:
+# Time 1: DataProcessor 处理数据
+# Time 2: IndustryQuotaManager.calculate_quotas(pairs_manager)
+#         ↑ 使用历史 Pairs 数据计算配额
+# Time 3: CointegrationAnalyzer.analyze(industry_quotas)
+#         ↑ 应用配额筛选
+# Time 4: BayesianModeler + PairSelector
+# Time 5: 创建新的 Pairs 对象 ← Pairs 诞生点!
+# Time 6: PairsManager.update_pairs() ← Manager 更新点!
+```
+
+#### 职责混淆
+**Quota 和 Tier 的区别**:
+- **Quota** (协整阶段): 限制每个行业的配对数量
+  - 职责归属: `IndustryQuotaManager`
+  - 使用时机: Time 2-3 (协整分析时)
+  - 计算依据: `weighted_return = realized_pnl / realized_cost`
+
+- **Tier** (交易阶段): 决定资金分配比例
+  - 职责归属: `PairsManager`
+  - 使用时机: Time 6+ (OnData 交易时)
+  - 计算依据: `composite_score = ROI × WIN_RATE`
+
+### ❌ Removed
+
+#### PairsManager.py (Lines 535-631, 共97行)
+- **`_get_quota_by_tier()`** - 根据 tier 获取配额
+  - 删除理由: 协整配额应由 IndustryQuotaManager 计算
+
+- **`get_industry_quota()`** - 获取单个行业配额
+  - 删除理由: 时间逻辑错误 (Pairs 未创建时无法查询)
+
+- **`get_all_industry_quotas()`** - 获取所有行业配额
+  - 删除理由: 与 `get_industry_quota()` 重复 + 时间逻辑错误
+
+### ✅ Retained (用于资金分配)
+
+#### PairsManager.py
+以下方法**保留**,因为它们用于 OnData 交易时的资金分配 (非协整配额):
+
+- **`_is_in_warmup_period()`** - 预热期检查
+  - 用途: 判断是否有足够历史数据计算 composite_score
+
+- **`_calculate_composite_score()`** - 计算 ROI × WIN_RATE
+  - 用途: 评估行业表现,决定资金分配 tier
+
+- **`_get_tier_by_composite_score()`** - 综合得分映射 tier
+  - 用途: 将 composite_score 映射到 tier0-tier4
+
+- **`get_planned_allocation_pct()`** - 计算资金分配比例
+  - 用途: 根据 tier 和 quality_score 计算开仓比例
+
+### 📝 后续工作
+
+#### 需要集成 IndustryQuotaManager (未完成)
+```python
+# main.py 中需要添加:
+# Step 1: 计算行业配额 (月初,协整分析前)
+industry_quotas = self.industry_quota_manager.calculate_quotas(self.pairs_manager)
+
+# Step 2: 传递给协整分析器
+self.cointegration_analyzer.industry_quotas = industry_quotas
+
+# Step 3: 协整分析时应用配额
+# CointegrationAnalyzer._apply_quota_and_limit() 已存在,无需修改
+```
+
+### 🔄 Changed
+- **PairsManager 行数**: 减少 97 行 (535-631 删除)
+- **职责边界**: PairsManager 不再负责协整配额,只负责资金分配 tier
+
+### 💡 设计教训
+- **时间逻辑**: 对象创建顺序决定职责归属
+- **单一职责**: 配额 (数量限制) ≠ Tier (金额比例)
+- **依赖方向**: 协整分析不应依赖尚未创建的 Pairs 对象
+
+---
+
+
 ## [v7.53.2_incremental-index-update@20251121]
 
 ### 版本概述
