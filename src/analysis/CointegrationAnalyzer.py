@@ -11,31 +11,33 @@ from statsmodels.tsa.stattools import coint
 
 class CointegrationAnalyzer:
     """
-    协整分析器 - 识别具有长期均衡关系的股票配对 (v7.12.0: 支持行业配额)
+    协整分析器 - 识别具有长期均衡关系的股票配对 (v7.65.0: 纯协整检验模块)
+
+    职责:
+    - 执行Engle-Granger协整检验
+    - 按行业分组进行配对测试
+    - 返回所有通过pvalue阈值的配对
+
+    设计原则:
+    - 单一职责: 只负责协整检验,不处理配额筛选
+    - 配额管理: 由IndustryQuotaManager在后续步骤处理
     """
 
-    def __init__(self, algorithm, module_config, industry_quotas: Dict[str, Dict] = None):
+    def __init__(self, algorithm, module_config):
         """
-        初始化协整分析器 (v7.32.0: industry_quotas返回值从int改为Dict)
+        初始化协整分析器 (v7.65.0: 移除配额参数,简化为纯协整检验模块)
 
         Args:
             algorithm: QCAlgorithm实例
             module_config: 模块配置对象 (CointegrationConfig dataclass)
-            industry_quotas: 行业配额字典 {industry_code: {'quota': int, 'tier': str, 'weighted_return': float}}
-                - 如果为None或空字典,使用默认配额 (从config.pairs_manager.default_quota读取)
-                - 如果提供,使用动态配额
         """
         self.algorithm = algorithm
-        self.module_config = module_config  # v7.30.1: 保存config引用
+        self.module_config = module_config
         self.pvalue_threshold = module_config.pvalue_threshold
 
-        # 行业分组配置 (v7.30.4: 新增max_stocks_per_industry)
+        # 行业分组配置
         self.min_stocks_per_industry = module_config.min_stocks_per_industry
         self.max_stocks_per_industry = module_config.max_stocks_per_industry
-
-        self.industry_quotas = industry_quotas if industry_quotas else {}
-        self.default_quota = algorithm.config.pairs_manager.default_quota
-        self.max_symbol_repeats = module_config.max_symbol_repeats
 
 
     def _is_etf(self, symbol: Symbol) -> bool:
@@ -135,7 +137,7 @@ class CointegrationAnalyzer:
 
     def _find_cointegrated_pairs_in_group(self, ig_name: str, symbols: List[Symbol], clean_data: Dict) -> List[Dict]:
         """
-        在单个子行业内查找协整配对 (v7.12.0: 应用行业配额)
+        在单个子行业内查找协整配对 (v7.65.0: 移除配额逻辑,只返回所有协整配对)
 
         Args:
             ig_name: 子行业名称
@@ -143,19 +145,15 @@ class CointegrationAnalyzer:
             clean_data: 清洗后的价格数据
 
         Returns:
-            通过协整检验的配对列表 (v7.12.0: 应用配额后TOP N配对)
+            通过pvalue阈值的所有配对列表 (按pvalue排序)
         """
-        # 步骤1: 执行协整检验
+        # 执行协整检验
         cointegrated_pairs = self._test_all_pairs(symbols, clean_data, ig_name)
 
-        # 步骤2: 应用配额和单股重复限制
+        # 按pvalue排序后返回(便于后续配额管理器使用)
         sorted_pairs = sorted(cointegrated_pairs, key=lambda x: x['pvalue'])
-        selected_pairs = self._apply_quota_and_limit(ig_name, sorted_pairs)
 
-        # 步骤3: 输出统计日志
-        self._log_selection_summary(ig_name, symbols, sorted_pairs, selected_pairs)
-
-        return selected_pairs
+        return sorted_pairs
 
 
     def _test_all_pairs(self, symbols: List[Symbol], clean_data: Dict, ig_name: str) -> List[Dict]:
@@ -206,72 +204,6 @@ class CointegrationAnalyzer:
 
         return cointegrated_pairs
 
-
-    def _apply_quota_and_limit(self, ig_name: str, sorted_pairs: List[Dict]) -> List[Dict]:
-        """
-        应用行业配额和单股重复限制 (v7.31.3: 从_find_cointegrated_pairs_in_group拆分)
-
-        Args:
-            ig_name: 子行业名称
-            sorted_pairs: 已按pvalue排序的配对列表 (从小到大)
-
-        Returns:
-            应用配额后的最终配对列表
-
-        贪心算法逻辑 (v7.31.0):
-        - 按pvalue从小到大遍历 (优先选择协整性最强的配对)
-        - 同时检查配额限制和单股重复限制
-        - 一旦配额满足即停止选择
-        """
-        # v7.32.0: 从Dict中提取quota字段
-        quota_info = self.industry_quotas.get(ig_name)
-        quota = quota_info['quota'] if quota_info else self.default_quota
-
-        selected_pairs = []
-        symbol_counts = defaultdict(int)
-
-        for pair in sorted_pairs:
-            if len(selected_pairs) >= quota:
-                break
-
-            s1, s2 = pair['symbol1'], pair['symbol2']
-            if (symbol_counts[s1] < self.max_symbol_repeats and
-                symbol_counts[s2] < self.max_symbol_repeats):
-                selected_pairs.append(pair)
-                symbol_counts[s1] += 1
-                symbol_counts[s2] += 1
-
-        return selected_pairs
-
-
-    def _log_selection_summary(self, ig_name: str, symbols: List[Symbol],
-                                sorted_pairs: List[Dict], selected_pairs: List[Dict]):
-        """
-        输出行业协整筛选统计日志 (v7.31.4: 只记录有效结果,过滤空结果噪音)
-
-        Args:
-            ig_name: 子行业名称
-            symbols: 该子行业内的股票列表
-            sorted_pairs: 通过pvalue阈值的配对列表 (排序后)
-            selected_pairs: 应用配额后的最终配对列表
-        """
-        # 只记录选出了配对的行业 (过滤"PValue通过0对"噪音)
-        if len(selected_pairs) == 0:
-            return
-
-        industry_names = self.algorithm.config.constants['industry_names']
-        industry_name = industry_names.get(int(ig_name), f'未知({ig_name})')
-
-        # 从Dict中提取quota字段
-        quota_info = self.industry_quotas.get(ig_name)
-        quota = quota_info['quota'] if quota_info else self.default_quota
-
-        self.algorithm.Debug(
-            f"[协整分析] {industry_name}: "
-            f"{len(symbols)}只股票 → 配对{len(symbols)*(len(symbols)-1)//2}对 → "
-            f"P值通过{len(sorted_pairs)}对 → 配额{quota} → 最终选取{len(selected_pairs)}对",
-            level=1
-        )
 
 
     def _group_by_industry(self, symbols: List[Symbol]) -> Dict[str, List[Symbol]]:

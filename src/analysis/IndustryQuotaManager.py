@@ -244,3 +244,87 @@ class IndustryQuotaManager:
             return 'tier3'
         else:
             return 'tier4'
+
+
+    def apply_quotas(self, coint_result: Dict) -> List:
+        """
+        应用行业配额到协整结果 (v7.65.0: 新增方法,实现方案B后置筛选)
+
+        职责: 接收协整分析结果,应用行业配额和单股重复限制
+
+        Args:
+            coint_result: CointegrationAnalyzer.cointegration_procedure()的返回值
+                {
+                    'raw_pairs': [...],  # 所有通过pvalue阈值的配对
+                    'statistics': {...}
+                }
+
+        Returns:
+            List[Dict]: 应用配额后的配对列表
+                每个Dict包含: {'symbol1', 'symbol2', 'pvalue', 'industry_code'}
+
+        实现逻辑:
+        1. 调用calculate_quotas()获取行业配额字典
+        2. 按行业代码分组raw_pairs
+        3. 每个行业内按pvalue排序(从小到大,优先选择协整性强的配对)
+        4. 贪心算法应用配额和单股重复限制
+        5. 输出配额应用日志(只记录有配对的行业,避免噪音)
+        6. 返回所有行业选定配对的合并列表
+
+        设计原则:
+        - 单一职责: 只负责配额筛选,不做协整检验
+        - 贪心算法: 按pvalue优先级,同时满足配额和单股限制
+        - 日志简洁: 只输出有实际选择结果的行业
+        """
+        # 步骤1: 获取行业配额
+        industry_quotas = self.calculate_quotas(self.algorithm.pairs_manager)
+
+        # 步骤2: 按行业分组raw_pairs
+        raw_pairs = coint_result['raw_pairs']
+        industry_groups = defaultdict(list)
+
+        for pair in raw_pairs:
+            industry_code = str(pair['industry_code'])
+            industry_groups[industry_code].append(pair)
+
+        # 步骤3-4: 对每个行业应用配额和单股限制
+        selected_pairs = []
+        industry_names = self.algorithm.config.constants['industry_names']
+
+        for industry_code, pairs in industry_groups.items():
+            # 按pvalue排序(从小到大)
+            sorted_pairs = sorted(pairs, key=lambda x: x['pvalue'])
+
+            # 获取配额(优先使用动态配额,否则使用默认配额)
+            quota_info = industry_quotas.get(industry_code)
+            quota = quota_info['quota'] if quota_info else self.default_quota
+
+            # 贪心选择(同时检查配额和单股重复限制)
+            symbol_counts = defaultdict(int)
+            industry_selected = []
+            max_symbol_repeats = self.algorithm.config.cointegration_analyzer.max_symbol_repeats
+
+            for pair in sorted_pairs:
+                if len(industry_selected) >= quota:
+                    break
+
+                s1, s2 = pair['symbol1'], pair['symbol2']
+                if (symbol_counts[s1] < max_symbol_repeats and
+                    symbol_counts[s2] < max_symbol_repeats):
+                    industry_selected.append(pair)
+                    symbol_counts[s1] += 1
+                    symbol_counts[s2] += 1
+
+            # 步骤5: 输出配额应用日志(只记录有配对的行业)
+            if len(industry_selected) > 0:
+                industry_name = industry_names.get(int(industry_code), f'未知({industry_code})')
+                self.algorithm.Debug(
+                    f"[配额筛选] {industry_name}: "
+                    f"协整通过{len(sorted_pairs)}对 → 配额{quota} → 最终选取{len(industry_selected)}对",
+                    level=1
+                )
+
+            selected_pairs.extend(industry_selected)
+
+        # 步骤6: 返回所有选定配对
+        return selected_pairs

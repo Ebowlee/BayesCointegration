@@ -5,6 +5,119 @@
 ---
 
 
+## [v7.65.0_quota-manager-postfilter@20251123]
+
+### 版本概述
+架构优化 - 配额管理后置化,实现方案B (配额管理器后置应用)
+
+### 🎯 核心变更
+
+#### 设计原则升级
+**从方案A (配额嵌入) → 方案B (配额后置)**:
+- **方案A** (v7.64.0之前): CointegrationAnalyzer内部应用配额 ❌ 违反SRP
+- **方案B** (v7.65.0): IndustryQuotaManager独立处理配额 ✅ 职责分离
+
+#### 数据流清晰化
+```python
+# Before (v7.64.0):
+DataProcessor → CointegrationAnalyzer (协整+配额混合) → BayesianModeler
+
+# After (v7.65.0):
+DataProcessor → CointegrationAnalyzer (纯协整) → IndustryQuotaManager (配额筛选) → BayesianModeler
+```
+
+### ✅ Added
+
+#### IndustryQuotaManager.py
+- **`apply_quotas(coint_result: Dict) -> List[Dict]`** (新增方法)
+  - 职责: 接收协整结果,应用行业配额和单股重复限制
+  - 输入: CointegrationAnalyzer返回的{'raw_pairs': [...], 'statistics': {...}}
+  - 输出: 配额筛选后的配对列表
+  - 算法: 贪心选择 (按pvalue优先级,同时满足配额和单股限制)
+  - 日志: 只记录有配对选出的行业,避免噪音
+
+### ❌ Removed
+
+#### CointegrationAnalyzer.py
+- **`__init__`参数移除**:
+  - `industry_quotas: Dict[str, Dict]` - 配额字典参数
+  - `default_quota: int` - 默认配额
+  - `max_symbol_repeats: int` - 单股重复限制
+
+- **方法删除**:
+  - `_apply_quota_and_limit()` - 配额应用逻辑 (整个方法删除)
+  - `_log_selection_summary()` - 配额筛选日志 (整个方法删除)
+
+### 🔄 Modified
+
+#### CointegrationAnalyzer.py
+- **类级docstring**: 更新为"v7.65.0: 纯协整检验模块"
+- **`__init__()`**: 简化为只接受`algorithm`和`module_config`
+- **`_find_cointegrated_pairs_in_group()`**: 删除配额应用和日志,只返回排序后的协整配对
+
+#### main.py
+- **分析流程调整**:
+  - 步骤2: 协整检验 (不再应用配额)
+  - 步骤3: 应用行业配额 (新增步骤,调用IndustryQuotaManager.apply_quotas)
+  - 步骤4: 构建PairData字典
+  - 步骤5: 贝叶斯建模 (步骤编号调整)
+
+- **日志增强**:
+  - `[协整汇总]`: 显示所有通过pvalue阈值的配对数
+  - `[配额筛选]`: 显示每个行业的配额应用详情
+  - `[配额汇总]`: 显示配额前后配对数量对比
+
+### 📊 性能影响
+- **计算成本**: 零影响 (仅重组代码,无额外计算)
+- **内存使用**: 零影响 (数据结构不变)
+- **代码可读性**: 大幅提升 (模块职责清晰,数据流向一目了然)
+
+### 🛠️ 技术细节
+
+#### 贪心算法实现
+```python
+# IndustryQuotaManager.apply_quotas()
+for industry_code, pairs in industry_groups.items():
+    sorted_pairs = sorted(pairs, key=lambda x: x['pvalue'])
+    quota = industry_quotas.get(industry_code, {}).get('quota', default_quota)
+
+    # 贪心选择
+    symbol_counts = defaultdict(int)
+    for pair in sorted_pairs:
+        if len(selected) >= quota:
+            break
+        s1, s2 = pair['symbol1'], pair['symbol2']
+        if (symbol_counts[s1] < max_repeats and
+            symbol_counts[s2] < max_repeats):
+            selected.append(pair)
+            symbol_counts[s1] += 1
+            symbol_counts[s2] += 1
+```
+
+#### 方案对比总结
+| 维度 | 方案A (嵌入) | 方案B (后置) | 方案C (开仓时) |
+|------|-------------|------------|--------------|
+| 职责分离 | ❌ 混合 | ✅ 清晰 | ❌ 混合 |
+| 性能成本 | 基准 | 基准 | +297% MCMC |
+| 代码维护 | 困难 | 简单 | 复杂 |
+| 配对轮换 | 无 | 无 | <15%成功率 |
+| **最终选择** | - | ✅ **采用** | ❌ 拒绝 |
+
+### 🔬 设计哲学
+**Single Responsibility Principle (SRP)**:
+- **CointegrationAnalyzer**: 只做协整检验,不关心配额
+- **IndustryQuotaManager**: 只管配额筛选,不关心协整
+- **数据流清晰**: 每个模块输入输出明确,易于测试和调试
+
+### 📝 Breaking Changes
+- `CointegrationAnalyzer.__init__`不再接受`industry_quotas`参数
+- 如有外部调用,需移除该参数: `CointegrationAnalyzer(algorithm, config)`
+- `CointegrationAnalyzer.cointegration_procedure`返回值不变,但内部不再应用配额
+
+
+---
+
+
 ## [v7.64.0_remove-quota-from-pairsmanager@20251123]
 
 ### 版本概述

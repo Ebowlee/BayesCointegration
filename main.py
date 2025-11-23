@@ -161,11 +161,11 @@ class BayesianCointegrationStrategy(QCAlgorithm):
             self.Debug("[Analysis] 有效股票不足2只,终止分析管道", level=1)
             return
 
-        # === 步骤2: 协整检验 (v8.1.0) ===
+        # === 步骤2: 协整检验 (v7.65.0: 不再应用配额) ===
         self.Debug("[Analysis] 步骤2: 协整检验", level=1)
 
         coint_result = self.cointegration_analyzer.cointegration_procedure(data_valid_symbols, clean_data)
-        coint_pairs = coint_result['raw_pairs']
+        raw_coint_pairs = coint_result['raw_pairs']
         coint_stats = coint_result['statistics']
 
         # 输出协整汇总 (在详细协整分析日志之后)
@@ -175,23 +175,37 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         self.Debug(
             f"[协整汇总] 候选配对{coint_stats.get('total_pairs_tested', 0)}对 | "
             f"{len(industry_breakdown)}个行业 → "
-            f"通过{len(coint_pairs)}对 | "
+            f"通过{len(raw_coint_pairs)}对 | "
             f"有效行业{industries_with_pairs}个",
             level=1
         )
 
-        if len(coint_pairs) < 1:
+        if len(raw_coint_pairs) < 1:
             self.Debug("[Analysis] 无协整配对,终止分析管道", level=1)
             return
+
+        # === 步骤3: 应用行业配额 (v7.65.0: 新增步骤) ===
+        self.Debug("[Analysis] 步骤3: 应用行业配额", level=1)
+
+        selected_pairs = self.industry_quota_manager.apply_quotas(coint_result)
+
+        if len(selected_pairs) < 1:
+            self.Debug("[Analysis] 无配对通过配额筛选,终止分析管道", level=1)
+            return
+
+        self.Debug(
+            f"[配额汇总] 协整通过{len(raw_coint_pairs)}对 → 配额筛选后{len(selected_pairs)}对",
+            level=1
+        )
 
         # 缓存数据供后续步骤使用
         self.clean_data = clean_data
         self.data_valid_symbols = data_valid_symbols
-        self.coint_pairs = coint_pairs
+        self.coint_pairs = selected_pairs  # v7.65.0: 使用配额筛选后的配对
 
-        # === 步骤3: 构建PairData字典 ===
+        # === 步骤4: 构建PairData字典 ===
         pair_data = {}
-        for pair_info in coint_pairs:
+        for pair_info in selected_pairs:
             pair_key = (pair_info['symbol1'], pair_info['symbol2'])
             pair_data[pair_key] = PairData.from_clean_data(pair_info, clean_data)
 
@@ -203,10 +217,10 @@ class BayesianCointegrationStrategy(QCAlgorithm):
             level=1
         )
 
-        # === 步骤4: 贝叶斯建模 (v8.3.0) ===
-        self.Debug("[Analysis] 步骤4: 贝叶斯建模", level=1)
+        # === 步骤5: 贝叶斯建模 (v7.65.0: 步骤编号调整) ===
+        self.Debug("[Analysis] 步骤5: 贝叶斯建模", level=1)
 
-        model_results = self.bayesian_modeler.modeling_procedure(coint_pairs, pair_data)
+        model_results = self.bayesian_modeler.modeling_procedure(selected_pairs, pair_data)
 
         if len(model_results) < 1:
             self.Debug("[Analysis] 贝叶斯建模失败,无有效结果,终止分析管道", level=1)
