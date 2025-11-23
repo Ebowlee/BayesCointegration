@@ -8,6 +8,7 @@ from src.analysis.CointegrationAnalyzer import CointegrationAnalyzer
 from src.analysis.PairData import PairData
 from src.analysis.BayesianModeler import BayesianModeler
 from src.analysis.PairSelector import PairSelector
+from src.Pairs import Pairs
 from src.PairsManager import PairsManager
 from src.analysis.IndustryQuotaManager import IndustryQuotaManager
 # endregion
