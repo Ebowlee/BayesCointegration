@@ -259,7 +259,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         new_pairs_dict = {}
         for model_result in selected_pairs:
             # 使用类方法工厂创建Pairs实例对象
-            pair = Pairs.from_model_result(self, model_result, self.config.pairs_trading)
+            pair = Pairs.from_model_result(self, model_result, self.config.pairs)
             new_pairs_dict[pair.pair_id] = pair
 
         self.Debug(f"[Pairs] 创建{len(new_pairs_dict)}个配对对象", level=1)
