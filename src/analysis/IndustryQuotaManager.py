@@ -217,7 +217,7 @@ class IndustryQuotaManager:
 
         Args:
             coint_result: CointegrationAnalyzer.cointegration_procedure()返回值
-                {'raw_pairs': [...], 'statistics': {...}}
+                {'pairs': [...], 'statistics': {...}}
 
         Returns:
             List[Dict]: 应用配额后的配对列表
@@ -232,8 +232,8 @@ class IndustryQuotaManager:
         # 步骤1: 获取行业配额
         industry_quotas = self.calculate_quotas(self.algorithm.pairs_manager)
 
-        # 步骤2: 按行业分组raw_pairs
-        raw_pairs = coint_result['raw_pairs']
+        # 步骤2: 按行业分组pairs
+        raw_pairs = coint_result['pairs']
         industry_groups = defaultdict(list)
 
         for pair in raw_pairs:
