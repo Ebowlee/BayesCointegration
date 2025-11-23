@@ -42,36 +42,39 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         time_rule = self.TimeRules.At(*self.config.main.schedule_time)
         self.Schedule.On(date_rule, time_rule, Action(self.universe_selector.trigger_selection))
 
-        # === v8.0.0: ETF订阅 ===
+        # === ETF订阅 ===
         self.etf_symbols = []                                   # 存储已订阅的ETF Symbol对象
         self.etf_industry_mapping = {}                          # 反向映射: {ticker: [industry_codes]}
         if self.config.etf_universe.enabled:
             self._subscribe_industry_etfs()
 
-        # === v8.0.1: 初始化分析管道 ===
+        # === 初始化分析管道 ===
         self.data_processor = DataProcessor(self, self.config.analysis)
 
-        # === v8.1.0: 初始化协整分析器 ===
+        # === 初始化协整分析器 ===
         self.cointegration_analyzer = CointegrationAnalyzer(self, self.config.cointegration_analyzer)
 
-        # === v8.3.0: 初始化贝叶斯建模器 ===
+        # === 初始化贝叶斯建模器 ===
         self.bayesian_modeler = BayesianModeler(
             self,
             self.config.analysis,
             self.config.bayesian_modeler
         )
 
-        # === v8.4.0: 初始化配对选择器 ===
+        # === 初始化配对选择器 ===
         self.pair_selector = PairSelector(
             self,
             self.config.analysis,
             self.config.pair_selector
         )
 
-        # === v7.67.0: 初始化行业配额管理器 ===
+        # === 初始化配对管理器 ===
+        self.pairs_manager = PairsManager(self, self.config)
+
+        # === 初始化行业配额管理器 ===
         self.industry_quota_manager = IndustryQuotaManager(
             self,
-            self.config.industry_quota  # 使用独立配置
+            self.config.industry_quota
         )
 
 
@@ -127,19 +130,19 @@ class BayesianCointegrationStrategy(QCAlgorithm):
             level=0
         )
 
-        # === v8.0.1: 触发分析管道 ===
+        # === 触发分析管道 ===
         if len(self.symbols) >= 2:
             self._run_analysis_pipeline()
 
 
     def _run_analysis_pipeline(self):
         """
-        运行分析管道 (v7.66.0: 配额后置筛选版本)
+        运行分析管道
 
         完整流程 (5步):
         - 步骤1: DataProcessor数据预处理
         - 步骤2: CointegrationAnalyzer协整检验 (不应用配额)
-        - 步骤3: IndustryQuotaManager应用行业配额 (v7.65.0新增)
+        - 步骤3: IndustryQuotaManager应用行业配额
         - 步骤4: BayesianModeler贝叶斯建模
         - 步骤5: PairSelector质量评分与筛选
 
@@ -149,7 +152,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         Returns:
             None (结果通过PairsManager管理)
         """
-        # === 步骤1: 数据处理 (v8.0.1) ===
+        # === 步骤1: 数据处理 ===
         self.Debug("[Analysis] 步骤1: 数据处理", level=1)
 
         data_result = self.data_processor.process(self.symbols)
@@ -172,11 +175,11 @@ class BayesianCointegrationStrategy(QCAlgorithm):
             self.Debug("[Analysis] 有效股票不足2只,终止分析管道", level=1)
             return
 
-        # === 步骤2: 协整检验 (v7.65.0: 不再应用配额) ===
+        # === 步骤2: 协整检验 ===
         self.Debug("[Analysis] 步骤2: 协整检验", level=1)
 
         coint_result = self.cointegration_analyzer.cointegration_procedure(data_valid_symbols, clean_data)
-        coint_tested_pairs = coint_result['pairs']  # v7.67.0: 键名简化 raw_pairs → pairs
+        coint_tested_pairs = coint_result['pairs']
         coint_stats = coint_result['statistics']
 
         # 输出协整汇总 (在详细协整分析日志之后)
@@ -195,7 +198,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
             self.Debug("[Analysis] 无协整配对,终止分析管道", level=1)
             return
 
-        # === 步骤3: 应用行业配额 (v7.65.0: 新增步骤) ===
+        # === 步骤3: 应用行业配额 ===
         self.Debug("[Analysis] 步骤3: 应用行业配额", level=1)
 
         quota_filtered_pairs = self.industry_quota_manager.apply_quotas(coint_result)
@@ -212,7 +215,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # 缓存数据供后续步骤使用
         self.clean_data = clean_data
         self.data_valid_symbols = data_valid_symbols
-        self.coint_pairs_after_quota_filtered = quota_filtered_pairs  # v7.72.0: 明确配额筛选后的状态
+        self.coint_pairs_after_quota_filtered = quota_filtered_pairs
 
         # === 步骤4: 构建PairData字典 ===
         pair_data = {}
@@ -228,7 +231,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
             level=1
         )
 
-        # === 步骤5: 贝叶斯建模 (v7.65.0: 步骤编号调整) ===
+        # === 步骤5: 贝叶斯建模 ===
         self.Debug("[Analysis] 步骤5: 贝叶斯建模", level=1)
 
         model_results = self.bayesian_modeler.modeling_procedure(quota_filtered_pairs, pair_data)
@@ -245,7 +248,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
             level=1
         )
 
-        # === 步骤6: 配对质量筛选 (v8.4.0) ===
+        # === 步骤6: 配对质量筛选 ===
         self.Debug("[Analysis] 步骤6: 配对质量筛选", level=1)
 
         selected_pairs = self.pair_selector.selection_procedure(model_results)
@@ -259,7 +262,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
 
         self.Debug(f"[PairSelector] 筛选{len(selected_pairs)}个高质量配对", level=1)
 
-        # === 步骤7: 创建Pairs对象 (v7.73.0) ===
+        # === 步骤7: 创建Pairs对象 ===
         self.Debug("[Analysis] 步骤7: 创建Pairs对象", level=1)
 
         new_pairs_dict = {}
@@ -270,7 +273,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
 
         self.Debug(f"[Pairs] 创建{len(new_pairs_dict)}个配对对象", level=1)
 
-        # === 步骤8: PairsManager分类管理 (v7.73.0) ===
+        # === 步骤8: PairsManager分类管理 ===
         self.Debug("[Analysis] 步骤8: PairsManager分类", level=1)
 
         self.pairs_manager.classify_pairs(new_pairs_dict)
@@ -284,7 +287,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
 
     def _subscribe_industry_etfs(self):
         """
-        订阅行业ETF (v8.0.0)
+        订阅行业ETF
 
         订阅优先级:
         1. 先订阅11个核心ETF (sector_etfs_enabled=True时)

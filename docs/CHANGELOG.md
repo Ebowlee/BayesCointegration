@@ -5,6 +5,112 @@
 ---
 
 
+## [v7.74.0_initialize-pairs-manager-cleanup-version-tags@20251123]
+
+### 版本概述
+初始化完善 + 代码清理 - 补充PairsManager初始化并清理所有版本编号标注
+
+### 🎯 核心变更
+
+#### 初始化补充
+添加缺失的PairsManager初始化:
+```python
+# === 初始化配对管理器 ===
+self.pairs_manager = PairsManager(self, self.config)
+```
+
+#### 初始化顺序调整
+调整IndustryQuotaManager初始化位置:
+- **原位置**: PairSelector之后
+- **新位置**: PairsManager之后
+- **原因**: `calculate_quotas()` 需要访问 `pairs_manager._calculate_composite_score()`
+
+#### 版本编号清理
+删除main.py中所有版本编号标注:
+- **Initialize方法**: `v8.0.0`, `v8.0.1`, `v8.1.0`, `v8.3.0`, `v8.4.0`
+- **分析流程**: `v7.65.0`, `v7.66.0`, `v7.67.0`, `v7.72.0`, `v7.73.0`
+- **总计清理**: 11处版本编号标注
+
+### 📊 正确的初始化顺序
+
+```python
+# 分析管道模块
+self.data_processor = DataProcessor(...)
+self.cointegration_analyzer = CointegrationAnalyzer(...)
+self.bayesian_modeler = BayesianModeler(...)
+self.pair_selector = PairSelector(...)
+
+# 管理层模块 (依赖关系清晰)
+self.pairs_manager = PairsManager(...)                    # ← v7.74.0新增
+self.industry_quota_manager = IndustryQuotaManager(...)   # ← v7.74.0调整位置
+```
+
+### 💡 设计洞察
+
+#### 为什么需要PairsManager初始化?
+- **步骤8调用**: `self.pairs_manager.classify_pairs(new_pairs_dict)`
+- **依赖链**: OnSecuritiesChanged → _run_analysis_pipeline → 步骤8 → PairsManager
+- **缺失后果**: 运行时AttributeError ('BayesianCointegrationStrategy' object has no attribute 'pairs_manager')
+
+#### 为什么调整IndustryQuotaManager顺序?
+```python
+# IndustryQuotaManager.calculate_quotas() 内部调用:
+cs = pairs_manager._calculate_composite_score(industry_code)
+
+# 依赖链:
+IndustryQuotaManager → PairsManager._calculate_composite_score()
+```
+必须先初始化PairsManager,否则calculate_quotas()无法访问行业统计数据。
+
+#### 为什么清理版本编号?
+- **可维护性**: 版本编号过时且冗余 (已有git历史和CHANGELOG)
+- **可读性**: 减少视觉噪音,突出业务逻辑
+- **一致性**: 统一注释风格,避免混乱
+
+### 🔧 技术细节
+
+#### main.py修改
+**Initialize方法** (Line 51-78):
+- Line 72: 添加PairsManager初始化
+- Line 75-78: IndustryQuotaManager移到PairsManager之后
+
+**版本编号清理** (11处):
+```python
+# 清理前:
+# === v8.0.1: 初始化分析管道 ===
+# === 步骤5: 贝叶斯建模 (v7.65.0: 步骤编号调整) ===
+
+# 清理后:
+# === 初始化分析管道 ===
+# === 步骤5: 贝叶斯建模 ===
+```
+
+### 📦 影响范围
+- ✅ main.py: Initialize方法 (补充初始化, 调整顺序, 清理标注)
+- ✅ main.py: _run_analysis_pipeline方法 (清理版本标注)
+- ❌ **无破坏性变更**: 仅补充初始化和代码清理
+
+### 🎓 学习要点
+
+**初始化顺序为什么重要?**
+```python
+# ❌ 错误顺序 (先初始化依赖者)
+self.industry_quota_manager = IndustryQuotaManager(...)
+self.pairs_manager = PairsManager(...)  # 太晚了!
+
+# ✅ 正确顺序 (先初始化被依赖者)
+self.pairs_manager = PairsManager(...)
+self.industry_quota_manager = IndustryQuotaManager(...)
+```
+
+**为什么不初始化ExecutionManager?**
+- ExecutionManager需要4个依赖: algorithm, pairs_manager, risk_manager, tickets_manager
+- 当前代码中RiskManager, TicketsManager, OrderExecutor都未初始化
+- 需要完整的执行层重构,不在本次范围内
+
+---
+
+
 ## [v7.73.0_restore-pipeline-steps-7-8@20251123]
 
 ### 版本概述
