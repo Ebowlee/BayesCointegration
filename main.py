@@ -8,7 +8,8 @@ from src.analysis.CointegrationAnalyzer import CointegrationAnalyzer
 from src.analysis.PairData import PairData
 from src.analysis.BayesianModeler import BayesianModeler
 from src.analysis.PairSelector import PairSelector
-from src.analysis.IndustryQuotaManager import IndustryQuotaManager  # v7.67.0: 新增
+from src.PairsManager import PairsManager
+from src.analysis.IndustryQuotaManager import IndustryQuotaManager
 # endregion
 
 
@@ -55,27 +56,16 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         self.cointegration_analyzer = CointegrationAnalyzer(self, self.config.cointegration_analyzer)
 
         # === 初始化贝叶斯建模器 ===
-        self.bayesian_modeler = BayesianModeler(
-            self,
-            self.config.analysis,
-            self.config.bayesian_modeler
-        )
+        self.bayesian_modeler = BayesianModeler(self, self.config.analysis,self.config.bayesian_modeler)
 
         # === 初始化配对选择器 ===
-        self.pair_selector = PairSelector(
-            self,
-            self.config.analysis,
-            self.config.pair_selector
-        )
+        self.pair_selector = PairSelector(self, self.config.analysis, self.config.pair_selector)
 
         # === 初始化配对管理器 ===
         self.pairs_manager = PairsManager(self, self.config)
 
         # === 初始化行业配额管理器 ===
-        self.industry_quota_manager = IndustryQuotaManager(
-            self,
-            self.config.industry_quota
-        )
+        self.industry_quota_manager = IndustryQuotaManager(self, self.config.industry_quota)
 
 
     def Debug(self, message: str, level: int = 0):
