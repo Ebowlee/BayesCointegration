@@ -259,9 +259,6 @@ class IndustryQuotaManagerConfig:
     # 预热期配置
     warmup_days: int = 90                                          # 预热期天数
 
-    # 配额系统 (基于industry_return = realized_pnl / past_invested_capital)
-    default_quota: int = 1                                         # 每个行业初始配额
-
     # 配额分层阈值
     tier_thresholds: Dict[str, float] = {
         'tier0': 0.00,                                             # 0%收益阈值
@@ -273,7 +270,7 @@ class IndustryQuotaManagerConfig:
 
     # 各层级配额数量
     tier_quotas: Dict[str, int] = {
-        'tier0': 1,                                                # <0%: 负收益 → 最低配额
+        'tier0': 1,                                                # <0%: 负收益 → 最低配额 (预热期和回退默认值)
         'tier1': 2,                                                # [0%, 5%)
         'tier2': 3,                                                # [5%, 10%)
         'tier3': 5,                                                # [10%, 20%)
@@ -296,6 +293,15 @@ class PairsManagerConfig:
     - 交易阶段确定每个配对的资金分配比例
     - 基于质量分数动态调整投资比例
     """
+
+    # 资金分配分层阈值 (基于composite_score = ROI × WIN_RATE)
+    tier_thresholds: Dict[str, float] = {
+        'tier0': 0.00,                                             # 负收益
+        'tier1': 0.03,                                             # 约6%ROI × 50%胜率
+        'tier2': 0.06,                                             # 约10%ROI × 60%胜率
+        'tier3': 0.10,                                             # 约15%ROI × 67%胜率
+        'tier4': 0.15                                              # 高ROI + 高胜率
+    }
 
     # 资金分配分层 (基于composite_score = ROI × WIN_RATE)
     min_investment_ratio: float = 0.05                             # 质量最低(0.0分)配对投资比例: 5%

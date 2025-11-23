@@ -5,6 +5,184 @@
 ---
 
 
+## [v7.69.0_quota-system-fix@20251123]
+
+### 版本概述
+配额系统优化 - 删除冗余的default_quota配置,修正tier5配额返回逻辑,修复PairsManagerConfig缺失tier_thresholds的bug
+
+### 🎯 核心变更
+
+#### 1. 删除冗余的default_quota配置
+**问题**: `default_quota`与`tier_quotas['tier0']`功能重复,均为1
+
+**config.py (IndustryQuotaManagerConfig)**:
+```python
+# Before (v7.68.0):
+default_quota: int = 1  # ← 冗余配置
+tier_quotas: Dict[str, int] = {
+    'tier0': 1,  # 与default_quota重复
+    ...
+}
+
+# After (v7.69.0):
+tier_quotas: Dict[str, int] = {
+    'tier0': 1,  # <0%: 负收益 → 最低配额 (预热期和回退默认值)
+    ...
+}
+```
+
+**IndustryQuotaManager.py**:
+```python
+# Before:
+self.default_quota = config.default_quota
+
+# After:
+self.default_quota = config.tier_quotas['tier0']  # 使用tier0配额作为默认值
+```
+
+**影响**: 简化配置,消除重复定义
+
+---
+
+#### 2. 修正tier5配额返回逻辑
+**问题**: ≥30%收益的行业无法获得tier5配额(10个),else分支错误返回tier4配额(8个)
+
+**IndustryQuotaManager.py**:
+
+**_get_quota_by_return (Lines 124-145)**:
+```python
+# Before (v7.68.0):
+elif industry_return < self.tier_thresholds['tier3']:  # <20%
+    return self.tier_quotas['tier3']  # 5
+else:  # ≥20%
+    return self.tier_quotas['tier4']  # 8 ← 错误: tier5配额(10)无法触发
+
+# After (v7.69.0):
+elif industry_return < self.tier_thresholds['tier3']:  # <20%
+    return self.tier_quotas['tier3']  # 5
+elif industry_return < self.tier_thresholds['tier4']:  # <30%
+    return self.tier_quotas['tier4']  # 8
+else:  # ≥30%
+    return self.tier_quotas['tier5']  # 10 ← 正确: 超高收益行业
+```
+
+**_get_tier_by_return (Lines 148-169)**:
+```python
+# 同样逻辑修正: else分支返回'tier5'而非'tier4'
+```
+
+**类文档更新**:
+```python
+配额分层:
+-   ≥20%      → 8个配对 (tier4)
++   [20%,30%) → 8个配对 (tier4)
++   ≥30%      → 10个配对 (tier5)
+```
+
+**影响**:
+- 行业收益率≥30%时,现在正确获得10个配对配额(tier5)
+- 修正配额分层逻辑,使tier5配置生效
+
+---
+
+#### 3. 修复PairsManagerConfig缺失tier_thresholds
+**问题**: PairsManager.py引用`self.config.pairs_manager.tier_thresholds`,但配置不存在,会导致AttributeError
+
+**config.py (PairsManagerConfig, 新增Lines 297-304)**:
+```python
+# Before (v7.68.0): 配置缺失
+@dataclass
+class PairsManagerConfig:
+    # ← 缺少tier_thresholds定义!
+    min_investment_ratio: float = 0.05
+    tier_max_investment_ratio: Dict[str, float] = {...}
+
+# After (v7.69.0): 补充配置
+@dataclass
+class PairsManagerConfig:
+    # 资金分配分层阈值 (基于composite_score = ROI × WIN_RATE)
+    tier_thresholds: Dict[str, float] = {
+        'tier0': 0.00,   # 负收益
+        'tier1': 0.03,   # 约6%ROI × 50%胜率
+        'tier2': 0.06,   # 约10%ROI × 60%胜率
+        'tier3': 0.10,   # 约15%ROI × 67%胜率
+        'tier4': 0.15    # 高ROI + 高胜率
+    }
+    min_investment_ratio: float = 0.05
+    tier_max_investment_ratio: Dict[str, float] = {...}
+```
+
+**设计说明**:
+- **不同含义**: PairsManager的tier_thresholds基于composite_score (ROI × WIN_RATE), IndustryQuotaManager的基于industry_return
+- **独立配置**: 两个模块使用各自的tier_thresholds,互不影响
+- **修复bug**: 解决PairsManager._get_tier_by_composite_score的AttributeError
+
+**影响**: 修复潜在运行时崩溃bug
+
+---
+
+### ❌ Removed
+
+#### config.py (IndustryQuotaManagerConfig)
+- **`default_quota: int = 1`** (Line 263, v7.68.0已删除)
+  - 理由: 与tier_quotas['tier0']功能重复
+  - 替代: 使用`config.tier_quotas['tier0']`
+
+---
+
+### ✅ Added
+
+#### config.py (PairsManagerConfig)
+- **`tier_thresholds: Dict[str, float]`** (Lines 297-304)
+  - 用途: 资金分配分层阈值 (基于composite_score)
+  - 值: tier0(0.00), tier1(0.03), tier2(0.06), tier3(0.10), tier4(0.15)
+  - 理由: 修复PairsManager.py引用缺失配置的bug
+
+---
+
+### 🔧 Modified
+
+#### IndustryQuotaManager.py
+- **`__init__`** (Line 42):
+  ```python
+  - self.default_quota = config.default_quota
+  + self.default_quota = config.tier_quotas['tier0']
+  ```
+
+- **`calculate_quotas` docstring** (Lines 66-68):
+  ```python
+  - 预热期: 返回空字典 (使用default_quota)
+  + 预热期: 返回空字典 (使用tier_quotas['tier0'])
+  ```
+
+- **`_get_quota_by_return`** (Lines 132, 142-145):
+  - 返回值更新: `(1/2/3/5/8)` → `(1/2/3/5/8/10)`
+  - 添加tier4判断分支
+  - else分支: `tier4` → `tier5`
+
+- **`_get_tier_by_return`** (Lines 156, 166-169):
+  - 返回值更新: `('tier0'...'tier4')` → `('tier0'...'tier5')`
+  - 添加tier4判断分支
+  - else分支: `'tier4'` → `'tier5'`
+
+- **类文档** (Lines 16-22):
+  - 配额分层表更新: 添加tier5 (≥30% → 10个配对)
+
+---
+
+### 🏗️ 设计洞察
+
+```
+✶ Insight ─────────────────────────────────────
+1. **配置去重**: default_quota删除后,tier_quotas['tier0']成为唯一默认值来源
+2. **tier5激活**: 修正else分支逻辑,使≥30%收益行业正确获得10个配额
+3. **bug修复**: PairsManagerConfig补充tier_thresholds,避免AttributeError崩溃
+─────────────────────────────────────────────────
+```
+
+---
+
+
 ## [v7.68.0_docstring-config-cleanup@20251123]
 
 ### 版本概述

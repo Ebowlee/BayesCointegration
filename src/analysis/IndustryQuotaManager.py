@@ -14,11 +14,12 @@ class IndustryQuotaManager:
     - 正常期: 每月根据industry_return动态调整配额
 
     配额分层:
-        <0%      → 1个配对 (tier0)
+        <0%       → 1个配对 (tier0)
         [0%,5%)   → 2个配对 (tier1)
         [5%,10%)  → 3个配对 (tier2)
         [10%,20%) → 5个配对 (tier3)
-        ≥20%     → 8个配对 (tier4)
+        [20%,30%) → 8个配对 (tier4)
+        ≥30%      → 10个配对 (tier5)
 
     设计特点:
     - 数据驱动: 从Pairs对象读取交易统计
@@ -36,9 +37,10 @@ class IndustryQuotaManager:
         """
         self.algorithm = algorithm
         self.warmup_days = config.warmup_days
-        self.default_quota = config.default_quota
         self.tier_thresholds = config.tier_thresholds
         self.tier_quotas = config.tier_quotas
+        # 默认配额使用tier0配额 (预热期和回退场景)
+        self.default_quota = config.tier_quotas['tier0']
 
 
     def _is_in_warmup_period(self) -> bool:
@@ -62,9 +64,9 @@ class IndustryQuotaManager:
 
         Returns:
             {industry_code: {'quota': int, 'tier': str, 'industry_return': float}}
-            - 预热期: 返回空字典 (使用default_quota)
+            - 预热期: 返回空字典 (使用tier_quotas['tier0'])
             - 正常期: 根据industry_return返回分层配额
-            - 无历史数据: 返回default_quota和tier0
+            - 无历史数据: 返回tier_quotas['tier0']
         """
         # 步骤1: 检查预热期 (v7.66.0: 提取为私有方法)
         if self._is_in_warmup_period():
@@ -127,7 +129,7 @@ class IndustryQuotaManager:
             industry_return: 行业收益率 (小数,如0.05表示5%)
 
         Returns:
-            配额数量 (1/2/3/5/8)
+            配额数量 (1/2/3/5/8/10)
         """
         if industry_return < self.tier_thresholds['tier0']:
             return self.tier_quotas['tier0']
@@ -137,8 +139,10 @@ class IndustryQuotaManager:
             return self.tier_quotas['tier2']
         elif industry_return < self.tier_thresholds['tier3']:
             return self.tier_quotas['tier3']
-        else:
+        elif industry_return < self.tier_thresholds['tier4']:  # <30%
             return self.tier_quotas['tier4']
+        else:  # ≥30%
+            return self.tier_quotas['tier5']  # 超高收益行业
 
 
     def _get_tier_by_return(self, industry_return: float) -> str:
@@ -149,7 +153,7 @@ class IndustryQuotaManager:
             industry_return: 行业收益率 (小数)
 
         Returns:
-            tier名称 ('tier0'/'tier1'/'tier2'/'tier3'/'tier4')
+            tier名称 ('tier0'/'tier1'/'tier2'/'tier3'/'tier4'/'tier5')
         """
         if industry_return < self.tier_thresholds['tier0']:
             return 'tier0'
@@ -159,8 +163,10 @@ class IndustryQuotaManager:
             return 'tier2'
         elif industry_return < self.tier_thresholds['tier3']:
             return 'tier3'
-        else:
+        elif industry_return < self.tier_thresholds['tier4']:  # <30%
             return 'tier4'
+        else:  # ≥30%
+            return 'tier5'  # 超高收益行业
 
 
     def apply_quotas(self, coint_result: Dict) -> List:
