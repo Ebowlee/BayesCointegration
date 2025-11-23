@@ -5,6 +5,113 @@
 ---
 
 
+## [v7.78.0_add-pairs-import@20251123]
+
+### 版本概述
+Bug修复 - 添加缺失的Pairs类导入
+
+### 🐛 问题描述
+
+**错误信息**:
+```
+NameError: name 'Pairs' is not defined
+  at _run_analysis_pipeline
+    pair = Pairs.from_model_result(self, model_result, self.config.pairs_trading)
+           ^^^^^
+ in main.py: line 261
+```
+
+**错误位置**: [main.py:261](main.py#L261) (步骤7: 创建Pairs对象)
+
+**错误原因**:
+- 步骤7使用`Pairs.from_model_result()`工厂方法创建配对对象
+- 但`Pairs`类从未被导入到main.py
+- Python无法找到Pairs类定义
+
+**影响**:
+- `_run_analysis_pipeline()`在步骤7(创建Pairs对象)失败
+- 无法完成配对创建流程
+- 无法将分析结果转化为可交易对象
+
+### 🔧 修复方案
+
+#### main.py修改
+
+**Line 11** (导入区域):
+
+**修复前**:
+```python
+from src.analysis.PairSelector import PairSelector
+from src.PairsManager import PairsManager
+from src.analysis.IndustryQuotaManager import IndustryQuotaManager
+# endregion
+```
+
+**修复后**:
+```python
+from src.analysis.PairSelector import PairSelector
+from src.Pairs import Pairs
+from src.PairsManager import PairsManager
+from src.analysis.IndustryQuotaManager import IndustryQuotaManager
+# endregion
+```
+
+**变更说明**:
+1. 添加`from src.Pairs import Pairs`导入
+2. 位置: 在PairsManager之前 (依赖层次: Pairs → PairsManager)
+3. 完成核心模块导入三元组: Pairs, PairsManager, IndustryQuotaManager
+
+### 🔗 导入依赖链
+
+**完整导入层次** (从数据到业务):
+```
+数据层:
+  - PairData: 配对数据封装
+
+业务层:
+  - Pairs: 配对交易对象 (核心)
+  - PairsManager: 配对生命周期管理
+
+分析层:
+  - DataProcessor, CointegrationAnalyzer, BayesianModeler, PairSelector
+  - IndustryQuotaManager: 行业配额动态分配
+```
+
+**Pairs.from_model_result()工厂方法**:
+```python
+# main.py Line 261
+pair = Pairs.from_model_result(self, model_result, self.config.pairs_trading)
+```
+
+此工厂方法是推荐的Pairs对象创建方式(见CLAUDE.md),确保对象初始化的一致性。
+
+### ✅ 验证清单
+
+- [x] Pairs类已导入到main.py
+- [x] 导入位置在PairsManager之前
+- [x] 核心模块三元组已完整 (Pairs, PairsManager, IndustryQuotaManager)
+- [ ] 策略完成完整分析流程 (待用户验证)
+
+### 📌 注意事项
+
+**导入缺失模式总结** (v7.74.0 - v7.78.0):
+
+| 版本 | 缺失模块 | 错误位置 | 修复内容 |
+|------|---------|---------|---------|
+| v7.74.0 | PairsManager初始化 | main.py:72 | 添加初始化代码 |
+| v7.75.0 | dataclass配置 | config.py:292 | 修复可变默认值 |
+| v7.76.0 | PairsManager导入 | main.py:72 | 添加import语句 |
+| v7.77.0 | 键名同步 | IndustryQuotaManager.py:236 | 修复raw_pairs→pairs |
+| v7.78.0 | Pairs导入 | main.py:261 | 添加import语句 |
+
+**教训**:
+- 初始化代码变更需要系统化检查: 导入 → 初始化 → 配置 → 使用
+- 使用静态分析工具(如mypy, pylint)可提前发现NameError
+- 建立导入检查清单,避免运行时才发现缺失
+
+---
+
+
 ## [v7.77.0_fix-quota-manager-key-name@20251123]
 
 ### 版本概述
