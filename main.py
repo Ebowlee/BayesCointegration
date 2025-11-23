@@ -127,16 +127,20 @@ class BayesianCointegrationStrategy(QCAlgorithm):
 
     def _run_analysis_pipeline(self):
         """
-        运行分析管道 (v8.4.0 PairSelector验证版本)
+        运行分析管道 (v7.66.0: 配额后置筛选版本)
 
-        完整流程 (7步):
-        - 步骤1: DataProcessor - 数据处理 ✅
-        - 步骤2: CointegrationAnalyzer - 协整检验 ✅
-        - 步骤3: 构建PairData字典 ✅
-        - 步骤4: BayesianModeler - 贝叶斯建模 ✅
-        - 步骤5: PairSelector - 质量筛选 ✅
-        - 步骤6: 创建Pairs对象 (待恢复)
-        - 步骤7: PairsManager管理 (待恢复)
+        完整流程 (5步):
+        - 步骤1: DataProcessor数据预处理
+        - 步骤2: CointegrationAnalyzer协整检验 (不应用配额)
+        - 步骤3: IndustryQuotaManager应用行业配额 (v7.65.0新增)
+        - 步骤4: BayesianModeler贝叶斯建模
+        - 步骤5: PairSelector质量评分与筛选
+
+        Args:
+            selected_symbols: 选中的股票列表
+
+        Returns:
+            None (结果通过PairsManager管理)
         """
         # === 步骤1: 数据处理 (v8.0.1) ===
         self.Debug("[Analysis] 步骤1: 数据处理", level=1)

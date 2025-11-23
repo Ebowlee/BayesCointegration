@@ -5,6 +5,102 @@
 ---
 
 
+## [v7.66.0_iqm-architecture-cleanup@20251123]
+
+### 版本概述
+架构简化 - IndustryQuotaManager重构,消除重复聚合逻辑,术语统一
+
+### 🎯 核心变更
+
+#### 架构简化
+**重复遍历消除**:
+```python
+# Before (v7.65.0): 每月2+次all_pairs遍历
+IQM._aggregate_industry_stats()  # 遍历1次
+PairsManager._aggregate_all_industry_data()  # 遍历1次
+
+# After (v7.66.0): 每月1次all_pairs遍历
+IQM.calculate_quotas() → PairsManager._aggregate_all_industry_data()  # 委托调用
+```
+
+#### 术语统一
+**weighted_return → industry_return**:
+- **原术语**: `weighted_return` (加权收益率)
+- **新术语**: `industry_return` (行业收益率)
+- **定义**: `industry_return = realized_pnl / past_invested_capital`
+- **影响范围**: IndustryQuotaManager所有相关方法和返回值
+
+### ✅ Added
+
+#### IndustryQuotaManager.py
+- **`_is_in_warmup_period() -> bool`** (新增私有方法)
+  - 职责: 封装预热期判断逻辑
+  - 好处: 降低calculate_quotas()复杂度,便于单元测试
+
+### ❌ Removed
+
+#### IndustryQuotaManager.py
+- **`_aggregate_industry_stats(pairs_manager)`** (删除45行重复代码)
+  - 原因: 与PairsManager._aggregate_all_industry_data()功能重复
+  - 替代: 直接委托调用PairsManager方法
+
+### 🔧 Modified
+
+#### config.py (PairsManagerConfig)
+- **配置注释优化**: 分离双tier系统说明
+  ```python
+  # Tier 1: IndustryQuotaManager配额分层 (基于industry_return)
+  tier_thresholds: Dict[str, float]  # 协整阶段配额控制
+  tier_quotas: Dict[str, int]
+
+  # Tier 2: PairsManager资金分配分层 (基于composite_score)
+  tier_max_investment_ratio: Dict[str, float]  # 交易阶段资金分配
+  ```
+
+#### IndustryQuotaManager.py
+- **`calculate_quotas(pairs_manager)`** (重构实现)
+  - Before: 调用内部_aggregate_industry_stats()
+  - After: 委托pairs_manager._aggregate_all_industry_data()
+  - 术语: 所有`weighted_return`改为`industry_return`
+  - 返回值键: `{'industry_return': float}` (原`weighted_return`)
+
+- **`_get_quota_by_return(industry_return: float)`** (参数重命名)
+  - Before: `weighted_return: float`
+  - After: `industry_return: float`
+
+- **`_get_tier_by_return(industry_return: float)`** (参数重命名)
+  - Before: `weighted_return: float`
+  - After: `industry_return: float`
+
+#### main.py
+- **`run_analysis_pipeline()`** (文档更新)
+  - 明确5步流程: 步骤3 = "IndustryQuotaManager应用行业配额"
+
+### ⚠️ Breaking Changes
+
+#### API变更
+```python
+# Before (v7.65.0):
+quota_info = industry_quotas.get(industry_code)
+return_value = quota_info['weighted_return']  # 旧键名
+
+# After (v7.66.0):
+quota_info = industry_quotas.get(industry_code)
+return_value = quota_info['industry_return']  # 新键名
+```
+
+#### 影响模块
+- **IndustryQuotaManager**: 内部实现完全重构
+- **调用方**: 如需访问返回值字典,需更新键名引用
+
+### 📊 性能优化
+- **all_pairs遍历次数**: 每月从2+次降至1次 (50%减少)
+- **代码行数减少**: 删除45行重复聚合代码
+- **维护成本降低**: DRY原则,单一数据来源
+
+---
+
+
 ## [v7.65.0_quota-manager-postfilter@20251123]
 
 ### 版本概述

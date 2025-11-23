@@ -247,30 +247,36 @@ class PairsManagerConfig:
     # 预热期配置
     warmup_days: int = 90                                          # 自适应行业偏好预热时间
 
-    # 配额系统 (v7.60.0: composite_score = ROI × WIN_RATE)
+    # === 配额系统 (v7.66.0: 双tier系统分离) ===
+
+    # Tier 1: IndustryQuotaManager配额分层 (基于industry_return)
+    # 用途: 协整阶段限制每个行业的配对数量
+    # 计算: industry_return = realized_pnl / past_invested_capital
     default_quota: int = 1                                         # 每个行业初始的协整对配额数量
     tier_thresholds: Dict[str, float] = field(default_factory=lambda: {
-        'tier0': 0.03,                                             # 约 6%ROI × 50%胜率
-        'tier1': 0.06,                                             # 约 12%ROI × 50%胜率
-        'tier2': 0.09,                                             # 约 18%ROI × 50%胜率
-        'tier3': 0.12                                              # 约 24%ROI × 50%胜率
+        'tier0': 0.00,                                             # 负收益阈值
+        'tier1': 0.05,                                             # 5%历史收益
+        'tier2': 0.10,                                             # 10%历史收益
+        'tier3': 0.15                                              # 15%历史收益
     })
     tier_quotas: Dict[str, int] = field(default_factory=lambda: {
-        'tier0': 1,                                                # <0: 负得分 → 最低配额
-        'tier1': 3,                                                # [0, 0.03)
-        'tier2': 5,                                                # [0.03, 0.06)
-        'tier3': 7,                                                # [0.06, 0.10)
-        'tier4': 9                                                 # ≥0.10: 高ROI + 高胜率
+        'tier0': 1,                                                # <0%: 负收益 → 最低配额
+        'tier1': 2,                                                # [0%, 5%)
+        'tier2': 3,                                                # [5%, 10%)
+        'tier3': 4,                                                # [10%, 15%)
+        'tier4': 5                                                 # ≥15%: 高收益 → 高配额
     })
 
-    # 投资分配参数
+    # Tier 2: PairsManager资金分配分层 (基于composite_score)
+    # 用途: 交易阶段确定每个配对的资金分配比例
+    # 计算: composite_score = ROI × WIN_RATE
     min_investment_ratio: float = 0.05                             # 质量最低(0.0分)配对投资比例: 5%
     tier_max_investment_ratio: Dict[str, float] = field(default_factory=lambda: {
-        'tier0': 0.10,                                             # <0%: 负收益 → 最低配置
-        'tier1': 0.16,                                             # [0%, 5%)
-        'tier2': 0.18,                                             # [5%, 10%)
-        'tier3': 0.20,                                             # [10%, 15%)
-        'tier4': 0.22                                              # ≥15%: 高回报 → 高配置
+        'tier0': 0.10,                                             # <0: 负得分 → 最低配置
+        'tier1': 0.16,                                             # [0, 0.03): 约6%ROI × 50%胜率
+        'tier2': 0.18,                                             # [0.03, 0.06): 约12%ROI × 50%胜率
+        'tier3': 0.20,                                             # [0.06, 0.10): 约18%ROI × 50%胜率
+        'tier4': 0.22                                              # ≥0.10: 高ROI + 高胜率
     })
 
     # 保证金管理

@@ -67,73 +67,94 @@ class IndustryQuotaManager:
         self.tier_quotas = config.tier_quotas
 
 
-    def calculate_quotas(self, pairs_manager) -> Dict[str, Dict]:
+    def _is_in_warmup_period(self) -> bool:
         """
-        计算每个行业的配对配额 (v7.32.0: 返回包含tier信息的字典)
-
-        Args:
-            pairs_manager: PairsManager实例,用于访问所有Pairs对象
+        检查是否在预热期 (v7.66.0: 提取预热期判断逻辑)
 
         Returns:
-            {industry_code: {'quota': int, 'tier': str, 'weighted_return': float}} 字典
-            - 预热期: 返回空字典 (CointegrationAnalyzer使用default_quota, PairSelector使用默认tier0)
-            - 正常期: 根据加权收益率返回分层配额和tier信息
+            True: 在预热期 (days_running < warmup_days)
+            False: 已过预热期
+
+        设计理由:
+        - 封装预热期判断逻辑,避免calculate_quotas()中的嵌套判断
+        - 便于单元测试独立验证预热期逻辑
+        """
+        days_running = (self.algorithm.Time - self.algorithm.StartDate).days
+        return days_running < self.warmup_days
+
+
+    def calculate_quotas(self, pairs_manager) -> Dict[str, Dict]:
+        """
+        计算每个行业的配对配额 (v7.66.0: 委托PairsManager聚合,术语统一为industry_return)
+
+        Args:
+            pairs_manager: PairsManager实例,用于访问行业聚合数据
+
+        Returns:
+            {industry_code: {'quota': int, 'tier': str, 'industry_return': float}} 字典
+            - 预热期: 返回空字典 (CointegrationAnalyzer使用default_quota)
+            - 正常期: 根据industry_return返回分层配额和tier信息
             - 无历史数据的行业: 返回default_quota和tier0
 
-        实现逻辑:
-        1. 检查是否过了预热期 (algorithm.Time - algorithm.StartDate > warmup_days)
-        2. 如果预热期: 返回空字典 (CointegrationAnalyzer使用default_quota)
+        术语说明 (v7.66.0):
+            industry_return = realized_pnl / past_invested_capital
+            - realized_pnl: 行业所有配对的累积已实现PnL
+            - past_invested_capital: 行业所有配对的累积历史成本
+
+        实现逻辑 (v7.66.0重构):
+        1. 检查是否过了预热期 (调用_is_in_warmup_period)
+        2. 如果预热期: 返回空字典
         3. 如果正常期:
-            a. 遍历所有Pairs对象,聚合每个行业的pair_realized_pnl和pair_total_invested_capital
-            b. 计算每个行业的加权收益率 = sum(pnl) / sum(cost)
-            c. 根据收益率分层,返回对应配额和tier信息
+            a. 委托PairsManager._aggregate_all_industry_data()获取聚合数据
+            b. 计算每个行业的industry_return = realized_pnl / past_invested_capital
+            c. 根据industry_return分层,返回对应配额和tier信息
         """
-        # 步骤1: 检查预热期
-        days_running = (self.algorithm.Time - self.algorithm.StartDate).days
-        if days_running < self.warmup_days:
-            # 预热期: 返回空字典 (CointegrationAnalyzer使用default_quota, PairSelector使用默认tier0)
+        # 步骤1: 检查预热期 (v7.66.0: 提取为私有方法)
+        if self._is_in_warmup_period():
             self.algorithm.Debug(
-                f"[行业配额] 预热期 ({days_running}/{self.warmup_days}天), "
+                f"[行业配额] 预热期 ({(self.algorithm.Time - self.algorithm.StartDate).days}/{self.warmup_days}天), "
                 f"所有行业使用默认配额: {self.default_quota}"
             )
             return {}
 
-        # 步骤2: 聚合每个行业的历史数据
-        industry_stats = self._aggregate_industry_stats(pairs_manager)
+        # 步骤2: 从PairsManager获取聚合数据 (v7.66.0: 委托调用,消除重复遍历)
+        industry_data_dict = pairs_manager._aggregate_all_industry_data()
 
         # 步骤3: 计算每个行业的配额和tier
         industry_quotas = {}
         industry_names = self.algorithm.config.constants['industry_names']
 
-        for industry_code, stats in industry_stats.items():
-            weighted_return = stats['realized_pnl'] / stats['realized_cost']
-            quota = self._get_quota_by_return(weighted_return)
-            tier = self._get_tier_by_return(weighted_return)  # v7.32.0: 新增tier信息
+        for industry_code, data in industry_data_dict.items():
+            # 跳过无历史交易的行业
+            if data.past_invested_capital <= 0:
+                continue
 
-            # v7.32.0: 返回包含tier信息的字典
+            # 计算行业收益率 (v7.66.0: 术语统一)
+            industry_return = data.realized_pnl / data.past_invested_capital
+            quota = self._get_quota_by_return(industry_return)
+            tier = self._get_tier_by_return(industry_return)
+
+            # 返回包含tier信息的字典
             industry_quotas[industry_code] = {
                 'quota': quota,
                 'tier': tier,
-                'weighted_return': weighted_return
+                'industry_return': industry_return  # v7.66.0: 术语统一
             }
 
-            # v7.26.0: 详细日志 - 显示非默认配额的计算依据
-            # v7.37.1: 添加交易次数, 移除行业代码
+            # 详细日志 - 显示非默认配额的计算依据
             if quota != self.default_quota:
                 industry_name = industry_names.get(int(industry_code), f'未知({industry_code})')
                 self.algorithm.Debug(
                     f"[行业配额] {industry_name}: "
-                    f"累计收益{weighted_return*100:+.2f}% "
-                    f"(PnL=${stats['realized_pnl']:,.0f}, Cost=${stats['realized_cost']:,.0f}, 交易{stats['pair_count']}对) "
+                    f"累计收益{industry_return*100:+.2f}% "
+                    f"(PnL=${data.realized_pnl:,.0f}, Cost=${data.past_invested_capital:,.0f}, 交易{data.trade_count}对) "
                     f"→ 配额: {self.default_quota} → {quota} (tier={tier})",
-                    level=1  # Debug模式才显示详情
+                    level=1
                 )
 
-        # v7.13.0: 日志输出 (映射行业代码为中文名)
-        # v7.37.1: 删除汇总日志 (已在上方逐个输出详细信息, 避免冗余)
+        # 汇总日志
         non_default = {k: v for k, v in industry_quotas.items() if v['quota'] != self.default_quota}
         if not non_default:
-            # 只在所有行业都使用默认配额时输出（预热期或无动态调整）
             self.algorithm.Debug(
                 f"[行业配额] 本月所有行业使用默认配额: {self.default_quota}"
             )
@@ -141,106 +162,59 @@ class IndustryQuotaManager:
         return industry_quotas
 
 
-    def _aggregate_industry_stats(self, pairs_manager) -> Dict[str, Dict]:
+    def _get_quota_by_return(self, industry_return: float) -> int:
         """
-        聚合每个行业的历史交易统计
+        根据行业收益率计算配额 (v7.66.0: 参数重命名为industry_return)
 
         Args:
-            pairs_manager: PairsManager实例
-
-        Returns:
-            {
-                'industry_code': {
-                    'realized_pnl': float,      # 已实现PnL (已平仓交易累计)
-                    'realized_cost': float,     # 已实现成本 (已平仓交易累计)
-                    'pair_count': int           # 配对数量 (用于调试)
-                }
-            }
-
-        实现步骤:
-        1. 遍历pairs_manager.all_pairs (包含所有状态: COINTEGRATED/LEGACY/ARCHIVED)
-        2. 检查pair.industry_code是否存在
-        3. 聚合realized_pnl和realized_cost
-        4. 只统计至少有1笔历史交易的配对 (trade_count > 0)
-        """
-        industry_stats = defaultdict(lambda: {
-            'realized_pnl': 0.0,
-            'realized_cost': 0.0,
-            'pair_count': 0
-        })
-
-        # 遍历所有配对 (包括COINTEGRATED/LEGACY/ARCHIVED)
-        for pair_id, pair in pairs_manager.all_pairs.items():
-            # 检查行业代码
-            if pair.industry_code is None:
-                continue
-
-            # 只统计有交易历史的配对
-            if pair.trade_count == 0:
-                continue
-
-            # 聚合统计
-            industry_code = str(pair.industry_code)
-            industry_stats[industry_code]['realized_pnl'] += pair.realized_pnl
-            industry_stats[industry_code]['realized_cost'] += pair.realized_cost
-            industry_stats[industry_code]['pair_count'] += 1
-
-        return industry_stats
-
-
-    def _get_quota_by_return(self, weighted_return: float) -> int:
-        """
-        根据加权收益率计算配额 (v7.35.0: 更保守的5层阶梯)
-
-        Args:
-            weighted_return: 加权收益率 (小数, 如0.05表示5%)
+            industry_return: 行业收益率 (小数, 如0.05表示5%)
 
         Returns:
             配额数量 (1/2/3/4/5)
 
-        分层逻辑 (v7.35.0 更新阈值和配额):
-            weighted_return < 0.00  → tier0 (1个,负收益)
-            weighted_return < 0.05  → tier1 (2个,[0%,5%))
-            weighted_return < 0.10  → tier2 (3个,[5%,10%))
-            weighted_return < 0.15  → tier3 (4个,[10%,15%))
-            weighted_return >= 0.15 → tier4 (5个,[15%,∞))
+        分层逻辑:
+            industry_return < 0.00  → tier0 (1个,负收益)
+            industry_return < 0.05  → tier1 (2个,[0%,5%))
+            industry_return < 0.10  → tier2 (3个,[5%,10%))
+            industry_return < 0.15  → tier3 (4个,[10%,15%))
+            industry_return >= 0.15 → tier4 (5个,[15%,∞))
         """
-        if weighted_return < self.tier_thresholds['tier0']:
-            return self.tier_quotas['tier0']  # <0%
-        elif weighted_return < self.tier_thresholds['tier1']:
-            return self.tier_quotas['tier1']  # [0%, 5%)
-        elif weighted_return < self.tier_thresholds['tier2']:
-            return self.tier_quotas['tier2']  # [5%, 10%)
-        elif weighted_return < self.tier_thresholds['tier3']:
-            return self.tier_quotas['tier3']  # [10%, 15%)
+        if industry_return < self.tier_thresholds['tier0']:
+            return self.tier_quotas['tier0']
+        elif industry_return < self.tier_thresholds['tier1']:
+            return self.tier_quotas['tier1']
+        elif industry_return < self.tier_thresholds['tier2']:
+            return self.tier_quotas['tier2']
+        elif industry_return < self.tier_thresholds['tier3']:
+            return self.tier_quotas['tier3']
         else:
-            return self.tier_quotas['tier4']  # [15%, ∞)
+            return self.tier_quotas['tier4']
 
 
-    def _get_tier_by_return(self, weighted_return: float) -> str:
+    def _get_tier_by_return(self, industry_return: float) -> str:
         """
-        根据加权收益率计算tier (v7.45.0: 用于PairsManager.get_planned_allocation_pct)
+        根据行业收益率计算tier (v7.66.0: 参数重命名为industry_return)
 
         Args:
-            weighted_return: 加权收益率 (小数, 如0.05表示5%)
+            industry_return: 行业收益率 (小数, 如0.05表示5%)
 
         Returns:
             tier名称 ('tier0'/'tier1'/'tier2'/'tier3'/'tier4')
 
-        分层逻辑 (v7.35.0 更新阈值和max_pct):
-            weighted_return < 0.00  → tier0 (max_pct=0.10)
-            weighted_return < 0.05  → tier1 (max_pct=0.12)
-            weighted_return < 0.10  → tier2 (max_pct=0.15)
-            weighted_return < 0.15  → tier3 (max_pct=0.18)
-            weighted_return >= 0.15 → tier4 (max_pct=0.20)
+        分层逻辑:
+            industry_return < 0.00  → tier0
+            industry_return < 0.05  → tier1
+            industry_return < 0.10  → tier2
+            industry_return < 0.15  → tier3
+            industry_return >= 0.15 → tier4
         """
-        if weighted_return < self.tier_thresholds['tier0']:
+        if industry_return < self.tier_thresholds['tier0']:
             return 'tier0'
-        elif weighted_return < self.tier_thresholds['tier1']:
+        elif industry_return < self.tier_thresholds['tier1']:
             return 'tier1'
-        elif weighted_return < self.tier_thresholds['tier2']:
+        elif industry_return < self.tier_thresholds['tier2']:
             return 'tier2'
-        elif weighted_return < self.tier_thresholds['tier3']:
+        elif industry_return < self.tier_thresholds['tier3']:
             return 'tier3'
         else:
             return 'tier4'
