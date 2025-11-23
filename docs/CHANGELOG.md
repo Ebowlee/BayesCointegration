@@ -5,6 +5,145 @@
 ---
 
 
+## [v7.75.0_fix-dataclass-mutable-default@20251123]
+
+### 版本概述
+关键Bug修复 - 修复dataclass可变默认值错误
+
+### 🐛 问题描述
+
+**错误信息**:
+```
+ValueError: mutable default <class 'dict'> for field tier_thresholds is not allowed: use default_factory
+```
+
+**错误位置**: [src/config.py:292](src/config.py#L292)
+
+**错误原因**:
+Python dataclass不允许直接使用可变对象(dict/list/set)作为字段默认值,必须使用`field(default_factory=...)`
+
+**影响**:
+- 策略初始化失败
+- 无法运行回测
+
+### 🔧 修复方案
+
+#### src/config.py修改
+
+**Line 292-298** (PairsManagerConfig.tier_thresholds):
+
+```python
+# 修复前 (❌ 错误):
+tier_thresholds: Dict[str, float] = {
+    'tier0': 0.00,
+    'tier1': 0.03,
+    'tier2': 0.06,
+    'tier3': 0.10,
+    'tier4': 0.15
+}
+
+# 修复后 (✅ 正确):
+tier_thresholds: Dict[str, float] = field(default_factory=lambda: {
+    'tier0': 0.00,
+    'tier1': 0.03,
+    'tier2': 0.06,
+    'tier3': 0.10,
+    'tier4': 0.15
+})
+```
+
+### 💡 技术背景
+
+#### 为什么dict不能直接作为默认值?
+
+**问题根源**:
+```python
+# ❌ 错误 - 所有实例共享同一个dict对象
+@dataclass
+class BadConfig:
+    data: Dict = {}
+
+config1 = BadConfig()
+config2 = BadConfig()
+config1.data['x'] = 1
+print(config2.data)  # {'x': 1} ← 意外修改了config2!
+```
+
+**原因**: 可变对象在**类定义时**创建,所有实例共享同一个对象引用
+
+**正确做法**:
+```python
+# ✅ 正确 - 每个实例独立的dict对象
+@dataclass
+class GoodConfig:
+    data: Dict = field(default_factory=dict)
+
+config1 = GoodConfig()
+config2 = GoodConfig()
+config1.data['x'] = 1
+print(config2.data)  # {} ← config2不受影响
+```
+
+**原因**: `default_factory`在**每次实例化时**调用,确保每个实例有独立的dict
+
+#### default_factory工作原理
+
+```python
+# 使用lambda创建复杂默认值
+field(default_factory=lambda: {
+    'tier0': 0.00,
+    'tier1': 0.03
+})
+
+# 等价于
+def _create_default_dict():
+    return {
+        'tier0': 0.00,
+        'tier1': 0.03
+    }
+field(default_factory=_create_default_dict)
+```
+
+每次创建实例时,Python调用`_create_default_dict()`返回**新的dict对象**。
+
+### 📦 影响范围
+
+- ✅ src/config.py: PairsManagerConfig.tier_thresholds (Line 292)
+- ✅ 策略初始化: 现在可以正常导入和运行
+- ❌ **无功能影响**: 仅修复语法错误,不改变业务逻辑
+
+### 🎓 学习要点
+
+**Python dataclass可变默认值规则**:
+```python
+# ✅ 允许 (不可变类型)
+value: int = 10
+ratio: float = 0.5
+name: str = "default"
+
+# ❌ 禁止 (可变类型 - 直接赋值)
+data: Dict = {}
+items: List = []
+tags: Set = set()
+
+# ✅ 允许 (可变类型 - 使用default_factory)
+data: Dict = field(default_factory=dict)
+items: List = field(default_factory=list)
+tags: Set = field(default_factory=set)
+
+# ✅ 允许 (可变类型 - 带初始值)
+data: Dict = field(default_factory=lambda: {'x': 1})
+items: List = field(default_factory=lambda: [1, 2, 3])
+```
+
+**检查清单**:
+- 所有Dict/List/Set字段必须使用`field(default_factory=...)`
+- 简单空容器: `field(default_factory=dict/list/set)`
+- 带初始值: `field(default_factory=lambda: {...})`
+
+---
+
+
 ## [v7.74.0_initialize-pairs-manager-cleanup-version-tags@20251123]
 
 ### 版本概述

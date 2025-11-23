@@ -289,13 +289,13 @@ class PairsManagerConfig:
     """
 
     # 资金分配分层阈值 (基于composite_score = ROI × WIN_RATE)
-    tier_thresholds: Dict[str, float] = {
+    tier_thresholds: Dict[str, float] = field(default_factory=lambda: {
         'tier0': 0.00,                                             # 负收益
         'tier1': 0.03,                                             # 约6%ROI × 50%胜率
         'tier2': 0.06,                                             # 约10%ROI × 60%胜率
         'tier3': 0.10,                                             # 约15%ROI × 67%胜率
         'tier4': 0.15                                              # 高ROI + 高胜率
-    }
+    })
 
     # 资金分配分层 (基于composite_score = ROI × WIN_RATE)
     min_investment_ratio: float = 0.05                             # 质量最低(0.0分)配对投资比例: 5%
