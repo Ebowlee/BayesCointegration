@@ -52,13 +52,13 @@ class IndustryQuotaManager:
     }
     """
 
-    def __init__(self, algorithm, config):
+    def __init__(self, algorithm, config: 'IndustryQuotaManagerConfig'):
         """
-        初始化行业配额管理器
+        初始化行业配额管理器 (v7.67.0: 配置分离,类型注解更新)
 
         Args:
             algorithm: QCAlgorithm实例
-            config: IndustryQuotaConfig dataclass实例
+            config: IndustryQuotaManagerConfig dataclass实例 (v7.67.0 配置分离)
         """
         self.algorithm = algorithm
         self.warmup_days = config.warmup_days

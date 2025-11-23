@@ -94,7 +94,7 @@ class CointegrationAnalyzer:
 
         Returns:
             {
-                'raw_pairs': [...],           # 通过协整检验的配对列表
+                'pairs': [...],               # 通过协整检验的配对列表 (v7.67.0: 重命名)
                 'statistics': {...}           # 统计信息
             }
         """
@@ -130,7 +130,7 @@ class CointegrationAnalyzer:
 
 
         return {
-            'raw_pairs': all_cointegrated_pairs,
+            'pairs': all_cointegrated_pairs,  # v7.67.0: 简化键名 raw_pairs → pairs
             'statistics': statistics
         }
 

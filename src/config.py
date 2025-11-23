@@ -241,24 +241,36 @@ class PairsConfig:
 
 
 @dataclass
-class PairsManagerConfig:
-    """配对管理配置 - PairsManager.py 使用 (v7.61.0 合并 IndustryQuotaConfig)"""
+class IndustryQuotaManagerConfig:
+    """
+    行业配额管理配置 - IndustryQuotaManager.py 使用
+    (v7.67.0 从 PairsManagerConfig 分离,符合单一职责原则)
+
+    职责:
+    - 预热期配置
+    - 配额系统配置(基于industry_return)
+    - 配额分层阈值和配额数量
+
+    使用场景:
+    - 协整阶段限制每个行业的配对数量
+    - 基于历史收益动态调整行业配额
+    """
 
     # 预热期配置
-    warmup_days: int = 90                                          # 自适应行业偏好预热时间
+    warmup_days: int = 90                                          # 预热期天数
 
-    # === 配额系统 (v7.66.0: 双tier系统分离) ===
+    # 配额系统 (基于industry_return = realized_pnl / past_invested_capital)
+    default_quota: int = 1                                         # 每个行业初始配额
 
-    # Tier 1: IndustryQuotaManager配额分层 (基于industry_return)
-    # 用途: 协整阶段限制每个行业的配对数量
-    # 计算: industry_return = realized_pnl / past_invested_capital
-    default_quota: int = 1                                         # 每个行业初始的协整对配额数量
+    # 配额分层阈值
     tier_thresholds: Dict[str, float] = field(default_factory=lambda: {
         'tier0': 0.00,                                             # 负收益阈值
         'tier1': 0.05,                                             # 5%历史收益
         'tier2': 0.10,                                             # 10%历史收益
         'tier3': 0.15                                              # 15%历史收益
     })
+
+    # 各层级配额数量
     tier_quotas: Dict[str, int] = field(default_factory=lambda: {
         'tier0': 1,                                                # <0%: 负收益 → 最低配额
         'tier1': 2,                                                # [0%, 5%)
@@ -267,9 +279,23 @@ class PairsManagerConfig:
         'tier4': 5                                                 # ≥15%: 高收益 → 高配额
     })
 
-    # Tier 2: PairsManager资金分配分层 (基于composite_score)
-    # 用途: 交易阶段确定每个配对的资金分配比例
-    # 计算: composite_score = ROI × WIN_RATE
+
+@dataclass
+class PairsManagerConfig:
+    """
+    配对管理配置 - PairsManager.py 使用
+    (v7.67.0 移除配额相关配置,专注资金分配职责)
+
+    职责:
+    - 资金分配分层(基于composite_score)
+    - 保证金管理
+
+    使用场景:
+    - 交易阶段确定每个配对的资金分配比例
+    - 基于质量分数动态调整投资比例
+    """
+
+    # 资金分配分层 (基于composite_score = ROI × WIN_RATE)
     min_investment_ratio: float = 0.05                             # 质量最低(0.0分)配对投资比例: 5%
     tier_max_investment_ratio: Dict[str, float] = field(default_factory=lambda: {
         'tier0': 0.10,                                             # <0: 负得分 → 最低配置
@@ -532,8 +558,11 @@ class StrategyConfig:
         # 8. 配对配置 (v7.61.0: 拆分为 pairs + pairs_manager)
         self.pairs = PairsConfig()
 
-        # 9. 配对管理配置 (v7.61.0: 合并 industry_quota)
+        # 9. 配对管理配置 (v7.67.0: 移除配额字段)
         self.pairs_manager = PairsManagerConfig()
+
+        # 9.5. 行业配额管理配置 (v7.67.0: 新增独立配置)
+        self.industry_quota = IndustryQuotaManagerConfig()
 
         # 10. 风险管理配置
         self.risk_management = RiskManagementConfig()

@@ -5,6 +5,228 @@
 ---
 
 
+## [v7.67.0_naming-config-cleanup@20251123]
+
+### 版本概述
+命名优化与配置分离 - 解决变量命名冲突,简化返回值键名,分离行业配额与资金分配配置
+
+### 🎯 核心变更
+
+#### 1. 命名冲突解决
+**问题**: `selected_pairs`变量使用两次,语义模糊
+```python
+# Before (v7.66.0): 命名冲突
+selected_pairs = self.industry_quota_manager.apply_quotas(coint_result)  # 配额筛选
+# ... 100行后 ...
+selected_pairs = self.pair_selector.selection_procedure(model_results)  # 质量筛选
+```
+
+**After (v7.67.0)**: 语义明确
+```python
+quota_filtered_pairs = self.industry_quota_manager.apply_quotas(coint_result)  # 配额筛选
+# ... 100行后 ...
+selected_pairs = self.pair_selector.selection_procedure(model_results)  # 质量筛选
+```
+
+#### 2. 返回值键名简化
+**问题**: `raw_coint_pairs`和`'raw_pairs'`键名冗余
+```python
+# Before (v7.66.0): raw_前缀冗余
+coint_result = {
+    'raw_pairs': [...],  # 已是最终协整结果,不需要raw前缀
+    'statistics': {...}
+}
+raw_coint_pairs = coint_result['raw_pairs']
+```
+
+**After (v7.67.0)**: 简洁键名
+```python
+coint_result = {
+    'pairs': [...],  # 简洁明了
+    'statistics': {...}
+}
+coint_tested_pairs = coint_result['pairs']  # 变量名更准确
+```
+
+#### 3. 配置分离 (单一职责原则)
+**问题**: `PairsManagerConfig`混合两个职责
+```python
+# Before (v7.66.0): 混合配额管理和资金分配
+@dataclass
+class PairsManagerConfig:
+    # Tier 1: 行业配额 (IndustryQuotaManager使用)
+    warmup_days: int = 90
+    tier_thresholds: Dict[str, float] = ...
+    tier_quotas: Dict[str, int] = ...
+
+    # Tier 2: 资金分配 (PairsManager使用)
+    tier_max_investment_ratio: Dict[str, float] = ...
+```
+
+**After (v7.67.0)**: 配置类与模块一一对应
+```python
+@dataclass
+class IndustryQuotaManagerConfig:  # 新增独立配置
+    """行业配额管理配置 - IndustryQuotaManager.py 使用"""
+    warmup_days: int = 90
+    tier_thresholds: Dict[str, float] = ...
+    tier_quotas: Dict[str, int] = ...
+
+@dataclass
+class PairsManagerConfig:
+    """配对管理配置 - PairsManager.py 使用 (专注资金分配)"""
+    tier_max_investment_ratio: Dict[str, float] = ...
+```
+
+### ✅ Added
+
+#### config.py
+- **`IndustryQuotaManagerConfig`** (新增dataclass,244-280行)
+  - 字段: `warmup_days`, `default_quota`, `tier_thresholds`, `tier_quotas`
+  - 职责: 行业配额管理专用配置
+  - 设计: 配置类名与模块名一致 (`IndustryQuotaManager` ↔ `IndustryQuotaManagerConfig`)
+
+#### StrategyConfig.__init__ (config.py:565)
+- **`self.industry_quota = IndustryQuotaManagerConfig()`** (新增配置实例化)
+  - 用途: 独立初始化行业配额配置
+
+#### main.py
+- **`from src.analysis.IndustryQuotaManager import IndustryQuotaManager`** (line 11)
+  - 原因: v7.67.0显式导入,避免隐式依赖
+
+- **初始化逻辑** (lines 71-75)
+  ```python
+  # === v7.67.0: 初始化行业配额管理器 ===
+  self.industry_quota_manager = IndustryQuotaManager(
+      self,
+      self.config.industry_quota  # 使用独立配置
+  )
+  ```
+
+### ❌ Removed
+
+#### PairsManagerConfig (config.py:283-309)
+- **`warmup_days`** (迁移至IndustryQuotaManagerConfig)
+- **`tier_thresholds`** (迁移至IndustryQuotaManagerConfig)
+- **`tier_quotas`** (迁移至IndustryQuotaManagerConfig)
+- **理由**: 单一职责原则,PairsManager专注资金分配,不再负责配额计算
+
+### 🔧 Modified
+
+#### main.py - 变量重命名
+- **`selected_pairs` → `quota_filtered_pairs`** (6处引用)
+  - Line 201: 赋值 `quota_filtered_pairs = self.industry_quota_manager.apply_quotas(...)`
+  - Line 203: 长度检查
+  - Line 208: 日志输出
+  - Line 215: 实例变量保存 `self.coint_pairs = quota_filtered_pairs`
+  - Line 219: PairData构建循环
+  - Line 234: 贝叶斯建模参数
+
+- **`raw_coint_pairs` → `coint_tested_pairs`** (2处引用)
+  - Line 179: 赋值 `coint_tested_pairs = coint_result['pairs']`
+  - Line 189: 日志输出
+
+#### CointegrationAnalyzer.py - 返回值键名
+- **`'raw_pairs'` → `'pairs'`** (line 133)
+  ```python
+  # Before:
+  return {'raw_pairs': all_cointegrated_pairs, 'statistics': statistics}
+
+  # After:
+  return {'pairs': all_cointegrated_pairs, 'statistics': statistics}
+  ```
+
+- **Docstring更新** (line 97)
+  ```python
+  Returns:
+      {
+          'pairs': [...],               # 通过协整检验的配对列表 (v7.67.0: 重命名)
+          'statistics': {...}           # 统计信息
+      }
+  ```
+
+#### IndustryQuotaManager.py - 类型注解
+- **`__init__` 签名更新** (line 55)
+  ```python
+  # Before:
+  def __init__(self, algorithm, config):
+
+  # After:
+  def __init__(self, algorithm, config: 'IndustryQuotaManagerConfig'):
+  ```
+
+- **Docstring更新**
+  ```python
+  Args:
+      algorithm: QCAlgorithm实例
+      config: IndustryQuotaManagerConfig dataclass实例 (v7.67.0 配置分离)
+  ```
+
+### ⚠️ Breaking Changes
+
+#### 配置路径变更
+```python
+# Before (v7.66.0):
+self.config.pairs_manager.warmup_days
+self.config.pairs_manager.tier_quotas
+
+# After (v7.67.0):
+self.config.industry_quota.warmup_days
+self.config.industry_quota.tier_quotas
+```
+
+**影响模块**: IndustryQuotaManager.py (已更新)
+
+#### 返回值字典键名变更
+```python
+# Before (v7.66.0):
+coint_result = cointegration_analyzer.cointegration_procedure(...)
+raw_pairs = coint_result['raw_pairs']
+
+# After (v7.67.0):
+coint_result = cointegration_analyzer.cointegration_procedure(...)
+pairs = coint_result['pairs']
+```
+
+**影响模块**: main.py (已更新), IndustryQuotaManager.apply_quotas() (内部已适配)
+
+### 🏗️ 架构优势
+
+#### 1. 单一职责原则 (SRP)
+- **IndustryQuotaManagerConfig**: 只负责配额管理参数
+- **PairsManagerConfig**: 只负责资金分配参数
+- **好处**: 配置修改影响范围更小,职责边界清晰
+
+#### 2. 配置-模块名称一致性
+- `IndustryQuotaManager` ↔ `IndustryQuotaManagerConfig`
+- `PairsManager` ↔ `PairsManagerConfig`
+- **好处**: 代码可读性提升,降低认知负担
+
+#### 3. 语义明确性
+- `quota_filtered_pairs`: 明确表示"经过配额筛选"
+- `coint_tested_pairs`: 明确表示"协整检验结果"
+- `'pairs'`: 简洁键名,无冗余前缀
+- **好处**: 代码自解释,减少注释需求
+
+### 📝 迁移指南
+
+#### 步骤1: 更新配置访问路径
+```python
+# 查找所有引用:
+self.config.pairs_manager.warmup_days       → self.config.industry_quota.warmup_days
+self.config.pairs_manager.tier_thresholds   → self.config.industry_quota.tier_thresholds
+self.config.pairs_manager.tier_quotas       → self.config.industry_quota.tier_quotas
+```
+
+#### 步骤2: 更新协整结果访问
+```python
+# 查找所有引用:
+coint_result['raw_pairs']  → coint_result['pairs']
+```
+
+---
+
+
 ## [v7.66.0_iqm-architecture-cleanup@20251123]
 
 ### 版本概述
