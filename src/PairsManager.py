@@ -269,7 +269,11 @@ class PairsManager:
         self.current_selected_pair_ids |= new_pair_ids
 
         # 输出统计
-        self.log_statistics()
+        self.algorithm.Debug(
+            f"[配对分类] 总配对={len(self.all_pairs)}, "
+            f"当前选中={len(self.current_selected_pair_ids)}, "
+            f"历史配对={len(self.past_selected_pair_ids)}"
+        )
 
 
     # ===== 5. 外部接口层 (Public API) =====
