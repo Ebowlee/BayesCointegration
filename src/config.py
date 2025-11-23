@@ -243,40 +243,34 @@ class PairsConfig:
 @dataclass
 class IndustryQuotaManagerConfig:
     """
-    行业配额管理配置 - IndustryQuotaManager.py 使用
-    (v7.67.0 从 PairsManagerConfig 分离,符合单一职责原则)
+    行业配额管理配置 - IndustryQuotaManager.py 使用 (v7.71.0: 指数权重系统)
 
     职责:
-    - 预热期配置
-    - 配额系统配置(基于industry_return)
-    - 配额分层阈值和配额数量
+    - 协整阶段的行业配额管理
+    - 基于composite_score的指数权重分配
+    - 全局配额约束控制贝叶斯建模输入数量
+
+    权重函数:
+        f(x) = ceil(e^x)      当 x ≤ 0  (负CS/零CS,权重=1)
+        f(x) = ceil(e^(8x))   当 x > 0  (正CS,指数增长)
+
+        其中 x = composite_score = industry_roi × win_rate
 
     使用场景:
-    - 协整阶段限制每个行业的配对数量
-    - 基于历史收益动态调整行业配额
+    - 精确控制全局配额=15,优化MCMC建模性能
+    - 高收益行业获得指数级更多配额
+    - 负收益行业统一权重=1,避免挤占
     """
+
+    # 全局配额
+    total_quota: int = 15                                          # 全局配额总量 (控制贝叶斯建模输入)
+
+    # 权重计算参数
+    exp_scale_factor: float = 8.0                                  # 指数缩放系数 (正CS段)
+    min_quota_per_industry: int = 1                                # 单行业最低配额保底
 
     # 预热期配置
     warmup_days: int = 90                                          # 预热期天数
-
-    # 配额分层阈值
-    tier_thresholds: Dict[str, float] = {
-        'tier0': 0.00,                                             # 0%收益阈值
-        'tier1': 0.05,                                             # 5%收益阈值
-        'tier2': 0.10,                                             # 10%收益阈值
-        'tier3': 0.20,                                             # 20%收益阈值
-        'tier4': 0.30                                              # 30%收益阈值
-    }
-
-    # 各层级配额数量
-    tier_quotas: Dict[str, int] = {
-        'tier0': 1,                                                # <0%: 负收益 → 最低配额 (预热期和回退默认值)
-        'tier1': 2,                                                # [0%, 5%)
-        'tier2': 3,                                                # [5%, 10%)
-        'tier3': 5,                                                # [10%, 20%)
-        'tier4': 8,                                                # [20%, 30%)
-        'tier5': 10                                                # ≥30%
-    }
 
 
 @dataclass

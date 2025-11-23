@@ -464,21 +464,10 @@ class PairsManager:
         return total_net / total_gross
 
 
-    # ----- 5D. 投资分配中心 - 行业配额管理 (v7.60.0) -----
-    # 设计: 综合 ROI × WIN_RATE 复合评分确定配额
+    # ----- 5D. 投资分配中心 - 行业配额管理 (v7.71.0) -----
+    # 设计: 综合 ROI × WIN_RATE 复合评分 (数据提供给IndustryQuotaManager)
     # 复用: 情报中心的 get_industry_roi() 和 get_industry_win_rate()
-
-    def _is_in_warmup_period(self) -> bool:
-        """
-        检查是否在预热期 (前180天)
-
-        Returns:
-            True: 在预热期，使用默认配额
-            False: 预热期结束，使用动态配额
-        """
-        warmup_days = self.config.pairs_manager.warmup_days
-        days_running = (self.algorithm.Time - self.algorithm.StartDate).days
-        return days_running < warmup_days
+    # 注意: 配额计算逻辑已迁移至IndustryQuotaManager (指数权重系统)
 
     def _calculate_composite_score(self, industry_code: str) -> float:
         """
@@ -502,35 +491,6 @@ class PairsManager:
         roi = self.get_industry_roi(industry_code)
         win_rate = self.get_industry_win_rate(industry_code)
         return roi * win_rate
-
-    def _get_tier_by_composite_score(self, score: float) -> str:
-        """
-        根据综合得分确定tier
-
-        Args:
-            score: 综合得分 (ROI × WIN_RATE)
-
-        Returns:
-            tier名称 ('tier0'/'tier1'/'tier2'/'tier3'/'tier4')
-
-        分层逻辑 (基于 ROI × WIN_RATE 乘积):
-            score < 0.00  → tier0 (负收益或亏损)
-            score < 0.03  → tier1 (约 6%ROI × 50%胜率)
-            score < 0.06  → tier2 (约 10%ROI × 60%胜率)
-            score < 0.10  → tier3 (约 15%ROI × 67%胜率)
-            score >= 0.10 → tier4 (高ROI + 高胜率)
-        """
-        thresholds = self.config.pairs_manager.tier_thresholds
-        if score < thresholds['tier0']:
-            return 'tier0'
-        elif score < thresholds['tier1']:
-            return 'tier1'
-        elif score < thresholds['tier2']:
-            return 'tier2'
-        elif score < thresholds['tier3']:
-            return 'tier3'
-        else:
-            return 'tier4'
 
 
     # ----- 5D.2 资金分配管理 (v7.62.0 从 MarginAllocator 迁移) -----

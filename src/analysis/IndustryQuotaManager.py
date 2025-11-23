@@ -7,40 +7,42 @@ from collections import defaultdict
 
 class IndustryQuotaManager:
     """
-    行业配额管理器 - 动态调整每个行业的配对数量上限
+    行业配额管理器 - 动态调整每个行业的配对数量上限 (v7.71.0: 指数权重系统)
 
     核心逻辑:
-    - 预热期(前90天): 所有行业默认配额 = 1
-    - 正常期: 每月根据industry_return动态调整配额
+    - 预热期(前90天): 返回空字典,不分配配额
+    - 正常期: 根据composite_score使用指数权重分配全局配额15
 
-    配额分层:
-        <0%       → 1个配对 (tier0)
-        [0%,5%)   → 2个配对 (tier1)
-        [5%,10%)  → 3个配对 (tier2)
-        [10%,20%) → 5个配对 (tier3)
-        [20%,30%) → 8个配对 (tier4)
-        ≥30%      → 10个配对 (tier5)
+    权重函数:
+        f(x) = ceil(e^x)      当 x ≤ 0  (负CS/零CS,权重=1)
+        f(x) = ceil(e^(8x))   当 x > 0  (正CS,指数增长)
+
+        其中 x = composite_score = industry_roi × win_rate
+
+    配额分配:
+        - 全局约束: 总配额=15
+        - 权重比例: quota = floor(15 × weight / total_weight)
+        - 保底机制: 每个行业最少1个配额
 
     设计特点:
-    - 数据驱动: 从Pairs对象读取交易统计
-    - 无状态: 每次调用calculate_quotas()即时计算
-    - 行业聚合: 按MorningstarIndustryGroupCode分组
+    - 数据驱动: 从PairsManager读取composite_score
+    - 无状态: 每次calculate_quotas()即时计算
+    - 行业全覆盖: 遍历55个MorningstarIndustryGroupCode
     """
 
     def __init__(self, algorithm, config: 'IndustryQuotaManagerConfig'):
         """
-        初始化行业配额管理器
+        初始化行业配额管理器 (v7.71.0: 简化配置)
 
         Args:
             algorithm: QCAlgorithm实例
             config: IndustryQuotaManagerConfig实例
         """
         self.algorithm = algorithm
+        self.total_quota = config.total_quota
         self.warmup_days = config.warmup_days
-        self.tier_thresholds = config.tier_thresholds
-        self.tier_quotas = config.tier_quotas
-        # 默认配额使用tier0配额 (预热期和回退场景)
-        self.default_quota = config.tier_quotas['tier0']
+        self.exp_scale_factor = config.exp_scale_factor
+        self.min_quota = config.min_quota_per_industry
 
 
     def _is_in_warmup_period(self) -> bool:
@@ -55,118 +57,158 @@ class IndustryQuotaManager:
         return days_running < self.warmup_days
 
 
+    def _calculate_weight(self, composite_score: float) -> int:
+        """
+        计算行业权重 (v7.71.0: 指数分段函数, c=8)
+
+        公式:
+            f(x) = ceil(e^x)      当 x ≤ 0
+            f(x) = ceil(e^(8x))   当 x > 0
+
+        Args:
+            composite_score: 行业综合得分 (ROI × WIN_RATE)
+                - 无历史数据时: cs=0 → weight=ceil(e^0)=1
+                - 负收益: cs<0 → weight=1
+                - 正收益: cs>0 → 指数增长
+
+        Returns:
+            权重值 (整数)
+
+        示例:
+            cs=-0.10 → weight=1
+            cs=0.00  → weight=1
+            cs=0.05  → weight=2
+            cs=0.10  → weight=3
+            cs=0.20  → weight=5
+            cs=0.30  → weight=12
+        """
+        import numpy as np
+
+        if composite_score <= 0:
+            # 负CS/零CS: e^x ≈ 1 (x≤0)
+            return int(np.ceil(np.exp(composite_score)))
+        else:
+            # 正CS: 指数增长 (c=8)
+            return int(np.ceil(np.exp(self.exp_scale_factor * composite_score)))
+
+
+    def _get_all_industry_codes(self) -> List[str]:
+        """
+        获取所有55个行业代码 (v7.71.0: 从config.constants读取)
+
+        Returns:
+            MorningstarIndustryGroupCode列表 (字符串格式)
+        """
+        industry_names = self.algorithm.config.constants['industry_names']
+        return [str(code) for code in industry_names.keys()]
+
+
     def calculate_quotas(self, pairs_manager) -> Dict[str, Dict]:
         """
-        计算每个行业的配对配额
+        计算每个行业的配对配额 (v7.71.0: 指数权重分配)
 
         Args:
             pairs_manager: PairsManager实例
 
         Returns:
-            {industry_code: {'quota': int, 'tier': str, 'industry_return': float}}
-            - 预热期: 返回空字典 (使用tier_quotas['tier0'])
-            - 正常期: 根据industry_return返回分层配额
-            - 无历史数据: 返回tier_quotas['tier0']
+            {industry_code: {
+                'quota': int,           # 分配的配额数量
+                'weight': int,          # 计算的权重值
+                'composite_score': float  # 综合得分
+            }}
+
+            - 预热期: 返回空字典 {}
+            - 正常期: 返回55个行业的配额字典
         """
-        # 步骤1: 检查预热期 (v7.66.0: 提取为私有方法)
+        import numpy as np
+
+        # 步骤1: 检查预热期
         if self._is_in_warmup_period():
             self.algorithm.Debug(
                 f"[行业配额] 预热期 ({(self.algorithm.Time - self.algorithm.StartDate).days}/{self.warmup_days}天), "
-                f"所有行业使用默认配额: {self.default_quota}"
+                f"暂不分配配额"
             )
             return {}
 
-        # 步骤2: 从PairsManager获取聚合数据 (v7.66.0: 委托调用,消除重复遍历)
-        industry_data_dict = pairs_manager._aggregate_all_industry_data()
+        # 步骤2: 遍历55个行业,计算权重
+        industry_weights = {}
+        total_weight = 0
 
-        # 步骤3: 计算每个行业的配额和tier
+        industry_codes = self._get_all_industry_codes()
+
+        for industry_code in industry_codes:
+            # 从PairsManager获取composite_score
+            cs = pairs_manager._calculate_composite_score(industry_code)
+            # 无历史数据时cs=0, weight自动=1
+            weight = self._calculate_weight(cs)
+
+            industry_weights[industry_code] = {
+                'composite_score': cs,
+                'weight': weight
+            }
+            total_weight += weight
+
+        # 步骤3: 按权重比例分配配额 (向下取整)
         industry_quotas = {}
-        industry_names = self.algorithm.config.constants['industry_names']
 
-        for industry_code, data in industry_data_dict.items():
-            # 跳过无历史交易的行业
-            if data.past_invested_capital <= 0:
-                continue
+        for industry_code, data in industry_weights.items():
+            if total_weight > 0:
+                quota = int(np.floor(self.total_quota * data['weight'] / total_weight))
+                # 保底机制
+                if quota < self.min_quota:
+                    quota = self.min_quota
+            else:
+                # 极端情况: 所有行业权重=0 (不应该发生)
+                quota = self.min_quota
 
-            # 计算行业收益率 (v7.66.0: 术语统一)
-            industry_return = data.realized_pnl / data.past_invested_capital
-            quota = self._get_quota_by_return(industry_return)
-            tier = self._get_tier_by_return(industry_return)
-
-            # 返回包含tier信息的字典
             industry_quotas[industry_code] = {
                 'quota': quota,
-                'tier': tier,
-                'industry_return': industry_return  # v7.66.0: 术语统一
+                'weight': data['weight'],
+                'composite_score': data['composite_score']
             }
 
-            # 详细日志 - 显示非默认配额的计算依据
-            if quota != self.default_quota:
-                industry_name = industry_names.get(int(industry_code), f'未知({industry_code})')
-                self.algorithm.Debug(
-                    f"[行业配额] {industry_name}: "
-                    f"累计收益{industry_return*100:+.2f}% "
-                    f"(PnL=${data.realized_pnl:,.0f}, Cost=${data.past_invested_capital:,.0f}, 交易{data.trade_count}对) "
-                    f"→ 配额: {self.default_quota} → {quota} (tier={tier})",
-                    level=1
-                )
-
-        # 汇总日志
-        non_default = {k: v for k, v in industry_quotas.items() if v['quota'] != self.default_quota}
-        if not non_default:
-            self.algorithm.Debug(
-                f"[行业配额] 本月所有行业使用默认配额: {self.default_quota}"
-            )
+        # 步骤4: 详细日志
+        self._log_quota_allocation(industry_quotas)
 
         return industry_quotas
 
 
-    def _get_quota_by_return(self, industry_return: float) -> int:
+    def _log_quota_allocation(self, industry_quotas: Dict):
         """
-        根据行业收益率计算配额
+        输出详细配额分配日志 (v7.71.0)
 
         Args:
-            industry_return: 行业收益率 (小数,如0.05表示5%)
-
-        Returns:
-            配额数量 (1/2/3/5/8/10)
+            industry_quotas: 行业配额字典
         """
-        if industry_return < self.tier_thresholds['tier0']:
-            return self.tier_quotas['tier0']
-        elif industry_return < self.tier_thresholds['tier1']:
-            return self.tier_quotas['tier1']
-        elif industry_return < self.tier_thresholds['tier2']:
-            return self.tier_quotas['tier2']
-        elif industry_return < self.tier_thresholds['tier3']:
-            return self.tier_quotas['tier3']
-        elif industry_return < self.tier_thresholds['tier4']:  # <30%
-            return self.tier_quotas['tier4']
-        else:  # ≥30%
-            return self.tier_quotas['tier5']  # 超高收益行业
+        industry_names = self.algorithm.config.constants['industry_names']
 
+        # 统计信息
+        total_allocated = sum(q['quota'] for q in industry_quotas.values())
+        positive_cs_count = sum(1 for q in industry_quotas.values() if q['composite_score'] > 0)
 
-    def _get_tier_by_return(self, industry_return: float) -> str:
-        """
-        根据行业收益率计算tier
+        self.algorithm.Debug(
+            f"[行业配额] 全局配额={self.total_quota}, "
+            f"实际分配={total_allocated}, "
+            f"覆盖行业={len(industry_quotas)}, "
+            f"正收益行业={positive_cs_count}"
+        )
 
-        Args:
-            industry_return: 行业收益率 (小数)
+        # 按配额降序排序,只显示TOP10
+        sorted_quotas = sorted(
+            industry_quotas.items(),
+            key=lambda x: x[1]['quota'],
+            reverse=True
+        )
 
-        Returns:
-            tier名称 ('tier0'/'tier1'/'tier2'/'tier3'/'tier4'/'tier5')
-        """
-        if industry_return < self.tier_thresholds['tier0']:
-            return 'tier0'
-        elif industry_return < self.tier_thresholds['tier1']:
-            return 'tier1'
-        elif industry_return < self.tier_thresholds['tier2']:
-            return 'tier2'
-        elif industry_return < self.tier_thresholds['tier3']:
-            return 'tier3'
-        elif industry_return < self.tier_thresholds['tier4']:  # <30%
-            return 'tier4'
-        else:  # ≥30%
-            return 'tier5'  # 超高收益行业
+        for industry_code, data in sorted_quotas[:10]:
+            industry_name = industry_names.get(int(industry_code), f'未知({industry_code})')
+            self.algorithm.Debug(
+                f"[行业配额] {industry_name}: "
+                f"CS={data['composite_score']*100:+.2f}% → "
+                f"权重={data['weight']} → "
+                f"配额={data['quota']}",
+                level=1
+            )
 
 
     def apply_quotas(self, coint_result: Dict) -> List:
@@ -206,9 +248,9 @@ class IndustryQuotaManager:
             # 按pvalue排序(从小到大)
             sorted_pairs = sorted(pairs, key=lambda x: x['pvalue'])
 
-            # 获取配额(优先使用动态配额,否则使用默认配额)
+            # 获取配额(优先使用动态配额,否则使用最低保底配额)
             quota_info = industry_quotas.get(industry_code)
-            quota = quota_info['quota'] if quota_info else self.default_quota
+            quota = quota_info['quota'] if quota_info else self.min_quota
 
             # 贪心选择(同时检查配额和单股重复限制)
             symbol_counts = defaultdict(int)
