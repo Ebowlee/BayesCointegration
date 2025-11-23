@@ -5,6 +5,73 @@
 ---
 
 
+## [v7.81.0_remove-missing-log-statistics-call@20251123]
+
+### 版本概述
+Bug修复 - 移除不存在的log_statistics()方法调用
+
+### 🐛 问题描述
+
+**错误信息**:
+```
+Runtime Error: 'PairsManager' object has no attribute 'log_statistics'
+  at classify_pairs
+    self.log_statistics()
+ in PairsManager.py: line 272
+```
+
+**错误位置**: [src/PairsManager.py:272](src/PairsManager.py#L272)
+
+**错误原因**:
+- **方法缺失**: `PairsManager` 类没有 `log_statistics()` 方法
+- **重构遗留**: 之前的重构中删除了该方法但遗留了调用
+
+**影响**:
+- 步骤8"PairsManager分类管理"失败
+- 配对分类统计信息无法输出
+
+### 🔧 修复方案
+
+#### src/PairsManager.py修改
+
+**Line 272** (classify_pairs方法末尾):
+
+**修复前**:
+```python
+# 输出统计
+self.log_statistics()
+```
+
+**修复后**:
+```python
+# 输出统计
+self.algorithm.Debug(
+    f"[配对分类] 总配对={len(self.all_pairs)}, "
+    f"当前选中={len(self.current_selected_pair_ids)}, "
+    f"历史配对={len(self.past_selected_pair_ids)}"
+)
+```
+
+**修复说明**:
+- ✅ **直接实现**: 用 `Debug()` 语句直接输出统计,符合YAGNI原则
+- ✅ **统计完整**: 包含三个关键指标 (总配对, 当前选中, 历史配对)
+
+### 📊 连续修复统计表 (v7.74.0 - v7.81.0)
+
+| 版本 | 问题类型 | 修复内容 | 状态 |
+|------|---------|---------|------|
+| v7.74.0 | 初始化缺失 | 添加PairsManager初始化 + 版本标签清理 | ✅ |
+| v7.75.0 | 配置错误 | 修复dataclass可变默认值 | ✅ |
+| v7.76.0 | 导入缺失 | 添加PairsManager导入 | ✅ |
+| v7.77.0 | 接口不匹配 | 修复raw_pairs→pairs键名 | ✅ |
+| v7.78.0 | 导入缺失 | 添加Pairs导入 | ✅ |
+| v7.79.0 | 重构遗留 | 移除废弃MarginAllocator | ✅ |
+| v7.80.0 | 属性名错误 | 修正pairs_trading→pairs | ✅ |
+| v7.81.0 | 方法调用错误 | 移除不存在的log_statistics()调用 | ✅ |
+
+---
+
+
 ## [v7.80.0_fix-pairs-config-attribute-name@20251123]
 
 ### 版本概述
