@@ -7,58 +7,32 @@ from collections import defaultdict
 
 class IndustryQuotaManager:
     """
-    行业配额管理器 - 动态调整每个行业的配对数量上限 (v7.12.0)
+    行业配额管理器 - 动态调整每个行业的配对数量上限
 
     核心逻辑:
-    - 前180天: 所有行业默认配额 = 1 (预热期, 收集历史数据)
-    - 180天后: 每月根据加权收益率动态调整配额 (4档配额: 1/3/6/9)
-
-    加权收益率计算:
-        weighted_return = sum(pair_realized_pnl) / sum(pair_total_invested_capital)
+    - 预热期(前90天): 所有行业默认配额 = 1
+    - 正常期: 每月根据industry_return动态调整配额
 
     配额分层:
-        ≤0.05 (5%)   → 1个配对
-        ≤0.10 (10%)  → 3个配对
-        ≤0.20 (20%)  → 6个配对
-        >0.20 (20%+) → 9个配对
+        <0%      → 1个配对 (tier0)
+        [0%,5%)   → 2个配对 (tier1)
+        [5%,10%)  → 3个配对 (tier2)
+        [10%,20%) → 5个配对 (tier3)
+        ≥20%     → 8个配对 (tier4)
 
     设计特点:
-    - 数据驱动: 从Pairs对象读取交易历史 (trade_count, pair_realized_pnl, pair_total_invested_capital)
-    - 无状态: 每次调用calculate_quotas()即时计算,不存储历史数据
-    - 行业聚合: 按MorningstarIndustryGroupCode分组聚合收益
-    - 动态调整: 每月更新一次配额 (在协整检测前调用)
-
-    使用示例:
-    ```python
-    # main.py初始化:
-    self.industry_quota_manager = IndustryQuotaManager(self, config.pairs_manager)
-
-    # 月度协整检测前:
-    industry_quotas = self.industry_quota_manager.calculate_quotas(
-        pairs_manager=self.pairs_manager
-    )
-    # Returns: {'100': 3, '101': 6, '102': 1, ...}
-
-    # CointegrationAnalyzer应用配额:
-    analyzer = CointegrationAnalyzer(algorithm, config, industry_quotas)
-    ```
-
-    配置示例:
-    {
-        'warmup_days': 180,
-        'default_quota': 1,
-        'tier_thresholds': {'tier1': 0.05, 'tier2': 0.10, 'tier3': 0.20},
-        'tier_quotas': {'tier1': 1, 'tier2': 3, 'tier3': 6, 'tier4': 9}
-    }
+    - 数据驱动: 从Pairs对象读取交易统计
+    - 无状态: 每次调用calculate_quotas()即时计算
+    - 行业聚合: 按MorningstarIndustryGroupCode分组
     """
 
     def __init__(self, algorithm, config: 'IndustryQuotaManagerConfig'):
         """
-        初始化行业配额管理器 (v7.67.0: 配置分离,类型注解更新)
+        初始化行业配额管理器
 
         Args:
             algorithm: QCAlgorithm实例
-            config: IndustryQuotaManagerConfig dataclass实例 (v7.67.0 配置分离)
+            config: IndustryQuotaManagerConfig实例
         """
         self.algorithm = algorithm
         self.warmup_days = config.warmup_days
@@ -69,15 +43,11 @@ class IndustryQuotaManager:
 
     def _is_in_warmup_period(self) -> bool:
         """
-        检查是否在预热期 (v7.66.0: 提取预热期判断逻辑)
+        检查是否在预热期
 
         Returns:
             True: 在预热期 (days_running < warmup_days)
             False: 已过预热期
-
-        设计理由:
-        - 封装预热期判断逻辑,避免calculate_quotas()中的嵌套判断
-        - 便于单元测试独立验证预热期逻辑
         """
         days_running = (self.algorithm.Time - self.algorithm.StartDate).days
         return days_running < self.warmup_days
@@ -85,29 +55,16 @@ class IndustryQuotaManager:
 
     def calculate_quotas(self, pairs_manager) -> Dict[str, Dict]:
         """
-        计算每个行业的配对配额 (v7.66.0: 委托PairsManager聚合,术语统一为industry_return)
+        计算每个行业的配对配额
 
         Args:
-            pairs_manager: PairsManager实例,用于访问行业聚合数据
+            pairs_manager: PairsManager实例
 
         Returns:
-            {industry_code: {'quota': int, 'tier': str, 'industry_return': float}} 字典
-            - 预热期: 返回空字典 (CointegrationAnalyzer使用default_quota)
-            - 正常期: 根据industry_return返回分层配额和tier信息
-            - 无历史数据的行业: 返回default_quota和tier0
-
-        术语说明 (v7.66.0):
-            industry_return = realized_pnl / past_invested_capital
-            - realized_pnl: 行业所有配对的累积已实现PnL
-            - past_invested_capital: 行业所有配对的累积历史成本
-
-        实现逻辑 (v7.66.0重构):
-        1. 检查是否过了预热期 (调用_is_in_warmup_period)
-        2. 如果预热期: 返回空字典
-        3. 如果正常期:
-            a. 委托PairsManager._aggregate_all_industry_data()获取聚合数据
-            b. 计算每个行业的industry_return = realized_pnl / past_invested_capital
-            c. 根据industry_return分层,返回对应配额和tier信息
+            {industry_code: {'quota': int, 'tier': str, 'industry_return': float}}
+            - 预热期: 返回空字典 (使用default_quota)
+            - 正常期: 根据industry_return返回分层配额
+            - 无历史数据: 返回default_quota和tier0
         """
         # 步骤1: 检查预热期 (v7.66.0: 提取为私有方法)
         if self._is_in_warmup_period():
@@ -164,20 +121,13 @@ class IndustryQuotaManager:
 
     def _get_quota_by_return(self, industry_return: float) -> int:
         """
-        根据行业收益率计算配额 (v7.66.0: 参数重命名为industry_return)
+        根据行业收益率计算配额
 
         Args:
-            industry_return: 行业收益率 (小数, 如0.05表示5%)
+            industry_return: 行业收益率 (小数,如0.05表示5%)
 
         Returns:
-            配额数量 (1/2/3/4/5)
-
-        分层逻辑:
-            industry_return < 0.00  → tier0 (1个,负收益)
-            industry_return < 0.05  → tier1 (2个,[0%,5%))
-            industry_return < 0.10  → tier2 (3个,[5%,10%))
-            industry_return < 0.15  → tier3 (4个,[10%,15%))
-            industry_return >= 0.15 → tier4 (5个,[15%,∞))
+            配额数量 (1/2/3/5/8)
         """
         if industry_return < self.tier_thresholds['tier0']:
             return self.tier_quotas['tier0']
@@ -193,20 +143,13 @@ class IndustryQuotaManager:
 
     def _get_tier_by_return(self, industry_return: float) -> str:
         """
-        根据行业收益率计算tier (v7.66.0: 参数重命名为industry_return)
+        根据行业收益率计算tier
 
         Args:
-            industry_return: 行业收益率 (小数, 如0.05表示5%)
+            industry_return: 行业收益率 (小数)
 
         Returns:
             tier名称 ('tier0'/'tier1'/'tier2'/'tier3'/'tier4')
-
-        分层逻辑:
-            industry_return < 0.00  → tier0
-            industry_return < 0.05  → tier1
-            industry_return < 0.10  → tier2
-            industry_return < 0.15  → tier3
-            industry_return >= 0.15 → tier4
         """
         if industry_return < self.tier_thresholds['tier0']:
             return 'tier0'
@@ -222,33 +165,21 @@ class IndustryQuotaManager:
 
     def apply_quotas(self, coint_result: Dict) -> List:
         """
-        应用行业配额到协整结果 (v7.65.0: 新增方法,实现方案B后置筛选)
-
-        职责: 接收协整分析结果,应用行业配额和单股重复限制
+        应用行业配额到协整结果
 
         Args:
-            coint_result: CointegrationAnalyzer.cointegration_procedure()的返回值
-                {
-                    'raw_pairs': [...],  # 所有通过pvalue阈值的配对
-                    'statistics': {...}
-                }
+            coint_result: CointegrationAnalyzer.cointegration_procedure()返回值
+                {'raw_pairs': [...], 'statistics': {...}}
 
         Returns:
             List[Dict]: 应用配额后的配对列表
-                每个Dict包含: {'symbol1', 'symbol2', 'pvalue', 'industry_code'}
+                每个Dict: {'symbol1', 'symbol2', 'pvalue', 'industry_code'}
 
-        实现逻辑:
-        1. 调用calculate_quotas()获取行业配额字典
-        2. 按行业代码分组raw_pairs
-        3. 每个行业内按pvalue排序(从小到大,优先选择协整性强的配对)
-        4. 贪心算法应用配额和单股重复限制
-        5. 输出配额应用日志(只记录有配对的行业,避免噪音)
-        6. 返回所有行业选定配对的合并列表
-
-        设计原则:
-        - 单一职责: 只负责配额筛选,不做协整检验
-        - 贪心算法: 按pvalue优先级,同时满足配额和单股限制
-        - 日志简洁: 只输出有实际选择结果的行业
+        实现:
+        1. 获取行业配额
+        2. 按行业分组并按pvalue排序
+        3. 贪心算法应用配额和单股重复限制
+        4. 返回选定配对合并列表
         """
         # 步骤1: 获取行业配额
         industry_quotas = self.calculate_quotas(self.algorithm.pairs_manager)

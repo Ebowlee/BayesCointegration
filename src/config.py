@@ -263,21 +263,23 @@ class IndustryQuotaManagerConfig:
     default_quota: int = 1                                         # 每个行业初始配额
 
     # 配额分层阈值
-    tier_thresholds: Dict[str, float] = field(default_factory=lambda: {
-        'tier0': 0.00,                                             # 负收益阈值
-        'tier1': 0.05,                                             # 5%历史收益
-        'tier2': 0.10,                                             # 10%历史收益
-        'tier3': 0.15                                              # 15%历史收益
-    })
+    tier_thresholds: Dict[str, float] = {
+        'tier0': 0.00,                                             # 0%收益阈值
+        'tier1': 0.05,                                             # 5%收益阈值
+        'tier2': 0.10,                                             # 10%收益阈值
+        'tier3': 0.20,                                             # 20%收益阈值
+        'tier4': 0.30                                              # 30%收益阈值
+    }
 
     # 各层级配额数量
-    tier_quotas: Dict[str, int] = field(default_factory=lambda: {
+    tier_quotas: Dict[str, int] = {
         'tier0': 1,                                                # <0%: 负收益 → 最低配额
         'tier1': 2,                                                # [0%, 5%)
         'tier2': 3,                                                # [5%, 10%)
-        'tier3': 4,                                                # [10%, 15%)
-        'tier4': 5                                                 # ≥15%: 高收益 → 高配额
-    })
+        'tier3': 5,                                                # [10%, 20%)
+        'tier4': 8,                                                # [20%, 30%)
+        'tier5': 10                                                # ≥30%
+    }
 
 
 @dataclass
