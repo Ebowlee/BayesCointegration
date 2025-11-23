@@ -5,6 +5,106 @@
 ---
 
 
+## [v7.80.0_fix-pairs-config-attribute-name@20251123]
+
+### 版本概述
+Bug修复 - 修正Pairs工厂方法的配置属性名
+
+### 🐛 问题描述
+
+**错误信息**:
+```
+Runtime Error: 'StrategyConfig' object has no attribute 'pairs_trading'
+  at _run_analysis_pipeline
+    pair = Pairs.from_model_result(self, model_result, self.config.pairs_trading)
+                                                       ^^^^^^^^^^^^^^^^^^^^^^^^^
+ in main.py: line 262
+```
+
+**错误位置**: [main.py:262](main.py#L262)
+
+**错误原因**:
+- **属性名不匹配**: 代码使用 `self.config.pairs_trading` 但 StrategyConfig 中该属性为 `self.config.pairs`
+- **配置重构遗留**: v7.61.0 将 `PairsTradingConfig` 拆分为 `PairsConfig` + `PairsManagerConfig` 后,属性名从 `pairs_trading` 改为 `pairs`
+- **同步缺失**: main.py:262 仍使用旧的属性名
+
+**影响**:
+- 步骤7"创建Pairs对象"失败
+- 8步分析流程无法完成
+- 所有配对对象无法创建
+
+### 🔧 修复方案
+
+#### main.py修改
+
+**Line 262** (Pairs工厂方法调用):
+
+**修复前**:
+```python
+pair = Pairs.from_model_result(self, model_result, self.config.pairs_trading)
+```
+
+**修复后**:
+```python
+pair = Pairs.from_model_result(self, model_result, self.config.pairs)
+```
+
+**修复说明**:
+- ✅ **正确属性**: `StrategyConfig.pairs` 指向 `PairsConfig()` dataclass (Line 561 in config.py)
+- ✅ **配置完整**: `PairsConfig` 包含所有 Pairs.py 需要的参数 (entry_threshold, exit_threshold, margin_requirement等)
+- ✅ **类型匹配**: `Pairs.from_model_result()` 期望接收配置对象,符合依赖注入模式
+
+### ✅ 验证清单
+
+- [x] **配置查找**: 确认 `StrategyConfig.__init__()` Line 561 有 `self.pairs = PairsConfig()`
+- [x] **属性验证**: `self.config.pairs` 是有效的 dataclass 实例
+- [x] **工厂方法兼容**: `Pairs.from_model_result()` 的第3个参数接收 `PairsConfig` 对象
+- [x] **依赖注入**: 配置对象正确传递到 Pairs 实例
+- [x] **Git记录**: 提交信息清晰记录修复内容
+
+### 📌 注意事项
+
+1. **历史背景**:
+   - v7.61.0 之前: 使用 `PairsTradingConfig` (单一配置类)
+   - v7.61.0 重构: 拆分为 `PairsConfig` + `PairsManagerConfig` (职责分离)
+   - 属性名变更: `self.config.pairs_trading` → `self.config.pairs`
+
+2. **依赖注入模式**:
+   ```python
+   # 工厂方法签名
+   @classmethod
+   def from_model_result(cls, algorithm, model_result, pairs_config):
+       # pairs_config 参数期望接收 PairsConfig dataclass
+       return cls(algorithm, model_result, pairs_config)
+   ```
+
+3. **配置层次结构**:
+   ```
+   StrategyConfig
+   ├── self.pairs (PairsConfig)          ← Pairs.py 使用
+   └── self.pairs_manager (PairsManagerConfig)  ← PairsManager.py 使用
+   ```
+
+4. **类似问题预防**:
+   - 重构配置时,使用全局搜索确保所有引用同步更新
+   - 属性重命名后,在CHANGELOG中明确标注breaking change
+   - 配置层拆分时,更新所有消费者代码
+
+### 📊 连续修复统计表 (v7.74.0 - v7.80.0)
+
+| 版本 | 问题类型 | 修复内容 | 状态 |
+|------|---------|---------|------|
+| v7.74.0 | 初始化缺失 | 添加PairsManager初始化 + 版本标签清理 | ✅ |
+| v7.75.0 | 配置错误 | 修复dataclass可变默认值 | ✅ |
+| v7.76.0 | 导入缺失 | 添加PairsManager导入 | ✅ |
+| v7.77.0 | 接口不匹配 | 修复raw_pairs→pairs键名 | ✅ |
+| v7.78.0 | 导入缺失 | 添加Pairs导入 | ✅ |
+| v7.79.0 | 重构遗留 | 移除废弃MarginAllocator | ✅ |
+| v7.80.0 | 属性名错误 | 修正pairs_trading→pairs | ✅ |
+
+---
+
+
 ## [v7.79.0_remove-deprecated-margin-allocator@20251123]
 
 ### 版本概述
