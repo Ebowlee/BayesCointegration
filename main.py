@@ -212,7 +212,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # 缓存数据供后续步骤使用
         self.clean_data = clean_data
         self.data_valid_symbols = data_valid_symbols
-        self.coint_pairs = quota_filtered_pairs  # v7.67.0: 重命名为quota_filtered_pairs
+        self.coint_pairs_after_quota_filtered = quota_filtered_pairs  # v7.72.0: 明确配额筛选后的状态
 
         # === 步骤4: 构建PairData字典 ===
         pair_data = {}
