@@ -5,6 +5,87 @@
 ---
 
 
+## [v7.76.0_add-pairs-manager-import@20251123]
+
+### 版本概述
+Bug修复 - 添加缺失的PairsManager导入,完成初始化链修复
+
+### 🐛 问题描述
+
+**错误信息**:
+```
+NameError: name 'PairsManager' is not defined
+  at Initialize
+    self.pairs_manager = PairsManager(self, self.config)
+                         ^^^^^^^^^^^^
+```
+
+**错误位置**: [main.py:72](main.py#L72)
+
+**错误原因**:
+- v7.74.0添加了`self.pairs_manager = PairsManager(self, self.config)`初始化
+- 但忘记在import区域添加PairsManager的导入语句
+- Python无法找到PairsManager类定义
+
+**影响**:
+- 策略初始化失败
+- 完全无法运行回测
+
+### 🔧 修复方案
+
+#### main.py修改
+
+**Line 11-12** (导入区域):
+
+**修复前**:
+```python
+from src.analysis.PairSelector import PairSelector
+from src.analysis.IndustryQuotaManager import IndustryQuotaManager  # v7.67.0: 新增
+# endregion
+```
+
+**修复后**:
+```python
+from src.analysis.PairSelector import PairSelector
+from src.PairsManager import PairsManager
+from src.analysis.IndustryQuotaManager import IndustryQuotaManager
+# endregion
+```
+
+**变更说明**:
+1. 添加`from src.PairsManager import PairsManager`导入
+2. 移除IndustryQuotaManager行的版本标注 (遵循v7.74.0的清理规范)
+3. 导入顺序: PairsManager在IndustryQuotaManager之前,反映依赖关系
+
+### 🔗 版本链关系
+
+**初始化修复三部曲** (v7.74.0 → v7.75.0 → v7.76.0):
+
+1. **v7.74.0**: 添加PairsManager初始化 + 调整IndustryQuotaManager顺序
+2. **v7.75.0**: 修复dataclass可变默认值错误
+3. **v7.76.0**: 添加PairsManager导入 (本版本) ✅ **完成**
+
+### ✅ 验证清单
+
+- [x] 导入语句已添加到main.py
+- [x] 导入位置在IndustryQuotaManager之前
+- [x] 版本标注已清理
+- [ ] 策略初始化成功 (待用户验证)
+
+### 📌 注意事项
+
+**导入顺序逻辑**:
+- PairsManager在IndustryQuotaManager之前
+- 反映实际依赖关系: IndustryQuotaManager.calculate_quotas()调用pairs_manager._calculate_composite_score()
+
+**模块位置分类**:
+- `src.analysis.*`: 分析模块 (DataProcessor, CointegrationAnalyzer, BayesianModeler等)
+- `src.PairsManager`: 核心管理模块 (配对生命周期管理)
+- 清晰的模块分层体现了代码架构设计
+
+---
+
+
 ## [v7.75.0_fix-dataclass-mutable-default@20251123]
 
 ### 版本概述
