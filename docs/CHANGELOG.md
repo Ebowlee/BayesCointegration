@@ -5,6 +5,119 @@
 ---
 
 
+## [v7.77.0_fix-quota-manager-key-name@20251123]
+
+### 版本概述
+Bug修复 - 修复IndustryQuotaManager键名不匹配错误
+
+### 🐛 问题描述
+
+**错误信息**:
+```
+KeyError: 'raw_pairs'
+  at apply_quotas
+    raw_pairs = coint_result['raw_pairs']
+                ~~~~~~~~~~~~^^^^^^^^^^^^^
+ in IndustryQuotaManager.py: line 236
+```
+
+**错误位置**: [src/analysis/IndustryQuotaManager.py:236](src/analysis/IndustryQuotaManager.py#L236)
+
+**错误原因**:
+- **v7.67.0**: CointegrationAnalyzer简化键名 `'raw_pairs'` → `'pairs'`
+- **遗留问题**: IndustryQuotaManager仍使用旧键名`'raw_pairs'`,未同步更新
+- **接口不匹配**: 数据生产者(CointegrationAnalyzer)与消费者(IndustryQuotaManager)键名不一致
+
+**影响**:
+- `_run_analysis_pipeline()`在步骤3(应用行业配额)失败
+- 完全无法完成配对分析流程
+- 无法创建任何交易配对
+
+### 🔧 修复方案
+
+#### src/analysis/IndustryQuotaManager.py修改
+
+**Line 220** (docstring):
+
+**修复前**:
+```python
+Args:
+    coint_result: CointegrationAnalyzer.cointegration_procedure()返回值
+        {'raw_pairs': [...], 'statistics': {...}}
+```
+
+**修复后**:
+```python
+Args:
+    coint_result: CointegrationAnalyzer.cointegration_procedure()返回值
+        {'pairs': [...], 'statistics': {...}}
+```
+
+**Line 235-236** (键访问):
+
+**修复前**:
+```python
+# 步骤2: 按行业分组raw_pairs
+raw_pairs = coint_result['raw_pairs']
+```
+
+**修复后**:
+```python
+# 步骤2: 按行业分组pairs
+raw_pairs = coint_result['pairs']
+```
+
+**变更说明**:
+1. 修改docstring中的键名文档: `'raw_pairs'` → `'pairs'`
+2. 修改实际键访问代码: `coint_result['raw_pairs']` → `coint_result['pairs']`
+3. 保留变量名`raw_pairs`以维持代码语义(表示"原始配对列表")
+
+### 🔗 根源分析
+
+**v7.67.0键名简化**:
+```python
+# CointegrationAnalyzer.cointegration_procedure()
+return {
+    'pairs': all_cointegrated_pairs,  # v7.67.0: 简化键名 raw_pairs → pairs
+    'statistics': statistics
+}
+```
+
+**问题**: 重构时未全局搜索所有使用`'raw_pairs'`的代码位置,导致IndustryQuotaManager遗留旧键名
+
+**教训**:
+- 接口变更需要全局影响分析
+- 使用IDE的"查找所有引用"功能定位所有消费者
+- 重构时添加临时兼容逻辑或统一迁移所有依赖模块
+
+### ✅ 验证清单
+
+- [x] IndustryQuotaManager.apply_quotas()已更新键名
+- [x] docstring已同步更新数据契约
+- [x] 注释已反映实际键名
+- [ ] 策略完成完整分析流程 (待用户验证)
+
+### 📌 注意事项
+
+**变量命名语义**:
+- 虽然键名改为`'pairs'`,但保留变量名`raw_pairs`
+- 语义: "来自协整分析的原始配对列表"(尚未经过配额筛选)
+- 与后续的`quota_filtered_pairs`形成对比
+
+**数据流**:
+```
+CointegrationAnalyzer.cointegration_procedure()
+  ↓ 返回 {'pairs': [...]}
+IndustryQuotaManager.apply_quotas()
+  ↓ 读取 coint_result['pairs']
+  ↓ 应用配额筛选
+  ↓ 返回 quota_filtered_pairs
+main._run_analysis_pipeline()
+```
+
+---
+
+
 ## [v7.76.0_add-pairs-manager-import@20251123]
 
 ### 版本概述
