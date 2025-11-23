@@ -137,7 +137,7 @@ class CointegrationAnalyzer:
 
     def _find_cointegrated_pairs_in_group(self, ig_name: str, symbols: List[Symbol], clean_data: Dict) -> List[Dict]:
         """
-        在单个子行业内查找协整配对 (v7.65.0: 移除配额逻辑,只返回所有协整配对)
+        在单个子行业内查找协整配对 (v7.70.0: 合并_test_all_pairs逻辑,简化方法层级)
 
         Args:
             ig_name: 子行业名称
@@ -147,30 +147,10 @@ class CointegrationAnalyzer:
         Returns:
             通过pvalue阈值的所有配对列表 (按pvalue排序)
         """
-        # 执行协整检验
-        cointegrated_pairs = self._test_all_pairs(symbols, clean_data, ig_name)
-
-        # 按pvalue排序后返回(便于后续配额管理器使用)
-        sorted_pairs = sorted(cointegrated_pairs, key=lambda x: x['pvalue'])
-
-        return sorted_pairs
-
-
-    def _test_all_pairs(self, symbols: List[Symbol], clean_data: Dict, ig_name: str) -> List[Dict]:
-        """
-        对所有配对执行协整检验 (v7.31.3: 从_find_cointegrated_pairs_in_group拆分)
-
-        Args:
-            symbols: 该子行业内的股票列表
-            clean_data: 清洗后的价格数据
-            ig_name: 子行业名称
-
-        Returns:
-            通过pvalue阈值的配对列表 (未排序,未应用配额)
-        """
         cointegrated_pairs = []
         failed_tests = []
 
+        # 对所有配对执行协整检验
         for sym1, sym2 in itertools.combinations(symbols, 2):
             symbol1, symbol2 = sorted([sym1, sym2], key=lambda x: x.Value)
 
@@ -202,7 +182,10 @@ class CointegrationAnalyzer:
             except Exception:
                 failed_tests.append((symbol1, symbol2, 'unknown_error'))
 
-        return cointegrated_pairs
+        # 按pvalue排序后返回(便于后续配额管理器使用)
+        sorted_pairs = sorted(cointegrated_pairs, key=lambda x: x['pvalue'])
+
+        return sorted_pairs
 
 
 

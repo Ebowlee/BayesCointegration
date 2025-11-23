@@ -5,6 +5,67 @@
 ---
 
 
+## [v7.70.0_simplify-cointegration-methods@20251123]
+
+### 版本概述
+简化CointegrationAnalyzer方法层级 - 合并`_test_all_pairs()`到`_find_cointegrated_pairs_in_group()`,减少不必要的方法抽象
+
+### 🎯 核心变更
+
+#### 合并协整检验方法
+**问题**: `_find_cointegrated_pairs_in_group()`只是调用`_test_all_pairs()`并排序,两层方法造成不必要的抽象
+
+**CointegrationAnalyzer.py**:
+```python
+# Before (v7.69.0): 两个方法分离
+def _find_cointegrated_pairs_in_group(self, ig_name: str, symbols: List[Symbol], clean_data: Dict):
+    # 执行协整检验
+    cointegrated_pairs = self._test_all_pairs(symbols, clean_data, ig_name)
+    # 按pvalue排序
+    sorted_pairs = sorted(cointegrated_pairs, key=lambda x: x['pvalue'])
+    return sorted_pairs
+
+def _test_all_pairs(self, symbols: List[Symbol], clean_data: Dict, ig_name: str):
+    # ... 47行协整检验逻辑 ...
+    return cointegrated_pairs
+
+# After (v7.70.0): 合并为一个方法
+def _find_cointegrated_pairs_in_group(self, ig_name: str, symbols: List[Symbol], clean_data: Dict):
+    """
+    在单个子行业内查找协整配对 (v7.70.0: 合并_test_all_pairs逻辑,简化方法层级)
+    """
+    cointegrated_pairs = []
+    failed_tests = []
+
+    # 对所有配对执行协整检验
+    for sym1, sym2 in itertools.combinations(symbols, 2):
+        # ... 协整检验逻辑 ...
+
+    # 按pvalue排序后返回
+    sorted_pairs = sorted(cointegrated_pairs, key=lambda x: x['pvalue'])
+    return sorted_pairs
+```
+
+**设计洞察**:
+- **避免过度抽象**: 当方法A只是调用方法B+一行处理,这种抽象没有价值
+- **职责清晰**: `_find_cointegrated_pairs_in_group()`的真实职责是"执行协整检验并返回排序结果",应该自包含
+- **历史遗留**: `_test_all_pairs()`是v7.31.3拆分的产物,但实际使用中并无独立价值
+
+### 📝 修改部分
+
+**src/analysis/CointegrationAnalyzer.py**:
+- 删除 `_test_all_pairs()` 方法 (Lines 159-205)
+- 扩展 `_find_cointegrated_pairs_in_group()` 方法 (Lines 138-188)
+  - 合并协整检验逻辑
+  - 保留排序逻辑
+  - 功能完全等价
+
+**docs/CHANGELOG.md**:
+- 添加 v7.70.0 版本说明
+
+---
+
+
 ## [v7.69.0_quota-system-fix@20251123]
 
 ### 版本概述

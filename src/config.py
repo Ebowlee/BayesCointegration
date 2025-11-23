@@ -202,12 +202,12 @@ class PairSelectorConfig:
     # 评分函数阈值设置
     scoring_thresholds: Dict = field(default_factory=lambda: {
         'half_life': {
-            'peak_days': 10,           # v7.38.0: 从8放宽至10 (慢速配对友好)
-            'sigma_left': 5.0,         # v7.38.0: 从4.0放宽至5.0 (左侧宽度)
-            'sigma_right': 12.0,       # v7.38.0: 从9.0放宽至12.0 (右侧宽度)
+            'peak_days': 10,                                        # v7.38.0: 从8放宽至10 (慢速配对友好)
+            'sigma_left': 5.0,                                      # v7.38.0: 从4.0放宽至5.0 (左侧宽度)
+            'sigma_right': 12.0,                                    # v7.38.0: 从9.0放宽至12.0 (右侧宽度)
             'min_days': 4,
-            'decay_start': 25,         # v7.38.0: 从20延后至25 (衰减起点)
-            'decay_rate': 0.15         # v7.38.0: 从0.20降低至0.15 (衰减速率)
+            'decay_start': 25,                                      # v7.38.0: 从20延后至25 (衰减起点)
+            'decay_rate': 0.15                                      # v7.38.0: 从0.20降低至0.15 (衰减速率)
         },
         'mean_reversion_certainty': {
             'time_delta_days': 1.0,
@@ -216,11 +216,11 @@ class PairSelectorConfig:
             'max_snr_kappa': 10.0
         },
         'zero_crossing': {
-            'min_crossings': 6,      # 左端硬截断（两个月1次）
-            'peak_crossings': 12,    # 峰值点（每月1次）
-            'half_peak_high': 18,    # 右侧半峰值起点
-            'plateau_end': 24,       # 半峰平台结束点
-            'max_crossings': 36      # 右端硬截断
+            'min_crossings': 6,                                     # 左端硬截断（两个月1次）
+            'peak_crossings': 12,                                   # 峰值点（每月1次）
+            'half_peak_high': 18,                                   # 右侧半峰值起点
+            'plateau_end': 24,                                      # 半峰平台结束点
+            'max_crossings': 36                                     # 右端硬截断
         }
     })
 
