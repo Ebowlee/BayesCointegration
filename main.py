@@ -245,8 +245,8 @@ class BayesianCointegrationStrategy(QCAlgorithm):
             level=1
         )
 
-        # === 步骤5: 配对质量筛选 (v8.4.0) ===
-        self.Debug("[Analysis] 步骤5: 配对质量筛选", level=1)
+        # === 步骤6: 配对质量筛选 (v8.4.0) ===
+        self.Debug("[Analysis] 步骤6: 配对质量筛选", level=1)
 
         selected_pairs = self.pair_selector.selection_procedure(model_results)
 
@@ -259,7 +259,27 @@ class BayesianCointegrationStrategy(QCAlgorithm):
 
         self.Debug(f"[PairSelector] 筛选{len(selected_pairs)}个高质量配对", level=1)
 
-        self.Debug(f"[Analysis] 步骤5完成 - 等待步骤6-7恢复", level=1)
+        # === 步骤7: 创建Pairs对象 (v7.73.0) ===
+        self.Debug("[Analysis] 步骤7: 创建Pairs对象", level=1)
+
+        new_pairs_dict = {}
+        for model_result in selected_pairs:
+            # 使用类方法工厂创建Pairs实例对象
+            pair = Pairs.from_model_result(self, model_result, self.config.pairs_trading)
+            new_pairs_dict[pair.pair_id] = pair
+
+        self.Debug(f"[Pairs] 创建{len(new_pairs_dict)}个配对对象", level=1)
+
+        # === 步骤8: PairsManager分类管理 (v7.73.0) ===
+        self.Debug("[Analysis] 步骤8: PairsManager分类", level=1)
+
+        self.pairs_manager.classify_pairs(new_pairs_dict)
+
+        self.Debug(
+            f"[配对分析] 完成: 创建{len(new_pairs_dict)}个新配对 | "
+            f"共管理{len(self.pairs_manager.all_pairs)}个配对",
+            level=1
+        )
 
 
     def _subscribe_industry_etfs(self):

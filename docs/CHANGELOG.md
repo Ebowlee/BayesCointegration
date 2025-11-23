@@ -5,6 +5,118 @@
 ---
 
 
+## [v7.73.0_restore-pipeline-steps-7-8@20251123]
+
+### 版本概述
+Analysis Pipeline完整性恢复 - 恢复步骤7-8 (Pairs对象创建 + PairsManager分类管理)
+
+### 🎯 核心变更
+
+#### 功能恢复
+恢复分析流程最后两步:
+- **步骤7**: Pairs对象创建 (`Pairs.from_model_result` 工厂模式)
+- **步骤8**: PairsManager分类管理 (`classify_pairs` 方法调用)
+
+#### 方法重命名
+`PairsManager.update_pairs` → `PairsManager.classify_pairs`
+
+**重命名原因**:
+- `update_pairs`: 语义模糊 (更新什么? 参数? 状态?)
+- `classify_pairs`: 语义明确 (分类管理: current/past索引更新 + 参数更新)
+- **职责**: 增量索引更新 + 有持仓配对的参数同步
+
+#### 步骤编号修正
+修正main.py中的步骤编号错误:
+- Line 248: "步骤5: 配对质量筛选" → "步骤6: 配对质量筛选"
+
+### 📊 完整数据流映射 (8步流程)
+
+#### 步骤1-4: 数据准备与协整检验
+```
+步骤1: DataProcessor → self.data_valid_symbols (清洗验证后的股票)
+步骤2: CointegrationAnalyzer → coint_result['pairs'] (协整通过配对)
+步骤3: IndustryQuotaManager.apply_quotas → quota_filtered_pairs (配额筛选后)
+步骤4: Pipeline缓存 → self.coint_pairs_after_quota_filtered (持久化结果)
+```
+
+#### 步骤5-6: 贝叶斯建模与质量筛选
+```
+步骤5: BayesianModeler → bayesian_results (MCMC后验分布)
+步骤6: PairSelector → selected_pairs (高质量配对列表)
+```
+
+#### 步骤7-8: 对象创建与激活 ✅ (v7.73.0恢复)
+```python
+# 步骤7: Pairs对象创建
+new_pairs_dict = {}
+for model_result in selected_pairs:
+    pair = Pairs.from_model_result(self, model_result, self.config.pairs_trading)
+    new_pairs_dict[pair.pair_id] = pair
+
+# 步骤8: PairsManager分类管理
+self.pairs_manager.classify_pairs(new_pairs_dict)
+```
+
+### 💡 设计洞察
+
+#### 8步流程语义完整性
+```
+数据层 (步骤1-4): raw → validated → cointegrated → quota-filtered
+  ↓
+模型层 (步骤5-6): bayesian → quality-selected
+  ↓
+对象层 (步骤7-8): 创建 → 激活 ✅ (v7.73.0完成)
+```
+
+#### 工厂模式一致性
+- `PairData.from_clean_data()` (步骤1→2桥接)
+- `Pairs.from_model_result()` (步骤6→7桥接)
+- **统一使用classmethod工厂避免直接构造函数调用**
+
+#### 命名职责映射
+| 方法名 | 职责描述 | 关键操作 |
+|--------|---------|---------|
+| `update_pairs` (旧) | 语义模糊 | ❌ 不明确 |
+| `classify_pairs` (新) | 分类管理 | ✅ current/past索引更新 |
+
+### 🔧 技术细节
+
+#### main.py修改 (OnSecuritiesChanged方法)
+- **Line 248**: 步骤编号修正 (5→6)
+- **Line 262-282**: 添加步骤7-8代码块
+- **删除**: 占位注释 "等待步骤6-7恢复"
+
+#### PairsManager.py修改
+- **Line 233**: 方法重命名 `update_pairs` → `classify_pairs`
+- **Line 235**: Docstring更新 "每月选股后分类管理配对"
+
+### 📦 影响范围
+- ✅ main.py: OnSecuritiesChanged方法 (恢复步骤7-8, 修正编号)
+- ✅ PairsManager.py: 方法重命名 (内部调用, 无外部接口影响)
+- ❌ **无破坏性变更**: classify_pairs只在main.py内部调用
+
+### 🎓 学习要点
+
+**为什么需要步骤7-8?**
+- **步骤6输出**: selected_pairs (List[Dict] - ModelResult字典列表)
+- **步骤7转换**: Dict → Pairs实例对象 (业务逻辑封装)
+- **步骤8激活**: 注册到PairsManager (current_selected_pair_ids索引)
+
+**为什么用工厂方法?**
+```python
+# ❌ 直接构造 (不推荐)
+pair = Pairs(self, model_result, config)
+
+# ✅ 工厂方法 (推荐)
+pair = Pairs.from_model_result(self, model_result, config)
+```
+- **一致性**: 与PairData.from_clean_data()统一
+- **可扩展**: 工厂方法可添加验证逻辑
+- **可读性**: 明确表达"从ModelResult创建"意图
+
+---
+
+
 ## [v7.72.0_pipeline-variable-naming@20251123]
 
 ### 版本概述

@@ -230,9 +230,9 @@ class PairsManager:
 
     # ----- 4A. 配对生命周期管理 -----
 
-    def update_pairs(self, new_pairs_dict: Dict):
+    def classify_pairs(self, new_pairs_dict: Dict):
         """
-        每月选股后更新配对 (v7.53.2: 增量索引更新)
+        每月选股后分类管理配对 (v7.53.2: 增量索引更新, v7.73.0: 重命名)
 
         Args:
             new_pairs_dict: {pair_id: Pairs对象} 外部创建的新配对字典
