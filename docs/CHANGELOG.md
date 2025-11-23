@@ -5,6 +5,153 @@
 ---
 
 
+## [v7.79.0_remove-deprecated-margin-allocator@20251123]
+
+### 版本概述
+Bug修复 - 移除已废弃的MarginAllocator导入
+
+### 🐛 问题描述
+
+**错误信息**:
+```
+No module named 'src.execution.MarginAllocator'
+  at <module>
+    from .MarginAllocator import MarginAllocator
+ in __init__.py: line 20
+  at <module>
+    from src.execution import OpenIntent, CloseIntent
+ in Pairs.py: line 5
+  at <module>
+    from src.Pairs import Pairs
+ in main.py: line 11
+```
+
+**错误位置**: [src/execution/__init__.py:20](src/execution/__init__.py#L20)
+
+**错误原因**:
+- **重构遗留**: MarginAllocator类在之前的重构中已被移除
+- **导入未清理**: `src/execution/__init__.py`仍尝试导入此已删除的类
+- **链式导入失败**: main.py → Pairs.py → execution/__init__.py → MarginAllocator (失败)
+
+**影响**:
+- 整个策略无法初始化
+- 所有导入链断裂
+- Python模块加载失败
+
+### 🔧 修复方案
+
+#### src/execution/__init__.py修改
+
+**Line 7** (docstring - 职责说明):
+
+**修复前**:
+```python
+职责:
+    - OrderIntent: 交易意图值对象(数据载体)
+    - OrderExecutor: 订单执行引擎(意图→订单)
+    - MarginAllocator: 资金分配器(全局保证金分配)
+    - ExecutionManager: 执行协调器(信号聚合→意图生成→订单执行→票据管理)
+```
+
+**修复后**:
+```python
+职责:
+    - OrderIntent: 交易意图值对象(数据载体)
+    - OrderExecutor: 订单执行引擎(意图→订单)
+    - ExecutionManager: 执行协调器(信号聚合→意图生成→订单执行→票据管理)
+```
+
+**Line 20** (导入语句):
+
+**修复前**:
+```python
+from .OrderIntent import OpenIntent, CloseIntent
+from .OrderExecutor import OrderExecutor
+from .MarginAllocator import MarginAllocator  # ← 删除此行
+from .ExecutionManager import ExecutionManager
+```
+
+**修复后**:
+```python
+from .OrderIntent import OpenIntent, CloseIntent
+from .OrderExecutor import OrderExecutor
+from .ExecutionManager import ExecutionManager
+```
+
+**Line 27** (__all__列表):
+
+**修复前**:
+```python
+__all__ = [
+    'OpenIntent',
+    'CloseIntent',
+    'OrderExecutor',
+    'MarginAllocator',  # ← 删除此行
+    'ExecutionManager'
+]
+```
+
+**修复后**:
+```python
+__all__ = [
+    'OpenIntent',
+    'CloseIntent',
+    'OrderExecutor',
+    'ExecutionManager'
+]
+```
+
+### 🔗 重构清理原则
+
+**重构删除模块时的完整清理清单**:
+1. ✅ 删除模块文件本身 (MarginAllocator.py已删除)
+2. ✅ 清理__init__.py导入语句 (本次修复)
+3. ✅ 清理__all__导出列表 (本次修复)
+4. ✅ 更新docstring文档 (本次修复)
+5. ⚠️ 搜索代码库中所有直接使用该类的地方
+6. ⚠️ 更新CLAUDE.md架构文档
+
+**MarginAllocator职责迁移**:
+根据用户反馈,资金分配逻辑已在重构中重新设计,不再需要独立的MarginAllocator类。
+
+### ✅ 验证清单
+
+- [x] MarginAllocator导入已移除
+- [x] __all__列表已清理
+- [x] docstring已更新
+- [x] execution模块简化为3个核心组件
+- [ ] 策略成功导入所有模块 (待用户验证)
+
+### 📌 注意事项
+
+**Execution模块现状** (v7.79.0简化后):
+```
+src/execution/
+├── __init__.py          (导出: OpenIntent, CloseIntent, OrderExecutor, ExecutionManager)
+├── OrderIntent.py       (意图值对象)
+├── OrderExecutor.py     (订单执行引擎)
+└── ExecutionManager.py  (执行协调器)
+```
+
+**职责边界**:
+- **OrderIntent**: 数据载体,封装交易意图
+- **OrderExecutor**: 执行引擎,将意图转换为QuantConnect订单
+- **ExecutionManager**: 协调器,聚合信号→生成意图→执行订单→管理票据
+
+**六连修复总结** (v7.74.0 - v7.79.0):
+
+| 版本 | 问题类型 | 修复内容 | 状态 |
+|------|---------|---------|------|
+| v7.74.0 | 初始化缺失 | 添加PairsManager初始化 | ✅ |
+| v7.75.0 | 配置错误 | 修复dataclass可变默认值 | ✅ |
+| v7.76.0 | 导入缺失 | 添加PairsManager导入 | ✅ |
+| v7.77.0 | 接口不匹配 | 修复raw_pairs→pairs键名 | ✅ |
+| v7.78.0 | 导入缺失 | 添加Pairs导入 | ✅ |
+| v7.79.0 | 重构遗留 | 移除废弃MarginAllocator | ✅ **完成** |
+
+---
+
+
 ## [v7.78.0_add-pairs-import@20251123]
 
 ### 版本概述
