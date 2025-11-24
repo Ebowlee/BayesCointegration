@@ -295,6 +295,41 @@ class PairsManager:
         }
 
 
+    def check_pairs_health(self) -> Dict[str, List[str]]:
+        """
+        配对健康检查 - 按优先级返回问题配对 (v7.84.0)
+
+        检查维度 (按优先级排序):
+            1. Anomaly: 单边或同向持仓异常
+            (未来扩展: Drawdown, CumulativeLoss, Timeout)
+
+        Returns:
+            Dict[str, List[str]]: {'anomaly': [pair_ids]}
+            - 每个配对只返回最高优先级问题
+            - 便于 main.py 按类型批量处理
+
+        使用示例:
+            health_issues = pairs_manager.check_pairs_health()
+            for pair_id in health_issues.get('anomaly', []):
+                pair = pairs_manager.get_pair_by_id(pair_id)
+                intent = pair.get_close_intent(reason='ANOMALY')
+                # ... 执行平仓
+        """
+        health_issues = {'anomaly': []}
+
+        for pair in self.get_pairs_with_position().values():
+            # 优先级1: Anomaly (最高优先级)
+            if pair.has_anomaly_position():
+                health_issues['anomaly'].append(pair.pair_id)
+                continue  # 跳过后续检查
+
+            # [未来扩展] 优先级2: Drawdown
+            # [未来扩展] 优先级3: CumulativeLoss
+            # [未来扩展] 优先级4: Timeout
+
+        return health_issues
+
+
     # ----- 5B. 情报中心 (行业统计查询 - v7.58.0 统一聚合) -----
     # 设计: 五组对称结构 (PnL组 / 投入资本组 / ROI组 / 交易质量组 / Drift组)
     # 优化: 所有查询统一调用 _aggregate_all_industry_data(), 一次遍历
