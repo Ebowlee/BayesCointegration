@@ -5,6 +5,68 @@
 ---
 
 
+## [v7.83.0_rename-composite-score-method@20251123]
+
+### 版本概述
+Refactor - 方法重命名对齐公共API命名规范
+
+### 🔧 修改内容
+
+#### src/PairsManager.py
+
+**Line 470** (方法签名):
+
+**修改前**:
+```python
+def _calculate_composite_score(self, industry_code: str) -> float:
+```
+
+**修改后**:
+```python
+def get_industry_composite_score(self, industry_code: str) -> float:
+```
+
+**修改原因**:
+1. **对齐命名规范**: 与兄弟方法 `get_industry_roi()`, `get_industry_win_rate()` 保持一致的 `get_industry_*` 命名模式
+2. **公开可见性**: 该方法已被 `IndustryQuotaManager` 外部调用(Line 141),去掉下划线前缀表明其为公共API
+3. **语义清晰性**: `get_*` 前缀明确表达"查询"语义,而非"计算"内部实现
+
+#### src/analysis/IndustryQuotaManager.py
+
+**Line 141** (调用点更新):
+
+**修改前**:
+```python
+cs = pairs_manager._calculate_composite_score(industry_code)
+```
+
+**修改后**:
+```python
+cs = pairs_manager.get_industry_composite_score(industry_code)
+```
+
+### 💡 设计洞察
+
+**方法职责**: 计算行业综合得分 `composite_score = ROI × WIN_RATE`
+- **ROI**: 平均单笔收益百分比 (行业内所有配对的加权平均收益率)
+- **WIN_RATE**: 胜率 (盈利交易数 / 总交易数)
+- **乘法复合**: 自动惩罚低胜率的高收益 (避免运气主导)
+
+**数学意义**: 期望收益 = 单笔收益 × 成功概率
+
+**使用场景**: IndustryQuotaManager在 `calculate_quotas()` 中调用该方法获取各行业的综合得分,用于动态分配配额权重
+
+### 📋 影响范围
+
+- **破坏性变更**: ⚠️ 方法签名变更,外部调用需同步更新
+- **影响模块**:
+  - `src/PairsManager.py` (方法定义)
+  - `src/analysis/IndustryQuotaManager.py` (调用点)
+- **测试需求**: 验证 IndustryQuotaManager 的 calculate_quotas() 功能正常
+
+---
+
+
 ## [v7.82.0_random-quota-selection@20251123]
 
 ### 版本概述
