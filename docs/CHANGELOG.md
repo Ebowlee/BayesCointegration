@@ -5,6 +5,79 @@
 ---
 
 
+## [v7.84.0_pairs-health-check@20251123]
+
+### 版本概述
+Feature - PairsManager 统一健康检查接口 (优先级机制)
+
+### 🚀 新增功能
+
+#### src/PairsManager.py
+
+**新增方法** (Line 298):
+```python
+def check_pairs_health(self) -> Dict[str, List[str]]
+```
+
+**功能说明**:
+- 统一入口: 聚合配对层面的健康诊断
+- 优先级机制: 每个配对只返回最高优先级问题 (Anomaly > Drawdown > CumulativeLoss > Timeout)
+- 初版维度: Anomaly (单边/同向持仓异常)
+
+**设计理念**:
+1. **内部优先级**: PairsManager 统一管理优先级,简化 main.py 调用逻辑
+2. **无需去重**: 每个配对只出现在一个问题类型中
+3. **参考 risk 模块**: 优先级设计与 RiskManager 保持一致
+
+**使用示例**:
+```python
+# main.py OnData 中调用
+health_issues = pairs_manager.check_pairs_health()
+
+# 直接遍历,无需去重
+for pair_id in health_issues.get('anomaly', []):
+    pair = pairs_manager.get_pair_by_id(pair_id)
+    intent = pair.get_close_intent(reason='ANOMALY')
+    tickets = order_executor.execute_close(intent)
+    if tickets:
+        tickets_manager.register_tickets(pair.pair_id, tickets, OrderAction.CLOSE)
+```
+
+### 📊 架构影响
+
+**优先级机制**:
+- 检查顺序: Anomaly → Drawdown → CumulativeLoss → Timeout
+- 一旦触发: 跳过后续检查 (通过 `continue`)
+- 与 risk 模块对齐: 复用相同的优先级数值 (Anomaly=100, Timeout=60)
+
+**职责分工**:
+- PairsManager: 检测问题 + 管理优先级
+- main.py: 决策 + 执行 CloseIntent
+- OrderExecutor: 提交订单
+
+### 🔮 未来扩展
+
+扩展示例 (按优先级添加):
+```python
+# 优先级2: Drawdown (80)
+if pair.get_pair_drawdown() > drawdown_threshold:
+    health_issues['drawdown'].append(pair.pair_id)
+    continue
+
+# 优先级3: CumulativeLoss (70)
+if pair.total_pnl_dollars < cumulative_loss_threshold:
+    health_issues['cumulative_loss'].append(pair.pair_id)
+    continue
+
+# 优先级4: Timeout (60)
+if pair.get_pair_holding_days() > timeout_days:
+    health_issues['timeout'].append(pair.pair_id)
+    continue
+```
+
+---
+
+
 ## [v7.83.0_rename-composite-score-method@20251123]
 
 ### 版本概述
