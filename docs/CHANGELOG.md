@@ -5,6 +5,121 @@
 ---
 
 
+## [v7.85.0_refactor-architecture-layers@20251123]
+
+### 版本概述
+Refactor - PairsManager 架构层次调整 (删除空纯计算层 + 健康检查独立区域)
+
+### 🔧 修改内容
+
+#### src/PairsManager.py
+
+**1. 删除空纯计算层** (Line 137-140):
+
+**删除内容**:
+```python
+# ===== 2. 纯计算层 (Pure Computation) =====
+# 特征: @staticmethod, 无self依赖, 纯函数, 可独立单元测试
+# 注: v7.53.4 - 分类逻辑改用增量集合操作, 纯计算层暂时为空
+```
+
+**原因**: 自 v7.53.4 以来该层一直为空,保留会造成认知负担
+
+**2. 架构层次重新编号**:
+
+- **Layer 3 → Layer 2**: 数据访问层 (Data Access)
+- **Layer 4 → Layer 3**: 业务逻辑层 (Business Logic)
+- **Layer 5 → Layer 4**: 外部接口层 (Public API)
+
+**子区域编号调整**:
+- `5A. 配对查询接口` → `4A. 配对查询接口`
+- `5B. 情报中心` → `4B. 情报中心`
+- `5D. 资金分配管理` → `4D. 资金分配管理`
+
+**3. check_pairs_health() 方法归类调整** (Line 293 → Line 527):
+
+**移动路径**:
+- **原位置**: 4A. 配对查询接口 (Line 293, 紧邻 `get_pairs_with_position()`)
+- **新位置**: 4C. 健康检查接口 (Line 527, 独立功能区域)
+
+**新增 4C 区域设计**:
+```python
+# ----- 4C. 健康检查接口 -----
+# 设计: Pairs层面 + Industry层面 (未来扩展)
+
+def check_pairs_health(self) -> Dict[str, List[str]]:
+    """配对层面健康检查"""
+    # ... (现有实现)
+
+# [预留位置] 行业层面健康检查
+# def check_industry_health(self) -> Dict[str, List[str]]:
+#     """行业层面健康检查 (未来实现)"""
+```
+
+### 📊 架构影响
+
+**最终架构 (4层)**:
+```
+1. 初始化层 (Initialization)
+   └─ __init__()
+
+2. 数据访问层 (Data Access)
+   ├─ get_pair_by_id()
+   └─ get_planned_allocation_pct()
+
+3. 业务逻辑层 (Business Logic)
+   └─ 3A. 配对生命周期管理
+       └─ update_pairs()
+
+4. 外部接口层 (Public API)
+   ├─ 4A. 配对查询接口
+   │   ├─ get_tradeable_pairs()
+   │   ├─ get_pairs_with_position()
+   │   └─ get_pairs_without_position()
+   ├─ 4B. 情报中心
+   │   └─ get_industry_composite_score()
+   ├─ 4C. 健康检查接口 (新增)
+   │   ├─ check_pairs_health()
+   │   └─ check_industry_health() (预留)
+   └─ 4D. 资金分配管理
+       └─ get_cooldown_required_days()
+```
+
+**设计理念对比**:
+- **查询接口 (4A)**: 简单数据查询 (`get_pairs_with_position()`)
+- **健康检查 (4C)**: 多维度诊断 + 优先级机制 (`check_pairs_health()`)
+- **职责分离**: 查询操作与诊断操作独立维护
+
+### 💡 设计洞察
+
+**get_pairs_with_position() 调用统计** (v7.85.0 调研):
+
+| 调用位置 | 用途 | 类型 |
+|---------|------|------|
+| `src/PairsManager.py:549` | `check_pairs_health()` 内部迭代 | 健康检查 |
+| `src/risk/PortfolioAccountBlowup.py:37` | 账户爆仓批量平仓 | 风控执行 |
+| `src/risk/PortfolioDrawdown.py:50` | 组合回撤批量平仓 | 风控执行 |
+| `src/execution/ExecutionManager.py:234` | 冷却期残余仓位清理 | 执行管理 |
+| `src/risk/RiskManager.py:295` | 组合级风险触发日志 | 风控监控 |
+
+**观察**:
+1. **健康检查层** 通过该方法获取持仓配对列表进行诊断
+2. **风控系统** 在组合级风险触发时批量清理所有持仓
+3. **执行管理器** 在冷却期清理残余仓位时查询持仓状态
+4. **用途清晰**: 所有调用者明确需要"有持仓的配对"而非"所有配对"
+
+**方法稳定性**: 该方法作为基础查询接口,被多模块依赖,接口稳定性高
+
+### 🎯 迁移指南
+
+**无需迁移**:
+- 所有代码均为内部调整,对外接口未变更
+- `check_pairs_health()` 签名和功能保持一致
+- 仅内部注释和文件行号发生变化
+
+---
+
+
 ## [v7.84.0_pairs-health-check@20251123]
 
 ### 版本概述

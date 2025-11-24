@@ -134,13 +134,8 @@ class PairsManager:
         )
 
 
-    # ===== 2. 纯计算层 (Pure Computation) =====
-    # 特征: @staticmethod, 无self依赖, 纯函数, 可独立单元测试
-    # 注: v7.53.4 - 分类逻辑改用增量集合操作, 纯计算层暂时为空
-
-
-    # ===== 3. 数据访问层 (Data Access) =====
-    # 特征: 读取self属性或外部数据, 委托给纯计算层
+    # ===== 2. 数据访问层 (Data Access) =====
+    # 特征: 读取self属性或外部数据
 
     def get_pair_by_id(self, pair_id):
         """
@@ -225,10 +220,10 @@ class PairsManager:
         return industry_data
 
 
-    # ===== 4. 业务逻辑层 (Business Logic) =====
+    # ===== 3. 业务逻辑层 (Business Logic) =====
     # 特征: 组合数据访问层方法, 包含条件判断, 实现复杂业务逻辑
 
-    # ----- 4A. 配对生命周期管理 -----
+    # ----- 3A. 配对生命周期管理 -----
 
     def classify_pairs(self, new_pairs_dict: Dict):
         """
@@ -276,10 +271,10 @@ class PairsManager:
         )
 
 
-    # ===== 5. 外部接口层 (Public API) =====
+    # ===== 4. 外部接口层 (Public API) =====
     # 特征: 对外暴露的核心接口, 整合各层实现完整功能
 
-    # ----- 5A. 配对查询接口 -----
+    # ----- 4A. 配对查询接口 -----
 
     def get_pairs_with_position(self) -> Dict:
         """
@@ -295,42 +290,7 @@ class PairsManager:
         }
 
 
-    def check_pairs_health(self) -> Dict[str, List[str]]:
-        """
-        配对健康检查 - 按优先级返回问题配对 (v7.84.0)
-
-        检查维度 (按优先级排序):
-            1. Anomaly: 单边或同向持仓异常
-            (未来扩展: Drawdown, CumulativeLoss, Timeout)
-
-        Returns:
-            Dict[str, List[str]]: {'anomaly': [pair_ids]}
-            - 每个配对只返回最高优先级问题
-            - 便于 main.py 按类型批量处理
-
-        使用示例:
-            health_issues = pairs_manager.check_pairs_health()
-            for pair_id in health_issues.get('anomaly', []):
-                pair = pairs_manager.get_pair_by_id(pair_id)
-                intent = pair.get_close_intent(reason='ANOMALY')
-                # ... 执行平仓
-        """
-        health_issues = {'anomaly': []}
-
-        for pair in self.get_pairs_with_position().values():
-            # 优先级1: Anomaly (最高优先级)
-            if pair.has_anomaly_position():
-                health_issues['anomaly'].append(pair.pair_id)
-                continue  # 跳过后续检查
-
-            # [未来扩展] 优先级2: Drawdown
-            # [未来扩展] 优先级3: CumulativeLoss
-            # [未来扩展] 优先级4: Timeout
-
-        return health_issues
-
-
-    # ----- 5B. 情报中心 (行业统计查询 - v7.58.0 统一聚合) -----
+    # ----- 4B. 情报中心 (行业统计查询 - v7.58.0 统一聚合) -----
     # 设计: 五组对称结构 (PnL组 / 投入资本组 / ROI组 / 交易质量组 / Drift组)
     # 优化: 所有查询统一调用 _aggregate_all_industry_data(), 一次遍历
 
@@ -526,7 +486,58 @@ class PairsManager:
         return roi * win_rate
 
 
-    # ----- 5D 资金分配管理 (v7.62.0 从 MarginAllocator 迁移) -----
+    # ----- 4C. 健康检查接口 -----
+    # 设计: Pairs层面 + Industry层面 (未来扩展)
+
+    def check_pairs_health(self) -> Dict[str, List[str]]:
+        """
+        配对层面健康检查 (v7.84.0)
+
+        检查维度 (按优先级排序):
+            1. Anomaly: 单边或同向持仓异常
+            (未来扩展: Drawdown, CumulativeLoss, Timeout)
+
+        Returns:
+            Dict[str, List[str]]: {'anomaly': [pair_ids]}
+            - 每个配对只返回最高优先级问题
+            - 便于 main.py 按类型批量处理
+
+        使用示例:
+            health_issues = pairs_manager.check_pairs_health()
+            for pair_id in health_issues.get('anomaly', []):
+                pair = pairs_manager.get_pair_by_id(pair_id)
+                intent = pair.get_close_intent(reason='ANOMALY')
+                # ... 执行平仓
+        """
+        health_issues = {'anomaly': []}
+
+        for pair in self.get_pairs_with_position().values():
+            # 优先级1: Anomaly (最高优先级)
+            if pair.has_anomaly_position():
+                health_issues['anomaly'].append(pair.pair_id)
+                continue  # 跳过后续检查
+
+            # [未来扩展] 优先级2: Drawdown
+            # [未来扩展] 优先级3: CumulativeLoss
+            # [未来扩展] 优先级4: Timeout
+
+        return health_issues
+
+
+    # [预留位置] 行业层面健康检查
+    # def check_industry_health(self) -> Dict[str, List[str]]:
+    #     """
+    #     行业层面健康检查 (未来实现)
+    #
+    #     检查维度:
+    #         1. Drift 异常: 净敞口偏离过大
+    #         2. 行业集中度: 单行业占用过高
+    #         3. 行业质量恶化: Composite Score下降
+    #     """
+    #     pass
+
+
+    # ----- 4D 资金分配管理 (v7.62.0 从 MarginAllocator 迁移) -----
     # 职责: 计算可用保证金 + 为入场候选配对分配资金
     # 设计: 双模式分配(放大 vs 保护) + Fixed Buffer
 
