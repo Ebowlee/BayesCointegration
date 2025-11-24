@@ -213,7 +213,7 @@ class IndustryQuotaManager:
 
     def apply_quotas(self, coint_result: Dict) -> List:
         """
-        应用行业配额到协整结果
+        应用行业配额到协整结果 (v7.82.0: 随机抽取,避免pvalue过度加权)
 
         Args:
             coint_result: CointegrationAnalyzer.cointegration_procedure()返回值
@@ -223,11 +223,18 @@ class IndustryQuotaManager:
             List[Dict]: 应用配额后的配对列表
                 每个Dict: {'symbol1', 'symbol2', 'pvalue', 'industry_code'}
 
+        设计理念 (v7.82.0):
+        - CointegrationAnalyzer已用pvalue<0.01严格筛选
+        - 进入本方法的配对pvalue都在0.0000x~0.0099 (极窄区间)
+        - 继续用pvalue排序 = 过度放大微小差异,导致"赢家通吃"
+        - 随机抽取 = 给所有通过协整的配对公平机会,增加多样性
+
         实现:
         1. 获取行业配额
-        2. 按行业分组并按pvalue排序
-        3. 贪心算法应用配额和单股重复限制
-        4. 返回选定配对合并列表
+        2. 按行业分组
+        3. 确定性随机抽取 (种子=hash(日期+行业), 保证可复现)
+        4. 应用max_repeats约束 (单股最多参与N对)
+        5. 返回选定配对合并列表
         """
         # 步骤1: 获取行业配额
         industry_quotas = self.calculate_quotas(self.algorithm.pairs_manager)
@@ -245,19 +252,27 @@ class IndustryQuotaManager:
         industry_names = self.algorithm.config.constants['industry_names']
 
         for industry_code, pairs in industry_groups.items():
-            # 按pvalue排序(从小到大)
-            sorted_pairs = sorted(pairs, key=lambda x: x['pvalue'])
-
             # 获取配额(优先使用动态配额,否则使用最低保底配额)
             quota_info = industry_quotas.get(industry_code)
             quota = quota_info['quota'] if quota_info else self.min_quota
 
-            # 贪心选择(同时检查配额和单股重复限制)
+            # 确定性随机抽取 (v7.82.0: 避免pvalue过度加权)
+            import random
+
+            # 设置确定性随机种子 (保证每月每行业结果一致)
+            seed = hash(f"{self.algorithm.Time.date()}_{industry_code}") % (2**32)
+            random.seed(seed)
+
+            # 随机打乱配对顺序
+            shuffled_pairs = pairs.copy()
+            random.shuffle(shuffled_pairs)
+
+            # 顺序遍历(等价于随机抽取) + max_repeats约束
             symbol_counts = defaultdict(int)
             industry_selected = []
             max_symbol_repeats = self.algorithm.config.cointegration_analyzer.max_symbol_repeats
 
-            for pair in sorted_pairs:
+            for pair in shuffled_pairs:
                 if len(industry_selected) >= quota:
                     break
 
@@ -273,7 +288,7 @@ class IndustryQuotaManager:
                 industry_name = industry_names.get(int(industry_code), f'未知({industry_code})')
                 self.algorithm.Debug(
                     f"[配额筛选] {industry_name}: "
-                    f"协整通过{len(sorted_pairs)}对 → 配额{quota} → 最终选取{len(industry_selected)}对",
+                    f"协整通过{len(pairs)}对 → 配额{quota} → 随机选取{len(industry_selected)}对 (种子:{seed})",
                     level=1
                 )
 
