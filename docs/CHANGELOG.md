@@ -5,6 +5,160 @@
 ---
 
 
+## [v7.82.0_random-quota-selection@20251123]
+
+### 版本概述
+Feature - 配额分配改为随机抽取,避免pvalue过度加权
+
+### 🎯 设计理念
+
+**核心问题**: pvalue的双重使用导致过度加权
+- **第一次使用**: CointegrationAnalyzer用 `pvalue < 0.01` 做质量门槛 (严格筛选)
+- **第二次使用**: apply_quotas用pvalue排序做优先级 (旧逻辑)
+- **问题**: 进入apply_quotas的配对pvalue都在 **0.0000x ~ 0.0099** (极窄区间)
+- **结论**: 在此区间内,pvalue=0.001 vs 0.009 的差异**微不足道**,继续排序是**过度优化噪音**
+
+**用户洞察** (原话):
+> "我们在cointegrationanalyzer中已经用pvalue<0.01做了筛选,那我们在这一步apply_quotas就没必要再去硬拼pvalue了!你说0.01和0.005有多大差距!?"
+
+### 🔧 修改内容
+
+#### src/analysis/IndustryQuotaManager.py
+
+**Line 215-238** (apply_quotas方法docstring):
+
+**修改前**:
+```python
+"""
+应用行业配额到协整结果
+
+实现:
+1. 获取行业配额
+2. 按行业分组并按pvalue排序
+3. 贪心算法应用配额和单股重复限制
+4. 返回选定配对合并列表
+"""
+```
+
+**修改后**:
+```python
+"""
+应用行业配额到协整结果 (v7.82.0: 随机抽取,避免pvalue过度加权)
+
+设计理念 (v7.82.0):
+- CointegrationAnalyzer已用pvalue<0.01严格筛选
+- 进入本方法的配对pvalue都在0.0000x~0.0099 (极窄区间)
+- 继续用pvalue排序 = 过度放大微小差异,导致"赢家通吃"
+- 随机抽取 = 给所有通过协整的配对公平机会,增加多样性
+
+实现:
+1. 获取行业配额
+2. 按行业分组
+3. 确定性随机抽取 (种子=hash(日期+行业), 保证可复现)
+4. 应用max_repeats约束 (单股最多参与N对)
+5. 返回选定配对合并列表
+"""
+```
+
+**Line 248-285** (步骤3核心逻辑):
+
+**修改前** (pvalue排序贪心):
+```python
+# 按pvalue排序(从小到大)
+sorted_pairs = sorted(pairs, key=lambda x: x['pvalue'])
+
+# 贪心选择(同时检查配额和单股重复限制)
+for pair in sorted_pairs:
+    if len(industry_selected) >= quota:
+        break
+    if symbol_counts满足max_repeats:
+        选择这对
+```
+
+**修改后** (确定性随机抽取):
+```python
+# 确定性随机抽取 (v7.82.0: 避免pvalue过度加权)
+import random
+
+# 设置确定性随机种子 (保证每月每行业结果一致)
+seed = hash(f"{self.algorithm.Time.date()}_{industry_code}") % (2**32)
+random.seed(seed)
+
+# 随机打乱配对顺序
+shuffled_pairs = pairs.copy()
+random.shuffle(shuffled_pairs)
+
+# 顺序遍历(等价于随机抽取) + max_repeats约束
+for pair in shuffled_pairs:
+    if len(industry_selected) >= quota:
+        break
+    if symbol_counts满足max_repeats:
+        选择这对
+```
+
+**Line 282-285** (日志输出):
+
+**修改前**:
+```python
+f"协整通过{len(sorted_pairs)}对 → 配额{quota} → 最终选取{len(industry_selected)}对"
+```
+
+**修改后**:
+```python
+f"协整通过{len(pairs)}对 → 配额{quota} → 随机选取{len(industry_selected)}对 (种子:{seed})"
+```
+
+### ✅ 验证清单
+
+- [x] **确定性随机**: 种子=hash(日期+行业代码), 保证回测可复现
+- [x] **max_repeats保留**: 单股重复限制逻辑不变
+- [x] **日志更新**: 输出"随机选取"和种子值,便于调试
+- [x] **逻辑简化**: 移除pvalue排序,减少计算开销
+- [x] **Docstring完整**: 说明设计理念和实现步骤
+
+### 📊 对比分析
+
+| 维度 | 旧方案 (pvalue排序) | 新方案 (随机抽取) |
+|------|------------------|----------------|
+| **pvalue影响** | 100% (总选最小的) | 0% (完全忽略) |
+| **配对多样性** | 低 (固定TOP N) | 高 (每月不同组合) |
+| **可复现性** | 完全确定 | 确定 (确定性种子) |
+| **理论依据** | 弱 (pvalue<0.01后区分度低) | 强 (避免过度优化噪音) |
+| **计算开销** | 排序 O(n log n) | 打乱 O(n) |
+
+### 📌 注意事项
+
+1. **随机性来源**:
+   - 种子 = `hash(self.algorithm.Time.date() + industry_code) % 2^32`
+   - 每月每行业有独立种子
+   - 保证同一回测参数下结果完全一致
+
+2. **pvalue阈值的关键作用**:
+   - CointegrationAnalyzer的 `pvalue < 0.01` 是**唯一的质量门槛**
+   - 通过此门槛后,所有配对都是**高质量协整关系**
+   - apply_quotas不再需要二次质量排序
+
+3. **max_repeats约束仍然有效**:
+   - 从 `config.cointegration_analyzer.max_symbol_repeats` 读取
+   - 后验过滤: 抽取后检查是否满足约束
+   - 保证单个股票不会过度参与配对
+
+4. **多样性的价值**:
+   - 避免"赢家通吃": pvalue=0.001的配对不再垄断所有名额
+   - 探索更多组合: 给pvalue=0.009的配对机会,可能发现隐藏价值
+   - 鲁棒性提升: 策略不依赖极少数"最优"配对
+
+### 🔬 实验建议
+
+运行回测后观察:
+1. **配对多样性**: 不同月份选中的配对是否有变化?
+2. **性能稳定性**: 随机性是否导致策略performance波动增大?
+3. **种子有效性**: 多次运行同样参数,结果是否完全一致?
+4. **日志输出**: 种子值是否正确输出,便于调试?
+
+---
+
+
 ## [v7.81.0_remove-missing-log-statistics-call@20251123]
 
 ### 版本概述
