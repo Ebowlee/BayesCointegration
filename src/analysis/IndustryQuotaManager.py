@@ -138,7 +138,7 @@ class IndustryQuotaManager:
 
         for industry_code in industry_codes:
             # 从PairsManager获取composite_score
-            cs = pairs_manager._calculate_composite_score(industry_code)
+            cs = pairs_manager.get_industry_composite_score(industry_code)
             # 无历史数据时cs=0, weight自动=1
             weight = self._calculate_weight(cs)
 

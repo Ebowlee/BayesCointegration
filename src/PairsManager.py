@@ -467,13 +467,7 @@ class PairsManager:
             return 0.0
         return total_net / total_gross
 
-
-    # ----- 5D. 投资分配中心 - 行业配额管理 (v7.71.0) -----
-    # 设计: 综合 ROI × WIN_RATE 复合评分 (数据提供给IndustryQuotaManager)
-    # 复用: 情报中心的 get_industry_roi() 和 get_industry_win_rate()
-    # 注意: 配额计算逻辑已迁移至IndustryQuotaManager (指数权重系统)
-
-    def _calculate_composite_score(self, industry_code: str) -> float:
+    def get_industry_composite_score(self, industry_code: str) -> float:
         """
         计算行业综合得分 = ROI × WIN_RATE
 
@@ -497,7 +491,7 @@ class PairsManager:
         return roi * win_rate
 
 
-    # ----- 5D.2 资金分配管理 (v7.62.0 从 MarginAllocator 迁移) -----
+    # ----- 5D 资金分配管理 (v7.62.0 从 MarginAllocator 迁移) -----
     # 职责: 计算可用保证金 + 为入场候选配对分配资金
     # 设计: 双模式分配(放大 vs 保护) + Fixed Buffer
 
