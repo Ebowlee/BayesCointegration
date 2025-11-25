@@ -122,7 +122,8 @@ class BayesianCointegrationStrategy(QCAlgorithm):
             'anomaly': 'ANOMALY',
             'drawdown': 'DRAWDOWN',
             'drift': 'DRIFT',
-            'timeout': 'TIMEOUT'
+            'timeout': 'TIMEOUT',
+            'cumulative_roi': 'CUMULATIVE_ROI'  # v7.90.0
         }
 
         for issue_type, pair_ids in health_issues.items():

@@ -491,17 +491,17 @@ class PairsManager:
 
     def check_pairs_health(self) -> Dict[str, List[str]]:
         """
-        配对层面健康检查 (v7.87.1)
+        配对层面健康检查 (v7.90.0 更新)
 
         检查维度 (按优先级排序):
             1. Anomaly: 单边或同向持仓异常
             2. Drawdown: 配对回撤超过阈值 (v7.86.0)
             3. Drift: 对冲漂移超过阈值 (v7.87.0)
             4. Timeout: 持仓超时 (v7.87.1)
-            (未来扩展: CumulativeLoss)
+            5. CumulativeROI: 累积亏损超过阈值 (v7.90.0)
 
         Returns:
-            Dict[str, List[str]]: {'anomaly': [...], 'drawdown': [...], 'drift': [...], 'timeout': [...]}
+            Dict[str, List[str]]: {'anomaly': [...], 'drawdown': [...], 'drift': [...], 'timeout': [...], 'cumulative_roi': [...]}
             - 每个配对只返回最高优先级问题
             - 便于 main.py 按类型批量处理
 
@@ -512,12 +512,13 @@ class PairsManager:
                 intent = pair.get_close_intent(reason='ANOMALY')
                 # ... 执行平仓
         """
-        health_issues = {'anomaly': [], 'drawdown': [], 'drift': [], 'timeout': []}
+        health_issues = {'anomaly': [], 'drawdown': [], 'drift': [], 'timeout': [], 'cumulative_roi': []}
 
         # 获取配置阈值 (v7.89.0: 从 pair_health_check 集中读取)
         health_config = self.algorithm.config.pair_health_check
         drawdown_threshold = health_config.drawdown_threshold
         drift_threshold = health_config.drift_threshold
+        cumulative_roi_threshold = health_config.cumulative_roi_threshold  # v7.90.0
 
         for pair in self.get_pairs_with_position().values():
             # 优先级1: Anomaly (最高优先级)
@@ -546,7 +547,21 @@ class PairsManager:
                     health_issues['timeout'].append(pair.pair_id)
                     continue  # 跳过后续检查
 
-            # [未来扩展] 优先级5: CumulativeLoss
+            # 优先级5: CumulativeROI (累积亏损超过阈值) (v7.90.0)
+            # 公式: (realized + unrealized) / (past_invested + current_invested)
+            realized = pair.pair_realized_pnl              # 属性: 已实现PnL
+            unrealized = pair.get_pair_unrealized_pnl() or 0.0  # 方法: 浮动PnL
+            past_invested = pair.pair_past_invested_capital     # 属性: 历史投入
+            current_invested = pair.get_pair_current_invested_capital() or 0.0  # 方法: 当前投入
+
+            total_pnl = realized + unrealized
+            total_invested = past_invested + current_invested
+
+            if total_invested > 0:
+                cumulative_roi = total_pnl / total_invested
+                if cumulative_roi < -cumulative_roi_threshold:  # 负ROI表示亏损
+                    health_issues['cumulative_roi'].append(pair.pair_id)
+                    continue  # 跳过后续检查
 
         return health_issues
 
@@ -806,13 +821,14 @@ class PairsManager:
             reason_config = close_reasons[last_close_reason]
             return reason_config.get('cooldown_days', 10)
 
-        # 风控规则: 从 pair_health_check 读取 (v7.89.0 重构)
+        # 风控规则: 从 pair_health_check 读取 (v7.89.0 重构, v7.90.0 添加 CUMULATIVE_ROI)
         health_config = self.algorithm.config.pair_health_check
         reason_to_cooldown = {
             'TIMEOUT': health_config.timeout_cooldown_days,
             'DRAWDOWN': health_config.drawdown_cooldown_days,
             'DRIFT': health_config.drift_cooldown_days,
             'ANOMALY': health_config.anomaly_cooldown_days,
+            'CUMULATIVE_ROI': health_config.cumulative_roi_cooldown_days,  # v7.90.0
         }
 
         return reason_to_cooldown.get(last_close_reason, 10)

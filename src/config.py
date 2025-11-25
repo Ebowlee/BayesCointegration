@@ -349,28 +349,31 @@ class PortfolioRulesConfig:
 
 @dataclass
 class PairHealthCheckConfig:
-    """Pairs 层面健康检查配置 (v7.89.0 重构)
+    """Pairs 层面健康检查配置 (v7.90.0 更新)
 
-    集中管理 4 个检查维度的阈值和冷却期:
+    集中管理 5 个检查维度的阈值和冷却期:
     - anomaly: 单边/同向持仓异常 (无阈值，仅冷却期)
     - drawdown: 配对回撤
     - drift: 对冲漂移
     - timeout: 持仓超时 (无阈值，使用动态 max_holding_days)
+    - cumulative_roi: 累积亏损 (v7.90.0 新增)
 
     Note:
         - threshold 使用小数形式 (0.04 = 4%)
         - cooldown_days 单位: 天
         - anomaly 永久冷却 (999999天)
     """
-    # === 阈值 (仅 drawdown 和 drift 需要) ===
-    drawdown_threshold: float = 0.04      # 4% 回撤触发
-    drift_threshold: float = 0.25         # 25% 漂移触发
+    # === 阈值 ===
+    drawdown_threshold: float = 0.04          # 4% 回撤触发
+    drift_threshold: float = 0.25             # 25% 漂移触发
+    cumulative_roi_threshold: float = 0.08    # 8% 累积亏损触发 (负ROI) (v7.90.0)
 
-    # === 冷却期 (全部 4 个维度) ===
-    anomaly_cooldown_days: int = 999999   # 永久冷却
+    # === 冷却期 ===
+    anomaly_cooldown_days: int = 999999       # 永久冷却
     drawdown_cooldown_days: int = 180
     drift_cooldown_days: int = 30
     timeout_cooldown_days: int = 90
+    cumulative_roi_cooldown_days: int = 360   # 360天冷却期 (v7.90.0)
 
 
 @dataclass

@@ -5,6 +5,55 @@
 ---
 
 
+## [v7.90.0_cumulative-roi-detection@20251125]
+
+### 版本概述
+Feature - 新增 CumulativeROI 检测 (健康检查优先级5)
+
+### 🚀 新功能
+
+#### CumulativeROI 检测
+
+**公式**:
+```
+cumulative_roi = (realized_pnl + unrealized_pnl) / (past_invested + current_invested)
+```
+
+**设计原则**:
+- 属性: 静态累积值 (realized_pnl, past_invested) - 只在平仓时更新
+- 方法: 实时计算值 (unrealized_pnl, current_invested) - 依赖当前市价
+
+**触发条件**: `cumulative_roi < -8%` (负ROI表示亏损)
+
+### 🔧 修改内容
+
+#### src/config.py
+- PairHealthCheckConfig 添加字段:
+  - `cumulative_roi_threshold: float = 0.08` (8%累积亏损触发)
+  - `cumulative_roi_cooldown_days: int = 360` (360天冷却期)
+
+#### src/Pairs.py
+- 删除冗余方法 `get_pair_realized_pnl()` (直接使用属性 `pair.pair_realized_pnl`)
+
+#### src/PairsManager.py
+- `check_pairs_health()`: 添加优先级5 CumulativeROI 检测 (Line 550-564)
+- `get_cooldown_required_days()`: 添加 CUMULATIVE_ROI 映射 (Line 831)
+
+#### main.py
+- `OnData()`: issue_reason_map 添加 `'cumulative_roi': 'CUMULATIVE_ROI'`
+
+### 📋 健康检查优先级 (完整)
+| 优先级 | 维度 | 阈值 | 冷却期 |
+|--------|------|------|--------|
+| 1 | Anomaly | - | 999999天 |
+| 2 | Drawdown | 4% | 180天 |
+| 3 | Drift | 25% | 30天 |
+| 4 | Timeout | 动态 | 90天 |
+| 5 | CumulativeROI | 8% | 360天 |
+
+---
+
+
 ## [v7.89.0_refactor-health-check-config@20251125]
 
 ### 版本概述

@@ -457,17 +457,8 @@ class Pairs:
         )
 
 
-    def get_pair_realized_pnl(self) -> float:
-        """
-        获取已实现盈亏（历史累计）- v7.40.6
-
-        职责：
-            - 返回所有已平仓交易的累计PnL（美元）
-            - 每次平仓时在 _update_trade_stats() 中累加
-            - 使用平仓价格计算（exit_price1/exit_price2）
-        """
-        return self.pair_realized_pnl
-
+    # NOTE: get_pair_realized_pnl() 已删除 (v7.90.0)
+    # 直接使用属性 pair.pair_realized_pnl 访问
 
     def get_net_exposure(self) -> Optional[float]:
         """
