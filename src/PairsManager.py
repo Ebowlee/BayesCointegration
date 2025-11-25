@@ -496,10 +496,11 @@ class PairsManager:
         检查维度 (按优先级排序):
             1. Anomaly: 单边或同向持仓异常
             2. Drawdown: 配对回撤超过阈值 (v7.86.0)
+            3. Drift: 对冲漂移超过阈值 (v7.87.0)
             (未来扩展: CumulativeLoss, Timeout)
 
         Returns:
-            Dict[str, List[str]]: {'anomaly': [pair_ids], 'drawdown': [pair_ids]}
+            Dict[str, List[str]]: {'anomaly': [...], 'drawdown': [...], 'drift': [...]}
             - 每个配对只返回最高优先级问题
             - 便于 main.py 按类型批量处理
 
@@ -510,7 +511,7 @@ class PairsManager:
                 intent = pair.get_close_intent(reason='ANOMALY')
                 # ... 执行平仓
         """
-        health_issues = {'anomaly': [], 'drawdown': []}
+        health_issues = {'anomaly': [], 'drawdown': [], 'drift': []}
 
         # 获取配置阈值
         risk_config = self.algorithm.config.risk_management.pair_rules
@@ -528,8 +529,17 @@ class PairsManager:
                 health_issues['drawdown'].append(pair.pair_id)
                 continue  # 跳过后续检查
 
-            # [未来扩展] 优先级3: CumulativeLoss
-            # [未来扩展] 优先级4: Timeout
+            # 优先级3: Drift (对冲漂移超过阈值) (v7.87.0)
+            drift_threshold = risk_config.pair_drift.threshold
+            drift = pair.get_hedge_drift()
+            if drift is not None and abs(drift) > drift_threshold * 100:
+                # Note: get_hedge_drift() 返回百分比 (如 25.0)
+                # threshold 存储比例 (如 0.25)，需乘以 100 转换
+                health_issues['drift'].append(pair.pair_id)
+                continue  # 跳过后续检查
+
+            # [未来扩展] 优先级4: CumulativeLoss
+            # [未来扩展] 优先级5: Timeout
 
         return health_issues
 
@@ -794,6 +804,7 @@ class PairsManager:
         reason_to_config = {
             'TIMEOUT': risk_config.holding_timeout.cooldown_days,
             'DRAWDOWN': risk_config.pair_drawdown.cooldown_days,
+            'DRIFT': risk_config.pair_drift.cooldown_days,           # v7.87.0
             'CUMULATIVE_LOSS': risk_config.pair_cumulative_loss.cooldown_days,
             'ANOMALY': risk_config.pair_anomaly.cooldown_days,
         }

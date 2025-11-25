@@ -367,6 +367,29 @@ class PairDrawdownRuleConfig:
 
 
 @dataclass
+class PairDriftRuleConfig:
+    """配对漂移规则配置 (v7.87.0)
+
+    检测对冲漂移率，衡量持仓偏离 Dollar Neutral 的程度:
+        Drift% = (Net Exposure / Gross Exposure) × 100
+
+    数值解读:
+        - 0%: 完美对冲
+        - 15%: 警戒区
+        - 25%: 触发阈值 (默认)
+        - 30%+: 危险区
+
+    Note:
+        threshold 使用比例形式 (0.25 = 25%)
+        实际检测时: abs(drift) > threshold * 100
+    """
+    enabled: bool = True
+    priority: int = 75              # 在 Drawdown(80) 之后
+    threshold: float = 0.25         # 25% (比例形式)
+    cooldown_days: int = 30         # 冷却期 30 天
+
+
+@dataclass
 class HoldingTimeoutRuleConfig:
     """持仓超时规则配置 (v7.38.1: 移除max_halflife_multiplier)"""
     enabled: bool = True
@@ -387,6 +410,7 @@ class PairRulesConfig:
     pair_anomaly: PairAnomalyRuleConfig = field(default_factory=PairAnomalyRuleConfig)
     pair_cumulative_loss: PairCumulativeLossRuleConfig = field(default_factory=PairCumulativeLossRuleConfig)
     pair_drawdown: PairDrawdownRuleConfig = field(default_factory=PairDrawdownRuleConfig)
+    pair_drift: PairDriftRuleConfig = field(default_factory=PairDriftRuleConfig)
     holding_timeout: HoldingTimeoutRuleConfig = field(default_factory=HoldingTimeoutRuleConfig)
 
 
@@ -461,6 +485,10 @@ class Constants:
         },
         'DRAWDOWN': {
             'display': '回撤触发',
+            'category': 'PAIR_RISK'
+        },
+        'DRIFT': {
+            'display': '对冲漂移',
             'category': 'PAIR_RISK'
         },
         'ANOMALY': {
