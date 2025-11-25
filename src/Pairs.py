@@ -663,6 +663,35 @@ class Pairs:
         return drawdown
 
 
+    def get_pair_cumulative_roi(self) -> Optional[float]:
+        """
+        获取配对累积ROI (v7.91.0)
+
+        公式:
+            cumulative_roi = (realized + unrealized) / (past_invested + current_invested)
+
+        设计:
+            - 属性: realized_pnl, past_invested (静态，平仓时更新)
+            - 方法: unrealized_pnl, current_invested (实时计算)
+
+        Returns:
+            累积ROI (小数形式), 如 -0.08 表示 -8%
+            无投入时返回 None
+        """
+        realized = self.pair_realized_pnl
+        unrealized = self.get_pair_unrealized_pnl() or 0.0
+        past_invested = self.pair_past_invested_capital
+        current_invested = self.get_pair_current_invested_capital() or 0.0
+
+        total_pnl = realized + unrealized
+        total_invested = past_invested + current_invested
+
+        if total_invested <= 0:
+            return None
+
+        return total_pnl / total_invested
+
+
     def get_max_holding_days(self) -> Optional[float]:
         """
         计算理论最大持仓天数 (v7.38.2: 基于指数衰减公式)

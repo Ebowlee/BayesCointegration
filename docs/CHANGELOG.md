@@ -5,6 +5,49 @@
 ---
 
 
+## [v7.91.0_cumulative-roi-encapsulate-industry-concentration@20251125]
+
+### 版本概述
+Refactor + Feature - CumulativeROI 封装到 Pairs 方法 + 行业集中度健康检查
+
+### 🔧 重构内容
+
+#### src/Pairs.py
+- 新增 `get_pair_cumulative_roi()` 方法 (Layer 4 金融指标层)
+  - 公式: `(realized + unrealized) / (past_invested + current_invested)`
+  - 返回: 累积ROI (小数形式), 如 -0.08 表示 -8%
+  - 无投入时返回 None
+
+#### src/PairsManager.py
+- `check_pairs_health()`: 简化 CumulativeROI 检测，改用 `pair.get_pair_cumulative_roi()`
+
+### 🚀 新功能
+
+#### 行业集中度监控
+
+**新增方法**: `PairsManager.get_industry_concentration(industry_code)`
+- 公式: `industry_current_invested / total_current_invested`
+- 返回: 集中度比例 (0.0 ~ 1.0)
+- 用途: 开仓阶段检查 (后续版本)
+
+**新增方法**: `PairsManager.check_industry_health()`
+- 检查维度: Concentration (单行业资金占用过高)
+- 阈值: 40% 单行业占用上限 (硬编码，后续可配置化)
+- 返回: `{'concentration': [industry_codes...]}`
+
+### 📋 设计说明
+
+**属性 vs 方法选择原则**:
+- 属性: 静态累积值 (realized_pnl, past_invested) - 只在平仓时更新
+- 方法: 实时计算值 (unrealized_pnl, current_invested) - 依赖当前市价
+
+**行业健康检查用途**:
+- 当前: 仅作为监控指标
+- 后续: 可用于开仓阶段的行业配额限制
+
+---
+
+
 ## [v7.90.0_cumulative-roi-detection@20251125]
 
 ### 版本概述

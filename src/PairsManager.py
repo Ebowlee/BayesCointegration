@@ -462,6 +462,37 @@ class PairsManager:
             return 0.0
         return total_net / total_gross
 
+    # --- Concentration 组 (v7.91.0) ---
+
+    def get_industry_concentration(self, industry_code: str) -> float:
+        """
+        获取行业集中度 (v7.91.0)
+
+        公式:
+            concentration = industry_current_invested / total_current_invested
+
+        含义:
+            - 0.25 表示该行业占用了 25% 的当前资金
+            - 用于开仓阶段检查 (后续版本)
+
+        Returns:
+            集中度比例 (0.0 ~ 1.0), 无持仓时返回 0.0
+        """
+        industry_data = self._aggregate_all_industry_data()
+
+        # 分子: 目标行业的当前投入资本
+        if industry_code not in industry_data:
+            return 0.0
+        industry_invested = industry_data[industry_code].current_invested_capital
+
+        # 分母: 全策略的当前投入资本
+        total_invested = sum(d.current_invested_capital for d in industry_data.values())
+
+        if total_invested <= 0:
+            return 0.0
+
+        return industry_invested / total_invested
+
     def get_industry_composite_score(self, industry_code: str) -> float:
         """
         计算行业综合得分 = ROI × WIN_RATE
@@ -547,36 +578,42 @@ class PairsManager:
                     health_issues['timeout'].append(pair.pair_id)
                     continue  # 跳过后续检查
 
-            # 优先级5: CumulativeROI (累积亏损超过阈值) (v7.90.0)
-            # 公式: (realized + unrealized) / (past_invested + current_invested)
-            realized = pair.pair_realized_pnl              # 属性: 已实现PnL
-            unrealized = pair.get_pair_unrealized_pnl() or 0.0  # 方法: 浮动PnL
-            past_invested = pair.pair_past_invested_capital     # 属性: 历史投入
-            current_invested = pair.get_pair_current_invested_capital() or 0.0  # 方法: 当前投入
-
-            total_pnl = realized + unrealized
-            total_invested = past_invested + current_invested
-
-            if total_invested > 0:
-                cumulative_roi = total_pnl / total_invested
-                if cumulative_roi < -cumulative_roi_threshold:  # 负ROI表示亏损
-                    health_issues['cumulative_roi'].append(pair.pair_id)
-                    continue  # 跳过后续检查
+            # 优先级5: CumulativeROI (v7.91.0: 使用 Pairs 方法)
+            cumulative_roi = pair.get_pair_cumulative_roi()
+            if cumulative_roi is not None and cumulative_roi < -cumulative_roi_threshold:
+                health_issues['cumulative_roi'].append(pair.pair_id)
+                continue  # 跳过后续检查
 
         return health_issues
 
 
-    # [预留位置] 行业层面健康检查
-    # def check_industry_health(self) -> Dict[str, List[str]]:
-    #     """
-    #     行业层面健康检查 (未来实现)
-    #
-    #     检查维度:
-    #         1. Drift 异常: 净敞口偏离过大
-    #         2. 行业集中度: 单行业占用过高
-    #         3. 行业质量恶化: Composite Score下降
-    #     """
-    #     pass
+    def check_industry_health(self) -> Dict[str, List[str]]:
+        """
+        行业层面健康检查 (v7.91.0)
+
+        检查维度:
+            1. Concentration: 单行业资金占用过高
+
+        Returns:
+            Dict[str, List[str]]: {'concentration': [industry_codes...]}
+        """
+        health_issues = {'concentration': []}
+
+        # 获取配置阈值 (预留 - 暂用硬编码)
+        concentration_threshold = 0.40  # 40% 单行业占用上限
+
+        industry_data = self._aggregate_all_industry_data()
+        total_invested = sum(d.current_invested_capital for d in industry_data.values())
+
+        if total_invested <= 0:
+            return health_issues
+
+        for industry_code, data in industry_data.items():
+            concentration = data.current_invested_capital / total_invested
+            if concentration > concentration_threshold:
+                health_issues['concentration'].append(industry_code)
+
+        return health_issues
 
 
     # ----- 4D 资金分配管理 (v7.62.0 从 MarginAllocator 迁移) -----
