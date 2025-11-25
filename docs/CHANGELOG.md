@@ -5,6 +5,86 @@
 ---
 
 
+## [v7.86.0_pairs-drawdown-detection@20251125]
+
+### 版本概述
+Feature - PairDrawdown 检测功能 (4C 健康检查优先级2)
+
+### 🔧 修改内容
+
+#### src/Pairs.py
+
+**1. 新增 `pair_hwm` 属性** (Line 131-132):
+```python
+# === Drawdown 追踪 (v7.86.0) ===
+self.pair_hwm: float = None  # 配对高水位 (首次调用 get_pair_drawdown 时初始化)
+```
+
+**2. 新增 `get_pair_drawdown()` 方法** (Line 627-671):
+```python
+def get_pair_drawdown(self) -> Optional[float]:
+    """
+    计算配对回撤率 (v7.86.0)
+
+    计算公式:
+        current_value = invested_capital + unrealized_pnl
+        drawdown = max(0, (pair_hwm - current_value) / pair_hwm)
+
+    HWM 更新逻辑:
+        - 首次调用时初始化为 current_value
+        - 后续调用时取 max(pair_hwm, current_value)
+    """
+```
+
+**3. `on_position_filled()` 添加 HWM 重置** (Line 1047):
+```python
+self.pair_hwm = None  # 重置高水位 (v7.86.0)
+```
+
+#### src/PairsManager.py
+
+**4. `check_pairs_health()` 添加 Drawdown 检测** (Line 524-528):
+```python
+# 优先级2: Drawdown (回撤超过阈值)
+drawdown = pair.get_pair_drawdown()
+if drawdown is not None and drawdown > drawdown_threshold:
+    health_issues['drawdown'].append(pair.pair_id)
+    continue  # 跳过后续检查
+```
+
+**返回值更新**: `{'anomaly': [], 'drawdown': []}`
+
+#### main.py
+
+**5. `_run_analysis_pipeline()` docstring 更新** (Line 133-141):
+- 5步 → 8步 (与实际代码匹配)
+
+### 📊 设计决策
+
+**HWM 放在 Pairs 内部 (非 PairsManager)**:
+1. **数据内聚**: HWM 是配对自身状态，与配对生命周期绑定
+2. **简化调用**: `pair.get_pair_drawdown()` 无需外部传参
+3. **自动清理**: 平仓时在 `on_position_filled()` 中重置
+4. **符合现有模式**: 类似 `entry_price`, `tracked_qty` 等属性
+
+**Drawdown 计算公式**:
+- `current_value = invested_capital + unrealized_pnl`
+- `drawdown = max(0, (pair_hwm - current_value) / pair_hwm)`
+- **阈值**: `config.risk.pair_drawdown.threshold = 0.04` (4%)
+
+### 📁 文件修改清单
+
+| 文件 | 修改位置 | 修改内容 |
+|------|---------|---------|
+| `src/Pairs.py` | Line 131-132 | 新增 `pair_hwm` 属性 |
+| `src/Pairs.py` | Line 627-671 | 新增 `get_pair_drawdown()` 方法 |
+| `src/Pairs.py` | Line 1047 | `on_position_filled()` 添加 HWM 重置 |
+| `src/PairsManager.py` | Line 512-528 | Drawdown 检测逻辑 + 返回值更新 |
+| `main.py` | Line 133-141 | docstring 更新 (5步→8步) |
+
+---
+
+
 ## [v7.85.0_refactor-architecture-layers@20251123]
 
 ### 版本概述
