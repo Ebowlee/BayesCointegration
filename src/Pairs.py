@@ -528,26 +528,27 @@ class Pairs:
 
     def get_hedge_drift(self) -> Optional[float]:
         """
-        计算对冲漂移率 - 衡量持仓偏离完美对冲的程度 (v7.40.1)
+        计算对冲漂移率 - 衡量持仓偏离完美对冲的程度 (v7.40.1, v7.87.1: 改为小数)
 
         物理含义:
             衡量当前持仓市值偏离"Dollar Neutral"的程度
-            Drift% = (Net Exposure / Gross Exposure) × 100
+            Drift = Net Exposure / Gross Exposure
 
         应用场景:
             仅用于持仓中实时监控对冲质量
 
         Returns:
-            对冲漂移率(%) 或 None(无持仓/数据异常)
+            对冲漂移率(小数) 或 None(无持仓/数据异常)
 
         数值解读:
-            - 0%: 完美对冲 (净敞口为0)
-            - 15%: 警戒区 (开始暴露于Beta风险)
-            - 30%+: 危险区 (类似单边持仓)
+            - 0.0: 完美对冲 (净敞口为0)
+            - 0.15: 警戒区 (开始暴露于Beta风险)
+            - 0.25: 触发阈值
+            - 0.30+: 危险区 (类似单边持仓)
             - 正值: 净多头敞口 (大盘涨我赚)
             - 负值: 净空头敞口 (大盘跌我赚)
         """
-        # 直接调用已有方法 
+        # 直接调用已有方法
         net_exp = self.get_net_exposure()
         gross_exp = self.get_gross_exposure()
 
@@ -555,8 +556,8 @@ class Pairs:
         if net_exp is None or gross_exp is None or gross_exp == 0:
             return None
 
-        # 计算漂移率 (百分比)
-        return (net_exp / gross_exp) * 100
+        # 计算漂移率 (小数形式，与其他指标一致)
+        return net_exp / gross_exp
 
 
     def get_leg_values(self, allocated_amount: float, signal: str, data):

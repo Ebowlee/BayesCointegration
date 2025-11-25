@@ -368,24 +368,24 @@ class PairDrawdownRuleConfig:
 
 @dataclass
 class PairDriftRuleConfig:
-    """配对漂移规则配置 (v7.87.0)
+    """配对漂移规则配置 (v7.87.0, v7.87.1: 统一小数形式)
 
     检测对冲漂移率，衡量持仓偏离 Dollar Neutral 的程度:
-        Drift% = (Net Exposure / Gross Exposure) × 100
+        Drift = Net Exposure / Gross Exposure
 
     数值解读:
-        - 0%: 完美对冲
-        - 15%: 警戒区
-        - 25%: 触发阈值 (默认)
-        - 30%+: 危险区
+        - 0.0: 完美对冲
+        - 0.15: 警戒区
+        - 0.25: 触发阈值 (默认)
+        - 0.30+: 危险区
 
     Note:
-        threshold 使用比例形式 (0.25 = 25%)
-        实际检测时: abs(drift) > threshold * 100
+        threshold 使用小数形式 (0.25)
+        get_hedge_drift() 也返回小数，单位一致
     """
     enabled: bool = True
     priority: int = 75              # 在 Drawdown(80) 之后
-    threshold: float = 0.25         # 25% (比例形式)
+    threshold: float = 0.25         # 25% (小数形式)
     cooldown_days: int = 30         # 冷却期 30 天
 
 

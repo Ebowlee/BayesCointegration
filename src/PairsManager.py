@@ -491,16 +491,17 @@ class PairsManager:
 
     def check_pairs_health(self) -> Dict[str, List[str]]:
         """
-        配对层面健康检查 (v7.86.0)
+        配对层面健康检查 (v7.87.1)
 
         检查维度 (按优先级排序):
             1. Anomaly: 单边或同向持仓异常
             2. Drawdown: 配对回撤超过阈值 (v7.86.0)
             3. Drift: 对冲漂移超过阈值 (v7.87.0)
-            (未来扩展: CumulativeLoss, Timeout)
+            4. Timeout: 持仓超时 (v7.87.1)
+            (未来扩展: CumulativeLoss)
 
         Returns:
-            Dict[str, List[str]]: {'anomaly': [...], 'drawdown': [...], 'drift': [...]}
+            Dict[str, List[str]]: {'anomaly': [...], 'drawdown': [...], 'drift': [...], 'timeout': [...]}
             - 每个配对只返回最高优先级问题
             - 便于 main.py 按类型批量处理
 
@@ -511,11 +512,12 @@ class PairsManager:
                 intent = pair.get_close_intent(reason='ANOMALY')
                 # ... 执行平仓
         """
-        health_issues = {'anomaly': [], 'drawdown': [], 'drift': []}
+        health_issues = {'anomaly': [], 'drawdown': [], 'drift': [], 'timeout': []}
 
-        # 获取配置阈值
+        # 获取配置阈值 (集中在循环前)
         risk_config = self.algorithm.config.risk_management.pair_rules
         drawdown_threshold = risk_config.pair_drawdown.threshold
+        drift_threshold = risk_config.pair_drift.threshold
 
         for pair in self.get_pairs_with_position().values():
             # 优先级1: Anomaly (最高优先级)
@@ -529,17 +531,22 @@ class PairsManager:
                 health_issues['drawdown'].append(pair.pair_id)
                 continue  # 跳过后续检查
 
-            # 优先级3: Drift (对冲漂移超过阈值) (v7.87.0)
-            drift_threshold = risk_config.pair_drift.threshold
+            # 优先级3: Drift (对冲漂移超过阈值) (v7.87.0, v7.87.1: 小数形式)
             drift = pair.get_hedge_drift()
-            if drift is not None and abs(drift) > drift_threshold * 100:
-                # Note: get_hedge_drift() 返回百分比 (如 25.0)
-                # threshold 存储比例 (如 0.25)，需乘以 100 转换
+            if drift is not None and abs(drift) > drift_threshold:
                 health_issues['drift'].append(pair.pair_id)
                 continue  # 跳过后续检查
 
-            # [未来扩展] 优先级4: CumulativeLoss
-            # [未来扩展] 优先级5: Timeout
+            # 优先级4: Timeout (持仓超时) (v7.87.1)
+            # 复用 Pairs.get_max_holding_days() 和 get_pair_holding_days()
+            max_days = pair.get_max_holding_days()
+            holding_days = pair.get_pair_holding_days()
+            if max_days is not None and holding_days is not None:
+                if holding_days > max_days:
+                    health_issues['timeout'].append(pair.pair_id)
+                    continue  # 跳过后续检查
+
+            # [未来扩展] 优先级5: CumulativeLoss
 
         return health_issues
 
