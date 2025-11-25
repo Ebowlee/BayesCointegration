@@ -5,6 +5,101 @@
 ---
 
 
+## [v7.87.0_pairs-drift-detection@20251125]
+
+### 版本概述
+Feature - PairDrift 检测功能 (4C 健康检查优先级3)
+
+### 背景
+
+**Drift (对冲漂移率)** 衡量配对持仓偏离 "Dollar Neutral" 的程度:
+```
+Drift% = (Net Exposure / Gross Exposure) × 100
+```
+
+- Net Exposure: 净敞口 = value1 + value2 (考虑方向)
+- Gross Exposure: 总敞口 = |value1| + |value2|
+
+| Drift | 含义 | 风险等级 |
+|-------|------|---------|
+| 0% | 完美对冲 | 安全 |
+| 15% | 警戒区起点 | 注意 |
+| **25%** | **平仓阈值** | **触发** |
+| 30%+ | 危险区 | 类似单边持仓 |
+
+### 🔧 修改内容
+
+#### src/config.py
+
+**1. 新增 `PairDriftRuleConfig` 配置类** (Line 369-389):
+```python
+@dataclass
+class PairDriftRuleConfig:
+    """配对漂移规则配置 (v7.87.0)"""
+    enabled: bool = True
+    priority: int = 75              # 在 Drawdown(80) 之后
+    threshold: float = 0.25         # 25% (比例形式)
+    cooldown_days: int = 30         # 冷却期 30 天
+```
+
+**2. `PairRulesConfig` 添加 `pair_drift` 字段** (Line 413):
+```python
+pair_drift: PairDriftRuleConfig = field(default_factory=PairDriftRuleConfig)
+```
+
+**3. `CLOSE_REASONS` 添加 'DRIFT'** (Line 490-493):
+```python
+'DRIFT': {
+    'display': '对冲漂移',
+    'category': 'PAIR_RISK'
+}
+```
+
+#### src/PairsManager.py
+
+**4. `check_pairs_health()` 添加 Drift 检测** (Line 531-538):
+```python
+# 优先级3: Drift (对冲漂移超过阈值) (v7.87.0)
+drift_threshold = risk_config.pair_drift.threshold
+drift = pair.get_hedge_drift()
+if drift is not None and abs(drift) > drift_threshold * 100:
+    health_issues['drift'].append(pair.pair_id)
+    continue
+```
+
+**返回值更新**: `{'anomaly': [], 'drawdown': [], 'drift': []}`
+
+**5. `get_cooldown_required_days()` 添加 DRIFT 映射** (Line 807):
+```python
+'DRIFT': risk_config.pair_drift.cooldown_days,
+```
+
+### 设计决策
+
+**复用现有方法**: `Pairs.get_hedge_drift()` 已在 v7.40.1 实现，无需修改 Pairs.py
+
+**阈值选择 (25%)**:
+- 给正常波动留空间 (日内波动可能 10-15%)
+- 早于危险区 (30%) 干预
+- 与 Drawdown (4%) 保持一致的早期干预哲学
+
+**冷却期 (30天)**:
+- Drift 通常是暂时性的，比 Drawdown (180天) 短
+- 给市场足够时间恢复正常
+
+### 优先级排序 (更新后)
+
+| 优先级 | 类型 | priority值 | 阈值 | 冷却期 |
+|--------|------|-----------|------|--------|
+| 1 | Anomaly | 100 | N/A | 999999天 |
+| 2 | Drawdown | 80 | 4% | 180天 |
+| **3** | **Drift** | **75** | **25%** | **30天** |
+| 4 | CumulativeLoss | 90 | 8% | 360天 |
+| 5 | Timeout | 70 | 动态 | 90天 |
+
+---
+
+
 ## [v7.86.0_pairs-drawdown-detection@20251125]
 
 ### 版本概述
