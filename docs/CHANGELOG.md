@@ -5,6 +5,68 @@
 ---
 
 
+## [v7.87.1_drift-fix-timeout-detection@20251125]
+
+### 版本概述
+Fix + Feature - Drift 单位统一 + Timeout 检测 (4C 健康检查优先级4)
+
+### 🔧 修改内容
+
+#### src/Pairs.py
+
+**1. `get_hedge_drift()` 改为返回小数** (Line 559):
+```python
+# v7.87.1: 小数形式，与其他指标一致
+return net_exp / gross_exp  # 原: (net_exp / gross_exp) * 100
+```
+
+**docstring 更新**: 数值解读改为 0.0/0.15/0.25/0.30+
+
+#### src/PairsManager.py
+
+**2. Drift 检测移除 `* 100`** (Line 536):
+```python
+if drift is not None and abs(drift) > drift_threshold:  # 原: drift_threshold * 100
+```
+
+**3. 新增 Timeout 检测** (Line 540-547):
+```python
+# 优先级4: Timeout (持仓超时) (v7.87.1)
+max_days = pair.get_max_holding_days()
+holding_days = pair.get_pair_holding_days()
+if max_days is not None and holding_days is not None:
+    if holding_days > max_days:
+        health_issues['timeout'].append(pair.pair_id)
+        continue
+```
+
+**返回值更新**: `{'anomaly': [], 'drawdown': [], 'drift': [], 'timeout': []}`
+
+#### src/config.py
+
+**4. PairDriftRuleConfig docstring 更新** (Line 371-385):
+- 公式改为 `Drift = Net Exposure / Gross Exposure`
+- Note 改为"threshold 使用小数形式 (0.25)"
+
+### 设计决策
+
+**单位统一原则**: 所有比例类指标 (drawdown, drift) 统一使用小数形式 (0.25 = 25%)，避免转换错误
+
+**Timeout 检测**: 复用现有 `get_max_holding_days()` 和 `get_pair_holding_days()` 方法，与 PairHoldingTimeoutRule 逻辑一致
+
+### 优先级排序 (更新后)
+
+| 优先级 | 类型 | priority值 | 阈值 | 冷却期 |
+|--------|------|-----------|------|--------|
+| 1 | Anomaly | 100 | N/A | 999999天 |
+| 2 | Drawdown | 80 | 4% | 180天 |
+| 3 | Drift | 75 | 25% | 30天 |
+| **4** | **Timeout** | **70** | **动态** | **90天** |
+| 5 | CumulativeLoss | 90 | 8% | 360天 |
+
+---
+
+
 ## [v7.87.0_pairs-drift-detection@20251125]
 
 ### 版本概述
