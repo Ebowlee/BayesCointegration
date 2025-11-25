@@ -5,6 +5,48 @@
 ---
 
 
+## [v7.88.0_ondata-health-check@20251125]
+
+### 版本概述
+Feature - 添加 OnData() 方法，集成配对健康检查逻辑
+
+### 🔧 修改内容
+
+#### main.py
+
+**1. 新增 `OnData()` 方法** (Line 92-150):
+```python
+def OnData(self, data: Slice):
+    """每日交易逻辑入口 (v7.88.0)"""
+    # 数据有效性检查
+    if data.Count == 0:
+        return
+    if len(self.pairs_manager.all_pairs) == 0:
+        return
+
+    # 配对健康检查 (排他性检测)
+    health_issues = self.pairs_manager.check_pairs_health()
+
+    # 处理问题配对
+    for issue_type, pair_ids in health_issues.items():
+        for pair_id in pair_ids:
+            self.Debug(f"[健康检查] {pair_id} 触发{issue_type.upper()} → 待平仓")
+            # TODO v7.89.0: 集成OrderExecutor执行平仓
+```
+
+**健康检查优先级**:
+1. Anomaly: 单边或同向持仓异常
+2. Drawdown: 配对回撤超过阈值 (4%)
+3. Drift: 对冲漂移超过阈值 (25%)
+4. Timeout: 持仓超时
+
+### 📝 说明
+- 本版本仅添加框架和日志输出，验证健康检查逻辑
+- 实际平仓执行待 v7.89.0 集成 OrderExecutor 后实现
+
+---
+
+
 ## [v7.87.1_drift-fix-timeout-detection@20251125]
 
 ### 版本概述

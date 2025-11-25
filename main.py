@@ -15,7 +15,7 @@ from src.analysis.IndustryQuotaManager import IndustryQuotaManager
 
 
 class BayesianCointegrationStrategy(QCAlgorithm):
-    """v8.0.0: UniverseSelection验证版本 - 仅保留选股逻辑"""
+    """v7.88.0: OnData + 健康检查集成"""
 
     def Initialize(self):
         """初始化策略"""
@@ -87,6 +87,67 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         log_level = getattr(self.config.main, 'log_level', 0)
         if self.debug_mode and level <= log_level:
             QCAlgorithm.Debug(self, message)
+
+
+    def OnData(self, data: Slice):
+        """
+        每日交易逻辑入口 (v7.88.0)
+
+        执行顺序:
+        1. 数据有效性检查
+        2. 配对健康检查 (Anomaly → Drawdown → Drift → Timeout)
+        3. 问题配对标记 (平仓逻辑待后续版本实现)
+
+        Note:
+            健康检查采用排他性检测，每个配对只返回最高优先级问题
+        """
+        # === 数据有效性检查 ===
+        if data.Count == 0:
+            return
+
+        # 确保有配对可交易
+        if len(self.pairs_manager.all_pairs) == 0:
+            return
+
+        # === 配对健康检查 ===
+        health_issues = self.pairs_manager.check_pairs_health()
+
+        # 统计问题数量
+        total_issues = sum(len(ids) for ids in health_issues.values())
+        if total_issues == 0:
+            return  # 无问题，跳过后续处理
+
+        # === 处理问题配对 ===
+        issue_reason_map = {
+            'anomaly': 'ANOMALY',
+            'drawdown': 'DRAWDOWN',
+            'drift': 'DRIFT',
+            'timeout': 'TIMEOUT'
+        }
+
+        for issue_type, pair_ids in health_issues.items():
+            if not pair_ids:
+                continue
+
+            reason = issue_reason_map.get(issue_type, 'RISK')
+
+            for pair_id in pair_ids:
+                pair = self.pairs_manager.get_pair_by_id(pair_id)
+                if pair is None:
+                    continue
+
+                # 日志输出 (level=0: 核心交易事件)
+                self.Debug(
+                    f"[健康检查] {pair_id} 触发{issue_type.upper()} → 待平仓",
+                    level=0
+                )
+
+                # TODO v7.89.0: 集成OrderExecutor执行平仓
+                # intent = pair.get_close_intent(reason=reason)
+                # if intent:
+                #     tickets = self.order_executor.execute_close(intent)
+                #     if tickets:
+                #         self.tickets_manager.register_tickets(pair_id, tickets)
 
 
     def OnSecuritiesChanged(self, changes: SecurityChanges):
