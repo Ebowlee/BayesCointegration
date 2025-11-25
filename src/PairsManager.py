@@ -514,10 +514,10 @@ class PairsManager:
         """
         health_issues = {'anomaly': [], 'drawdown': [], 'drift': [], 'timeout': []}
 
-        # 获取配置阈值 (集中在循环前)
-        risk_config = self.algorithm.config.risk_management.pair_rules
-        drawdown_threshold = risk_config.pair_drawdown.threshold
-        drift_threshold = risk_config.pair_drift.threshold
+        # 获取配置阈值 (v7.89.0: 从 pair_health_check 集中读取)
+        health_config = self.algorithm.config.pair_health_check
+        drawdown_threshold = health_config.drawdown_threshold
+        drift_threshold = health_config.drift_threshold
 
         for pair in self.get_pairs_with_position().values():
             # 优先级1: Anomaly (最高优先级)
@@ -806,16 +806,15 @@ class PairsManager:
             reason_config = close_reasons[last_close_reason]
             return reason_config.get('cooldown_days', 10)
 
-        # 风控规则: 从risk_management.pair_rules读取
-        risk_config = self.algorithm.config.risk_management.pair_rules
-        reason_to_config = {
-            'TIMEOUT': risk_config.holding_timeout.cooldown_days,
-            'DRAWDOWN': risk_config.pair_drawdown.cooldown_days,
-            'DRIFT': risk_config.pair_drift.cooldown_days,           # v7.87.0
-            'CUMULATIVE_LOSS': risk_config.pair_cumulative_loss.cooldown_days,
-            'ANOMALY': risk_config.pair_anomaly.cooldown_days,
+        # 风控规则: 从 pair_health_check 读取 (v7.89.0 重构)
+        health_config = self.algorithm.config.pair_health_check
+        reason_to_cooldown = {
+            'TIMEOUT': health_config.timeout_cooldown_days,
+            'DRAWDOWN': health_config.drawdown_cooldown_days,
+            'DRIFT': health_config.drift_cooldown_days,
+            'ANOMALY': health_config.anomaly_cooldown_days,
         }
 
-        return reason_to_config.get(last_close_reason, 10)
+        return reason_to_cooldown.get(last_close_reason, 10)
 
 

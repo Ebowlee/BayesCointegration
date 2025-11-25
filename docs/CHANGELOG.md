@@ -5,6 +5,72 @@
 ---
 
 
+## [v7.89.0_refactor-health-check-config@20251125]
+
+### 版本概述
+Refactor - Pairs 层面健康检查配置集中化，删除冗余字段
+
+### 🔧 修改内容
+
+#### src/config.py
+
+**1. 删除 6 个分散的配置类**:
+- `PairAnomalyRuleConfig`
+- `PairCumulativeLossRuleConfig`
+- `PairDrawdownRuleConfig`
+- `PairDriftRuleConfig`
+- `HoldingTimeoutRuleConfig`
+- `PairRulesConfig` (容器类)
+
+**2. 新增集中配置类** (Line 350-373):
+```python
+@dataclass
+class PairHealthCheckConfig:
+    """Pairs 层面健康检查配置 (v7.89.0)"""
+    # 阈值
+    drawdown_threshold: float = 0.04
+    drift_threshold: float = 0.25
+    # 冷却期
+    anomaly_cooldown_days: int = 999999
+    drawdown_cooldown_days: int = 180
+    drift_cooldown_days: int = 30
+    timeout_cooldown_days: int = 90
+```
+
+**3. 更新 RiskManagementConfig**: 删除 `pair_rules` 字段
+
+**4. 更新 StrategyConfig**: 添加 `pair_health_check` 字段
+
+#### src/PairsManager.py
+
+**5. check_pairs_health() 配置访问更新** (Line 517-520):
+```python
+# 修改前: risk_config.pair_drawdown.threshold
+# 修改后: health_config.drawdown_threshold
+health_config = self.algorithm.config.pair_health_check
+drawdown_threshold = health_config.drawdown_threshold
+drift_threshold = health_config.drift_threshold
+```
+
+**6. get_cooldown_required_days() 配置访问更新** (Line 809-816):
+```python
+# 修改前: risk_config.pair_drawdown.cooldown_days
+# 修改后: health_config.drawdown_cooldown_days
+health_config = self.algorithm.config.pair_health_check
+reason_to_cooldown = {
+    'TIMEOUT': health_config.timeout_cooldown_days,
+    ...
+}
+```
+
+### 📝 说明
+- 删除冗余的 `enabled` 和 `priority` 字段（从未使用）
+- 简化配置访问路径：3层嵌套 → 2层嵌套
+- 保持原有阈值和冷却期数值不变
+
+---
+
+
 ## [v7.88.0_ondata-health-check@20251125]
 
 ### 版本概述

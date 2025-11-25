@@ -341,63 +341,6 @@ class PortfolioDrawdownRuleConfig:
 
 
 @dataclass
-class PairAnomalyRuleConfig:
-    """配对异常规则配置"""
-    enabled: bool = True
-    priority: int = 100
-    cooldown_days: int = 999999
-
-
-@dataclass
-class PairCumulativeLossRuleConfig:
-    """配对累积亏损规则配置"""
-    enabled: bool = True
-    priority: int = 90
-    threshold: float = 0.08
-    cooldown_days: int = 360
-
-
-@dataclass
-class PairDrawdownRuleConfig:
-    """配对回撤规则配置"""
-    enabled: bool = True
-    priority: int = 80
-    threshold: float = 0.04
-    cooldown_days: int = 180
-
-
-@dataclass
-class PairDriftRuleConfig:
-    """配对漂移规则配置 (v7.87.0, v7.87.1: 统一小数形式)
-
-    检测对冲漂移率，衡量持仓偏离 Dollar Neutral 的程度:
-        Drift = Net Exposure / Gross Exposure
-
-    数值解读:
-        - 0.0: 完美对冲
-        - 0.15: 警戒区
-        - 0.25: 触发阈值 (默认)
-        - 0.30+: 危险区
-
-    Note:
-        threshold 使用小数形式 (0.25)
-        get_hedge_drift() 也返回小数，单位一致
-    """
-    enabled: bool = True
-    priority: int = 75              # 在 Drawdown(80) 之后
-    threshold: float = 0.25         # 25% (小数形式)
-    cooldown_days: int = 30         # 冷却期 30 天
-
-
-@dataclass
-class HoldingTimeoutRuleConfig:
-    """持仓超时规则配置 (v7.38.1: 移除max_halflife_multiplier)"""
-    enabled: bool = True
-    priority: int = 70
-    cooldown_days: int = 90
-
-
-@dataclass
 class PortfolioRulesConfig:
     """组合层面规则配置"""
     account_blowup: AccountBlowupRuleConfig = field(default_factory=AccountBlowupRuleConfig)
@@ -405,13 +348,29 @@ class PortfolioRulesConfig:
 
 
 @dataclass
-class PairRulesConfig:
-    """配对层面规则配置"""
-    pair_anomaly: PairAnomalyRuleConfig = field(default_factory=PairAnomalyRuleConfig)
-    pair_cumulative_loss: PairCumulativeLossRuleConfig = field(default_factory=PairCumulativeLossRuleConfig)
-    pair_drawdown: PairDrawdownRuleConfig = field(default_factory=PairDrawdownRuleConfig)
-    pair_drift: PairDriftRuleConfig = field(default_factory=PairDriftRuleConfig)
-    holding_timeout: HoldingTimeoutRuleConfig = field(default_factory=HoldingTimeoutRuleConfig)
+class PairHealthCheckConfig:
+    """Pairs 层面健康检查配置 (v7.89.0 重构)
+
+    集中管理 4 个检查维度的阈值和冷却期:
+    - anomaly: 单边/同向持仓异常 (无阈值，仅冷却期)
+    - drawdown: 配对回撤
+    - drift: 对冲漂移
+    - timeout: 持仓超时 (无阈值，使用动态 max_holding_days)
+
+    Note:
+        - threshold 使用小数形式 (0.04 = 4%)
+        - cooldown_days 单位: 天
+        - anomaly 永久冷却 (999999天)
+    """
+    # === 阈值 (仅 drawdown 和 drift 需要) ===
+    drawdown_threshold: float = 0.04      # 4% 回撤触发
+    drift_threshold: float = 0.25         # 25% 漂移触发
+
+    # === 冷却期 (全部 4 个维度) ===
+    anomaly_cooldown_days: int = 999999   # 永久冷却
+    drawdown_cooldown_days: int = 180
+    drift_cooldown_days: int = 30
+    timeout_cooldown_days: int = 90
 
 
 @dataclass
@@ -420,7 +379,6 @@ class RiskManagementConfig:
     enabled: bool = True
     market_condition: MarketConditionConfig = field(default_factory=MarketConditionConfig)
     portfolio_rules: PortfolioRulesConfig = field(default_factory=PortfolioRulesConfig)
-    pair_rules: PairRulesConfig = field(default_factory=PairRulesConfig)
 
 
 
@@ -597,7 +555,10 @@ class StrategyConfig:
         # 10. 风险管理配置
         self.risk_management = RiskManagementConfig()
 
-        # 11. 常量配置 (保持dict - 枚举性质)
+        # 11. Pairs层面健康检查配置 (v7.89.0: 从分散的Rule配置重构)
+        self.pair_health_check = PairHealthCheckConfig()
+
+        # 12. 常量配置 (保持dict - 枚举性质)
         self.constants = self._init_constants()
 
 
