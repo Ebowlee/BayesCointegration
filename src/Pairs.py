@@ -128,6 +128,9 @@ class Pairs:
         self.exit_price1 = None                                                # symbol1平仓价(None=持仓中, 有值=已平仓)
         self.exit_price2 = None                                                # symbol2平仓价(None=持仓中, 有值=已平仓)
 
+        # === Drawdown 追踪 (v7.86.0) ===
+        self.pair_hwm: float = None                                            # 配对高水位 (首次调用 get_pair_drawdown 时初始化)
+
 
     def update_params(self, new_pair):
         """
@@ -621,6 +624,53 @@ class Pairs:
         return None
 
 
+    def get_pair_drawdown(self) -> Optional[float]:
+        """
+        计算配对回撤率 (v7.86.0)
+
+        Returns:
+            回撤率 (0.0-1.0), 如无持仓返回 None
+
+        计算公式:
+            current_value = invested_capital + unrealized_pnl
+            drawdown = max(0, (pair_hwm - current_value) / pair_hwm)
+
+        HWM 更新逻辑:
+            - 首次调用时初始化为 current_value
+            - 后续调用时取 max(pair_hwm, current_value)
+
+        设计说明:
+            HWM 放在 Pairs 内部而非 PairsManager，因为:
+            1. 数据内聚: HWM 是配对自身状态，与配对生命周期绑定
+            2. 简化调用: 无需外部传参
+            3. 自动清理: 平仓时在 on_position_filled() 中重置
+        """
+        if not self.has_position():
+            return None
+
+        # 获取当前资产价值
+        invested_capital = self.get_pair_current_invested_capital()
+        unrealized_pnl = self.get_pair_unrealized_pnl()
+
+        if invested_capital is None or unrealized_pnl is None:
+            return None
+
+        current_value = invested_capital + unrealized_pnl
+
+        # 更新 HWM (首次初始化或刷新最高值)
+        if self.pair_hwm is None:
+            self.pair_hwm = current_value
+        else:
+            self.pair_hwm = max(self.pair_hwm, current_value)
+
+        # 计算回撤 (确保非负)
+        if self.pair_hwm <= 0:
+            return 0.0
+
+        drawdown = max(0, (self.pair_hwm - current_value) / self.pair_hwm)
+        return drawdown
+
+
     def get_max_holding_days(self) -> Optional[float]:
         """
         计算理论最大持仓天数 (v7.38.2: 基于指数衰减公式)
@@ -994,6 +1044,7 @@ class Pairs:
             self.entry_price2 = None
             self.exit_price1 = None
             self.exit_price2 = None
+            self.pair_hwm = None                                               # 重置高水位 (v7.86.0)
 
 
     def _update_trade_stats(self):

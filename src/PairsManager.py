@@ -491,14 +491,15 @@ class PairsManager:
 
     def check_pairs_health(self) -> Dict[str, List[str]]:
         """
-        配对层面健康检查 (v7.84.0)
+        配对层面健康检查 (v7.86.0)
 
         检查维度 (按优先级排序):
             1. Anomaly: 单边或同向持仓异常
-            (未来扩展: Drawdown, CumulativeLoss, Timeout)
+            2. Drawdown: 配对回撤超过阈值 (v7.86.0)
+            (未来扩展: CumulativeLoss, Timeout)
 
         Returns:
-            Dict[str, List[str]]: {'anomaly': [pair_ids]}
+            Dict[str, List[str]]: {'anomaly': [pair_ids], 'drawdown': [pair_ids]}
             - 每个配对只返回最高优先级问题
             - 便于 main.py 按类型批量处理
 
@@ -509,7 +510,11 @@ class PairsManager:
                 intent = pair.get_close_intent(reason='ANOMALY')
                 # ... 执行平仓
         """
-        health_issues = {'anomaly': []}
+        health_issues = {'anomaly': [], 'drawdown': []}
+
+        # 获取配置阈值
+        risk_config = self.algorithm.config.risk_management.pair_rules
+        drawdown_threshold = risk_config.pair_drawdown.threshold
 
         for pair in self.get_pairs_with_position().values():
             # 优先级1: Anomaly (最高优先级)
@@ -517,7 +522,12 @@ class PairsManager:
                 health_issues['anomaly'].append(pair.pair_id)
                 continue  # 跳过后续检查
 
-            # [未来扩展] 优先级2: Drawdown
+            # 优先级2: Drawdown (回撤超过阈值)
+            drawdown = pair.get_pair_drawdown()
+            if drawdown is not None and drawdown > drawdown_threshold:
+                health_issues['drawdown'].append(pair.pair_id)
+                continue  # 跳过后续检查
+
             # [未来扩展] 优先级3: CumulativeLoss
             # [未来扩展] 优先级4: Timeout
 
