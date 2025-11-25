@@ -602,14 +602,11 @@ class PairsManager:
         # 获取配置阈值 (预留 - 暂用硬编码)
         concentration_threshold = 0.40  # 40% 单行业占用上限
 
+        # 获取所有行业代码
         industry_data = self._aggregate_all_industry_data()
-        total_invested = sum(d.current_invested_capital for d in industry_data.values())
 
-        if total_invested <= 0:
-            return health_issues
-
-        for industry_code, data in industry_data.items():
-            concentration = data.current_invested_capital / total_invested
+        for industry_code in industry_data.keys():
+            concentration = self.get_industry_concentration(industry_code)
             if concentration > concentration_threshold:
                 health_issues['concentration'].append(industry_code)
 
