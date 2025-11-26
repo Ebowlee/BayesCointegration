@@ -2,33 +2,24 @@
 from AlgorithmImports import *
 from typing import Dict
 from collections import defaultdict
+import random
+import numpy as np
 # endregion
 
 
 class IndustryQuotaManager:
     """
-    行业配额管理器 - 动态调整每个行业的配对数量上限 (v7.71.0: 指数权重系统)
+    行业配额管理器 - 控制每个行业的配对数量上限
 
-    核心逻辑:
-    - 预热期(前90天): 返回空字典,不分配配额
-    - 正常期: 根据composite_score使用指数权重分配全局配额15
+    核心流程:
+        1. calculate_quotas(): 根据行业历史表现计算每个行业的配额
+           - 预热期(前90天): 返回空字典，使用默认配额
+           - 正常期: 基于composite_score的指数权重分配全局配额
 
-    权重函数:
-        f(x) = ceil(e^x)      当 x ≤ 0  (负CS/零CS,权重=1)
-        f(x) = ceil(e^(8x))   当 x > 0  (正CS,指数增长)
-
-        其中 x = composite_score = industry_roi × win_rate
-
-    配额分配:
-        - 全局约束: 总配额=15
-        - 权重比例: quota = floor(15 × weight / total_weight)
-        - 保底机制: 每个行业最少1个配额
-
-    设计特点:
-    - 数据驱动: 从PairsManager读取composite_score
-    - 无状态: 每次calculate_quotas()即时计算
-    - 行业全覆盖: 遍历55个MorningstarIndustryGroupCode
+        2. apply_quotas(): 应用配额到协整结果
+           - 按行业分组 → 确定性随机打乱 → 按配额+单股限制筛选
     """
+
 
     def __init__(self, algorithm, config: 'IndustryQuotaManagerConfig'):
         """
@@ -45,16 +36,163 @@ class IndustryQuotaManager:
         self.min_quota = config.min_quota_per_industry
 
 
-    def _is_in_warmup_period(self) -> bool:
+    def calculate_quotas(self, pairs_manager) -> Dict[str, Dict]:
         """
-        检查是否在预热期
+        计算每个行业的配对配额 (v7.71.0: 指数权重分配)
+
+        Args:
+            pairs_manager: PairsManager实例
 
         Returns:
-            True: 在预热期 (days_running < warmup_days)
-            False: 已过预热期
+            {industry_code: {
+                'quota': int,           # 分配的配额数量
+                'weight': int,          # 计算的权重值
+                'composite_score': float  # 综合得分
+            }}
+
+            - 预热期: 返回空字典 {}
+            - 正常期: 返回55个行业的配额字典
         """
-        days_running = (self.algorithm.Time - self.algorithm.StartDate).days
-        return days_running < self.warmup_days
+
+        # 步骤1: 检查预热期
+        if self._is_in_warmup_period():
+            self.algorithm.Debug(
+                f"[行业配额] 预热期 ({(self.algorithm.Time - self.algorithm.StartDate).days}/{self.warmup_days}天), "
+                f"暂不分配配额"
+            )
+            return {}
+
+        # 步骤2: 遍历55个行业,计算权重
+        industry_weights = {}
+        total_weight = 0
+
+        industry_codes = self._get_all_industry_codes()
+
+        for industry_code in industry_codes:
+            # 从PairsManager获取composite_score
+            cs = pairs_manager.get_industry_composite_score(industry_code)
+            # 无历史数据时cs=0, weight自动=1
+            weight = self._calculate_weight(cs)
+
+            industry_weights[industry_code] = {
+                'composite_score': cs,
+                'weight': weight
+            }
+            total_weight += weight
+
+        # 步骤2.5: 获取集中度过高的行业 (v7.95.0)
+        over_concentrated = pairs_manager.check_industry_concentration()
+
+        # 步骤3: 按权重比例分配配额 (向下取整)
+        industry_quotas = {}
+
+        for industry_code, data in industry_weights.items():
+            # v7.95.0: 集中度过高的行业，配额降为0
+            if industry_code in over_concentrated:
+                quota = 0
+            elif total_weight > 0:
+                quota = int(np.floor(self.total_quota * data['weight'] / total_weight))
+                # 保底机制
+                if quota < self.min_quota:
+                    quota = self.min_quota
+            else:
+                # 极端情况: 所有行业权重=0 (不应该发生)
+                quota = self.min_quota
+
+            industry_quotas[industry_code] = {
+                'quota': quota,
+                'weight': data['weight'],
+                'composite_score': data['composite_score']
+            }
+
+        # 步骤4: 详细日志
+        self._log_quota_allocation(industry_quotas)
+
+        return industry_quotas
+
+
+    def apply_quotas(self, coint_result: Dict) -> List:
+        """
+        应用行业配额到协整结果 (v7.82.0: 随机抽取,避免pvalue过度加权)
+
+        Args:
+            coint_result: CointegrationAnalyzer.cointegration_procedure()返回值
+                {'pairs': [...], 'statistics': {...}}
+
+        Returns:
+            List[Dict]: 应用配额后的配对列表
+                每个Dict: {'symbol1', 'symbol2', 'pvalue', 'industry_code'}
+
+        设计理念 (v7.82.0):
+        - CointegrationAnalyzer已用pvalue<0.01严格筛选
+        - 进入本方法的配对pvalue都在0.0000x~0.0099 (极窄区间)
+        - 继续用pvalue排序 = 过度放大微小差异,导致"赢家通吃"
+        - 随机抽取 = 给所有通过协整的配对公平机会,增加多样性
+
+        实现:
+        1. 获取行业配额
+        2. 按行业分组
+        3. 确定性随机抽取 (种子=hash(日期+行业), 保证可复现)
+        4. 应用max_repeats约束 (单股最多参与N对)
+        5. 返回选定配对合并列表
+        """
+        # 步骤1: 获取行业配额
+        industry_quotas = self.calculate_quotas(self.algorithm.pairs_manager)
+
+        # 步骤2: 按行业分组pairs
+        raw_pairs = coint_result['pairs']
+        industry_groups = defaultdict(list)
+
+        for pair in raw_pairs:
+            industry_code = str(pair['industry_code'])
+            industry_groups[industry_code].append(pair)
+
+        # 步骤3-4: 对每个行业应用配额和单股限制
+        selected_pairs = []
+        industry_names = self.algorithm.config.constants['industry_names']
+
+        for industry_code, pairs in industry_groups.items():
+            # 获取配额(优先使用动态配额,否则使用最低保底配额)
+            quota_info = industry_quotas.get(industry_code)
+            quota = quota_info['quota'] if quota_info else self.min_quota
+
+            # 设置确定性随机种子 (保证每月每行业结果一致)
+            seed = hash(f"{self.algorithm.Time.date()}_{industry_code}") % (2**32)
+            random.seed(seed)
+
+            # 随机打乱配对顺序
+            shuffled_pairs = pairs.copy()
+            random.shuffle(shuffled_pairs)
+
+            # 顺序遍历(等价于随机抽取) + max_repeats约束
+            symbol_counts = defaultdict(int)
+            industry_selected = []
+            max_symbol_repeats = self.algorithm.config.cointegration_analyzer.max_symbol_repeats
+
+            for pair in shuffled_pairs:
+                if len(industry_selected) >= quota:
+                    break
+
+                s1, s2 = pair['symbol1'], pair['symbol2']
+                if (symbol_counts[s1] < max_symbol_repeats and
+                    symbol_counts[s2] < max_symbol_repeats):
+                    industry_selected.append(pair)
+                    symbol_counts[s1] += 1
+                    symbol_counts[s2] += 1
+
+            # 步骤5: 输出配额应用日志(只记录有配对的行业)
+            if len(industry_selected) > 0:
+                industry_name = industry_names.get(int(industry_code), f'未知({industry_code})')
+                self.algorithm.Debug(
+                    f"[配额筛选] {industry_name}: "
+                    f"协整通过{len(pairs)}对 → 配额{quota} → 随机选取{len(industry_selected)}对 (种子:{seed})",
+                    level=1
+                )
+
+            selected_pairs.extend(industry_selected)
+
+        # 步骤6: 返回所有选定配对
+        return selected_pairs
 
 
     def _calculate_weight(self, composite_score: float) -> int:
@@ -103,74 +241,16 @@ class IndustryQuotaManager:
         return [str(code) for code in industry_names.keys()]
 
 
-    def calculate_quotas(self, pairs_manager) -> Dict[str, Dict]:
+    def _is_in_warmup_period(self) -> bool:
         """
-        计算每个行业的配对配额 (v7.71.0: 指数权重分配)
-
-        Args:
-            pairs_manager: PairsManager实例
+        检查是否在预热期
 
         Returns:
-            {industry_code: {
-                'quota': int,           # 分配的配额数量
-                'weight': int,          # 计算的权重值
-                'composite_score': float  # 综合得分
-            }}
-
-            - 预热期: 返回空字典 {}
-            - 正常期: 返回55个行业的配额字典
+            True: 在预热期 (days_running < warmup_days)
+            False: 已过预热期
         """
-        import numpy as np
-
-        # 步骤1: 检查预热期
-        if self._is_in_warmup_period():
-            self.algorithm.Debug(
-                f"[行业配额] 预热期 ({(self.algorithm.Time - self.algorithm.StartDate).days}/{self.warmup_days}天), "
-                f"暂不分配配额"
-            )
-            return {}
-
-        # 步骤2: 遍历55个行业,计算权重
-        industry_weights = {}
-        total_weight = 0
-
-        industry_codes = self._get_all_industry_codes()
-
-        for industry_code in industry_codes:
-            # 从PairsManager获取composite_score
-            cs = pairs_manager.get_industry_composite_score(industry_code)
-            # 无历史数据时cs=0, weight自动=1
-            weight = self._calculate_weight(cs)
-
-            industry_weights[industry_code] = {
-                'composite_score': cs,
-                'weight': weight
-            }
-            total_weight += weight
-
-        # 步骤3: 按权重比例分配配额 (向下取整)
-        industry_quotas = {}
-
-        for industry_code, data in industry_weights.items():
-            if total_weight > 0:
-                quota = int(np.floor(self.total_quota * data['weight'] / total_weight))
-                # 保底机制
-                if quota < self.min_quota:
-                    quota = self.min_quota
-            else:
-                # 极端情况: 所有行业权重=0 (不应该发生)
-                quota = self.min_quota
-
-            industry_quotas[industry_code] = {
-                'quota': quota,
-                'weight': data['weight'],
-                'composite_score': data['composite_score']
-            }
-
-        # 步骤4: 详细日志
-        self._log_quota_allocation(industry_quotas)
-
-        return industry_quotas
+        days_running = (self.algorithm.Time - self.algorithm.StartDate).days
+        return days_running < self.warmup_days
 
 
     def _log_quota_allocation(self, industry_quotas: Dict):
@@ -209,90 +289,3 @@ class IndustryQuotaManager:
                 f"配额={data['quota']}",
                 level=1
             )
-
-
-    def apply_quotas(self, coint_result: Dict) -> List:
-        """
-        应用行业配额到协整结果 (v7.82.0: 随机抽取,避免pvalue过度加权)
-
-        Args:
-            coint_result: CointegrationAnalyzer.cointegration_procedure()返回值
-                {'pairs': [...], 'statistics': {...}}
-
-        Returns:
-            List[Dict]: 应用配额后的配对列表
-                每个Dict: {'symbol1', 'symbol2', 'pvalue', 'industry_code'}
-
-        设计理念 (v7.82.0):
-        - CointegrationAnalyzer已用pvalue<0.01严格筛选
-        - 进入本方法的配对pvalue都在0.0000x~0.0099 (极窄区间)
-        - 继续用pvalue排序 = 过度放大微小差异,导致"赢家通吃"
-        - 随机抽取 = 给所有通过协整的配对公平机会,增加多样性
-
-        实现:
-        1. 获取行业配额
-        2. 按行业分组
-        3. 确定性随机抽取 (种子=hash(日期+行业), 保证可复现)
-        4. 应用max_repeats约束 (单股最多参与N对)
-        5. 返回选定配对合并列表
-        """
-        # 步骤1: 获取行业配额
-        industry_quotas = self.calculate_quotas(self.algorithm.pairs_manager)
-
-        # 步骤2: 按行业分组pairs
-        raw_pairs = coint_result['pairs']
-        industry_groups = defaultdict(list)
-
-        for pair in raw_pairs:
-            industry_code = str(pair['industry_code'])
-            industry_groups[industry_code].append(pair)
-
-        # 步骤3-4: 对每个行业应用配额和单股限制
-        selected_pairs = []
-        industry_names = self.algorithm.config.constants['industry_names']
-
-        for industry_code, pairs in industry_groups.items():
-            # 获取配额(优先使用动态配额,否则使用最低保底配额)
-            quota_info = industry_quotas.get(industry_code)
-            quota = quota_info['quota'] if quota_info else self.min_quota
-
-            # 确定性随机抽取 (v7.82.0: 避免pvalue过度加权)
-            import random
-
-            # 设置确定性随机种子 (保证每月每行业结果一致)
-            seed = hash(f"{self.algorithm.Time.date()}_{industry_code}") % (2**32)
-            random.seed(seed)
-
-            # 随机打乱配对顺序
-            shuffled_pairs = pairs.copy()
-            random.shuffle(shuffled_pairs)
-
-            # 顺序遍历(等价于随机抽取) + max_repeats约束
-            symbol_counts = defaultdict(int)
-            industry_selected = []
-            max_symbol_repeats = self.algorithm.config.cointegration_analyzer.max_symbol_repeats
-
-            for pair in shuffled_pairs:
-                if len(industry_selected) >= quota:
-                    break
-
-                s1, s2 = pair['symbol1'], pair['symbol2']
-                if (symbol_counts[s1] < max_symbol_repeats and
-                    symbol_counts[s2] < max_symbol_repeats):
-                    industry_selected.append(pair)
-                    symbol_counts[s1] += 1
-                    symbol_counts[s2] += 1
-
-            # 步骤5: 输出配额应用日志(只记录有配对的行业)
-            if len(industry_selected) > 0:
-                industry_name = industry_names.get(int(industry_code), f'未知({industry_code})')
-                self.algorithm.Debug(
-                    f"[配额筛选] {industry_name}: "
-                    f"协整通过{len(pairs)}对 → 配额{quota} → 随机选取{len(industry_selected)}对 (种子:{seed})",
-                    level=1
-                )
-
-            selected_pairs.extend(industry_selected)
-
-        # 步骤6: 返回所有选定配对
-        return selected_pairs

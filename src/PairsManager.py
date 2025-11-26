@@ -347,11 +347,6 @@ class PairsManager:
         data = industry_data[industry_code]
         return data.current_invested_capital + data.past_invested_capital
 
-    def get_total_invested_capital(self) -> float:
-        """获取全局总投入资本 (所有行业 current + past)"""
-        industry_data = self._aggregate_all_industry_data()
-        return sum(d.current_invested_capital + d.past_invested_capital
-                   for d in industry_data.values())
 
     # --- ROI 组 (4个方法, v7.92.0 扩展) ---
 
@@ -415,20 +410,6 @@ class PairsManager:
             return 0.0
         return data.unrealized_pnl / data.current_invested_capital
 
-    def get_total_roi(self) -> float:
-        """
-        获取全局ROI (total_pnl / total_invested_capital)
-
-        Returns:
-            ROI 百分比 (如 0.15 表示 15%), 无投入资本时返回 0.0
-        """
-        industry_data = self._aggregate_all_industry_data()
-        total_pnl = sum(d.unrealized_pnl + d.realized_pnl for d in industry_data.values())
-        total_invested = sum(d.current_invested_capital + d.past_invested_capital
-                             for d in industry_data.values())
-        if total_invested <= 0:
-            return 0.0
-        return total_pnl / total_invested
 
     # --- 交易质量组 (3个方法, v7.57.0) ---
 
@@ -468,42 +449,31 @@ class PairsManager:
         if data.trade_count <= 0:
             return 0.0
         return data.past_total_holding_days / data.trade_count
-
-    # --- Drift 组 (2个方法, v7.59.0) ---
-
-    def get_industry_drift(self, industry_code: str) -> float:
+    
+    def get_industry_composite_score(self, industry_code: str) -> float:
         """
-        获取指定行业的 Drift (net_exposure / gross_exposure)
+        计算行业综合得分 = realized_roi × win_rate (v7.92.0 修正)
 
-        Drift = 净敞口 / 总敞口
-            - 0 表示完美对冲
-            - 正值表示净多头偏离
-            - 负值表示净空头偏离
+        设计理念:
+            - 时间口径一致: 两者都是纯历史数据 (已平仓交易)
+            - 乘法复合: 自动惩罚低胜率的高收益 (可能是运气)
+            - 数学意义: 期望收益 = 每笔收益 × 成功概率
+
+        Args:
+            industry_code: 行业代码
 
         Returns:
-            Drift 比例 (如 0.05 表示 5% 偏离), 无持仓时返回 0.0
-        """
-        industry_data = self._aggregate_all_industry_data()
-        if industry_code not in industry_data:
-            return 0.0
-        data = industry_data[industry_code]
-        if data.gross_exposure <= 0:
-            return 0.0
-        return data.net_exposure / data.gross_exposure
+            综合得分 (通常在 -0.05 ~ 0.15 范围)
 
-    def get_total_drift(self) -> float:
+        示例:
+            - 行业A: realized_roi=20%, win_rate=80% → 0.20 × 0.80 = 0.16
+            - 行业B: realized_roi=30%, win_rate=50% → 0.30 × 0.50 = 0.15
+            - 行业A 虽然ROI低，但综合得分更高 (更稳定)
         """
-        获取全局 Drift (sum(net_exposure) / sum(gross_exposure))
-
-        Returns:
-            Drift 比例 (如 0.05 表示 5% 偏离), 无持仓时返回 0.0
-        """
-        industry_data = self._aggregate_all_industry_data()
-        total_net = sum(d.net_exposure for d in industry_data.values())
-        total_gross = sum(d.gross_exposure for d in industry_data.values())
-        if total_gross <= 0:
-            return 0.0
-        return total_net / total_gross
+        realized_roi = self.get_industry_realized_roi(industry_code)
+        win_rate = self.get_industry_win_rate(industry_code)
+        return realized_roi * win_rate
+  
 
     # --- Concentration 组 (v7.91.0) ---
 
@@ -536,30 +506,6 @@ class PairsManager:
 
         return industry_invested / total_invested
 
-    def get_industry_composite_score(self, industry_code: str) -> float:
-        """
-        计算行业综合得分 = realized_roi × win_rate (v7.92.0 修正)
-
-        设计理念:
-            - 时间口径一致: 两者都是纯历史数据 (已平仓交易)
-            - 乘法复合: 自动惩罚低胜率的高收益 (可能是运气)
-            - 数学意义: 期望收益 = 每笔收益 × 成功概率
-
-        Args:
-            industry_code: 行业代码
-
-        Returns:
-            综合得分 (通常在 -0.05 ~ 0.15 范围)
-
-        示例:
-            - 行业A: realized_roi=20%, win_rate=80% → 0.20 × 0.80 = 0.16
-            - 行业B: realized_roi=30%, win_rate=50% → 0.30 × 0.50 = 0.15
-            - 行业A 虽然ROI低，但综合得分更高 (更稳定)
-        """
-        realized_roi = self.get_industry_realized_roi(industry_code)
-        win_rate = self.get_industry_win_rate(industry_code)
-        return realized_roi * win_rate
-
 
     # ----- 4C. 健康检查接口 -----
     # 设计: Pairs层面 + Industry层面 (未来扩展)
@@ -589,11 +535,11 @@ class PairsManager:
         """
         health_issues = {'anomaly': [], 'drawdown': [], 'drift': [], 'timeout': [], 'cumulative_roi': []}
 
-        # 获取配置阈值 (v7.89.0: 从 pair_health_check 集中读取)
-        health_config = self.algorithm.config.pair_health_check
-        drawdown_threshold = health_config.drawdown_threshold
-        drift_threshold = health_config.drift_threshold
-        cumulative_roi_threshold = health_config.cumulative_roi_threshold  # v7.90.0
+        # 获取配置阈值 (v7.97.0: 从 pairs_manager 读取，原 pair_health_check 已合并)
+        pm_config = self.module_config
+        drawdown_threshold = pm_config.drawdown_threshold
+        drift_threshold = pm_config.drift_threshold
+        cumulative_roi_threshold = pm_config.cumulative_roi_threshold
 
         for pair in self.get_pairs_with_position().values():
             # 优先级1: Anomaly (最高优先级)
@@ -631,30 +577,29 @@ class PairsManager:
         return health_issues
 
 
-    def check_industry_health(self) -> Dict[str, List[str]]:
+    def check_industry_concentration(self) -> List[str]:
         """
-        行业层面健康检查 (v7.91.0)
+        检查行业集中度 (v7.94.0: 重命名自 check_industry_health)
 
-        检查维度:
-            1. Concentration: 单行业资金占用过高
+        检测单行业资金占用超过阈值的行业。
 
         Returns:
-            Dict[str, List[str]]: {'concentration': [industry_codes...]}
+            List[str]: 超过集中度阈值的行业代码列表
         """
-        health_issues = {'concentration': []}
+        over_concentrated = []
 
-        # 获取配置阈值 (预留 - 暂用硬编码)
-        concentration_threshold = 0.40  # 40% 单行业占用上限
+        # 从配置获取阈值
+        threshold = self.module_config.concentration_threshold
 
-        # 获取所有行业代码
+        # 获取所有行业数据
         industry_data = self._aggregate_all_industry_data()
 
         for industry_code in industry_data.keys():
             concentration = self.get_industry_concentration(industry_code)
-            if concentration > concentration_threshold:
-                health_issues['concentration'].append(industry_code)
+            if concentration > threshold:
+                over_concentrated.append(industry_code)
 
-        return health_issues
+        return over_concentrated
 
 
     # ----- 4D 资金分配管理 (v7.62.0 从 MarginAllocator 迁移) -----
@@ -773,37 +718,20 @@ class PairsManager:
 
     def get_planned_allocation_pct(self, pair) -> float:
         """
-        计算配对的计划分配比例 (v7.60.0: 使用 composite_score)
+        计算配对的计划分配比例 (v7.97.0: 简化为 min/max 线性插值)
 
         计算逻辑:
-            1. 计算行业 composite_score = ROI × WIN_RATE
-            2. 根据 composite_score 确定 tier
-            3. planned_pct = min_pct + quality_score × (max_pct - min_pct)
+            planned_pct = min_pct + quality_score × (max_pct - min_pct)
 
         Args:
-            pair: Pairs对象 (提供quality_score和industry_code)
+            pair: Pairs对象 (提供quality_score)
 
         Returns:
-            计划分配比例 (0.05-0.22之间)
+            计划分配比例 (0.05-0.10之间)
         """
-        config = self.algorithm.config.pairs_manager
+        config = self.module_config
         min_pct = config.min_investment_ratio
-
-        # 查询行业tier (v7.60.0: 使用 composite_score 计算)
-        industry_code = str(pair.industry_code)
-
-        # 预热期或无交易历史时使用默认tier
-        if self._is_in_warmup_period():
-            tier = 'tier0'
-        elif self.get_industry_trade_count(industry_code) == 0:
-            tier = 'tier0'
-        else:
-            score = self._calculate_composite_score(industry_code)
-            tier = self._get_tier_by_composite_score(score)
-
-        # 获取tier对应的max_pct
-        tier_max = config.tier_max_investment_ratio
-        max_pct = tier_max.get(tier, tier_max['tier0'])
+        max_pct = config.max_investment_ratio
 
         return min_pct + pair.quality_score * (max_pct - min_pct)
 
@@ -872,43 +800,18 @@ class PairsManager:
         return final_candidates
 
 
-    # ===== 6. 待重构区域 (Pending Refactor) =====
-    # 注: 以下方法未来将迁移到其他模块 (如 ExecutionManager 或独立的 ConfigRouter)
+    # ===== 6. 配置查询路由 =====
 
     def get_cooldown_required_days(self, last_close_reason: str) -> int:
         """
-        查询冷却期需要天数
-
-        职责: 统一配置查询路由,消除Pairs对全局配置的依赖
+        查询冷却期天数 (v7.97.0: 统一从 cooldown_days Dict 读取)
 
         Args:
             last_close_reason: 平仓原因 (MEAN_REVERSION/PAIR_BREAK/TIMEOUT等)
 
         Returns:
-            冷却期天数
-
-        配置来源:
-            - NORMAL_SIGNAL: config.constants['close_reasons'][reason]['cooldown_days']
-            - 风控规则: config.risk_management.pair_rules[rule_name].cooldown_days
-            - 默认兜底: 10天
+            冷却期天数，默认10天
         """
-        close_reasons = self.algorithm.config.constants['close_reasons']
-
-        # NORMAL_SIGNAL: 从CLOSE_REASONS读取
-        if last_close_reason in close_reasons:
-            reason_config = close_reasons[last_close_reason]
-            return reason_config.get('cooldown_days', 10)
-
-        # 风控规则: 从 pair_health_check 读取 (v7.89.0 重构, v7.90.0 添加 CUMULATIVE_ROI)
-        health_config = self.algorithm.config.pair_health_check
-        reason_to_cooldown = {
-            'TIMEOUT': health_config.timeout_cooldown_days,
-            'DRAWDOWN': health_config.drawdown_cooldown_days,
-            'DRIFT': health_config.drift_cooldown_days,
-            'ANOMALY': health_config.anomaly_cooldown_days,
-            'CUMULATIVE_ROI': health_config.cumulative_roi_cooldown_days,  # v7.90.0
-        }
-
-        return reason_to_cooldown.get(last_close_reason, 10)
+        return self.module_config.cooldown_days.get(last_close_reason, 10)
 
 

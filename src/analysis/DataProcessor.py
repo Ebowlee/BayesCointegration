@@ -12,11 +12,11 @@ class DataProcessor:
 
     def __init__(self, algorithm, analysis_config):
         """
-        初始化数据处理器
+        初始化数据处理器 (v7.96.0: 适配DataProcessorConfig重命名)
 
         Args:
             algorithm: QCAlgorithm实例
-            analysis_config: AnalysisConfig dataclass实例
+            analysis_config: DataProcessorConfig dataclass实例
         """
         self.algorithm = algorithm
         self.lookback_days = analysis_config.lookback_days

@@ -5,6 +5,497 @@
 ---
 
 
+## [v7.98.2_single-responsibility@20251126]
+
+### 版本概述
+Refactor - 单一职责重构，`check_portfolio_drawdown()` 改为纯检测
+
+### 设计变更
+
+**问题**: `check_portfolio_drawdown()` 内部隐藏冷却期判断，违反单一职责
+```python
+# 旧代码 (职责混乱)
+def check_portfolio_drawdown(self):
+    if self._is_in_portfolio_cooldown():  # ❌ 检测方法自己决定跳过
+        return False, ""
+```
+
+**解决**: 职责分离
+| 组件 | 职责 |
+|------|------|
+| `check_portfolio_drawdown()` | 纯检测回撤 |
+| `is_in_portfolio_cooldown()` | 状态查询 (公开方法) |
+| `main.py` | 协调调用顺序 |
+
+### 文件修改
+
+**src/RiskManager.py**:
+- `check_portfolio_drawdown()`: 移除内部冷却期检查
+- `is_in_portfolio_cooldown()`: 从私有 (`_`) 改为公开方法
+
+**main.py OnData()**:
+```python
+# 1. 先检查冷却期
+if self.risk_manager.is_in_portfolio_cooldown():
+    return
+
+# 2. 再检测回撤
+triggered, desc = self.risk_manager.check_portfolio_drawdown()
+if triggered:
+    self.Liquidate()  # 全仓平仓: 直接用QC框架
+    self.risk_manager.activate_portfolio_cooldown()
+```
+
+### 执行策略说明
+
+- **Portfolio全仓平仓** → `self.Liquidate()` (QC框架，快速清仓)
+- **Pair级平仓** → Intent模式 (记录原因、更新状态)
+
+---
+
+
+## [v7.98.1_config-cleanup@20251126]
+
+### 版本概述
+Config - 风控配置扁平化，删除冗余字段，简化访问路径
+
+### 配置变更
+
+#### 删除 5 个冗余类 (~45行)
+
+```python
+# 删除以下类:
+class MarketConditionConfig        # vix_resolution 未使用
+class AccountBlowupRuleConfig      # 全部5个字段均未使用
+class PortfolioDrawdownRuleConfig  # priority, action 未使用
+class PortfolioRulesConfig         # 仅作为嵌套容器
+class RiskManagementConfig         # enabled 未使用
+```
+
+#### 新建 RiskManagerConfig (~15行)
+
+```python
+@dataclass
+class RiskManagerConfig:
+    """风控管理器配置 (v7.98.1: 扁平化)"""
+    # VIX 市场条件
+    vix_enabled: bool = True
+    vix_symbol: str = 'VIX'
+    vix_threshold: int = 35
+
+    # Portfolio 回撤
+    drawdown_enabled: bool = True
+    drawdown_threshold: float = 0.15      # 15%
+    drawdown_cooldown_days: int = 360
+```
+
+### 访问路径简化
+
+| 字段 | 旧路径 | 新路径 |
+|------|--------|--------|
+| vix_enabled | `config.risk_management.market_condition.enabled` | `config.risk_manager.vix_enabled` |
+| vix_symbol | `config.risk_management.market_condition.vix_symbol` | `config.risk_manager.vix_symbol` |
+| vix_threshold | `config.risk_management.market_condition.vix_threshold` | `config.risk_manager.vix_threshold` |
+| drawdown_enabled | `config.risk_management.portfolio_rules.portfolio_drawdown.enabled` | `config.risk_manager.drawdown_enabled` |
+| drawdown_threshold | `config.risk_management.portfolio_rules.portfolio_drawdown.threshold` | `config.risk_manager.drawdown_threshold` |
+| drawdown_cooldown_days | `config.risk_management.portfolio_rules.portfolio_drawdown.cooldown_days` | `config.risk_manager.drawdown_cooldown_days` |
+
+### 文件修改
+
+- **src/config.py**: 删除旧类，新建 RiskManagerConfig
+- **src/RiskManager.py**: 简化配置读取 (10行 → 6行)
+- **main.py**: VIX symbol 路径更新
+
+### 代码净减
+
+- 删除: ~45行 (5个旧类)
+- 新增: ~15行 (1个新类)
+- **净减**: ~30行
+
+---
+
+
+## [v7.98.0_risk-module-refactor@20251126]
+
+### 版本概述
+Refactor - 风控模块重构，简化架构，废弃旧 src/risk/ 目录
+
+### 架构变更
+
+#### 新建 src/RiskManager.py (~150行)
+
+Portfolio级风控管理器，整合 MarketCondition + PortfolioDrawdown:
+
+```python
+class RiskManager:
+    """Portfolio级风控管理器"""
+
+    def check_portfolio_drawdown(self) -> Tuple[bool, str]:
+        """检查Portfolio回撤是否触发 (只检测,不执行平仓)"""
+        # HWM追踪 + 15%阈值 + 360天冷却期
+
+    def is_safe_to_open(self) -> bool:
+        """检查是否允许开新仓"""
+        # Portfolio冷却期检查 + VIX恐慌检查 (VIX>=35)
+
+    def activate_portfolio_cooldown(self):
+        """激活Portfolio冷却期"""
+```
+
+#### 更新 main.py
+
+**1. Initialize() 新增 (7行)**:
+- VIX数据订阅: `self.AddData(CBOE, 'VIX', Resolution.Daily)`
+- RiskManager初始化: `self.risk_manager = RiskManager(self, self.config)`
+
+**2. OnSecuritiesChanged() 更新**:
+- 新增VIX符号过滤，防止VIX被误加入配对池
+
+**3. OnData() 风控检测框架 (~40行)**:
+
+```
+执行流程 (当前版本仅实现检测逻辑):
+OnData
+    ↓
+数据有效性检查
+    ↓
+Portfolio回撤检查 ──触发──→ 日志 + 激活冷却期 + return
+    ↓ (未触发)
+Pair健康检查 ──有问题──→ 日志 (TODO: 处理逻辑)
+    ↓
+开仓安全检查 (VIX + 冷却期) ──不安全──→ return
+    ↓ (安全)
+TODO: 正常交易逻辑 (后续版本)
+```
+
+**Note**: 本版本专注于风控检测模块，平仓/开仓执行逻辑将在后续版本添加
+
+### ❌ 废弃内容
+
+**删除整个 src/risk/ 目录 (10个文件, ~800行)**:
+- RiskManager.py (旧版)
+- RiskBaseRule.py
+- MarketCondition.py
+- PortfolioDrawdown.py
+- PortfolioAccountBlowup.py
+- PairDrawdown.py
+- PairAnomaly.py
+- PairHoldingTimeout.py
+- PairCumulativeLoss.py
+- __init__.py
+
+### 设计原则
+
+1. **两级风控分离**:
+   - Portfolio级: RiskManager (VIX + 回撤)
+   - Pair级: PairsManager.check_pairs_health()
+
+2. **检测与执行分离**:
+   - RiskManager只负责检测，返回结果
+   - main.py负责执行平仓动作
+
+3. **配置复用**:
+   - 无需新增配置，复用现有 RiskManagementConfig
+   - 配置路径: `config.risk_management.market_condition` / `config.risk_management.portfolio_rules.portfolio_drawdown`
+
+### 待办事项 (v7.99.0)
+
+- [ ] 集成OrderExecutor执行全仓平仓
+- [ ] 集成OrderExecutor执行Pair级健康检查平仓
+- [ ] 实现正常开/平仓逻辑
+
+---
+
+
+## [v7.97.0_pairs-manager-config-refactor@20251126]
+
+### 版本概述
+Refactor - PairsManagerConfig 重构，合并 PairHealthCheckConfig，统一冷却期配置
+
+### 🔧 重构内容
+
+#### src/config.py
+
+**1. 合并 PairHealthCheckConfig 到 PairsManagerConfig**
+
+删除独立的 `PairHealthCheckConfig` 类，将其字段合并到 `PairsManagerConfig`:
+
+```python
+@dataclass
+class PairsManagerConfig:
+    """配对管理配置 (v7.97.0: 合并 PairHealthCheckConfig)"""
+
+    # === 保证金管理 ===
+    margin_usage_ratio: float = 0.98
+
+    # === 行业集中度控制 ===
+    concentration_threshold: float = 0.40
+
+    # === 资金分配 (简化为 min/max) ===
+    min_investment_ratio: float = 0.05
+    max_investment_ratio: float = 0.10
+
+    # === 健康检查阈值 ===
+    drawdown_threshold: float = 0.04
+    drift_threshold: float = 0.25
+    cumulative_roi_threshold: float = 0.08
+
+    # === 统一冷却期配置 (Dict结构) ===
+    cooldown_days: Dict[str, int] = field(default_factory=lambda: {
+        'MEAN_REVERSION': 30,
+        'PAIR_BREAK': 180,
+        'TIMEOUT': 90,
+        'DRAWDOWN': 180,
+        'DRIFT': 30,
+        'ANOMALY': 999999,
+        'CUMULATIVE_ROI': 360,
+    })
+```
+
+**2. 删除未使用字段**
+
+删除 `tier_thresholds` 和 `tier_max_investment_ratio` (从未实现的功能)
+
+**3. 清理 Constants.CLOSE_REASONS**
+
+移除 `cooldown_days` 字段 (已统一到 `PairsManagerConfig.cooldown_days`)
+
+#### src/PairsManager.py
+
+**1. 简化 get_cooldown_required_days() (37行 → 11行)**
+
+```python
+# 原 (分散查询)
+def get_cooldown_required_days(self, last_close_reason: str) -> int:
+    close_reasons = self.algorithm.config.constants['close_reasons']
+    if last_close_reason in close_reasons:
+        return reason_config.get('cooldown_days', 10)
+    health_config = self.algorithm.config.pair_health_check
+    reason_to_cooldown = {...}
+    return reason_to_cooldown.get(last_close_reason, 10)
+
+# 新 (统一查询)
+def get_cooldown_required_days(self, last_close_reason: str) -> int:
+    return self.module_config.cooldown_days.get(last_close_reason, 10)
+```
+
+**2. 简化 get_planned_allocation_pct() (34行 → 17行)**
+
+移除未实现的 tier 逻辑，简化为 min/max 线性插值:
+
+```python
+def get_planned_allocation_pct(self, pair) -> float:
+    config = self.module_config
+    min_pct = config.min_investment_ratio
+    max_pct = config.max_investment_ratio
+    return min_pct + pair.quality_score * (max_pct - min_pct)
+```
+
+**3. 修复隐藏 Bug**
+
+修复了 3 个不存在方法的调用:
+- `_is_in_warmup_period()`
+- `_calculate_composite_score()`
+- `_get_tier_by_composite_score()`
+
+### ⚠️ 破坏性变更
+
+**配置访问路径变更**:
+```python
+# 原
+config.pair_health_check.drawdown_threshold
+config.constants['close_reasons']['MEAN_REVERSION']['cooldown_days']
+
+# 新
+config.pairs_manager.drawdown_threshold
+config.pairs_manager.cooldown_days['MEAN_REVERSION']
+```
+
+---
+
+
+## [v7.96.0_config-consolidation@20251126]
+
+### 版本概述
+Refactor - config.py 配置类整合，简化 BayesianModeler 配置结构
+
+### 🔧 重构内容
+
+#### src/config.py
+
+**1. 合并 BayesianModeler 配置类 (4个 → 1个)**
+
+原结构:
+```python
+class PriorConfig:           # Uninformed先验
+class InformedPriorConfig:   # Informed先验
+class JointStagePriorConfig: # MCMC配置
+class BayesianModelerConfig: # 容器类，引用上面3个
+```
+
+新结构 (扁平化):
+```python
+@dataclass
+class BayesianModelerConfig:
+    """贝叶斯建模配置 (v7.96.0: 扁平化结构)"""
+
+    # === Uninformed先验 (默认值) ===
+    alpha_sigma: float = 10.0
+    beta_sigma: float = 5.0
+    sigma_sigma: float = 5.0
+    rho_alpha: float = 2.0
+    rho_beta: float = 2.0
+
+    # === Informed先验 (历史后验) ===
+    informed_sigma_multiplier: float = 2.0
+    informed_validity_days: int = 30
+    informed_rho_variance_multiplier: float = 1.2
+    informed_rho_variance_safety: float = 0.9
+    informed_sigma_eta_multiplier: float = 2.5
+
+    # === Joint Single Stage (MCMC) ===
+    sigma_eta_prior: float = 0.1
+    mcmc_chains: int = 4
+    mcmc_warmup: int = 1000
+    mcmc_draws: int = 1000
+    joint_enable: bool = True
+```
+
+**2. 重命名配置类**
+
+`AnalysisConfig` → `DataProcessorConfig`
+
+**3. 移动配置类位置**
+
+`IndustryQuotaManagerConfig` 移动到 `CointegrationConfig` 之后
+
+**4. 简化 docstring**
+
+`IndustryQuotaManagerConfig` 的 20 行 docstring 简化为 1 行
+
+#### src/analysis/BayesianModeler.py
+
+更新配置访问方式以适配扁平化结构:
+
+```python
+# 原
+self.mcmc_chains = bayesian_config.joint_single_stage.mcmc_chains
+self.uninformed_prior = bayesian_config.uninformed
+
+# 新
+self.config = bayesian_config  # 直接存储扁平配置
+cfg.mcmc_chains                # 直接访问
+cfg.informed_sigma_multiplier  # 带前缀区分来源
+```
+
+#### 受影响文件
+
+| 文件 | 修改内容 |
+|------|---------|
+| `src/config.py` | 合并4个类，重命名，移动，简化docstring |
+| `src/analysis/BayesianModeler.py` | 更新配置访问方式 |
+| `src/analysis/DataProcessor.py` | 更新 docstring 类型名 |
+| `src/analysis/PairSelector.py` | 更新 docstring 类型名 |
+| `main.py` | `config.analysis` → `config.data_processor` |
+
+### 📝 无功能变更
+本次重构仅整合配置结构，不改变任何逻辑行为
+
+---
+
+
+## [v7.95.0_quota-concentration-check@20251126]
+
+### 版本概述
+Feature - IndustryQuotaManager 集成行业集中度检查
+
+### 🔧 功能增强
+
+#### src/analysis/IndustryQuotaManager.py
+- `calculate_quotas()` 新增集中度检查逻辑
+- 集中度 > 40% 的行业，配额降为 0（阻止新配对创建）
+- 检查仅在预热期结束后生效
+
+---
+
+
+## [v7.94.0_rename-concentration-check@20251126]
+
+### 版本概述
+Refactor - PairsManager 行业集中度检查方法重命名，配置项迁移
+
+### 🔧 重构内容
+
+#### src/config.py
+- `PairsManagerConfig` 新增 `concentration_threshold: float = 0.40`
+
+#### src/PairsManager.py
+- `check_industry_health()` → `check_industry_concentration()`
+- 返回类型简化: `Dict[str, List[str]]` → `List[str]`
+- 阈值从硬编码改为读取 `module_config.concentration_threshold`
+
+### 📝 无功能变更
+本次重构仅重命名和配置迁移，不改变任何逻辑行为
+
+---
+
+
+## [v7.93.1_quota-manager-docstring@20251126]
+
+### 版本概述
+Docs - IndustryQuotaManager 文档优化，聚焦逻辑流程
+
+### 🔧 重构内容
+
+#### src/analysis/IndustryQuotaManager.py
+
+**移除分层注释**: 文件较小，`═══` 分隔符显得冗余，已删除
+
+**重写类 docstring**: 聚焦逻辑流程，不重复方法内已有的细节
+
+新 docstring 结构:
+- 职责: 说明模块在整体架构中的角色
+- 核心流程: 两个公共方法的调用关系
+- 调用位置: 在 `_run_analysis_pipeline()` 中的位置
+- 设计特点: 无状态 + 确定性随机
+
+### 📝 无功能变更
+本次重构仅优化文档，不改变任何逻辑行为
+
+---
+
+
+## [v7.93.0_quota-manager-method-reorder@20251126]
+
+### 版本概述
+Refactor - IndustryQuotaManager 方法排序重构，遵循"公共接口优先"的 Python 编程范式
+
+### 🔧 重构内容
+
+#### src/analysis/IndustryQuotaManager.py
+
+**方法重新排序**:
+
+| 顺序 | 方法 | 职责 |
+|------|------|------|
+| 1 | `__init__()` | 构造与配置 |
+| 2 | `calculate_quotas()` | 计算配额 (公共) |
+| 3 | `apply_quotas()` | 应用配额 (公共) |
+| 4 | `_calculate_weight()` | 权重计算 (私有) |
+| 5 | `_get_all_industry_codes()` | 行业代码查询 (私有) |
+| 6 | `_is_in_warmup_period()` | 预热期检查 (私有) |
+| 7 | `_log_quota_allocation()` | 日志输出 (私有) |
+
+**设计理念**:
+- 公共接口优先: 阅读代码时最先看到对外暴露的核心方法
+- 依赖关系自然: 公共方法在上，被调用的私有方法在下
+
+### 📝 无功能变更
+本次重构仅调整方法顺序，不改变任何逻辑行为
+
+---
+
+
 ## [v7.92.0_industry-roi-refactor@20251126]
 
 ### 版本概述

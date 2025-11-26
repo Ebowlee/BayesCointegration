@@ -11,11 +11,11 @@ class PairSelector:
 
     def __init__(self, algorithm, analysis_config, module_config):
         """
-        初始化配对选择器 (v7.12.0: 移除blacklist_manager依赖)
+        初始化配对选择器 (v7.96.0: 适配DataProcessorConfig重命名)
 
         Args:
             algorithm: QCAlgorithm实例
-            analysis_config: AnalysisConfig dataclass实例
+            analysis_config: DataProcessorConfig dataclass实例
             module_config: PairSelectorConfig dataclass实例
         """
         self.algorithm = algorithm

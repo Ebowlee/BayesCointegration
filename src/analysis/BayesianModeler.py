@@ -16,20 +16,17 @@ class BayesianModeler:
 
     def __init__(self, algorithm, analysis_config, bayesian_config):
         """
-        初始化贝叶斯建模器
+        初始化贝叶斯建模器 (v7.96.0: 适配扁平化配置)
 
         Args:
             algorithm: QCAlgorithm实例
-            analysis_config: AnalysisConfig dataclass实例
-            bayesian_config: BayesianModelerConfig dataclass实例
+            analysis_config: DataProcessorConfig dataclass实例
+            bayesian_config: BayesianModelerConfig dataclass实例 (扁平化结构)
         """
         self.algorithm = algorithm
         self.lookback_days = analysis_config.lookback_days
-        self.mcmc_chains = bayesian_config.joint_single_stage.mcmc_chains
-        self.uninformed_prior = bayesian_config.uninformed
-        self.informed_prior = bayesian_config.informed
-        self.joint_config = bayesian_config.joint_single_stage
-        self.historical_posteriors = {}  # 历史后验管理
+        self.config = bayesian_config                               # v7.96.0: 直接存储扁平配置
+        self.historical_posteriors = {}                             # 历史后验管理
 
 
     # ===== 主流程方法 =====
@@ -99,23 +96,23 @@ class BayesianModeler:
 
     # ===== 先验选择 =====
 
-    def _beta_moment_matching(self, mean: float, var: float, config) -> tuple:
+    def _beta_moment_matching(self, mean: float, var: float, cfg) -> tuple:
         """
-        Beta分布矩匹配 (v7.5.20)
+        Beta分布矩匹配 (v7.5.20, v7.96.0: 适配扁平化配置)
 
         Args:
             mean: 后验均值 (ρ̄)
             var: 后验方差 (Var(ρ))
-            config: InformedPriorConfig dataclass实例
+            cfg: BayesianModelerConfig dataclass实例 (扁平化结构)
 
         Returns:
             (alpha, beta): Beta分布参数
         """
         # 温度化放宽
-        var_prior = var * config.rho_variance_multiplier
+        var_prior = var * cfg.informed_rho_variance_multiplier
 
         # 安全夹紧 (防止var超过m(1-m)导致无解)
-        max_var = config.rho_variance_safety * mean * (1 - mean)
+        max_var = cfg.informed_rho_variance_safety * mean * (1 - mean)
         var_safe = min(var_prior, max_var)
 
         # 数值稳定性: var太小会导致A+B极大
@@ -151,7 +148,7 @@ class BayesianModeler:
         if pair_key not in self.historical_posteriors:
             return False
 
-        validity_days = self.informed_prior.validity_days
+        validity_days = self.config.informed_validity_days
         days_old = (self.algorithm.UtcTime - self.historical_posteriors[pair_key]['update_time']).days
 
         return days_old <= validity_days
@@ -159,11 +156,11 @@ class BayesianModeler:
 
     def _create_historical_prior(self, pair_key: tuple) -> Dict:
         """创建历史后验先验 (v7.5.20: 添加ρ/σ_η历史先验)"""
-        config = self.informed_prior
+        cfg = self.config  # v7.96.0: 使用扁平化配置
         historical = self.historical_posteriors[pair_key]
 
         sigma_prior = max(
-            historical['sigma_std'] * config.sigma_multiplier,
+            historical['sigma_std'] * cfg.informed_sigma_multiplier,
             historical['sigma_mean'] * 1.0
         )
 
@@ -171,11 +168,11 @@ class BayesianModeler:
         rho_alpha, rho_beta = self._beta_moment_matching(
             mean=historical['rho_mean'],
             var=historical['rho_std'] ** 2,
-            config=config
+            cfg=cfg
         )
 
         # v7.5.20: σ_η的HalfNormal先验 (温度化放宽)
-        sigma_eta_prior = historical['sigma_std'] * config.sigma_eta_multiplier
+        sigma_eta_prior = historical['sigma_std'] * cfg.informed_sigma_eta_multiplier
 
         return {
             # 协整参数
@@ -189,29 +186,29 @@ class BayesianModeler:
             'rho_beta': rho_beta,
             'sigma_eta_prior': sigma_eta_prior,
             # MCMC配置
-            'tune': self.joint_config.mcmc_warmup,
-            'draws': self.joint_config.mcmc_draws,
+            'tune': cfg.mcmc_warmup,
+            'draws': cfg.mcmc_draws,
         }
 
 
     def _create_uninformed_prior(self) -> Dict:
-        """创建完全无信息先验 (v7.5.20: 添加ρ/σ_η无信息先验)"""
-        config = self.uninformed_prior
+        """创建完全无信息先验 (v7.5.20, v7.96.0: 适配扁平化配置)"""
+        cfg = self.config
 
         return {
-            # 协整参数
+            # 协整参数 (uninformed先验)
             'alpha_mu': 0,
-            'alpha_sigma': config.alpha_sigma,
+            'alpha_sigma': cfg.alpha_sigma,
             'beta_mu': 1,
-            'beta_sigma': config.beta_sigma,
-            'sigma_sigma': config.sigma_sigma,
+            'beta_sigma': cfg.beta_sigma,
+            'sigma_sigma': cfg.sigma_sigma,
             # AR(1)参数 (v7.5.20新增)
-            'rho_alpha': config.rho_alpha,              # Beta(2,2)
-            'rho_beta': config.rho_beta,
-            'sigma_eta_prior': self.joint_config.sigma_eta_prior,  # HalfNormal(0.1)
+            'rho_alpha': cfg.rho_alpha,                 # Beta(2,2)
+            'rho_beta': cfg.rho_beta,
+            'sigma_eta_prior': cfg.sigma_eta_prior,    # HalfNormal(0.1)
             # MCMC配置
-            'tune': self.joint_config.mcmc_warmup,
-            'draws': self.joint_config.mcmc_draws,
+            'tune': cfg.mcmc_warmup,
+            'draws': cfg.mcmc_draws,
         }
 
 
@@ -309,9 +306,9 @@ class BayesianModeler:
 
             # MCMC采样
             trace = pm.sample(
-                draws=self.joint_config.mcmc_draws,
-                tune=self.joint_config.mcmc_warmup,
-                chains=self.mcmc_chains,
+                draws=self.config.mcmc_draws,
+                tune=self.config.mcmc_warmup,
+                chains=self.config.mcmc_chains,
                 return_inferencedata=False,
                 progressbar=False
             )

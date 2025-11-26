@@ -11,11 +11,12 @@ from src.analysis.PairSelector import PairSelector
 from src.Pairs import Pairs
 from src.PairsManager import PairsManager
 from src.analysis.IndustryQuotaManager import IndustryQuotaManager
+from src.RiskManager import RiskManager
 # endregion
 
 
 class BayesianCointegrationStrategy(QCAlgorithm):
-    """v7.88.0: OnData + 健康检查集成"""
+    """v7.98.2: 单一职责重构 (check_portfolio_drawdown 纯检测)"""
 
     def Initialize(self):
         """初始化策略"""
@@ -51,22 +52,30 @@ class BayesianCointegrationStrategy(QCAlgorithm):
             self._subscribe_industry_etfs()
 
         # === 初始化分析管道 ===
-        self.data_processor = DataProcessor(self, self.config.analysis)
+        self.data_processor = DataProcessor(self, self.config.data_processor)
 
         # === 初始化协整分析器 ===
         self.cointegration_analyzer = CointegrationAnalyzer(self, self.config.cointegration_analyzer)
 
-        # === 初始化贝叶斯建模器 ===
-        self.bayesian_modeler = BayesianModeler(self, self.config.analysis,self.config.bayesian_modeler)
+        # === 初始化贝叶斯建模器 (v7.96.0: 配置参数名更新) ===
+        self.bayesian_modeler = BayesianModeler(self, self.config.data_processor, self.config.bayesian_modeler)
 
         # === 初始化配对选择器 ===
-        self.pair_selector = PairSelector(self, self.config.analysis, self.config.pair_selector)
+        self.pair_selector = PairSelector(self, self.config.data_processor, self.config.pair_selector)
 
         # === 初始化配对管理器 ===
         self.pairs_manager = PairsManager(self, self.config)
 
         # === 初始化行业配额管理器 ===
         self.industry_quota_manager = IndustryQuotaManager(self, self.config.industry_quota)
+
+        # === 初始化风控模块 (v7.98.1: 简化配置路径) ===
+        # VIX订阅 (用于MarketCondition检查)
+        vix_symbol_str = self.config.risk_manager.vix_symbol  # 'VIX'
+        self.vix_symbol = self.AddData(CBOE, vix_symbol_str, Resolution.Daily).Symbol
+
+        # 初始化RiskManager
+        self.risk_manager = RiskManager(self, self.config)
 
 
     def Debug(self, message: str, level: int = 0):
@@ -89,68 +98,6 @@ class BayesianCointegrationStrategy(QCAlgorithm):
             QCAlgorithm.Debug(self, message)
 
 
-    def OnData(self, data: Slice):
-        """
-        每日交易逻辑入口 (v7.88.0)
-
-        执行顺序:
-        1. 数据有效性检查
-        2. 配对健康检查 (Anomaly → Drawdown → Drift → Timeout)
-        3. 问题配对标记 (平仓逻辑待后续版本实现)
-
-        Note:
-            健康检查采用排他性检测，每个配对只返回最高优先级问题
-        """
-        # === 数据有效性检查 ===
-        if data.Count == 0:
-            return
-
-        # 确保有配对可交易
-        if len(self.pairs_manager.all_pairs) == 0:
-            return
-
-        # === 配对健康检查 ===
-        health_issues = self.pairs_manager.check_pairs_health()
-
-        # 统计问题数量
-        total_issues = sum(len(ids) for ids in health_issues.values())
-        if total_issues == 0:
-            return  # 无问题，跳过后续处理
-
-        # === 处理问题配对 ===
-        issue_reason_map = {
-            'anomaly': 'ANOMALY',
-            'drawdown': 'DRAWDOWN',
-            'drift': 'DRIFT',
-            'timeout': 'TIMEOUT',
-            'cumulative_roi': 'CUMULATIVE_ROI'  # v7.90.0
-        }
-
-        for issue_type, pair_ids in health_issues.items():
-            if not pair_ids:
-                continue
-
-            reason = issue_reason_map.get(issue_type, 'RISK')
-
-            for pair_id in pair_ids:
-                pair = self.pairs_manager.get_pair_by_id(pair_id)
-                if pair is None:
-                    continue
-
-                # 日志输出 (level=0: 核心交易事件)
-                self.Debug(
-                    f"[健康检查] {pair_id} 触发{issue_type.upper()} → 待平仓",
-                    level=0
-                )
-
-                # TODO v7.89.0: 集成OrderExecutor执行平仓
-                # intent = pair.get_close_intent(reason=reason)
-                # if intent:
-                #     tickets = self.order_executor.execute_close(intent)
-                #     if tickets:
-                #         self.tickets_manager.register_tickets(pair_id, tickets)
-
-
     def OnSecuritiesChanged(self, changes: SecurityChanges):
         """
         处理证券变更事件 - 输出选股结果
@@ -158,11 +105,17 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         重要: 不调用 base.OnSecuritiesChanged(changes)
         原因: QCAlgorithm的base实现仅打印冗长的SecurityChanges日志
               我们已有简洁的自定义日志,无需框架级日志污染
+
+        v7.98.0: 过滤VIX符号,防止被误加入配对池
         """
-        # 添加新股票 (过滤benchmark)
+        # 添加新股票 (过滤benchmark + VIX)
         added_count = 0
         for security in changes.AddedSecurities:
+            # 过滤benchmark
             if security.Symbol in self.benchmark_symbols:
+                continue
+            # v7.98.0: 过滤VIX符号 (防止被误配对)
+            if hasattr(self, 'vix_symbol') and security.Symbol == self.vix_symbol:
                 continue
             if security.Symbol not in self.symbols:
                 self.symbols.append(security.Symbol)
@@ -260,10 +213,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
             self.Debug("[Analysis] 无配对通过配额筛选,终止分析管道", level=1)
             return
 
-        self.Debug(
-            f"[配额汇总] 协整通过{len(coint_tested_pairs)}对 → 配额筛选后{len(quota_filtered_pairs)}对",
-            level=1
-        )
+        self.Debug(f"[配额汇总] 协整通过{len(coint_tested_pairs)}对 → 配额筛选后{len(quota_filtered_pairs)}对", level=1)
 
         # 缓存数据供后续步骤使用
         self.clean_data = clean_data
@@ -279,10 +229,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # 缓存供后续步骤使用
         self.pair_data = pair_data
 
-        self.Debug(
-            f"[PairData] 构建{len(pair_data)}个配对数据对象",
-            level=1
-        )
+        self.Debug(f"[PairData] 构建{len(pair_data)}个配对数据对象", level=1)
 
         # === 步骤5: 贝叶斯建模 ===
         self.Debug("[Analysis] 步骤5: 贝叶斯建模", level=1)
@@ -296,10 +243,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # 缓存供后续步骤使用
         self.model_results = model_results
 
-        self.Debug(
-            f"[BayesianModeler] 成功建模{len(model_results)}个配对",
-            level=1
-        )
+        self.Debug(f"[BayesianModeler] 成功建模{len(model_results)}个配对", level=1)
 
         # === 步骤6: 配对质量筛选 ===
         self.Debug("[Analysis] 步骤6: 配对质量筛选", level=1)
@@ -336,6 +280,53 @@ class BayesianCointegrationStrategy(QCAlgorithm):
             f"共管理{len(self.pairs_manager.all_pairs)}个配对",
             level=1
         )
+
+
+    def OnData(self, data: Slice):
+        """
+        每日数据事件处理 (v7.98.2)
+
+        执行流程 (按优先级):
+        1. Portfolio冷却期检查 → 跳过交易
+        2. Portfolio回撤检查 → 触发则 Liquidate() 全仓平仓
+        3. Pair级健康检查
+        4. 开仓安全检查 (VIX)
+
+        Note: Pair级处理逻辑和正常交易逻辑将在后续版本添加
+        """
+        # === 数据有效性检查 ===
+        if data.Count == 0:
+            return
+
+        if len(self.pairs_manager.all_pairs) == 0:
+            return
+
+        # === 1. Portfolio级: 冷却期检查 (v7.98.2: 职责分离) ===
+        if self.risk_manager.is_in_portfolio_cooldown():
+            return  # 冷却期内跳过所有交易
+
+        # === 2. Portfolio级: 回撤检查 ===
+        triggered, description = self.risk_manager.check_portfolio_drawdown()
+        if triggered:
+            self.Debug(f"[风控] {description}", level=0)
+            # 全仓平仓: 直接使用QC框架 (不走Intent模式)
+            self.Liquidate()
+            self.risk_manager.activate_portfolio_cooldown()
+            return
+
+        # === 3. Pair级: 健康检查 ===
+        health_issues = self.pairs_manager.check_pairs_health()
+        total_issues = sum(len(ids) for ids in health_issues.values())
+
+        if total_issues > 0:
+            self.Debug(f"[风控] 检测到{total_issues}个配对健康问题", level=0)
+            # TODO: 问题配对处理逻辑 (后续版本)
+
+        # === 4. 开仓安全检查 ===
+        if not self.risk_manager.is_safe_to_open():
+            return  # 禁止开仓 (VIX恐慌)
+
+        # TODO: 正常交易逻辑 (后续版本)
 
 
     def _subscribe_industry_etfs(self):

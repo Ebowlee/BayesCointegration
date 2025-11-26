@@ -130,8 +130,8 @@ class UniverseConfig:
 
 
 @dataclass
-class AnalysisConfig:
-    """分析模块配置 - 合并 analysis_shared 和 data_processor"""
+class DataProcessorConfig:
+    """数据处理配置 (v7.96.0: 重命名自 AnalysisConfig)"""
     lookback_days: int = 252                                        # 历史数据回看天数
     data_completeness_ratio: float = 1.0                            # 数据完整性要求
     max_annualized_volatility: float = 0.8                          # 年化波动率上限 (80%)
@@ -152,41 +152,44 @@ class CointegrationConfig:
 
 
 @dataclass
-class PriorConfig:
-    """Uninformed先验配置 (默认值)"""
+class BayesianModelerConfig:
+    """贝叶斯建模配置 (v7.96.0: 扁平化结构)"""
+
+    # === Uninformed先验 (默认值) ===
     alpha_sigma: float = 10.0
     beta_sigma: float = 5.0
     sigma_sigma: float = 5.0
     rho_alpha: float = 2.0
     rho_beta: float = 2.0
 
+    # === Informed先验 (历史后验) ===
+    informed_sigma_multiplier: float = 2.0
+    informed_validity_days: int = 30
+    informed_rho_variance_multiplier: float = 1.2
+    informed_rho_variance_safety: float = 0.9
+    informed_sigma_eta_multiplier: float = 2.5
 
-@dataclass
-class InformedPriorConfig:
-    """Informed先验特殊配置"""
-    sigma_multiplier: float = 2.0
-    validity_days: int = 30
-    rho_variance_multiplier: float = 1.2
-    rho_variance_safety: float = 0.9
-    sigma_eta_multiplier: float = 2.5
-
-
-@dataclass
-class JointStagePriorConfig:
-    """Joint Single Stage先验配置"""
+    # === Joint Single Stage (MCMC) ===
     sigma_eta_prior: float = 0.1
     mcmc_chains: int = 4
     mcmc_warmup: int = 1000
     mcmc_draws: int = 1000
-    enable: bool = True
+    joint_enable: bool = True
 
 
 @dataclass
-class BayesianModelerConfig:
-    """贝叶斯建模配置"""
-    uninformed: PriorConfig = field(default_factory=PriorConfig)
-    informed: InformedPriorConfig = field(default_factory=InformedPriorConfig)
-    joint_single_stage: JointStagePriorConfig = field(default_factory=JointStagePriorConfig)
+class IndustryQuotaManagerConfig:
+    """行业配额管理配置"""
+
+    # 全局配额
+    total_quota: int = 25                                          # 全局配额总量 (控制贝叶斯建模输入)
+
+    # 权重计算参数
+    exp_scale_factor: float = 8.0                                  # 指数缩放系数 (正CS段)
+    min_quota_per_industry: int = 1                                # 单行业最低配额保底
+
+    # 预热期配置
+    warmup_days: int = 90                                          # 预热期天数
 
 
 @dataclass
@@ -241,147 +244,54 @@ class PairsConfig:
 
 
 @dataclass
-class IndustryQuotaManagerConfig:
-    """
-    行业配额管理配置 - IndustryQuotaManager.py 使用 (v7.71.0: 指数权重系统)
-
-    职责:
-    - 协整阶段的行业配额管理
-    - 基于composite_score的指数权重分配
-    - 全局配额约束控制贝叶斯建模输入数量
-
-    权重函数:
-        f(x) = ceil(e^x)      当 x ≤ 0  (负CS/零CS,权重=1)
-        f(x) = ceil(e^(8x))   当 x > 0  (正CS,指数增长)
-
-        其中 x = composite_score = industry_roi × win_rate
-
-    使用场景:
-    - 精确控制全局配额=15,优化MCMC建模性能
-    - 高收益行业获得指数级更多配额
-    - 负收益行业统一权重=1,避免挤占
-    """
-
-    # 全局配额
-    total_quota: int = 15                                          # 全局配额总量 (控制贝叶斯建模输入)
-
-    # 权重计算参数
-    exp_scale_factor: float = 8.0                                  # 指数缩放系数 (正CS段)
-    min_quota_per_industry: int = 1                                # 单行业最低配额保底
-
-    # 预热期配置
-    warmup_days: int = 90                                          # 预热期天数
-
-
-@dataclass
 class PairsManagerConfig:
-    """
-    配对管理配置 - PairsManager.py 使用
-    (v7.67.0 移除配额相关配置,专注资金分配职责)
+    """配对管理配置 (v7.97.0: 合并 PairHealthCheckConfig, 删除 tier_thresholds)"""
 
-    职责:
-    - 资金分配分层(基于composite_score)
-    - 保证金管理
-
-    使用场景:
-    - 交易阶段确定每个配对的资金分配比例
-    - 基于质量分数动态调整投资比例
-    """
-
-    # 资金分配分层阈值 (基于composite_score = ROI × WIN_RATE)
-    tier_thresholds: Dict[str, float] = field(default_factory=lambda: {
-        'tier0': 0.00,                                             # 负收益
-        'tier1': 0.03,                                             # 约6%ROI × 50%胜率
-        'tier2': 0.06,                                             # 约10%ROI × 60%胜率
-        'tier3': 0.10,                                             # 约15%ROI × 67%胜率
-        'tier4': 0.15                                              # 高ROI + 高胜率
-    })
-
-    # 资金分配分层 (基于composite_score = ROI × WIN_RATE)
-    min_investment_ratio: float = 0.05                             # 质量最低(0.0分)配对投资比例: 5%
-    tier_max_investment_ratio: Dict[str, float] = field(default_factory=lambda: {
-        'tier0': 0.10,                                             # <0: 负得分 → 最低配置
-        'tier1': 0.16,                                             # [0, 0.03): 约6%ROI × 50%胜率
-        'tier2': 0.18,                                             # [0.03, 0.06): 约12%ROI × 50%胜率
-        'tier3': 0.20,                                             # [0.06, 0.10): 约18%ROI × 50%胜率
-        'tier4': 0.22                                              # ≥0.10: 高ROI + 高胜率
-    })
-
-    # 保证金管理
+    # === 保证金管理 ===
     margin_usage_ratio: float = 0.98                               # 保证金使用率: 98%
 
+    # === 行业集中度控制 ===
+    concentration_threshold: float = 0.40                          # 单行业资金占用上限 (40%)
+
+    # === 资金分配 (v7.97.0: 简化为 min/max, 移除未实现的 tier 逻辑) ===
+    min_investment_ratio: float = 0.05                             # 最低投资比例: 5%
+    max_investment_ratio: float = 0.10                             # 最高投资比例: 10%
+
+    # === 健康检查阈值 (从 PairHealthCheckConfig 合并) ===
+    drawdown_threshold: float = 0.04                               # 4% 回撤触发
+    drift_threshold: float = 0.25                                  # 25% 漂移触发
+    cumulative_roi_threshold: float = 0.10                         # 8% 累积亏损触发
+
+    # === 统一冷却期配置 (v7.97.0: Dict结构) ===
+    cooldown_days: Dict[str, int] = field(default_factory=lambda: {
+        # 正常信号
+        'MEAN_REVERSION': 7,
+        'PAIR_BREAK': 30,
+        # Pair风控
+        'TIMEOUT': 30,
+        'DRAWDOWN': 30,
+        'DRIFT': 30,
+        'ANOMALY': 999999,
+        'CUMULATIVE_ROI': 360,
+    })
+
 
 @dataclass
-class MarketConditionConfig:
-    """市场条件检查配置"""
-    enabled: bool = True
+class RiskManagerConfig:
+    """
+    风控管理器配置 (v7.98.1: 扁平化)
+
+    整合 MarketCondition + PortfolioDrawdown，删除冗余字段
+    """
+    # VIX 市场条件
+    vix_enabled: bool = True
     vix_symbol: str = 'VIX'
-    vix_resolution: Resolution = Resolution.Daily
     vix_threshold: int = 35
 
-
-@dataclass
-class AccountBlowupRuleConfig:
-    """账户爆仓规则配置"""
-    enabled: bool = True
-    priority: int = 100
-    threshold: float = 0.20
-    cooldown_days: int = 999999
-    action: str = 'portfolio_liquidate_all'
-
-
-@dataclass
-class PortfolioDrawdownRuleConfig:
-    """组合回撤规则配置"""
-    enabled: bool = True
-    priority: int = 90
-    threshold: float = 0.15
-    cooldown_days: int = 360
-    action: str = 'portfolio_liquidate_all'
-
-
-@dataclass
-class PortfolioRulesConfig:
-    """组合层面规则配置"""
-    account_blowup: AccountBlowupRuleConfig = field(default_factory=AccountBlowupRuleConfig)
-    portfolio_drawdown: PortfolioDrawdownRuleConfig = field(default_factory=PortfolioDrawdownRuleConfig)
-
-
-@dataclass
-class PairHealthCheckConfig:
-    """Pairs 层面健康检查配置 (v7.90.0 更新)
-
-    集中管理 5 个检查维度的阈值和冷却期:
-    - anomaly: 单边/同向持仓异常 (无阈值，仅冷却期)
-    - drawdown: 配对回撤
-    - drift: 对冲漂移
-    - timeout: 持仓超时 (无阈值，使用动态 max_holding_days)
-    - cumulative_roi: 累积亏损 (v7.90.0 新增)
-
-    Note:
-        - threshold 使用小数形式 (0.04 = 4%)
-        - cooldown_days 单位: 天
-        - anomaly 永久冷却 (999999天)
-    """
-    # === 阈值 ===
-    drawdown_threshold: float = 0.04          # 4% 回撤触发
-    drift_threshold: float = 0.25             # 25% 漂移触发
-    cumulative_roi_threshold: float = 0.08    # 8% 累积亏损触发 (负ROI) (v7.90.0)
-
-    # === 冷却期 ===
-    anomaly_cooldown_days: int = 999999       # 永久冷却
-    drawdown_cooldown_days: int = 180
-    drift_cooldown_days: int = 30
-    timeout_cooldown_days: int = 90
-    cumulative_roi_cooldown_days: int = 360   # 360天冷却期 (v7.90.0)
-
-
-@dataclass
-class RiskManagementConfig:
-    """风险管理配置"""
-    enabled: bool = True
-    market_condition: MarketConditionConfig = field(default_factory=MarketConditionConfig)
-    portfolio_rules: PortfolioRulesConfig = field(default_factory=PortfolioRulesConfig)
+    # Portfolio 回撤
+    drawdown_enabled: bool = True
+    drawdown_threshold: float = 0.15                                # 15% 回撤触发
+    drawdown_cooldown_days: int = 360                               # 360天冷却期
 
 
 
@@ -421,51 +331,21 @@ class Constants:
         'CLOSE': 'CLOSE'
     }
 
-    # === 4. 平仓原因（常量+显示文本+分类）===
+    # === 4. 平仓原因（显示文本+分类，冷却期统一在 PairsManagerConfig.cooldown_days）===
     CLOSE_REASONS = {
-        # === 组1: 正常交易信号触发 ===
-        'MEAN_REVERSION': {
-            'display': '均值回归',
-            'cooldown_days': 30,                                 # Pairs层冷却期
-            'category': 'NORMAL_SIGNAL'
-        },
-        'PAIR_BREAK': {
-            'display': '协整破裂',
-            'cooldown_days': 180,                                # Pairs层冷却期
-            'category': 'NORMAL_SIGNAL'
-        },
-
-        # === 组2: Pair级风控触发 ===
-        'TIMEOUT': {
-            'display': '持有超时',
-            'category': 'PAIR_RISK'                              # Pair风控触发
-        },
-        'CUMULATIVE_LOSS': {
-            'display': '累计亏损',
-            'category': 'PAIR_RISK'
-        },
-        'DRAWDOWN': {
-            'display': '回撤触发',
-            'category': 'PAIR_RISK'
-        },
-        'DRIFT': {
-            'display': '对冲漂移',
-            'category': 'PAIR_RISK'
-        },
-        'ANOMALY': {
-            'display': '单腿异常',
-            'category': 'PAIR_RISK'
-        },
-
-        # === 组3: Portfolio级风控 ===
-        'PORTFOLIO_DRAWDOWN': {
-            'display': '组合回撤',
-            'category': 'PORTFOLIO_RISK'                        # Portfolio风控触发
-        },
-        'ACCOUNT_BLOWUP': {
-            'display': '组合爆仓',
-            'category': 'PORTFOLIO_RISK'
-        }
+        # 正常信号
+        'MEAN_REVERSION': {'display': '均值回归', 'category': 'NORMAL_SIGNAL'},
+        'PAIR_BREAK': {'display': '协整破裂', 'category': 'NORMAL_SIGNAL'},
+        # Pair风控
+        'TIMEOUT': {'display': '持有超时', 'category': 'PAIR_RISK'},
+        'CUMULATIVE_LOSS': {'display': '累计亏损', 'category': 'PAIR_RISK'},
+        'CUMULATIVE_ROI': {'display': '累积ROI', 'category': 'PAIR_RISK'},
+        'DRAWDOWN': {'display': '回撤触发', 'category': 'PAIR_RISK'},
+        'DRIFT': {'display': '对冲漂移', 'category': 'PAIR_RISK'},
+        'ANOMALY': {'display': '单腿异常', 'category': 'PAIR_RISK'},
+        # Portfolio风控
+        'PORTFOLIO_DRAWDOWN': {'display': '组合回撤', 'category': 'PORTFOLIO_RISK'},
+        'ACCOUNT_BLOWUP': {'display': '组合爆仓', 'category': 'PORTFOLIO_RISK'},
     }
 
     # === 5. Morningstar行业映射（完整55个）===
@@ -534,8 +414,8 @@ class StrategyConfig:
         # 3. 选股配置
         self.universe_selection = UniverseConfig()
 
-        # 4. 分析模块配置 (合并 analysis_shared + data_processor)
-        self.analysis = AnalysisConfig()
+        # 4. 数据处理配置 (v7.96.0: 重命名自 AnalysisConfig)
+        self.data_processor = DataProcessorConfig()
 
         # 5. 协整分析配置
         self.cointegration_analyzer = CointegrationConfig()
@@ -549,17 +429,14 @@ class StrategyConfig:
         # 8. 配对配置 (v7.61.0: 拆分为 pairs + pairs_manager)
         self.pairs = PairsConfig()
 
-        # 9. 配对管理配置 (v7.67.0: 移除配额字段)
+        # 9. 配对管理配置 (v7.97.0: 合并 PairHealthCheckConfig)
         self.pairs_manager = PairsManagerConfig()
 
-        # 9.5. 行业配额管理配置 (v7.67.0: 新增独立配置)
+        # 10. 行业配额管理配置
         self.industry_quota = IndustryQuotaManagerConfig()
 
-        # 10. 风险管理配置
-        self.risk_management = RiskManagementConfig()
-
-        # 11. Pairs层面健康检查配置 (v7.89.0: 从分散的Rule配置重构)
-        self.pair_health_check = PairHealthCheckConfig()
+        # 11. 风控管理配置 (v7.98.1: 扁平化)
+        self.risk_manager = RiskManagerConfig()
 
         # 12. 常量配置 (保持dict - 枚举性质)
         self.constants = self._init_constants()
@@ -569,11 +446,11 @@ class StrategyConfig:
         """
         初始化常量定义 (独立方法,减少__init__视觉噪音)
 
-        包含: 
+        包含:
         - trading_signals: 交易信号枚举
         - position_modes: 持仓模式枚举
         - order_actions: 订单动作枚举
-        - close_reasons: 平仓原因+冷却天数
+        - close_reasons: 平仓原因元数据 (冷却期已移至 PairsManagerConfig.cooldown_days)
         - industry_names: Morningstar行业映射(55个)
         """
         return {
