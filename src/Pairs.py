@@ -2,7 +2,7 @@
 from AlgorithmImports import *
 import numpy as np
 from typing import Dict, Optional, Tuple
-from src.execution import OpenIntent, CloseIntent
+from src.OrderExecutor import OpenIntent, CloseIntent
 # v7.10.6: 常量已移至config.constants统一管理，不再需要constants.py
 # endregion
 

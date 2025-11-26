@@ -5,6 +5,280 @@
 ---
 
 
+## [v7.98.7_cleanup-config-structure@20251126]
+
+### 版本概述
+Cleanup - 简化配置结构，删除 Constants 类，清理版本注释
+
+### 变更内容
+
+**1. 删除 Constants 类**
+- `INDUSTRY_NAMES` 提升为模块级常量
+- `StrategyConfig` 直接引用模块常量
+- 删除 `_init_constants()` 方法
+
+**2. 简化 docstring**
+- 移除所有版本编号注释 (如 `v7.96.0:`, `v7.98.1:` 等)
+- 简化为单行描述性 docstring
+
+**3. 简化 StrategyConfig.__init__()**
+- 移除冗余的编号注释
+- 紧凑的初始化代码
+
+### 修改前后对比
+
+```python
+# 修改前
+class Constants:
+    INDUSTRY_NAMES = {...}
+
+class StrategyConfig:
+    def _init_constants(self):
+        return {'industry_names': Constants.INDUSTRY_NAMES}
+
+# 修改后
+INDUSTRY_NAMES = {...}
+
+class StrategyConfig:
+    def __init__(self):
+        self.constants = {'industry_names': INDUSTRY_NAMES}
+```
+
+---
+
+
+## [v7.98.6_remove-unused-constants@20251126]
+
+### 版本概述
+Cleanup - 删除 Constants 类中从未被使用的自映射字典
+
+### 变更原因
+
+1. **死代码**: `TRADING_SIGNALS`, `POSITION_MODES`, `ORDER_ACTIONS` 从未被任何代码引用
+2. **模式无意义**: `{'KEY': 'KEY'}` 自映射字典既不提供类型安全也不提供值校验
+3. **实际使用**: 代码直接使用字符串常量或 `Pairs.py` 中的 `PositionMode` 类
+
+### 文件变更
+
+**删除** `src/config.py` - Constants 类:
+```python
+# 删除以下三个自映射字典:
+TRADING_SIGNALS = {'LONG_SPREAD': 'LONG_SPREAD', ...}  # 8项
+POSITION_MODES = {'NONE': 'NONE', ...}                  # 6项
+ORDER_ACTIONS = {'OPEN': 'OPEN', 'CLOSE': 'CLOSE'}      # 2项
+```
+
+**更新** `src/config.py` - _init_constants():
+```python
+# 移除三项引用，只保留 industry_names
+return {'industry_names': Constants.INDUSTRY_NAMES}
+```
+
+### 代码净减
+- **删除**: 约30行死代码
+- **Constants 类**: 仅保留 `INDUSTRY_NAMES` (55个行业映射)
+
+---
+
+
+## [v7.98.5_simplify-reason-config@20251126]
+
+### 版本概述
+Refactor - 简化配置结构，`cooldown_days` 成为所有平仓原因的唯一数据源
+
+### 变更原因
+
+1. **配置冗余**: `reason_mapping` 和 `cooldown_days` 的 keys 高度重叠
+2. **清理废弃代码**: `Constants.CLOSE_REASONS` 的 display/category 字段未被使用
+3. **简化转换**: `issue_type.upper()` 即可完成命名风格转换
+
+### 设计决策
+
+**Single Source of Truth**: `cooldown_days` 作为所有平仓原因的唯一配置
+- 正常平仓: `MEAN_REVERSION`, `PAIR_BREAK`
+- 健康检查: `TIMEOUT`, `DRAWDOWN`, `DRIFT`, `ANOMALY`, `CUMULATIVE_ROI`
+
+**命名约定**:
+- `check_pairs_health()` 返回小写 snake_case: `'anomaly'`, `'drawdown'`
+- `CloseIntent.reason` 使用大写: `'ANOMALY'`, `'DRAWDOWN'`
+- 转换方式: `issue_type.upper()`
+
+### 文件变更
+
+**更新** `src/config.py` - PairsManagerConfig:
+```python
+# === 统一冷却期配置 (v7.98.5: 作为所有平仓原因的唯一数据源) ===
+# key = reason (UPPER_CASE), value = 冷却天数
+cooldown_days: Dict[str, int] = {...}
+```
+
+**删除** `src/config.py`:
+- `Constants.CLOSE_REASONS` 整个字典
+- `_init_constants()` 中的 `'close_reasons'` 引用
+
+**更新** `main.py`:
+```python
+# v7.98.5: 直接使用 .upper() 转换，无需额外映射表
+for issue_type, pair_ids in health_issues.items():
+    reason = issue_type.upper()  # 'anomaly' → 'ANOMALY'
+```
+
+### 配置链路
+
+```
+check_pairs_health() 返回: {'anomaly': [...], 'timeout': [...]}
+                              ↓
+issue_type.upper(): 'anomaly' → 'ANOMALY'
+                              ↓
+cooldown_days['ANOMALY'] → 999999天
+```
+
+---
+
+
+## [v7.98.4_pair-health-issue-processing@20251126]
+
+### 版本概述
+Feature - 实现配对级健康问题处理逻辑，修复 PairsManager.module_config 未初始化 Bug
+
+### 变更原因
+
+1. **TODO 待实现**: `main.py` 第323行 `# TODO: 问题配对处理逻辑 (后续版本)`
+2. **Bug 修复**: `self.module_config` 在 PairsManager.py 中被引用4次但从未初始化
+
+### 文件变更
+
+**修复** `src/PairsManager.py`:
+```python
+# __init__ 中添加
+self.module_config = config.pairs_manager  # v7.98.4: 修复未初始化bug
+```
+
+**更新** `main.py`:
+```python
+# === 3. Pair级: 健康检查 ===
+health_issues = self.pairs_manager.check_pairs_health()
+total_issues = sum(len(ids) for ids in health_issues.values())
+
+if total_issues > 0:
+    self.Debug(f"[风控] 检测到{total_issues}个配对健康问题", level=0)
+
+    # 问题类型 → 平仓原因映射
+    reason_mapping = {
+        'anomaly': 'ANOMALY',
+        'drawdown': 'DRAWDOWN',
+        'drift': 'DRIFT',
+        'timeout': 'TIMEOUT',
+        'cumulative_roi': 'CUMULATIVE_ROI'
+    }
+
+    # 遍历每种问题类型,执行平仓
+    for issue_type, pair_ids in health_issues.items():
+        reason = reason_mapping[issue_type]
+        for pair_id in pair_ids:
+            pair = self.pairs_manager.get_pair_by_id(pair_id)
+            if pair is None:
+                continue
+
+            intent = pair.get_close_intent(reason=reason)
+            if intent:
+                success = self.order_executor.execute_close(intent)
+                if success:
+                    self.Debug(f"[风控] {pair_id} 平仓成功 (原因: {reason})", level=1)
+```
+
+### 健康问题处理流程
+
+```
+check_pairs_health()
+    ↓
+返回 Dict[str, List[str]]
+    - anomaly: [pair_id, ...]       # 优先级1: 单边/同向持仓
+    - drawdown: [pair_id, ...]      # 优先级2: 回撤超4%
+    - drift: [pair_id, ...]         # 优先级3: 对冲漂移超25%
+    - timeout: [pair_id, ...]       # 优先级4: 持仓超时
+    - cumulative_roi: [pair_id, ...] # 优先级5: 累积亏损超10%
+    ↓
+遍历问题类型
+    ↓
+生成 CloseIntent(reason=ANOMALY/DRAWDOWN/...)
+    ↓
+执行平仓 → 冷却期自动激活
+```
+
+### 冷却期自动机制
+
+通过 Intent Pattern，reason 编码到 order tag 中：
+1. `get_close_intent(reason='ANOMALY')` → tag 包含 reason
+2. `on_position_filled()` 解析 tag → 更新 `last_close_reason`
+3. `is_in_cooldown()` 查询 `cooldown_days[last_close_reason]`
+
+---
+
+
+## [v7.98.3_simplify-execution-module@20251126]
+
+### 版本概述
+Refactor - 简化 execution 模块，删除废弃的 ExecutionManager，合并 Intent + Executor
+
+### 变更原因
+
+1. **ExecutionManager 废弃**: 旧 risk 模块已删除，ExecutionManager 无使用
+2. **文件过多**: 3 个小文件 (Intent 87行, Executor 142行, Manager 382行)
+3. **职责紧密**: OrderIntent 只被 OrderExecutor 消费，应该合并
+
+### 文件变更
+
+**删除** `src/execution/` 文件夹:
+- `ExecutionManager.py` (废弃代码)
+- `OrderExecutor.py` (迁移)
+- `OrderIntent.py` (迁移)
+- `__init__.py`
+
+**新建** `src/OrderExecutor.py`:
+```python
+# 合并后结构 (~200行)
+@dataclass
+class OpenIntent: ...
+
+@dataclass
+class CloseIntent: ...
+
+class OrderExecutor:
+    def execute_open(self, intent: OpenIntent) -> bool: ...
+    def execute_close(self, intent: CloseIntent) -> bool: ...
+```
+
+**更新** `src/Pairs.py`:
+```python
+# 旧
+from src.execution import OpenIntent, CloseIntent
+
+# 新
+from src.OrderExecutor import OpenIntent, CloseIntent
+```
+
+### 目录结构变化
+
+```
+# Before
+src/
+├── execution/
+│   ├── __init__.py
+│   ├── ExecutionManager.py   # 废弃
+│   ├── OrderExecutor.py
+│   └── OrderIntent.py
+└── ...
+
+# After
+src/
+├── OrderExecutor.py          # 合并: Intent + Executor
+└── ...
+```
+
+---
+
+
 ## [v7.98.2_single-responsibility@20251126]
 
 ### 版本概述

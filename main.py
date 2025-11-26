@@ -320,7 +320,21 @@ class BayesianCointegrationStrategy(QCAlgorithm):
 
         if total_issues > 0:
             self.Debug(f"[风控] 检测到{total_issues}个配对健康问题", level=0)
-            # TODO: 问题配对处理逻辑 (后续版本)
+
+            # 遍历每种问题类型,执行平仓
+            # v7.98.5: issue_type.upper() 直接转换为 reason (无需额外映射表)
+            for issue_type, pair_ids in health_issues.items():
+                reason = issue_type.upper()  # 'anomaly' → 'ANOMALY'
+                for pair_id in pair_ids:
+                    pair = self.pairs_manager.get_pair_by_id(pair_id)
+                    if pair is None:
+                        continue
+
+                    intent = pair.get_close_intent(reason=reason)
+                    if intent:
+                        success = self.order_executor.execute_close(intent)
+                        if success:
+                            self.Debug(f"[风控] {pair_id} 平仓成功 (原因: {reason})", level=1)
 
         # === 4. 开仓安全检查 ===
         if not self.risk_manager.is_safe_to_open():

@@ -127,6 +127,9 @@ class PairsManager:
         self.INITIAL_CAPITAL = algorithm.Portfolio.TotalPortfolioValue
         self.FIXED_BUFFER = self.INITIAL_CAPITAL * (1 - config.pairs_manager.margin_usage_ratio)
 
+        # === 模块配置引用 (v7.98.4: 修复未初始化bug) ===
+        self.module_config = config.pairs_manager
+
         algorithm.Debug(
             f"[PairsManager] 初始化完成: "
             f"初始资金=${self.INITIAL_CAPITAL:,.0f}, "

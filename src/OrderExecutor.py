@@ -1,43 +1,118 @@
-# region imports
-from AlgorithmImports import *
-from .OrderIntent import OpenIntent, CloseIntent
-# v7.10.6: 常量已移至config.constants统一管理，不再需要constants.py
-# endregion
+"""
+OrderExecutor - 订单执行模块 (v7.98.3)
 
+包含:
+- OpenIntent: 开仓意图数据类
+- CloseIntent: 平仓意图数据类
+- OrderExecutor: 订单执行服务
+
+设计理念:
+- Intent Pattern: 将"意图"与"执行"分离
+- 单一职责: Intent 只存数据, Executor 只执行订单
+- 无状态: Executor 不存储订单信息 (由 TicketsManager 管理)
+"""
+
+from dataclasses import dataclass
+from AlgorithmImports import *
+from typing import Tuple
+
+
+# ============================================================================
+# 第一部分: 意图数据类 (Value Objects)
+# ============================================================================
+
+@dataclass
+class OpenIntent:
+    """
+    开仓意图数据类
+
+    封装开仓所需的所有信息,将"意图"与"执行"分离。
+
+    属性:
+        pair_id: 配对标识符 (symbol1, symbol2)
+        symbol1: 第一只股票的Symbol对象
+        symbol2: 第二只股票的Symbol对象
+        qty1: 第一只股票的目标数量(正数=做多,负数=做空)
+        qty2: 第二只股票的目标数量(正数=做多,负数=做空)
+        signal: 交易信号类型 (LONG_SPREAD 或 SHORT_SPREAD)
+        tag: 订单标签,用于追踪和分析
+
+    使用场景:
+        # Pairs生成意图
+        intent = pair.get_open_intent(margin_allocated, data)
+
+        # OrderExecutor执行意图
+        success = order_executor.execute_open(intent)
+    """
+    pair_id: Tuple[str, str]
+    symbol1: Symbol
+    symbol2: Symbol
+    qty1: int
+    qty2: int
+    signal: str
+    tag: str
+
+
+@dataclass
+class CloseIntent:
+    """
+    平仓意图数据类
+
+    封装平仓所需的所有信息,将"意图"与"执行"分离。
+
+    属性:
+        pair_id: 配对标识符 (symbol1, symbol2)
+        symbol1: 第一只股票的Symbol对象
+        symbol2: 第二只股票的Symbol对象
+        qty1: 第一只股票的当前持仓数量(需要平仓的数量)
+        qty2: 第二只股票的当前持仓数量(需要平仓的数量)
+        reason: 平仓原因 (必须匹配config.pairs_manager.cooldown_days中的key):
+            - 'MEAN_REVERSION': 均值回归
+            - 'PAIR_BREAK': 协整破裂
+            - 'TIMEOUT': 持有超时
+            - 'DRAWDOWN': 回撤触发
+            - 'DRIFT': 对冲漂移
+            - 'ANOMALY': 单腿异常
+            - 'CUMULATIVE_ROI': 累积亏损
+        tag: 订单标签,用于追踪和分析(包含reason信息)
+
+    使用场景:
+        # Pairs生成意图
+        intent = pair.get_close_intent(reason='MEAN_REVERSION')
+
+        # OrderExecutor执行意图
+        success = order_executor.execute_close(intent)
+    """
+    pair_id: Tuple[str, str]
+    symbol1: Symbol
+    symbol2: Symbol
+    qty1: int
+    qty2: int
+    reason: str
+    tag: str
+
+
+# ============================================================================
+# 第二部分: 订单执行服务
+# ============================================================================
 
 class OrderExecutor:
     """
-    订单执行服务(纯执行层,无业务逻辑)
+    订单执行服务 (纯执行层, 无业务逻辑)
 
     设计理念:
     - 单一职责: 只负责将Intent转换为OrderTicket,不做任何业务判断
     - 无状态设计: 不存储任何配对或订单信息(状态由TicketsManager管理)
     - 依赖注入: 通过构造函数注入algorithm引用
-    - 可测试性: 可以轻松mock algorithm进行单元测试
 
     职责边界:
-    ✅ 负责: Intent → MarketOrder 转换,返回OrderTicket列表
+    ✅ 负责: Intent → MarketOrder 转换,返回成功/失败
     ❌ 不负责: 信号生成、资金管理、订单追踪、风控检查
 
     与其他模块的关系:
     - Pairs: 生成Intent对象(get_open_intent, get_close_intent)
     - OrderExecutor: 执行Intent对象(本类)
     - TicketsManager: 追踪OrderTicket状态
-    - ExecutionManager: 协调整个执行流程
-
-    使用示例:
-        # 初始化(在main.py中)
-        order_executor = OrderExecutor(self, self.tickets_manager)
-
-        # 开仓流程(自动注册)
-        intent = pair.get_open_intent(margin_allocated, data)
-        if intent:
-            order_executor.execute_open(intent)  # 自动注册,无返回值
-
-        # 平仓流程(自动注册)
-        intent = pair.get_close_intent(reason='STOP_LOSS')
-        if intent:
-            order_executor.execute_close(intent)  # 自动注册,无返回值
     """
 
     def __init__(self, algorithm, tickets_manager):
@@ -51,7 +126,6 @@ class OrderExecutor:
         self.algorithm = algorithm
         self.tickets_manager = tickets_manager
 
-
     def execute_open(self, intent: OpenIntent) -> bool:
         """
         执行开仓意图
@@ -63,12 +137,6 @@ class OrderExecutor:
 
         Returns:
             bool: True=订单已提交并注册, False=订单提交失败
-
-        设计说明:
-            - 使用intent.tag统一标记两条腿(便于追踪和分析)
-            - 数量由Intent预先计算(正数=做多,负数=做空)
-            - 自动注册到TicketsManager进行订单追踪
-            - 返回bool表示是否成功提交订单(最终成交由OnOrderEvent异步确定)
 
         执行流程:
             1. 提交symbol1订单 → ticket1
@@ -88,7 +156,6 @@ class OrderExecutor:
 
         return False
 
-
     def execute_close(self, intent: CloseIntent) -> bool:
         """
         执行平仓意图
@@ -100,13 +167,6 @@ class OrderExecutor:
 
         Returns:
             bool: True=订单已提交并注册, False=无订单提交(无持仓)
-
-        设计说明:
-            - 只平掉有持仓的腿(qty != 0)
-            - 平仓数量 = -当前持仓数量(反向操作)
-            - 使用intent.tag标记(包含reason信息)
-            - 自动注册到TicketsManager进行订单追踪
-            - 返回bool表示是否成功提交订单(最终成交由OnOrderEvent异步确定)
 
         执行流程:
             1. 检查qty1是否非0 → 提交平仓订单
@@ -131,7 +191,7 @@ class OrderExecutor:
             if ticket2:
                 tickets.append(ticket2)
 
-        # 如果有订单提交,自动注册到TicketsManager (v7.2.21: 传递reason)
+        # 如果有订单提交,自动注册到TicketsManager
         if tickets:
             self.tickets_manager.register_tickets(
                 intent.pair_id, tickets, 'CLOSE', reason=intent.reason

@@ -32,23 +32,7 @@ class MainConfig:
 
 @dataclass
 class ETFUniverseConfig:
-    """
-    ETF Universe配置 (v8.0.0)
-
-    设计原则:
-    - 三级开关: enabled → sector_etfs_enabled → industry_etfs_enabled
-    - 订阅优先级: 先订阅11个核心ETF, 再订阅7个特种部队ETF
-    - 特种部队逻辑: 当industry_etfs_enabled=True时,特种部队ETF"替换"核心ETF对应行业
-
-    示例:
-    - 31130半导体: sector_etfs只有XLK → industry_etfs启用后用SOXX替换
-    - 10150金属矿业: sector_etfs用XLB → industry_etfs启用后用XME替换
-
-    覆盖验证:
-    - 11个核心: 覆盖47个行业 (包含10150/10160但会被XME替换)
-    - 7个特种部队: 覆盖8个行业 (XME覆盖2个)
-    - 总计: 55个行业100%覆盖
-    """
+    """ETF Universe配置 - 三级开关控制ETF订阅"""
     # === 三级开关 ===
     enabled: bool = True                                                            # Level 1: 总开关
     sector_etfs_enabled: bool = True                                                # Level 2: 11个核心 
@@ -131,7 +115,7 @@ class UniverseConfig:
 
 @dataclass
 class DataProcessorConfig:
-    """数据处理配置 (v7.96.0: 重命名自 AnalysisConfig)"""
+    """数据处理配置"""
     lookback_days: int = 252                                        # 历史数据回看天数
     data_completeness_ratio: float = 1.0                            # 数据完整性要求
     max_annualized_volatility: float = 0.8                          # 年化波动率上限 (80%)
@@ -153,7 +137,7 @@ class CointegrationConfig:
 
 @dataclass
 class BayesianModelerConfig:
-    """贝叶斯建模配置 (v7.96.0: 扁平化结构)"""
+    """贝叶斯建模配置"""
 
     # === Uninformed先验 (默认值) ===
     alpha_sigma: float = 10.0
@@ -205,12 +189,12 @@ class PairSelectorConfig:
     # 评分函数阈值设置
     scoring_thresholds: Dict = field(default_factory=lambda: {
         'half_life': {
-            'peak_days': 10,                                        # v7.38.0: 从8放宽至10 (慢速配对友好)
-            'sigma_left': 5.0,                                      # v7.38.0: 从4.0放宽至5.0 (左侧宽度)
-            'sigma_right': 12.0,                                    # v7.38.0: 从9.0放宽至12.0 (右侧宽度)
+            'peak_days': 10,
+            'sigma_left': 5.0,
+            'sigma_right': 12.0,
             'min_days': 4,
-            'decay_start': 25,                                      # v7.38.0: 从20延后至25 (衰减起点)
-            'decay_rate': 0.15                                      # v7.38.0: 从0.20降低至0.15 (衰减速率)
+            'decay_start': 25,
+            'decay_rate': 0.15
         },
         'mean_reversion_certainty': {
             'time_delta_days': 1.0,
@@ -219,18 +203,18 @@ class PairSelectorConfig:
             'max_snr_kappa': 10.0
         },
         'zero_crossing': {
-            'min_crossings': 6,                                     # 左端硬截断（两个月1次）
-            'peak_crossings': 12,                                   # 峰值点（每月1次）
-            'half_peak_high': 18,                                   # 右侧半峰值起点
-            'plateau_end': 24,                                      # 半峰平台结束点
-            'max_crossings': 36                                     # 右端硬截断
+            'min_crossings': 6,
+            'peak_crossings': 12,
+            'half_peak_high': 18,
+            'plateau_end': 24,
+            'max_crossings': 36
         }
     })
 
 
 @dataclass
 class PairsConfig:
-    """配对配置 - Pairs.py 使用 (v7.61.0 从 PairsTradingConfig 拆分)"""
+    """配对配置 - 信号阈值和保证金参数"""
 
     # 信号阈值
     entry_threshold_lower: float = 1.2                             # 入场Z-score下限
@@ -238,36 +222,30 @@ class PairsConfig:
     exit_threshold: float = 0.3                                    # 出场Z-score阈值
     stop_loss_threshold: float = 2.3                               # 止损Z-score阈值
 
-    # 保证金计算参数 (v7.41.0: 配置层保持监管语义)
+    # 保证金计算参数
     margin_requirement_long: float = 0.5                           # 多头保证金率: 50%
     margin_requirement_short: float = 1.5                          # 空头保证金率: 150%
 
 
 @dataclass
 class PairsManagerConfig:
-    """配对管理配置 (v7.97.0: 合并 PairHealthCheckConfig, 删除 tier_thresholds)"""
+    """配对管理配置 - 保证金、健康检查、冷却期"""
 
-    # === 保证金管理 ===
+    # 保证金管理
     margin_usage_ratio: float = 0.98                               # 保证金使用率: 98%
-
-    # === 行业集中度控制 ===
     concentration_threshold: float = 0.40                          # 单行业资金占用上限 (40%)
-
-    # === 资金分配 (v7.97.0: 简化为 min/max, 移除未实现的 tier 逻辑) ===
     min_investment_ratio: float = 0.05                             # 最低投资比例: 5%
     max_investment_ratio: float = 0.10                             # 最高投资比例: 10%
 
-    # === 健康检查阈值 (从 PairHealthCheckConfig 合并) ===
+    # 健康检查阈值
     drawdown_threshold: float = 0.04                               # 4% 回撤触发
     drift_threshold: float = 0.25                                  # 25% 漂移触发
-    cumulative_roi_threshold: float = 0.10                         # 8% 累积亏损触发
+    cumulative_roi_threshold: float = 0.10                         # 10% 累积亏损触发
 
-    # === 统一冷却期配置 (v7.97.0: Dict结构) ===
+    # 冷却期配置 (key=reason, value=天数)
     cooldown_days: Dict[str, int] = field(default_factory=lambda: {
-        # 正常信号
         'MEAN_REVERSION': 7,
         'PAIR_BREAK': 30,
-        # Pair风控
         'TIMEOUT': 30,
         'DRAWDOWN': 30,
         'DRIFT': 30,
@@ -278,11 +256,8 @@ class PairsManagerConfig:
 
 @dataclass
 class RiskManagerConfig:
-    """
-    风控管理器配置 (v7.98.1: 扁平化)
+    """风控管理器配置 - VIX市场条件 + Portfolio回撤"""
 
-    整合 MarketCondition + PortfolioDrawdown，删除冗余字段
-    """
     # VIX 市场条件
     vix_enabled: bool = True
     vix_symbol: str = 'VIX'
@@ -297,166 +272,72 @@ class RiskManagerConfig:
 
 
 # ============================================================================
-# 第二部分: 常量定义类 (永久不变的枚举映射)
+# 第二部分: 统一配置类
 # ============================================================================
 
-class Constants:
-    """常量定义 - 枚举映射和配置常量"""
+# Morningstar 行业映射 (55个)
+INDUSTRY_NAMES = {
+    # 基础材料 (101xx)
+    10110: '农业', 10120: '建材', 10130: '化工',
+    10140: '林产品', 10150: '金属矿业', 10160: '钢铁',
 
-    # === 1. 交易信号 ===
-    TRADING_SIGNALS = {
-        'LONG_SPREAD': 'LONG_SPREAD',
-        'SHORT_SPREAD': 'SHORT_SPREAD',
-        'CLOSE': 'CLOSE',
-        'PAIR_BREAK': 'PAIR_BREAK',
-        'HOLD': 'HOLD',
-        'WAIT': 'WAIT',
-        'COOLDOWN': 'COOLDOWN',
-        'NO_DATA': 'NO_DATA'
-    }
+    # 消费周期 (102xx)
+    10200: '汽车及零部件', 10220: '家具装置', 10230: '房建',
+    10240: '服装制造', 10250: '包装容器', 10260: '个人服务',
+    10270: '餐厅', 10280: '周期零售', 10290: '旅游休闲',
 
-    # === 2. 持仓模式 ===
-    POSITION_MODES = {
-        'NONE': 'NONE',
-        'LONG_SPREAD': 'LONG_SPREAD',
-        'SHORT_SPREAD': 'SHORT_SPREAD',
-        'PARTIAL_LEG1': 'PARTIAL_LEG1',
-        'PARTIAL_LEG2': 'PARTIAL_LEG2',
-        'ANOMALY_SAME': 'ANOMALY_SAME'
-    }
+    # 金融 (103xx)
+    10310: '资产管理', 10320: '银行', 10330: '资本市场',
+    10340: '保险', 10350: '多元金融', 10360: '信贷服务',
 
-    # === 3. 订单动作 ===
-    ORDER_ACTIONS = {
-        'OPEN': 'OPEN',
-        'CLOSE': 'CLOSE'
-    }
+    # 房地产 (104xx)
+    10410: '房地产', 10420: 'REITs',
 
-    # === 4. 平仓原因（显示文本+分类，冷却期统一在 PairsManagerConfig.cooldown_days）===
-    CLOSE_REASONS = {
-        # 正常信号
-        'MEAN_REVERSION': {'display': '均值回归', 'category': 'NORMAL_SIGNAL'},
-        'PAIR_BREAK': {'display': '协整破裂', 'category': 'NORMAL_SIGNAL'},
-        # Pair风控
-        'TIMEOUT': {'display': '持有超时', 'category': 'PAIR_RISK'},
-        'CUMULATIVE_LOSS': {'display': '累计亏损', 'category': 'PAIR_RISK'},
-        'CUMULATIVE_ROI': {'display': '累积ROI', 'category': 'PAIR_RISK'},
-        'DRAWDOWN': {'display': '回撤触发', 'category': 'PAIR_RISK'},
-        'DRIFT': {'display': '对冲漂移', 'category': 'PAIR_RISK'},
-        'ANOMALY': {'display': '单腿异常', 'category': 'PAIR_RISK'},
-        # Portfolio风控
-        'PORTFOLIO_DRAWDOWN': {'display': '组合回撤', 'category': 'PORTFOLIO_RISK'},
-        'ACCOUNT_BLOWUP': {'display': '组合爆仓', 'category': 'PORTFOLIO_RISK'},
-    }
+    # 消费防御 (205xx)
+    20510: '酒精饮料', 20520: '非酒精饮料', 20525: '消费品',
+    20540: '教育', 20550: '防御零售', 20560: '烟草',
 
-    # === 5. Morningstar行业映射（完整55个）===
-    INDUSTRY_NAMES = {
-        # 基础材料 (101xx)
-        10110: '农业', 10120: '建材', 10130: '化工',
-        10140: '林产品', 10150: '金属矿业', 10160: '钢铁',
+    # 医疗保健 (206xx-207xx)
+    20610: '生物科技', 20620: '制药', 20630: '医疗计划',
+    20645: '医疗服务', 20650: '医疗器械仪器',
+    20660: '医疗诊断研究', 20670: '医疗分销',
+    20710: '独立电力', 20720: '公用事业',
 
-        # 消费周期 (102xx)
-        10200: '汽车及零部件', 10220: '家具装置', 10230: '房建',
-        10240: '服装制造', 10250: '包装容器', 10260: '个人服务',
-        10270: '餐厅', 10280: '周期零售', 10290: '旅游休闲',
+    # 通信服务 (308xx)
+    30810: '电信服务', 30820: '多元媒体', 30830: '互动媒体',
 
-        # 金融 (103xx)
-        10310: '资产管理', 10320: '银行', 10330: '资本市场',
-        10340: '保险', 10350: '多元金融', 10360: '信贷服务',
+    # 能源 (309xx)
+    30910: '油气', 30920: '其他能源',
 
-        # 房地产 (104xx)
-        10410: '房地产', 10420: 'REITs',
+    # 工业 (310xx)
+    31010: '航空国防', 31020: '商业服务', 31030: '企业集团',
+    31040: '建筑', 31050: '重型机械', 31060: '工业分销',
+    31070: '工业产品', 31080: '运输', 31090: '废物管理',
 
-        # 消费防御 (205xx)
-        20510: '酒精饮料', 20520: '非酒精饮料', 20525: '消费品',
-        20540: '教育', 20550: '防御零售', 20560: '烟草',
+    # 科技 (311xx)
+    31110: '软件', 31120: '硬件', 31130: '半导体',
 
-        # 医疗保健 (206xx-207xx)
-        20610: '生物科技', 20620: '制药', 20630: '医疗计划',
-        20645: '医疗服务', 20650: '医疗器械仪器',
-        20660: '医疗诊断研究', 20670: '医疗分销',
-        20710: '独立电力', 20720: '公用事业',
+    # 特殊
+    0: '未分类'
+}
 
-        # 通信服务 (308xx)
-        30810: '电信服务', 30820: '多元媒体', 30830: '互动媒体',
-
-        # 能源 (309xx)
-        30910: '油气', 30920: '其他能源',
-
-        # 工业 (310xx)
-        31010: '航空国防', 31020: '商业服务', 31030: '企业集团',
-        31040: '建筑', 31050: '重型机械', 31060: '工业分销',
-        31070: '工业产品', 31080: '运输', 31090: '废物管理',
-
-        # 科技 (311xx)
-        31110: '软件', 31120: '硬件', 31130: '半导体',
-
-        # 特殊
-        0: '未分类'
-    }
-
-
-# ============================================================================
-# 第三部分: 统一配置类 (对外接口 - 向后兼容)
-# ============================================================================
 
 class StrategyConfig:
     """策略配置中心 - 统一访问入口"""
 
     def __init__(self):
-
-        # ========== 按新执行流程初始化所有dataclass配置 ==========
-        # 1. 主程序配置
+        # 运行时配置
         self.main = MainConfig()
-
-        # 2. ETF Universe配置 (v8.0.0)
         self.etf_universe = ETFUniverseConfig()
-
-        # 3. 选股配置
         self.universe_selection = UniverseConfig()
-
-        # 4. 数据处理配置 (v7.96.0: 重命名自 AnalysisConfig)
         self.data_processor = DataProcessorConfig()
-
-        # 5. 协整分析配置
         self.cointegration_analyzer = CointegrationConfig()
-
-        # 6. 贝叶斯建模配置
         self.bayesian_modeler = BayesianModelerConfig()
-
-        # 7. 配对选择配置
         self.pair_selector = PairSelectorConfig()
-
-        # 8. 配对配置 (v7.61.0: 拆分为 pairs + pairs_manager)
         self.pairs = PairsConfig()
-
-        # 9. 配对管理配置 (v7.97.0: 合并 PairHealthCheckConfig)
         self.pairs_manager = PairsManagerConfig()
-
-        # 10. 行业配额管理配置
         self.industry_quota = IndustryQuotaManagerConfig()
-
-        # 11. 风控管理配置 (v7.98.1: 扁平化)
         self.risk_manager = RiskManagerConfig()
 
-        # 12. 常量配置 (保持dict - 枚举性质)
-        self.constants = self._init_constants()
-
-
-    def _init_constants(self) -> dict:
-        """
-        初始化常量定义 (独立方法,减少__init__视觉噪音)
-
-        包含:
-        - trading_signals: 交易信号枚举
-        - position_modes: 持仓模式枚举
-        - order_actions: 订单动作枚举
-        - close_reasons: 平仓原因元数据 (冷却期已移至 PairsManagerConfig.cooldown_days)
-        - industry_names: Morningstar行业映射(55个)
-        """
-        return {
-            'trading_signals': Constants.TRADING_SIGNALS,
-            'position_modes': Constants.POSITION_MODES,
-            'order_actions': Constants.ORDER_ACTIONS,
-            'close_reasons': Constants.CLOSE_REASONS,
-            'industry_names': Constants.INDUSTRY_NAMES
-        }
+        # 常量映射
+        self.constants = {'industry_names': INDUSTRY_NAMES}
