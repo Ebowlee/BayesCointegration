@@ -5,6 +5,55 @@
 ---
 
 
+## [v7.92.0_industry-roi-refactor@20251126]
+
+### 版本概述
+Refactor - Industry ROI 方法重构，修复 composite_score 时间口径不一致问题
+
+### 🐛 问题修复
+
+#### composite_score 时间口径不一致
+**问题描述**:
+- `get_industry_roi()`: (realized + unrealized) / (past + current) → 历史+当前混合
+- `get_industry_win_rate()`: win_count / trade_count → 纯历史 (只统计已平仓)
+- `composite_score = ROI × WinRate` 存在时间口径不一致
+
+**修复方案**:
+- `composite_score` 改用 `realized_roi × win_rate` (两者都是纯历史数据)
+
+### 🔧 重构内容
+
+#### src/PairsManager.py
+
+**重命名**: `get_industry_roi()` → `get_industry_total_roi()`
+- 公式不变: `(realized_pnl + unrealized_pnl) / (past_invested + current_invested)`
+- 用途: 需要混合视角时使用
+
+**新增方法**: `get_industry_realized_roi(industry_code)`
+- 公式: `realized_pnl / past_invested_capital`
+- 用途: 与 win_rate 配合计算 composite_score (时间口径一致)
+- 返回: 已实现ROI，无历史投入时返回 0.0
+
+**新增方法**: `get_industry_unrealized_roi(industry_code)`
+- 公式: `unrealized_pnl / current_invested_capital`
+- 用途: 实时监控当前持仓的浮盈/浮亏比例
+- 返回: 未实现ROI，无当前持仓时返回 0.0
+
+**修改方法**: `get_industry_composite_score(industry_code)`
+- 修改前: `get_industry_roi() × get_industry_win_rate()`
+- 修改后: `get_industry_realized_roi() × get_industry_win_rate()`
+- 数学意义: 期望收益 = 每笔收益 × 成功概率 (时间口径一致)
+
+### 📋 ROI 方法对比
+| 方法 | 公式 | 时间口径 | 用途 |
+|------|------|----------|------|
+| `get_industry_total_roi` | (realized+unrealized)/(past+current) | 混合 | 整体视角 |
+| `get_industry_realized_roi` | realized/past | 纯历史 | composite_score |
+| `get_industry_unrealized_roi` | unrealized/current | 纯当前 | 持仓监控 |
+
+---
+
+
 ## [v7.91.0_cumulative-roi-encapsulate-industry-concentration@20251125]
 
 ### 版本概述

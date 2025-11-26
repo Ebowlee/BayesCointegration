@@ -353,14 +353,16 @@ class PairsManager:
         return sum(d.current_invested_capital + d.past_invested_capital
                    for d in industry_data.values())
 
-    # --- ROI 组 (2个方法) ---
+    # --- ROI 组 (4个方法, v7.92.0 扩展) ---
 
-    def get_industry_roi(self, industry_code: str) -> float:
+    def get_industry_total_roi(self, industry_code: str) -> float:
         """
-        获取指定行业的ROI (total_pnl / total_invested_capital)
+        获取指定行业的总ROI (历史+当前混合) (v7.92.0 重命名)
+
+        公式: (realized_pnl + unrealized_pnl) / (past_invested + current_invested)
 
         Returns:
-            ROI 百分比 (如 0.15 表示 15%), 无投入资本时返回 0.0
+            总ROI (如 0.15 表示 15%), 无投入资本时返回 0.0
         """
         industry_data = self._aggregate_all_industry_data()
         if industry_code not in industry_data:
@@ -371,6 +373,47 @@ class PairsManager:
         if total_invested <= 0:
             return 0.0
         return total_pnl / total_invested
+
+    def get_industry_realized_roi(self, industry_code: str) -> float:
+        """
+        获取指定行业的已实现ROI (纯历史) (v7.92.0 新增)
+
+        公式: realized_pnl / past_invested_capital
+
+        用途:
+            - 与 win_rate 配合计算 composite_score (时间口径一致)
+            - 只统计已平仓交易的收益率
+
+        Returns:
+            已实现ROI (如 0.15 表示 15%), 无历史投入时返回 0.0
+        """
+        industry_data = self._aggregate_all_industry_data()
+        if industry_code not in industry_data:
+            return 0.0
+        data = industry_data[industry_code]
+        if data.past_invested_capital <= 0:
+            return 0.0
+        return data.realized_pnl / data.past_invested_capital
+
+    def get_industry_unrealized_roi(self, industry_code: str) -> float:
+        """
+        获取指定行业的未实现ROI (当前持仓) (v7.92.0 新增)
+
+        公式: unrealized_pnl / current_invested_capital
+
+        用途:
+            - 实时监控当前持仓的浮盈/浮亏比例
+
+        Returns:
+            未实现ROI (如 -0.05 表示 -5%), 无当前持仓时返回 0.0
+        """
+        industry_data = self._aggregate_all_industry_data()
+        if industry_code not in industry_data:
+            return 0.0
+        data = industry_data[industry_code]
+        if data.current_invested_capital <= 0:
+            return 0.0
+        return data.unrealized_pnl / data.current_invested_capital
 
     def get_total_roi(self) -> float:
         """
@@ -495,9 +538,10 @@ class PairsManager:
 
     def get_industry_composite_score(self, industry_code: str) -> float:
         """
-        计算行业综合得分 = ROI × WIN_RATE
+        计算行业综合得分 = realized_roi × win_rate (v7.92.0 修正)
 
         设计理念:
+            - 时间口径一致: 两者都是纯历史数据 (已平仓交易)
             - 乘法复合: 自动惩罚低胜率的高收益 (可能是运气)
             - 数学意义: 期望收益 = 每笔收益 × 成功概率
 
@@ -508,13 +552,13 @@ class PairsManager:
             综合得分 (通常在 -0.05 ~ 0.15 范围)
 
         示例:
-            - 行业A: ROI=20%, WIN_RATE=80% → 0.20 × 0.80 = 0.16
-            - 行业B: ROI=30%, WIN_RATE=50% → 0.30 × 0.50 = 0.15
+            - 行业A: realized_roi=20%, win_rate=80% → 0.20 × 0.80 = 0.16
+            - 行业B: realized_roi=30%, win_rate=50% → 0.30 × 0.50 = 0.15
             - 行业A 虽然ROI低，但综合得分更高 (更稳定)
         """
-        roi = self.get_industry_roi(industry_code)
+        realized_roi = self.get_industry_realized_roi(industry_code)
         win_rate = self.get_industry_win_rate(industry_code)
-        return roi * win_rate
+        return realized_roi * win_rate
 
 
     # ----- 4C. 健康检查接口 -----
