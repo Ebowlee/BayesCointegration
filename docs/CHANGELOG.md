@@ -5,6 +5,418 @@
 ---
 
 
+## [v7.99.10_fix-timezone-mismatch@20251127]
+
+### 版本概述
+修复运行时错误: `can't subtract offset-naive and offset-aware datetimes`
+
+### 问题分析
+- **错误位置**: Pairs.py:408 `is_in_cooldown()` 方法
+- **根本原因**: `self.algorithm.Time` 与 `self.pair_closed_time` (来自 ticket.Time) 时区类型不匹配
+- **统一原则**: 与订单时间 (ticket.Time) 比较时应使用 `UtcTime`
+
+### 代码库时间策略
+| 场景 | 时间源 | 示例 |
+|------|--------|------|
+| 与 ticket.Time 比较 | `UtcTime` | get_pair_holding_days(), BayesianModeler |
+| 日期显示/格式化 | `Time` | UniverseSelection, IndustryQuotaManager |
+
+### 变更内容
+- Pairs.py:408: `Time` → `UtcTime` (与 get_pair_holding_days 保持一致)
+
+---
+
+
+## [v7.99.9_fix-cleanup-pair-hwm@20251127]
+
+### 版本概述
+修复运行时错误: `'RiskManager' object has no attribute 'cleanup_pair_hwm'`
+
+### 问题分析
+- **错误位置**: TicketsManager.py:199 调用 `self.algorithm.risk_manager.cleanup_pair_hwm(pair_id)`
+- **根本原因**: 遗留代码，调用一个从未实现的方法
+- **正确设计**: Pairs.pair_hwm 由 Pairs 自身管理，在 `on_position_filled(CLOSE)` 时已重置为 None (Pairs.py:1103)
+
+### 变更内容
+- 删除 TicketsManager.py 中冗余的 cleanup_pair_hwm 调用 (3行)
+- 添加注释说明 HWM 由 Pairs 自身管理
+
+### 架构说明
+```
+平仓完成时的 HWM 处理:
+TicketsManager.on_order_event()
+    ↓
+pairs_obj.on_position_filled(action='CLOSE', ...)
+    ↓
+Pairs.py:1103 → self.pair_hwm = None  ← 由Pairs自身重置
+```
+
+---
+
+
+## [v7.99.8_update-pairs-docstring@20251127]
+
+### 版本概述
+更新 Pairs.py 中8个方法的 docstring，使其与当前实现保持一致
+
+### 变更内容
+
+**更新的 docstring 方法列表:**
+
+| 方法 | 更新内容 |
+|------|----------|
+| `on_position_filled()` | 补充完整职责描述 (OPEN/CLOSE分支) |
+| `get_close_intent()` | 更新7种reason值说明，移除过时示例 |
+| `_update_trade_stats()` | 简化描述，移除过时版本号 |
+| `_log_close_completion()` | 更新reason参数说明 |
+| `get_signal()` | 添加完整信号类型说明 |
+| `get_open_intent()` | 简化流程说明 |
+| `is_in_cooldown()` | 添加调用位置说明 |
+| `update_params()` | 修复版本号错误 (v8.x.x → 当前状态) |
+
+**reason 参数流转路径说明:**
+
+```
+风控路径: health_issues → reason = issue_type.upper()
+信号路径: signal → reason ('MEAN_REVERSION' / 'PAIR_BREAK')
+         ↓
+pair.get_close_intent(reason)
+         ↓
+OrderExecutor → TicketsManager (临时存储)
+         ↓
+on_order_event → on_position_filled(reason)
+         ↓
+Pairs.last_close_reason = reason
+         ↓
+is_in_cooldown() → cooldown_days[reason]
+```
+
+---
+
+
+## [v7.99.7_simplify-logs@20251127]
+
+### 版本概述
+简化日志输出 + 修复 close_reasons KeyError
+
+### 变更内容
+
+**1. 修复 close_reasons KeyError** (Pairs.py:1191-1192)
+
+```python
+# 旧代码 (依赖已废弃的constants)
+close_reasons = self.algorithm.config.constants['close_reasons']
+reason_text = close_reasons.get(reason, {}).get('display', '未知原因')
+
+# 新代码 (直接使用reason字符串)
+reason_text = reason or '未知原因'
+```
+
+**2. 删除种子信息** (IndustryQuotaManager.py:188)
+
+```python
+# 旧: "协整通过4对 → 配额1 → 随机选取1对 (种子:688770729)"
+# 新: "协整通过4对 → 配额1 → 随机选取1对"
+```
+
+**3. 删除冗余日志** (main.py)
+
+删除以下三条不必要的进度日志:
+- `[PairData] 构建N个配对数据对象`
+- `[BayesianModeler] 成功建模N个配对`
+- `[PairSelector] 筛选N个高质量配对`
+
+---
+
+
+## [v7.99.6_fix-is-in-cooldown@20251127]
+
+### 版本概述
+修复 `is_in_cooldown()` 方法缺失导致的运行时错误
+
+### 问题描述
+
+```
+Runtime Error: 'Pairs' object has no attribute 'is_in_cooldown'
+  at PairsManager.py: line 782
+```
+
+### 修复内容
+
+**添加 Pairs.is_in_cooldown() 方法** (Pairs.py:387-411)
+
+```python
+def is_in_cooldown(self) -> bool:
+    """检查配对是否在冷却期中"""
+    if self.pair_closed_time is None:
+        return False
+
+    elapsed_days = (self.algorithm.Time - self.pair_closed_time).days
+    reason = self.last_close_reason or 'MEAN_REVERSION'
+    cooldown_days = self.algorithm.pairs_manager.get_cooldown_required_days(reason)
+
+    return elapsed_days < cooldown_days
+```
+
+### 冷却期机制
+
+- 从未平仓 (`pair_closed_time=None`) → 不在冷却期
+- 已平仓 → 检查 `elapsed_days < cooldown_days`
+- `cooldown_days` 基于 `last_close_reason` 动态确定
+
+---
+
+
+## [v7.99.5_unify-open-sorting@20251126]
+
+### 版本概述
+统一开仓排序逻辑 - 与资金分配逻辑保持一致
+
+### 变更内容
+
+**修改排序逻辑** (PairsManager.py:790-795)
+
+v7.99.3 引入了基于 `avg_return_per_trade` 的资金分配层级，但排序逻辑仍使用 `quality_score`，造成不一致。
+
+```python
+# 之前 (v7.99.4):
+candidates_with_signal.sort(key=lambda p: p.quality_score, reverse=True)
+
+# 之后 (v7.99.5):
+candidates_with_signal.sort(
+    key=lambda p: p.get_avg_return_per_trade() if p.get_avg_return_per_trade() is not None else -float('inf'),
+    reverse=True
+)
+```
+
+**排序规则**:
+- 有交易历史：按 `avg_return_per_trade` 降序 (高回报优先)
+- 无交易历史 (`None`)：排在最后 (使用 `-inf` 作为排序键)
+
+### 设计一致性
+
+| 环节 | v7.99.4 | v7.99.5 |
+|------|---------|---------|
+| 开仓排序 | `quality_score` | `avg_return_per_trade` |
+| 资金分配 | `avg_return_per_trade` | `avg_return_per_trade` |
+
+---
+
+
+## [v7.99.4_fix-order-callback@20251126]
+
+### 版本概述
+死代码清理 + 修复 OnOrderEvent 回调链断裂的严重问题
+
+### 变更内容
+
+**1. 删除死代码**
+
+- `Pairs.get_cooldown_elapsed_days()` - 从未被调用
+- `PairsManager.get_total_pnl()` - 从未被调用
+
+**2. 修复 OnOrderEvent 回调 (关键修复)** (main.py:384-398)
+
+问题发现：
+- `TicketsManager.on_order_event()` 方法存在
+- `Pairs.on_position_filled()` 方法存在
+- **但 main.py 没有定义 `OnOrderEvent`**
+- → QuantConnect 框架无法将订单事件路由到 TicketsManager
+
+影响范围：
+- `fill_zscore_open/close` 不记录
+- `trade_count`, `pair_realized_pnl` 不更新
+- `last_close_reason` 不设置 → 冷却期失效
+
+修复方案：
+```python
+def OnOrderEvent(self, event: OrderEvent):
+    """订单事件回调 - 路由到 TicketsManager"""
+    if self.tickets_manager:
+        self.tickets_manager.on_order_event(event)
+```
+
+### 调用链完整性
+
+修复后的完整调用链：
+```
+QCAlgorithm.OnOrderEvent(event)
+    → TicketsManager.on_order_event(event)
+        → Pairs.on_position_filled() (当订单状态=COMPLETED时)
+            → 更新 fill_zscore, trade_count, pair_realized_pnl
+            → 设置 last_close_reason → 冷却期生效
+```
+
+---
+
+
+## [v7.99.3_avg-return-allocation@20251126]
+
+### 版本概述
+基于平均交易回报的资金分配层级 - 替代 quality_score 线性插值
+
+### 变更内容
+
+**1. 新增 Pairs.get_avg_return_per_trade()** (Pairs.py:691-713)
+- 公式: `(pair_realized_pnl / pair_past_invested_capital) / trade_count`
+- 返回小数形式 (如 0.05 = 5%)
+- 无交易历史时返回 `None`
+
+**2. 新增分配层级配置** (config.py:256-267)
+```python
+allocation_tiers: List[tuple] = [
+    (0.00, 0.10),    # avg_return ≤ 0%   → 10%
+    (0.05, 0.125),   # avg_return ≤ 5%   → 12.5%
+    (0.10, 0.15),    # avg_return ≤ 10%  → 15%
+    (0.15, 0.175),   # avg_return ≤ 15%  → 17.5%
+    (0.20, 0.20),    # avg_return ≤ 20%  → 20%
+    (0.25, 0.225),   # avg_return ≤ 25%  → 22.5%
+]
+allocation_default: float = 0.10   # trade_count=0 默认
+allocation_max: float = 0.25       # avg_return > 25% 最大
+```
+
+**3. 重写 get_planned_allocation_pct()** (PairsManager.py:722-751)
+- 原逻辑: `min_pct + quality_score × (max_pct - min_pct)` (线性插值)
+- 新逻辑: 基于 `avg_return_per_trade` 的层级查表
+
+**4. 重命名 entry → open** (PairsManager.py + main.py)
+- `get_entry_candidates_with_allocation()` → `get_open_candidates_with_allocation()`
+- `entry_candidates` → `open_candidates`
+- `allocate_margin_to_candidates()` 参数名同步更新
+
+### 设计理念
+
+- **历史表现驱动**: 用已实现交易回报代替预估质量分数
+- **配置可调**: 层级参数在 config.py，便于回测优化
+- **小数一致性**: 与其他模块统一使用小数表示 (不乘以100)
+
+---
+
+
+## [v7.99.2_normal-open-logic@20251126]
+
+### 版本概述
+实现正常开仓逻辑 - OnData 执行流程完整
+
+### 变更内容
+
+**1. 正常开仓逻辑** (main.py:374-381)
+- 调用 `get_entry_candidates_with_allocation()` 获取开仓候选
+- 遍历候选列表，生成开仓意图并执行
+- 日志记录: `[开仓] {pair_id} {signal} 资金${amount}`
+
+**2. OnData 六步执行流程完整**
+```
+1. Portfolio冷却期检查 → return
+2. Portfolio回撤检查
+3. Pair级健康检查
+4. 正常平仓 (CLOSE/PAIR_BREAK)
+5. VIX检查 → return
+6. 正常开仓 ← 本版本实现
+```
+
+### 设计要点
+
+- **职责分离**: `PairsManager.get_entry_candidates_with_allocation()` 封装所有筛选和资金分配逻辑
+- **Intent Pattern**: `get_open_intent()` → `execute_open()` 分离意图与执行
+- **过滤条件** (在 PairsManager 内部处理):
+  - 只从 `current_selected` 筛选 (past_selected 只能被动平仓)
+  - 有开仓信号 (LONG_SPREAD/SHORT_SPREAD)
+  - 无持仓 + 不在冷却期 + 无订单锁
+
+---
+
+
+## [v7.99.1_simplify-open-check@20251126]
+
+### 版本概述
+简化开仓检查 - 删除冗余的 `is_safe_to_open()` 方法
+
+### 变更内容
+
+**1. 删除 is_safe_to_open() 方法** (RiskManager.py)
+- 该方法内部检查 Portfolio 冷却期，与 OnData 步骤1 重复
+- 保留 VIX 检查逻辑，提升为公开方法
+
+**2. 重命名 _check_vix_safe() → is_vix_safe()** (RiskManager.py)
+- 从私有方法改为公开方法
+- 内部增加 `vix_enabled` 检查
+
+**3. 修改 main.py 调用**
+- `is_safe_to_open()` → `is_vix_safe()`
+
+### 设计理由
+
+OnData 执行流程已保证冷却期检查在最前面：
+```
+1. Portfolio冷却期检查 → return ✓
+2. Portfolio回撤检查
+3. Pair级健康检查
+4. 正常平仓
+5. VIX检查 ← 只需检查VIX，无需重复检查冷却期
+6. 正常开仓
+```
+
+---
+
+
+## [v7.99.0_normal-close-logic@20251126]
+
+### 版本概述
+实现正常平仓逻辑 - 处理 CLOSE (均值回归) 和 PAIR_BREAK (止损) 信号
+
+### 变更内容
+
+**1. 初始化订单执行模块** (main.py:71-73)
+- 新增 `TicketsManager` 初始化 (依赖 pairs_manager)
+- 新增 `OrderExecutor` 初始化 (依赖 tickets_manager)
+- 初始化顺序: pairs_manager → tickets_manager → order_executor
+
+**2. OnData 执行流程调整** (main.py:291-375)
+- 正常平仓移至 VIX 检查之前 (步骤4)
+- VIX 检查仅阻止开仓，不阻止平仓
+- 执行顺序: 冷却期检查 → 回撤检查 → 健康检查 → **正常平仓** → VIX检查 → 开仓
+
+**3. 正常平仓逻辑** (main.py:344-368)
+- 遍历所有持仓配对
+- 订单锁检查 (`is_pair_locked`) 防止重复下单
+- 信号检测 (`get_signal`) 获取 CLOSE/PAIR_BREAK 信号
+- Intent 模式执行: `get_close_intent()` → `execute_close()`
+
+### 信号与冷却期映射
+
+| 信号 | 触发条件 | reason 参数 | 冷却期 |
+|------|---------|-------------|--------|
+| CLOSE | \|zscore\| < 0.3σ | MEAN_REVERSION | 7天 |
+| PAIR_BREAK | zscore 超过 ±2.3σ (亏损方向) | PAIR_BREAK | 30天 |
+
+### 代码示例
+
+```python
+# OnData 步骤4: 正常平仓
+pairs_with_position = self.pairs_manager.get_pairs_with_position()
+
+for pair_id, pair in pairs_with_position.items():
+    if self.tickets_manager.is_pair_locked(pair_id):
+        continue
+
+    signal = pair.get_signal(data)
+
+    if signal == 'CLOSE':
+        intent = pair.get_close_intent(reason='MEAN_REVERSION')
+        if intent:
+            self.order_executor.execute_close(intent)
+
+    elif signal == 'PAIR_BREAK':
+        intent = pair.get_close_intent(reason='PAIR_BREAK')
+        if intent:
+            self.order_executor.execute_close(intent)
+```
+
+---
+
+
 ## [v7.98.7_cleanup-config-structure@20251126]
 
 ### 版本概述

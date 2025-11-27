@@ -321,11 +321,6 @@ class PairsManager:
         data = industry_data[industry_code]
         return data.unrealized_pnl + data.realized_pnl
 
-    def get_total_pnl(self) -> float:
-        """获取全局总盈亏 (所有行业 unrealized + realized)"""
-        industry_data = self._aggregate_all_industry_data()
-        return sum(d.unrealized_pnl + d.realized_pnl for d in industry_data.values())
-
     # --- 投入资本组 (4个方法) ---
 
     def get_industry_current_invested_capital(self, industry_code: str) -> float:
@@ -641,12 +636,12 @@ class PairsManager:
         return max(0, available)
 
 
-    def allocate_margin_to_candidates(self, entry_candidates: List[tuple]) -> Dict[tuple, float]:
+    def allocate_margin_to_candidates(self, open_candidates: List[tuple]) -> Dict[tuple, float]:
         """
-        为入场候选配对分配保证金（v7.62.2: 极简比例分配）
+        为开仓候选配对分配保证金（v7.99.3: 重命名 entry → open）
 
         Args:
-            entry_candidates: [(pair, signal, quality_score, planned_pct), ...]
+            open_candidates: [(pair, signal, quality_score, planned_pct), ...]
                 - pair: Pairs 对象
                 - signal: TradingSignal（LONG_SPREAD/SHORT_SPREAD）
                 - quality_score: 配对质量分数（0-1）
@@ -704,7 +699,7 @@ class PairsManager:
         # === Step 2: 顺序分配 ===
         remaining_available = initial_available  # 追踪剩余资金
 
-        for pair, signal, quality_score, planned_pct in entry_candidates:
+        for pair, signal, quality_score, planned_pct in open_candidates:
             # 基于固定基准计算分配额（天然动态缩放）
             planned_allocated = initial_available * planned_pct
 
@@ -721,27 +716,39 @@ class PairsManager:
 
     def get_planned_allocation_pct(self, pair) -> float:
         """
-        计算配对的计划分配比例 (v7.97.0: 简化为 min/max 线性插值)
+        计算配对的计划分配比例 (v7.99.3: 基于平均交易回报的层级分配)
 
-        计算逻辑:
-            planned_pct = min_pct + quality_score × (max_pct - min_pct)
+        逻辑:
+            1. trade_count=0 → 返回默认分配 (allocation_default)
+            2. 根据 avg_return_per_trade 查找匹配层级
+            3. 超过所有层级 → 返回最大分配 (allocation_max)
 
         Args:
-            pair: Pairs对象 (提供quality_score)
+            pair: Pairs对象 (调用 get_avg_return_per_trade())
 
         Returns:
-            计划分配比例 (0.05-0.10之间)
+            计划分配比例 (小数形式, 如 0.10 = 10%)
         """
-        config = self.module_config
-        min_pct = config.min_investment_ratio
-        max_pct = config.max_investment_ratio
+        cfg = self.module_config
 
-        return min_pct + pair.quality_score * (max_pct - min_pct)
+        avg_return = pair.get_avg_return_per_trade()
+
+        # 无交易历史 → 默认分配
+        if avg_return is None:
+            return cfg.allocation_default
+
+        # 查找匹配的层级
+        for threshold, allocation_pct in cfg.allocation_tiers:
+            if avg_return <= threshold:
+                return allocation_pct
+
+        # 超过所有层级 → 最大分配
+        return cfg.allocation_max
 
 
-    def get_entry_candidates_with_allocation(self, data) -> List[tuple]:
+    def get_open_candidates_with_allocation(self, data) -> List[tuple]:
         """
-        获取开仓候选并完成资金分配 (v7.63.0: PairsManager接管筛选职责)
+        获取开仓候选并完成资金分配 (v7.99.3: 重命名 entry → open)
 
         核心理念:
             只有本轮通过协整+质量筛选的配对才配得上开仓交易
@@ -780,22 +787,26 @@ class PairsManager:
 
             candidates_with_signal.append(pair)
 
-        # Step 2: 按质量分数降序排序
-        candidates_with_signal.sort(key=lambda p: p.quality_score, reverse=True)
+        # Step 2: 按平均交易回报降序排序 (v7.99.5: 与分配逻辑统一)
+        # None (无交易历史) 排在最后，让有历史表现的配对优先开仓
+        candidates_with_signal.sort(
+            key=lambda p: p.get_avg_return_per_trade() if p.get_avg_return_per_trade() is not None else -float('inf'),
+            reverse=True
+        )
 
         # Step 3: 构建中间列表 (添加planned_pct)
-        entry_candidates = []
+        open_candidates = []
         for pair in candidates_with_signal:
             signal = pair.get_signal(data)
             planned_pct = self.get_planned_allocation_pct(pair)
-            entry_candidates.append((pair, signal, pair.quality_score, planned_pct))
+            open_candidates.append((pair, signal, pair.quality_score, planned_pct))
 
         # Step 4: 资金分配
-        allocations = self.allocate_margin_to_candidates(entry_candidates)
+        allocations = self.allocate_margin_to_candidates(open_candidates)
 
         # Step 5: 合并分配结果
         final_candidates = []
-        for pair, signal, quality_score, planned_pct in entry_candidates:
+        for pair, signal, quality_score, planned_pct in open_candidates:
             allocated = allocations.get(pair.pair_id)
             if allocated:
                 final_candidates.append((pair, signal, allocated))

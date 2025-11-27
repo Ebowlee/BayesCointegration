@@ -192,11 +192,8 @@ class TicketsManager:
                 reason = self._pair_close_reasons.get(pair_id, None)
 
                 # 回调Pairs记录时间和数量(v7.2.21: 新增reason参数)
+                # 注: HWM由Pairs自身在on_position_filled()中重置 (Pairs.py:1103)
                 pairs_obj.on_position_filled(action, fill_time, tickets, reason)
-
-                # 平仓完成后清理 HWM（委托给 RiskManager）
-                if action == "CLOSE" and hasattr(self.algorithm, 'risk_manager'):
-                    self.algorithm.risk_manager.cleanup_pair_hwm(pair_id)
 
                 # v7.2.21: 清理平仓原因存储(防止内存泄漏)
                 if action == 'CLOSE':

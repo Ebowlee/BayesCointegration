@@ -217,10 +217,10 @@ class PairsConfig:
     """配对配置 - 信号阈值和保证金参数"""
 
     # 信号阈值
-    entry_threshold_lower: float = 1.2                             # 入场Z-score下限
-    entry_threshold_upper: float = 1.8                             # 入场Z-score上限
+    entry_threshold_lower: float = 1.9                             # 入场Z-score下限
+    entry_threshold_upper: float = 2.3                             # 入场Z-score上限
     exit_threshold: float = 0.3                                    # 出场Z-score阈值
-    stop_loss_threshold: float = 2.3                               # 止损Z-score阈值
+    stop_loss_threshold: float = 2.5                              # 止损Z-score阈值
 
     # 保证金计算参数
     margin_requirement_long: float = 0.5                           # 多头保证金率: 50%
@@ -252,6 +252,19 @@ class PairsManagerConfig:
         'ANOMALY': 999999,
         'CUMULATIVE_ROI': 360,
     })
+
+    # 资金分配层级配置 (v7.99.3: 基于平均交易回报)
+    # 格式: [(阈值上限, 分配比例), ...] - 小数表示
+    allocation_tiers: List[tuple] = field(default_factory=lambda: [
+        (0.00, 0.10),    # avg_return ≤ 0%   → 10%
+        (0.05, 0.125),   # avg_return ≤ 5%   → 12.5%
+        (0.10, 0.15),    # avg_return ≤ 10%  → 15%
+        (0.15, 0.175),   # avg_return ≤ 15%  → 17.5%
+        (0.20, 0.20),    # avg_return ≤ 20%  → 20%
+        (0.25, 0.225),   # avg_return ≤ 25%  → 22.5%
+    ])
+    allocation_default: float = 0.10   # trade_count=0 时的默认分配
+    allocation_max: float = 0.25       # avg_return > 25% 时的最大分配
 
 
 @dataclass

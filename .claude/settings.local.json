@@ -88,7 +88,8 @@
       "Bash(findstr:*)",
       "Bash(git reset:*)",
       "Bash(git restore:*)",
-      "Bash(lean --help:*)"
+      "Bash(lean --help:*)",
+      "Bash(rmdir:*)"
     ],
     "deny": []
   },

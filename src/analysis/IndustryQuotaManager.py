@@ -185,7 +185,7 @@ class IndustryQuotaManager:
                 industry_name = industry_names.get(int(industry_code), f'未知({industry_code})')
                 self.algorithm.Debug(
                     f"[配额筛选] {industry_name}: "
-                    f"协整通过{len(pairs)}对 → 配额{quota} → 随机选取{len(industry_selected)}对 (种子:{seed})",
+                    f"协整通过{len(pairs)}对 → 配额{quota} → 随机选取{len(industry_selected)}对",
                     level=1
                 )
 

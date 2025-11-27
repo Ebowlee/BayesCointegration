@@ -12,11 +12,13 @@ from src.Pairs import Pairs
 from src.PairsManager import PairsManager
 from src.analysis.IndustryQuotaManager import IndustryQuotaManager
 from src.RiskManager import RiskManager
+from src.OrderExecutor import OrderExecutor
+from src.TicketsManager import TicketsManager
 # endregion
 
 
 class BayesianCointegrationStrategy(QCAlgorithm):
-    """v7.98.2: 单一职责重构 (check_portfolio_drawdown 纯检测)"""
+    """v7.99.10: 修复 is_in_cooldown 时区不匹配 (Time→UtcTime)"""
 
     def Initialize(self):
         """初始化策略"""
@@ -65,6 +67,10 @@ class BayesianCointegrationStrategy(QCAlgorithm):
 
         # === 初始化配对管理器 ===
         self.pairs_manager = PairsManager(self, self.config)
+
+        # === 初始化订单执行模块 ===
+        self.tickets_manager = TicketsManager(self, self.pairs_manager)
+        self.order_executor = OrderExecutor(self, self.tickets_manager)
 
         # === 初始化行业配额管理器 ===
         self.industry_quota_manager = IndustryQuotaManager(self, self.config.industry_quota)
@@ -229,8 +235,6 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # 缓存供后续步骤使用
         self.pair_data = pair_data
 
-        self.Debug(f"[PairData] 构建{len(pair_data)}个配对数据对象", level=1)
-
         # === 步骤5: 贝叶斯建模 ===
         self.Debug("[Analysis] 步骤5: 贝叶斯建模", level=1)
 
@@ -243,8 +247,6 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # 缓存供后续步骤使用
         self.model_results = model_results
 
-        self.Debug(f"[BayesianModeler] 成功建模{len(model_results)}个配对", level=1)
-
         # === 步骤6: 配对质量筛选 ===
         self.Debug("[Analysis] 步骤6: 配对质量筛选", level=1)
 
@@ -256,8 +258,6 @@ class BayesianCointegrationStrategy(QCAlgorithm):
 
         # 缓存供后续步骤使用
         self.selected_pairs = selected_pairs
-
-        self.Debug(f"[PairSelector] 筛选{len(selected_pairs)}个高质量配对", level=1)
 
         # === 步骤7: 创建Pairs对象 ===
         self.Debug("[Analysis] 步骤7: 创建Pairs对象", level=1)
@@ -284,15 +284,15 @@ class BayesianCointegrationStrategy(QCAlgorithm):
 
     def OnData(self, data: Slice):
         """
-        每日数据事件处理 (v7.98.2)
+        每日数据事件处理
 
         执行流程 (按优先级):
         1. Portfolio冷却期检查 → 跳过交易
         2. Portfolio回撤检查 → 触发则 Liquidate() 全仓平仓
         3. Pair级健康检查
-        4. 开仓安全检查 (VIX)
-
-        Note: Pair级处理逻辑和正常交易逻辑将在后续版本添加
+        4. 正常平仓 (CLOSE/PAIR_BREAK 信号)
+        5. 开仓安全检查 (VIX)
+        6. 正常开仓 (后续版本)
         """
         # === 数据有效性检查 ===
         if data.Count == 0:
@@ -322,7 +322,6 @@ class BayesianCointegrationStrategy(QCAlgorithm):
             self.Debug(f"[风控] 检测到{total_issues}个配对健康问题", level=0)
 
             # 遍历每种问题类型,执行平仓
-            # v7.98.5: issue_type.upper() 直接转换为 reason (无需额外映射表)
             for issue_type, pair_ids in health_issues.items():
                 reason = issue_type.upper()  # 'anomaly' → 'ANOMALY'
                 for pair_id in pair_ids:
@@ -336,11 +335,61 @@ class BayesianCointegrationStrategy(QCAlgorithm):
                         if success:
                             self.Debug(f"[风控] {pair_id} 平仓成功 (原因: {reason})", level=1)
 
-        # === 4. 开仓安全检查 ===
-        if not self.risk_manager.is_safe_to_open():
+        # === 4. 正常平仓 (CLOSE/PAIR_BREAK 信号) ===
+        pairs_with_position = self.pairs_manager.get_pairs_with_position()
+
+        for pair_id, pair in pairs_with_position.items():
+            # 检查订单锁 (防止重复下单)
+            if self.tickets_manager.is_pair_locked(pair_id):
+                continue
+
+            # 获取交易信号
+            signal = pair.get_signal(data)
+
+            # 处理平仓信号
+            if signal == 'CLOSE':
+                intent = pair.get_close_intent(reason='MEAN_REVERSION')
+                if intent:
+                    success = self.order_executor.execute_close(intent)
+                    if success:
+                        self.Debug(f"[平仓] {pair_id} 均值回归", level=0)
+
+            elif signal == 'PAIR_BREAK':
+                intent = pair.get_close_intent(reason='PAIR_BREAK')
+                if intent:
+                    success = self.order_executor.execute_close(intent)
+                    if success:
+                        self.Debug(f"[平仓] {pair_id} 协整破裂止损", level=0)
+
+        # === 5. 开仓安全检查 (VIX) ===
+        if not self.risk_manager.is_vix_safe():
             return  # 禁止开仓 (VIX恐慌)
 
-        # TODO: 正常交易逻辑 (后续版本)
+        # === 6. 正常开仓 ===
+        open_candidates = self.pairs_manager.get_open_candidates_with_allocation(data)
+        for pair, signal, allocated_margin in open_candidates:
+            intent = pair.get_open_intent(allocated_margin, data)
+            if intent:
+                success = self.order_executor.execute_open(intent)
+                if success:
+                    self.Debug(f"[开仓] {pair.pair_id} {signal} 资金${allocated_margin:,.0f}", level=0)
+
+
+    def OnOrderEvent(self, event: OrderEvent):
+        """
+        订单事件回调 - 路由到 TicketsManager (v7.99.4)
+
+        QuantConnect框架在订单状态变化时自动调用此方法
+        调用链: OnOrderEvent → TicketsManager.on_order_event()
+                            → Pairs.on_position_filled() (COMPLETED时)
+
+        影响:
+        - fill_zscore_open/close 记录
+        - trade_count, pair_realized_pnl 更新
+        - last_close_reason 设置 → 冷却期生效
+        """
+        if self.tickets_manager:
+            self.tickets_manager.on_order_event(event)
 
 
     def _subscribe_industry_etfs(self):

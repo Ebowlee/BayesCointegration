@@ -109,28 +109,6 @@ class RiskManager:
         return self.algorithm.Time < self.portfolio_cooldown_until
 
     
-    def is_safe_to_open(self) -> bool:
-        """
-        检查是否允许开新仓
-
-        检查项 (按顺序):
-            1. Portfolio冷却期 (drawdown触发后360天内禁止开仓)
-            2. VIX恐慌检查 (VIX >= 35 禁止开仓)
-
-        Returns:
-            True: 允许开仓
-            False: 禁止开仓
-        """
-        # 检查1: Portfolio冷却期
-        if self.is_in_portfolio_cooldown():
-            return False
-
-        # 检查2: VIX恐慌
-        if self.vix_enabled and not self._check_vix_safe():
-            return False
-
-        return True
-
     def activate_portfolio_cooldown(self):
         """
         激活Portfolio冷却期
@@ -144,15 +122,12 @@ class RiskManager:
             f"({self.drawdown_cooldown_days}天)"
         )
 
-    # =========================================================================
-    # 私有方法
-    # =========================================================================
-
-    def _check_vix_safe(self) -> bool:
+    def is_vix_safe(self) -> bool:
         """
-        检查VIX是否安全
+        检查VIX是否安全 (v7.99.1: 公开方法)
 
         逻辑:
+            - VIX未启用 → 允许开仓
             - VIX无数据 → 允许开仓（激进策略）
             - VIX >= vix_threshold (35) → 禁止开仓
             - VIX < vix_threshold → 允许开仓
@@ -161,6 +136,9 @@ class RiskManager:
             True: 安全，允许开仓
             False: 恐慌，禁止开仓
         """
+        if not self.vix_enabled:
+            return True
+
         vix = self._get_vix_value()
 
         # VIX无数据时，激进策略：允许开仓
@@ -174,6 +152,10 @@ class RiskManager:
             return False
 
         return True
+
+    # =========================================================================
+    # 私有方法
+    # =========================================================================
 
     def _get_vix_value(self) -> Optional[float]:
         """

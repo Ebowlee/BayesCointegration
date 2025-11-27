@@ -156,7 +156,7 @@ class Pairs:
             new_pair: 新创建的Pairs对象(含最新建模结果)
 
         Note:
-            v8.x.x当前状态: 步骤6-7待恢复,调用路径尚未激活
+            当前状态: 步骤6-7(更新Bayesian参数)待恢复, 调用路径尚未激活
         """
         # 更新所有贝叶斯模型参数
         self.alpha_mean = new_pair.alpha_mean
@@ -384,6 +384,36 @@ class Pairs:
         return self.position_mode in [PositionMode.PARTIAL_LEG1, PositionMode.PARTIAL_LEG2, PositionMode.ANOMALY_SAME]
 
 
+    def is_in_cooldown(self) -> bool:
+        """
+        检查配对是否在冷却期中
+
+        Returns:
+            True: 在冷却期, 禁止开仓
+            False: 冷却期已过或从未平仓过
+
+        冷却期计算:
+            elapsed_days = (当前时间 - pair_closed_time).days
+            cooldown_days = config.cooldown_days[last_close_reason]
+            return elapsed_days < cooldown_days
+
+        调用位置:
+            PairsManager.get_open_candidates_with_allocation() 在筛选开仓候选时调用
+        """
+        # 从未平仓过 → 不在冷却期
+        if self.pair_closed_time is None:
+            return False
+
+        # 计算已过天数 (使用UtcTime与ticket.Time保持一致, 参考get_pair_holding_days)
+        elapsed_days = (self.algorithm.UtcTime - self.pair_closed_time).days
+
+        # 获取冷却期天数 (基于平仓原因)
+        reason = self.last_close_reason or 'MEAN_REVERSION'
+        cooldown_days = self.algorithm.pairs_manager.get_cooldown_required_days(reason)
+
+        return elapsed_days < cooldown_days
+
+
     # 2C. 财务计算
 
     def get_pair_unrealized_pnl(self) -> Optional[float]:
@@ -456,9 +486,6 @@ class Pairs:
             self.entry_price1, self.entry_price2
         )
 
-
-    # NOTE: get_pair_realized_pnl() 已删除 (v7.90.0)
-    # 直接使用属性 pair.pair_realized_pnl 访问
 
     def get_net_exposure(self) -> Optional[float]:
         """
@@ -691,6 +718,30 @@ class Pairs:
 
         return total_pnl / total_invested
 
+    def get_avg_return_per_trade(self) -> Optional[float]:
+        """
+        计算平均每笔交易回报率 (v7.99.3)
+
+        公式:
+            avg_return = (pair_realized_pnl / pair_past_invested_capital) / trade_count
+
+        设计理念:
+            - 用于资金分配层级判断 (替代 quality_score)
+            - 只考虑已平仓交易的历史表现
+            - 与 get_pair_cumulative_roi() 不同: 不含未实现收益
+
+        Returns:
+            float: 平均回报率 (小数形式, 如 0.05 = 5%)
+            None: 如果 trade_count=0 或 pair_past_invested_capital=0
+        """
+        if self.trade_count == 0:
+            return None
+        if self.pair_past_invested_capital == 0:
+            return None
+
+        cumulative_return = self.pair_realized_pnl / self.pair_past_invested_capital
+        return cumulative_return / self.trade_count
+
 
     def get_max_holding_days(self) -> Optional[float]:
         """
@@ -724,27 +775,6 @@ class Pairs:
         max_days = n * self.half_life
 
         return max_days
-
-
-    def get_cooldown_elapsed_days(self) -> Optional[int]:
-        """
-        获取冷却期已过天数 - 从平仓到现在 (v7.43.0重命名)
-
-        与 get_pair_holding_days() 对称设计:
-        - get_pair_holding_days(): 持仓天数 (从开仓到现在)
-        - get_cooldown_elapsed_days(): 冷却已过天数 (从平仓到现在)
-
-        术语说明 (v7.43.0):
-        - elapsed days: 已经过去的天数 (时间管理标准术语)
-        - 配合 PairsManager.get_cooldown_required_days() 使用 (v7.44.0迁移)
-
-        Returns:
-            已过天数 或 None(从未平仓)
-        """
-        if self.pair_closed_time is None:
-            return None  # 从未平仓
-
-        return (self.algorithm.UtcTime - self.pair_closed_time).days
 
 
     # ===== 5. 外部接口层 (Public API) =====
@@ -784,17 +814,32 @@ class Pairs:
 
     def get_signal(self, data):
         """
-        获取交易信号 (cooldown检查在ExecutionManager中进行)
-        一步到位的接口,内部自动计算所需信息
+        获取交易信号 (一步到位接口, 内部自动计算所需信息)
 
-        信号类型:
-        - 无持仓: LONG_SPREAD / SHORT_SPREAD / WAIT / NO_DATA
-        - 有持仓: CLOSE / PAIR_BREAK / HOLD / NO_DATA
+        Args:
+            data: 数据切片, 用于获取价格
 
-        改良C方案阈值:
-        - 入场区间: [1.2σ, 1.8σ]
-        - 出场阈值: 0.3σ
-        - 止损阈值: 2.3σ (方向感知)
+        Returns:
+            无持仓时:
+                - LONG_SPREAD: 做多spread (买symbol1, 卖symbol2)
+                - SHORT_SPREAD: 做空spread (卖symbol1, 买symbol2)
+                - WAIT: Z-score未进入入场区间
+                - NO_DATA: 数据不足
+
+            有持仓时:
+                - CLOSE: 正常平仓 (Z-score回归至均值)
+                - PAIR_BREAK: 止损平仓 (Z-score超限, 关系破裂)
+                - HOLD: 继续持有
+                - NO_DATA: 数据不足
+
+        阈值 (改良C方案):
+            - 入场区间: [1.2σ, 1.8σ]
+            - 出场阈值: 0.3σ
+            - 止损阈值: 2.3σ (方向感知)
+
+        Note:
+            - cooldown检查在 PairsManager.get_open_candidates_with_allocation() 中进行
+            - 方向感知止损: 多头持仓只检查下行超限, 空头持仓只检查上行超限
         """
         # 获取价格
         prices = self.get_price_from_bar(data)
@@ -843,33 +888,25 @@ class Pairs:
 
     def get_open_intent(self, amount_allocated: float, data):
         """
-        生成开仓意图（意图生成与执行分离）
-
-        设计理念:
-        - 内部调用get_signal()自动检测开仓信号
-        - 返回OpenIntent对象,交给OrderExecutor执行
-        - 如果无开仓信号或数据不足,返回None
-
-        执行流程:
-        1. 调用get_signal()检测信号类型
-        2. 如果不是LONG_SPREAD或SHORT_SPREAD,返回None
-        3. 计算目标市值(调用get_leg_values)
-        4. 获取当前价格
-        5. 计算目标数量(整数股)
-        6. 构建OpenIntent对象并返回
+        生成开仓意图 (意图生成与执行分离)
 
         Args:
-            amount_allocated: 分配的资金金额
-            data: 数据切片,用于获取价格和计算信号
+            amount_allocated: 分配的资金金额 (保证金)
+            data: 数据切片, 用于获取价格和计算信号
 
         Returns:
-            OpenIntent对象 或 None(无开仓信号或数据不足)
+            OpenIntent对象 或 None(无有效信号)
 
-        使用示例(在ExecutionManager中):
-            intent = pair.get_open_intent(amount_allocated, data)
-            if intent:
-                tickets = order_executor.execute_open(intent)
-                tickets_manager.register_tickets(pair.pair_id, tickets, OrderAction.OPEN)
+        内部逻辑:
+            1. 调用 get_signal() 检测信号 (必须是 LONG_SPREAD 或 SHORT_SPREAD)
+            2. 调用 get_leg_values() 计算目标市值 (Beta对冲)
+            3. 根据当前价格计算目标数量 (整数股)
+            4. 记录 entry_zscore (在信号生成时捕获, 确保 |zscore| ≥ entry_threshold)
+            5. 构建 OpenIntent 返回
+
+        Note:
+            - LONG_SPREAD: qty1 > 0 (买), qty2 < 0 (卖)
+            - SHORT_SPREAD: qty1 < 0 (卖), qty2 > 0 (买)
         """
         # 自动检测信号
         signal = self.get_signal(data)
@@ -918,29 +955,25 @@ class Pairs:
 
     def get_close_intent(self, reason='CLOSE'):
         """
-        生成平仓意图（意图生成与执行分离）
-
-        设计理念:
-        - 直接访问tracked_qty获取持仓数量 (v7.40.9优化: 避免字典创建开销)
-        - 返回CloseIntent对象,交给OrderExecutor执行
-        - 如果无持仓,返回None
+        生成平仓意图 (意图生成与执行分离)
 
         Args:
-            reason: 平仓原因 (参见 config.constants['close_reasons'], 默认='CLOSE')
+            reason: 平仓原因, 7种值之一:
+                - MEAN_REVERSION: Z-score回归
+                - PAIR_BREAK: 协整破裂
+                - TIMEOUT/DRAWDOWN/DRIFT/ANOMALY/CUMULATIVE_ROI: 风控触发
 
         Returns:
             CloseIntent对象 或 None(无持仓)
 
-        使用示例(在ExecutionManager中):
-            intent = pair.get_close_intent(reason='STOP_LOSS')
-            if intent:
-                tickets = order_executor.execute_close(intent)
-                tickets_manager.register_tickets(pair.pair_id, tickets, OrderAction.CLOSE
+        内部逻辑:
+            1. 检查 tracked_qty 是否有持仓
+            2. 构建 CloseIntent (包含pair_id, symbols, quantities, reason, tag)
+            3. reason 会编码到订单tag中,便于日志追踪
 
-        设计说明:
-            - reason参数会编码到tag中(便于日志追踪和统计分析)
-            - 支持单边持仓(qty1或qty2为0时,executor会自动跳过)
-            - v7.40.9: 改用直接属性访问,与on_position_filled()风格统一
+        Note:
+            - 支持部分持仓 (qty1或qty2为0时, executor会跳过该腿)
+            - 实际执行由 OrderExecutor.execute_close() 完成
         """
         # 直接访问tracked_qty (v7.40.9: 无需字典查询)
         if self.tracked_qty1 == 0 and self.tracked_qty2 == 0:
@@ -989,23 +1022,25 @@ class Pairs:
 
         触发时机: TicketsManager检测到配对的所有订单都已Filled时
 
-        职责:
-        - OPEN: 记录开仓价格、数量、fill_zscore_open
-        - CLOSE: 记录平仓价格、平仓原因、fill_zscore_close、更新交易统计
-
         Args:
-            action: OrderAction.OPEN 或 OrderAction.CLOSE
-            fill_time: 最后一条腿成交的时间(确保两腿都已成交)
-            tickets: List[OrderTicket] 成交的订单票据列表,用于提取实际成交数量
-            reason: 平仓原因 (仅CLOSE时有效, 参见 config.constants['close_reasons'])
+            action: 'OPEN' 或 'CLOSE'
+            fill_time: 最后一条腿成交的时间
+            tickets: List[OrderTicket] 成交的订单票据列表
+            reason: 平仓原因 (仅CLOSE时有效, 7种值之一)
 
-        技术说明:
-            - OrderTicket: QuantConnect SDK 订单票据类
-            - OrderStatus: QuantConnect SDK 订单状态枚举 (来自 AlgorithmImports)
-              包括: Filled, Canceled, Invalid, PartiallyFilled 等
-            - ticket.Status: 订单当前状态 (OrderStatus 枚举值)
-            - ticket.QuantityFilled: 实际成交数量
-            - ticket.AverageFillPrice: 平均成交价格
+        职责:
+            OPEN动作:
+                - 记录开仓价格 (entry_price1, entry_price2)
+                - 记录成交数量 (tracked_qty1, tracked_qty2)
+                - 计算 fill_zscore_open
+
+            CLOSE动作:
+                - 记录平仓价格 (exit_price1, exit_price2)
+                - 记录平仓时间和原因 (pair_closed_time, last_close_reason)
+                - 计算 fill_zscore_close
+                - 调用 _update_trade_stats() 更新交易统计
+                - 调用 _log_close_completion() 输出平仓日志
+                - 重置状态: 持仓数量归零, 高水位重置
         """
         if action == 'OPEN':
             self.pair_opened_time = fill_time
@@ -1070,24 +1105,23 @@ class Pairs:
 
     def _update_trade_stats(self):
         """
-        更新交易历史统计 (加权平均累计) - v7.40.6 修复
+        更新交易历史统计 (加权平均累计)
 
-        在平仓时调用，使用平仓价格计算已实现PnL
-
-        关键修复:
-        - 使用 exit_price1/exit_price2 计算 PnL（而非实时价格）
-        - 调用时机：exit_price 已记录，tracked_qty 尚未清零
+        调用时机: on_position_filled(CLOSE) 中, 在清零追踪变量之前
 
         计算逻辑:
-        - 本次交易PnL = (平仓市值 - 开仓成本)
-        - 平仓市值 = qty1×exit_price1 + qty2×exit_price2
-        - 开仓成本 = qty1×entry_price1 + qty2×entry_price2
-        - 累计PnL += 本次PnL (加权平均分子)
-        - 累计成本 += 本次成本 (加权平均分母)
+            1. 使用 exit_price 计算已实现PnL (而非实时价格)
+            2. 投入资本 = |entry_price1 * qty1| + |entry_price2 * qty2|
+            3. 累积分子: pair_realized_pnl += 本次PnL
+            4. 累积分母: pair_past_invested_capital += 投入资本
+            5. 持仓天数: pair_past_total_holding_days += 本次持仓天数
 
-        调用时机:
-        on_position_filled(CLOSE) 中，在清零追踪变量之前调用
-        此时 exit_price 已记录，tracked_qty 尚未清零
+        累积收益率公式:
+            cumulative_roi = pair_realized_pnl / pair_past_invested_capital
+
+        Note:
+            - 使用加权平均而非简单平均, 避免小额交易的过度影响
+            - 与 quality_score 的区别: quality_score是模型评分, cumulative_roi是实际历史表现
         """
         # === 步骤1：数据完整性检查 ===
         if self.entry_price1 is None or self.entry_price2 is None:
@@ -1136,15 +1170,17 @@ class Pairs:
         """
         输出平仓完成日志
 
-        调用时机: on_position_filled(CLOSE) 中，在 fill_zscore_close 计算完成后
-
-        职责:
-        - 计算本次交易PnL和累计收益率
-        - 格式化日志输出(包含Z-score轨迹)
-        - 根据平仓原因输出不同消息("Z-score回归" vs "Z-score超限")
+        调用时机: on_position_filled(CLOSE) 中, 在 fill_zscore_close 计算完成后
 
         Args:
-            reason: 平仓原因 (v7.12.0统一: NORMAL_EXIT/DRAWDOWN/ANOMALY/PORTFOLIO_DRAWDOWN/ACCOUNT_BLOWUP)
+            reason: 平仓原因 (直接使用字符串, 如 'MEAN_REVERSION')
+
+        输出内容:
+            - 配对ID和平仓原因
+            - Z-score轨迹: 入场 → 出场
+            - 本次交易PnL%
+            - 累计收益率
+            - 持仓天数 (本次/历史最长)
         """
         # 计算本次交易PnL
         current_pnl = self.get_pair_unrealized_pnl()
@@ -1161,9 +1197,8 @@ class Pairs:
         entry_z = self.entry_zscore if self.entry_zscore is not None else 0.0
         close_z = self.fill_zscore_close if self.fill_zscore_close is not None else 0.0
 
-        # 从config.constants动态读取显示文本
-        close_reasons = self.algorithm.config.constants['close_reasons']
-        reason_text = close_reasons.get(reason, {}).get('display', '未知原因')
+        # v7.99.7: 直接使用reason字符串
+        reason_text = reason or '未知原因'
 
         # v7.44.0: 调用PairsManager统一配置查询
         cooldown_days = self.algorithm.pairs_manager.get_cooldown_required_days(reason)
