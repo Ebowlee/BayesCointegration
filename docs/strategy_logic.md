@@ -239,3 +239,350 @@
     门槛过滤: Quality Score > 0.50 (宁缺毋滥)
     排序: 按 Quality Score 降序排列。
     输出: 最终入选的配对列表 (Selected Pairs)。
+
+
+# Part 8: Analysis Pipeline - Step 7 & 8: Pairs Creation & Management (配对创建与管理)
+
+1. 目标 (Goal)
+    将筛选出的数学模型结果转换为可交易的实体对象 (Pairs Object)，并纳入生命周期管理。
+
+2. 对象创建 (Pairs Creation) - Step 7
+    工厂方法: `Pairs.from_model_result`
+    初始化内容:
+        - 基础信息: Symbol1, Symbol2, Industry Code
+        - 贝叶斯参数: $\alpha, \beta, \mu_{res}, \sigma_{res}$
+        - 质量指标: Quality Score, Half Life
+        - 交易阈值: 从 Config 读取 (Entry: 1.2-1.8$\sigma$, Exit: 0.3$\sigma$, Stop: 2.3$\sigma$)
+    设计原则:
+        - 充血模型 (Rich Model): Pairs 对象不仅存储数据，还封装了 Z-score 计算、信号生成、意图生成等核心逻辑。
+
+3. 分类管理 (Lifecycle Management) - Step 8
+    管理器: `PairsManager`
+    分类逻辑:
+        - Current Selected: 本轮被选中的配对 (有资格开新仓)。
+        - Past Selected: 历史曾被选中但本轮落选 (只能平仓，不能开新仓)。
+    更新机制:
+        - 增量更新: 仅更新参数，保持对象引用不变。
+        - 参数冻结: 如果配对当前有持仓，则**不更新**其统计参数 (Alpha/Beta等)，防止参数漂移导致信号混乱 ("让信号说话")。
+
+4. 核心职责 (Core Responsibilities)
+    - Pairs: 负责单体逻辑 (信号、状态、PnL计算)。
+    - PairsManager: 负责群体逻辑 (索引管理、行业聚合、健康检查、资金分配)。
+
+
+# Part 9: Execution Pipeline - Step 1 & 2: Portfolio Risk Management (组合级风控)
+
+1. 概述 (Overview)
+    `OnData` 事件触发后的首要步骤，作为策略的“总闸”和“熔断器”。优先级最高，一旦触发，后续所有逻辑（开仓、平仓、信号）全部跳过。
+
+2. 步骤 1: 冷却期检查 (Cooldown Check) - The "Hard Stop"
+    目标: 强制策略在经历重大回撤后休息，避免在市场动荡期反复亏损。
+    逻辑:
+        - 检查 `risk_manager.is_in_portfolio_cooldown()`。
+        - 如果 `CurrentTime < CooldownUntil`:
+            - 直接 `return`。
+            - 策略完全停止运作 (不看行情，不发信号，不交易)。
+
+3. 步骤 2: 回撤检查 (Drawdown Check) - The "Eject Button"
+    目标: 账户级的最后一道防线，保住本金。
+    逻辑:
+        - 更新高水位 (HWM): `HWM = max(HWM, CurrentTotalPortfolioValue)`
+        - 计算回撤: `Drawdown = (HWM - CurrentValue) / HWM`
+        - 触发判断: 如果 `Drawdown >= Threshold` (默认 15%):
+            - 动作 1: `Liquidate()` (立即市价强平所有持仓)。
+            - 动作 2: `activate_portfolio_cooldown()` (激活冷却期，如 360 天)。
+            - 动作 3: 重置 HWM 为当前低点 (防止冷却结束后立即再次触发)。
+
+
+# Part 10: Execution Pipeline - Step 3: Pair-level Health Check (配对级风控)
+
+1. 概述 (Overview)
+    对所有**持仓中**的配对进行全面体检。如果发现健康问题，立即触发强制平仓。
+    检查逻辑由 `PairsManager.check_pairs_health()` 集中管理，`main.py` 负责执行平仓。
+
+2. 检查维度 (Check Dimensions)
+    按优先级从高到低依次检查，一旦发现问题立即报告并跳过后续检查（Short-circuit evaluation）。
+
+    优先级 1: Anomaly (异常持仓)
+        - 定义: 单边持仓 (只有 Leg1 或 Leg2) 或 同向持仓 (Leg1, Leg2 同为多或同为空)。
+        - 动作: 立即平仓修正。
+
+    优先级 2: Drawdown (单体回撤)
+        - 定义: 该配对当前浮动回撤超过阈值 (默认 20%)。
+        - 公式: `Drawdown = (PairHWM - CurrentPairValue) / PairHWM`
+        - 动作: 止损平仓。
+
+    优先级 3: Drift (对冲漂移)
+        - 定义: 持仓市值偏离 Dollar Neutral 的程度。
+        - 公式: `Drift = NetExposure / GrossExposure`
+        - 阈值: 默认 25% (即净敞口占总敞口的 25% 以上)。
+        - 动作: 平仓 (视为对冲失效，暴露了过大的 Beta 风险)。
+
+    优先级 4: Timeout (持仓超时)
+        - 定义: 持仓时间超过理论最大持有期。
+        - 理论周期: $MaxDays = HalfLife \times \log_{0.5}(ExitThreshold / EntryZscore)$
+        - 动作: 强制平仓 (承认均值回归失效)。
+
+    优先级 5: Cumulative ROI (累计亏损)
+        - 定义: 该配对历史累计 ROI 低于阈值 (如 -15%)。
+        - 动作: 平仓并可能触发该配对的永久拉黑 (取决于选股逻辑)。
+
+3. 执行机制 (Execution)
+    - `PairsManager` 返回问题字典: `{'anomaly': [id1], 'timeout': [id2, id3]}`。
+    - `main.py` 遍历字典，为每个问题配对生成 `CloseIntent` (Reason = 问题类型)。
+    - 调用 `OrderExecutor` 执行平仓。
+
+
+# Part 11: Execution Pipeline - Step 4: Normal Close (正常平仓)
+
+1. 概述 (Overview)
+    处理非强制性的、符合策略预期的平仓信号。
+    包括：均值回归获利平仓 (Take Profit) 和 协整破裂止损 (Stop Loss)。
+
+2. 信号检测 (Signal Detection)
+    由 `Pairs.get_signal(data)` 生成信号。
+
+    场景 A: 均值回归 (CLOSE)
+        - 条件: `abs(Z-score) < ExitThreshold` (默认 0.3σ)。
+        - 含义: 价差已回归到均值附近，套利完成。
+        - 动作: 生成 `CloseIntent` (Reason='MEAN_REVERSION')。
+
+    场景 B: 协整破裂 (PAIR_BREAK)
+        - 条件:
+            - 多头持仓 (Long Spread) 且 `Z-score < -StopLossThreshold` (默认 -2.3σ)。
+            - 空头持仓 (Short Spread) 且 `Z-score > StopLossThreshold` (默认 2.3σ)。
+        - 含义: 价差不仅没有回归，反而向不利方向突破了统计边界，假设协整关系已失效。
+        - 动作: 生成 `CloseIntent` (Reason='PAIR_BREAK')。
+
+3. 执行逻辑 (Execution Logic)
+    - 遍历所有持仓配对 (`pairs_with_position`)。
+    - 检查订单锁 (`is_pair_locked`): 防止在订单执行过程中重复发单。
+    - 获取信号并执行:
+        - 收到 `CLOSE` -> 执行均值回归平仓。
+        - 收到 `PAIR_BREAK` -> 执行止损平仓。
+    - 冷却期触发: 平仓完成后，`PairsManager` 会根据平仓原因 (Reason) 设定该配对的冷却期 (如止损后冷却 30 天，正常平仓冷却 0 天)。
+
+
+# Part 12: Execution Pipeline - Step 5: VIX Check (开仓安全检查)
+
+1. 目标 (Goal)
+    在开新仓之前，检查市场恐慌指数 (VIX)。如果市场处于极度恐慌状态，暂停一切开仓活动，防止在系统性风险中逆势接飞刀。
+
+2. 逻辑 (Logic)
+    - 获取 VIX 最新值 (CBOE Volatility Index)。
+    - 阈值判断:
+        - 如果 `VIX >= Threshold` (默认 35):
+            - 判定为恐慌状态 (Panic Mode)。
+            - 禁止开仓 (`return`)。
+        - 如果 `VIX < Threshold`:
+            - 判定为安全状态。
+            - 允许继续执行开仓逻辑。
+    - 缺失处理: 如果 VIX 数据缺失，采取激进策略 (Aggressive)，默认允许开仓。
+
+
+# Part 13: Execution Pipeline - Step 6: Normal Open (正常开仓)
+
+1. 概述 (Overview)
+    这是 `OnData` 的最后一步。经过了层层风控筛选后，终于可以寻找新的交易机会了。
+
+2. 候选筛选 (Candidate Selection)
+    由 `PairsManager.get_open_candidates_with_allocation(data)` 负责。
+    筛选条件 (必须全部满足):
+        - 资格: 必须是 `Current Selected` (本轮入选的配对)。
+        - 信号: `Pairs.get_signal` 返回 `LONG_SPREAD` 或 `SHORT_SPREAD`。
+        - 状态: 当前无持仓 (`has_position() == False`)。
+        - 冷却: 不在冷却期内 (`is_in_cooldown() == False`)。
+        - 锁: 没有未完成的订单锁 (`is_pair_locked() == False`)。
+
+3. 排序与分配 (Sorting & Allocation)
+    - 排序: 按 **平均交易回报 (Avg Return Per Trade)** 降序排列。优先交易那些历史表现好的“王牌配对”。
+    - 资金分配:
+        - 计算计划比例 (`planned_pct`): 根据历史回报分层 (如 Top Tier 给 10%，Low Tier 给 5%)。
+        - 计算实际金额: `Allocated = InitialAvailableMargin * planned_pct`。
+        - 门槛检查: 如果分配额 < 最小门槛 (如 $5000)，则放弃开仓 (资金太少不够磨损)。
+        - 循环分配: 直到可用资金耗尽。
+
+4. 执行开仓 (Execution)
+    - 遍历分配到资金的候选配对。
+    - 生成 `OpenIntent`: 计算具体的买卖数量 (Beta对冲)。
+    - 调用 `OrderExecutor.execute_open(intent)` 发送订单。
+
+
+================================================================================
+
+# Appendix: Class Reference (类参考手册)
+
+## Class: Pairs
+核心数据对象，封装了配对的统计参数、持仓状态及信号逻辑。
+
+### 1. Attributes (属性)
+
+#### 1.1 Identity & Metadata (身份与元数据)
+    - `pair_id`: Tuple[str, str]
+        - 描述: 配对的唯一标识符，如 `('AAPL', 'MSFT')`。
+    - `symbol1` / `symbol2`: Symbol
+        - 描述: 构成配对的两个 QuantConnect Symbol 对象。
+    - `industry_code`: str
+        - 描述: 所属行业代码 (Morningstar Industry Group Code)。
+
+#### 1.2 Model Parameters (模型参数)
+    - `alpha`: float
+        - 描述: 截距项 (Intercept)。
+    - `beta`: float
+        - 描述: 协整系数 (Cointegration Coefficient)。
+    - `rho`: float
+        - 描述: 自回归系数 (Autoregressive Coefficient)，决定均值回归速度。
+    - `sigma_eta`: float
+        - 描述: 残差标准差 (Residual Std Dev)，衡量波动率。
+    - `model_result`: Dict
+        - 描述: 存储完整的贝叶斯建模结果字典。
+
+#### 1.3 Quality Metrics (质量指标)
+    - `quality_score`: float
+        - 描述: 配对综合质量评分 (0.0-1.0)，基于 Half-life, SNR, Zero-crossing。
+    - `half_life`: float
+        - 描述: 均值回归半衰期 (天)。
+
+#### 1.4 State Management (状态管理)
+    - `position_mode`: PositionMode (Property)
+        - 描述: 当前持仓状态，值域: `NONE`, `LONG_SPREAD`, `SHORT_SPREAD`, `PARTIAL_LEG1`, `PARTIAL_LEG2`, `ANOMALY_SAME`。
+    - `tracked_qty1` / `tracked_qty2`: int
+        - 描述: 配对专属的持仓数量追踪。
+    - `entry_zscore`: float
+        - 描述: 开仓时的 Z-score，用于后续计算超时阈值。
+    - `entry_price1` / `entry_price2`: float
+        - 描述: 开仓时的成交均价，用于计算成本和 PnL。
+    - `entry_time`: datetime
+        - 描述: 开仓时间，用于计算持仓天数。
+    - `max_holding_days`: float
+        - 描述: 理论最大持仓天数，开仓时动态计算。
+
+#### 1.5 Statistics (历史统计)
+    - `trade_history`: List[Tuple[datetime, float, float]]
+        - 描述: 历史交易记录 (平仓时间, PnL, 投入资本)。
+    - `trade_count`: int
+        - 描述: 累计交易次数。
+    - `win_count`: int
+        - 描述: 累计盈利次数。
+    - `total_pnl`: float
+        - 描述: 累计盈亏金额。
+    - `realized_roi`: float
+        - 描述: 累计已实现 ROI。
+    - `win_rate`: float
+        - 描述: 胜率 (win_count / trade_count)。
+
+#### 1.6 Configuration (配置阈值)
+    - `entry_threshold_lower` / `entry_threshold_upper`: float (1.9 - 2.3)
+    - `exit_threshold`: float (0.3)
+    - `stop_loss_threshold`: float (2.5)
+
+### 2. Methods (方法)
+
+#### 2.1 Core Logic (核心逻辑)
+    - `get_zscore(price1, price2) -> float`
+        - 描述: 计算当前价格对应的 Z-score。
+    - `get_signal(data) -> str`
+        - 描述: 生成交易信号 (`LONG_SPREAD`, `SHORT_SPREAD`, `CLOSE`, `PAIR_BREAK`, `WAIT`, `HOLD`)。
+    - `get_open_intent(amount_allocated, data) -> OpenIntent`
+        - 描述: 生成开仓意图，计算 Beta 对冲后的目标股数。
+    - `get_close_intent(reason) -> CloseIntent`
+        - 描述: 生成平仓意图，根据当前持仓生成反向指令。
+
+#### 2.2 Lifecycle Callbacks (生命周期回调)
+    - `on_position_filled(action, fill_time, tickets, reason)`
+        - 描述: 订单完全成交后的回调。
+        - 逻辑: 更新持仓状态 (`tracked_qty`)，记录开仓价格/时间，或结算平仓 PnL 并更新历史统计。
+    - `update_params(new_pair)`
+        - 描述: 使用新一轮建模结果更新统计参数 (仅当无持仓时)。
+
+#### 2.3 Calculations & Analytics (计算与分析)
+    - `get_leg_values(allocated_amount, signal, data) -> (float, float)`
+        - 描述: 计算两腿的目标市值 (基于 Beta 对冲)。
+    - `get_pair_holding_days() -> int`
+        - 描述: 获取当前持仓天数。
+    - `get_max_holding_days() -> float`
+        - 描述: 获取理论最大持仓天数 (基于 Ornstein-Uhlenbeck 过程)。
+    - `get_pair_drawdown() -> float`
+        - 描述: 计算当前持仓的浮动回撤率。
+    - `get_hedge_drift() -> float`
+        - 描述: 计算对冲漂移率 (Net Exposure / Gross Exposure)。
+    - `get_pair_cumulative_roi() -> float`
+        - 描述: 计算历史累计 ROI (已实现 + 未实现)。
+    - `get_avg_return_per_trade() -> float`
+        - 描述: 计算平均每笔交易回报率 (用于资金分配排序)。
+
+#### 2.4 State Queries (状态查询)
+    - `has_position() -> bool`
+    - `has_normal_position() -> bool`
+    - `has_anomaly_position() -> bool`
+    - `is_in_cooldown() -> bool`
+    - `get_pair_unrealized_pnl() -> float`
+    - `get_pair_current_invested_capital() -> float`
+    - `get_net_exposure() -> float`
+    - `get_gross_exposure() -> float`
+
+
+================================================================================
+
+## Class: PairsManager
+配对管理器，负责管理整个回测周期内所有配对的生命周期、行业数据聚合及资金分配。
+
+### 1. Attributes (属性)
+
+#### 1.1 Pair Collections (配对集合)
+    - `all_pairs`: Dict[tuple, Pairs]
+        - 描述: 存储所有已创建的配对对象 (Key: pair_id)。
+    - `current_selected_pair_ids`: Set[tuple]
+        - 描述: 当前选股周期内入选的配对 ID 集合 (Active Universe)。
+    - `past_selected_pair_ids`: Set[tuple]
+        - 描述: 历史曾入选但当前落选的配对 ID 集合 (Passive Universe)。
+
+#### 1.2 Industry Data (行业数据)
+    - `industry_data_map`: Dict[str, IndustryData]
+        - 描述: 存储各行业的聚合统计数据 (Key: industry_code)。
+        - 内容: 包含该行业的总 ROI、胜率、盈亏、敞口等。
+
+#### 1.3 Configuration (配置)
+    - `module_config`: PairsManagerConfig
+        - 描述: 包含保证金比例、风控阈值、冷却期设置等。
+
+### 2. Methods (方法)
+
+#### 2.1 Lifecycle Management (生命周期管理)
+    - `classify_pairs(new_pairs_dict)`
+        - 描述: 每月选股后调用，更新 `current_selected` 和 `past_selected` 集合。
+        - 逻辑: 增量更新，对已存在的配对仅更新参数 (`update_params`)，对新配对进行注册。
+    - `get_pair_by_id(pair_id) -> Pairs`
+        - 描述: 根据 ID 获取配对对象。
+    - `get_pairs_with_position() -> Dict`
+        - 描述: 获取当前所有持仓配对。
+
+#### 2.2 Industry Analytics (行业分析)
+    - `_aggregate_all_industry_data()`
+        - 描述: 遍历所有配对，聚合计算各行业的统计指标。
+    - `get_industry_composite_score(industry_code) -> float`
+        - 描述: 计算行业综合得分 (Realized ROI × Win Rate)，用于配额分配。
+    - `get_industry_realized_roi(industry_code, window_days) -> float`
+        - 描述: 获取行业已实现 ROI (支持滚动窗口)。
+    - `get_industry_win_rate(industry_code, window_days) -> float`
+        - 描述: 获取行业胜率 (支持滚动窗口)。
+    - `get_industry_concentration(industry_code) -> float`
+        - 描述: 计算行业资金集中度 (该行业持仓市值 / 总持仓市值)。
+
+#### 2.3 Capital Allocation (资金分配)
+    - `get_open_candidates_with_allocation(data) -> List`
+        - 描述: 筛选开仓候选并完成资金分配。
+        - 流程: 筛选(Signal+NoPosition+NoCooldown) -> 排序(AvgReturn) -> 分配(Allocate)。
+    - `allocate_margin_to_candidates(open_candidates) -> Dict`
+        - 描述: 根据候选配对的层级分配保证金。
+    - `get_available_margin() -> float`
+        - 描述: 计算当前可用保证金 (TotalMargin - FixedBuffer)。
+
+#### 2.4 Health & Risk (健康与风控)
+    - `check_pairs_health() -> Dict`
+        - 描述: 执行所有配对的健康检查 (Anomaly, Drawdown, Drift, Timeout, ROI)。
+    - `get_cooldown_required_days(reason) -> int`
+        - 描述: 根据平仓原因查询所需的冷却天数。
+
+
+
