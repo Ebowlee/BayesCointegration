@@ -163,6 +163,11 @@ class CointegrationAnalyzer:
                     failed_tests.append((symbol1, symbol2, 'length_mismatch'))
                     continue
 
+                # 验证时间索引一致 (防止错位)
+                if not prices1.index.equals(prices2.index):
+                    failed_tests.append((symbol1, symbol2, 'index_mismatch'))
+                    continue
+
                 # Engle-Granger协整检验
                 score, pvalue, _ = coint(prices1, prices2)
 

@@ -1,7 +1,8 @@
 # region imports
 from AlgorithmImports import *
 import numpy as np
-from typing import Dict, Optional, Tuple
+from datetime import datetime
+from typing import Dict, List, Optional, Tuple
 from src.OrderExecutor import OpenIntent, CloseIntent
 # v7.10.6: 常量已移至config.constants统一管理，不再需要constants.py
 # endregion
@@ -107,6 +108,11 @@ class Pairs:
         self.pair_realized_pnl = 0.0                                           # 已实现PnL (已平仓交易累计,加权平均分子)
         self.pair_past_invested_capital = 0.0                                  # 已平仓累计投入资本 (加权平均分母)
         self.pair_past_total_holding_days = 0.0                                # 已平仓累计持仓天数 (v7.57.0)
+
+        # === 单笔交易记录 (v8.0.0 滚动窗口) ===
+        # 格式: [(exit_time, pnl, invested_capital), ...]
+        # 用途: 行业级滚动窗口计算 (180天/20笔最小样本)
+        self.trade_history: List[Tuple[datetime, float, float]] = []
 
         # === 时间追踪 ===
         self.pair_opened_time = None                                           # 配对开仓时间(双腿都成交的时刻)
@@ -1155,12 +1161,19 @@ class Pairs:
         self.pair_realized_pnl += pnl   # 分子：已实现PnL（使用平仓价格）
         self.pair_past_invested_capital += invested_capital  # 分母：已平仓累计投入资本
 
-        # === 步骤5：更新计数统计 ===
+        # === 步骤5：存储单笔交易记录 (v8.0.0 滚动窗口) ===
+        self.trade_history.append((
+            self.pair_closed_time,  # [0] exit_time (datetime)
+            pnl,                    # [1] 单笔 PnL ($)
+            invested_capital        # [2] 单笔投入资本 ($)
+        ))
+
+        # === 步骤6：更新计数统计 ===
         self.trade_count += 1
         if pnl > 0:
             self.win_count += 1
 
-        # === 步骤6：累加持仓天数 (v7.57.0) ===
+        # === 步骤7：累加持仓天数 (v7.57.0) ===
         if self.pair_opened_time and self.pair_closed_time:
             holding_days = (self.pair_closed_time - self.pair_opened_time).days
             self.pair_past_total_holding_days += holding_days

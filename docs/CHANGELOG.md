@@ -5,6 +5,80 @@
 ---
 
 
+## [v8.0.0_rolling-window-industry-score@20251127]
+
+### 版本概述
+引入行业评分滚动窗口机制，解决 composite_score 评分固化问题
+
+### 问题分析：评分固化 (Score Solidification)
+
+**当前公式:**
+```python
+composite_score = realized_roi × win_rate
+```
+
+**数学问题:** 随着交易次数 N 增加，新交易的边际权重 → 0：
+
+| N | 新交易权重 | 问题 |
+|---|------------|------|
+| 10 | 10% | 尚可接受 |
+| 50 | 2% | 反应迟钝 |
+| 100 | 1% | 几乎固化 |
+| 200 | 0.5% | 完全失灵 |
+
+### 解决方案：滚动窗口机制
+
+**核心设计:**
+- **数据存储**: `Pairs.trade_history: List[Tuple[datetime, float, float]]`
+- **Tuple格式**: `(exit_time, pnl, invested_capital)`
+- **窗口参数**: 180天 / 最小20笔样本保底
+
+**计算流程:**
+```
+平仓时:
+  Pairs._update_trade_stats()
+      ↓ append
+  pair.trade_history.append((exit_time, pnl, capital))
+
+查询时:
+  get_industry_realized_roi(industry_code, window_days=180)
+      ↓
+  _aggregate_all_industry_data()  # 聚合所有 pair.trade_history
+      ↓
+  window_records = [r for r if r[0] >= cutoff_time]  # 时间过滤
+      ↓
+  样本保底: len < 20 → 取最近20笔
+      ↓
+  sum(pnl) / sum(capital)  # 计算 ROI
+```
+
+### 变更内容
+
+**src/Pairs.py:**
+- `__init__()`: 新增 `trade_history: List[Tuple[datetime, float, float]]` 字段
+- `_update_trade_stats()`: 平仓时追加交易记录到 trade_history
+
+**src/PairsManager.py:**
+- `IndustryData`: 新增 `trade_history` 字段
+- `_aggregate_all_industry_data()`: 聚合各配对的 trade_history
+- `get_industry_realized_roi()`: 新增 `window_days` 参数 (默认180天)
+- `get_industry_win_rate()`: 新增 `window_days` 参数 (默认180天)
+
+### 向后兼容
+
+- `window_days=None` 时使用累计值 (原有行为)
+- `get_industry_composite_score()` 自动使用滚动窗口 (默认参数)
+
+### 验证要点
+
+1. **窗口边界**: `exit_time >= cutoff_time` (包含边界日)
+2. **样本保底**: 窗口内 < 20 笔时，取全历史最后 20 笔
+3. **空历史处理**: 全历史 0 笔时返回 0.0
+4. **Python切片行为**: `list[-20:]` 在 len < 20 时返回全部元素，不报错
+
+---
+
+
 ## [v7.99.10_fix-timezone-mismatch@20251127]
 
 ### 版本概述

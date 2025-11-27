@@ -1,6 +1,7 @@
 # region imports
 from AlgorithmImports import *
-from typing import Dict, Set, List
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Set, Tuple
 # endregion
 
 
@@ -31,6 +32,8 @@ class IndustryData:
         敞口维度 (v7.59.0, 内部字段用于计算 drift):
             - net_exposure: 净敞口 (long_value - short_value)
             - gross_exposure: 总敞口 (long_value + short_value)
+        滚动窗口维度 (v8.0.0):
+            - trade_history: 单笔交易记录列表 [(exit_time, pnl, invested_capital), ...]
 
     使用场景:
         - 由 PairsManager._aggregate_*() 方法创建
@@ -46,7 +49,8 @@ class IndustryData:
                  win_count: int = 0,
                  past_total_holding_days: float = 0.0,
                  net_exposure: float = 0.0,
-                 gross_exposure: float = 0.0):
+                 gross_exposure: float = 0.0,
+                 trade_history: List[Tuple[datetime, float, float]] = None):
         """
         初始化行业数据对象
 
@@ -61,6 +65,7 @@ class IndustryData:
             past_total_holding_days: 累计持仓天数 (已平仓交易, v7.57.0)
             net_exposure: 净敞口 (v7.59.0, 内部字段)
             gross_exposure: 总敞口 (v7.59.0, 内部字段)
+            trade_history: 单笔交易记录列表 (v8.0.0 滚动窗口)
         """
         self.industry_code = industry_code
         self.unrealized_pnl = unrealized_pnl
@@ -74,6 +79,8 @@ class IndustryData:
         # 敞口维度 (v7.59.0)
         self.net_exposure = net_exposure
         self.gross_exposure = gross_exposure
+        # 滚动窗口维度 (v8.0.0)
+        self.trade_history: List[Tuple[datetime, float, float]] = trade_history if trade_history is not None else []
 
 
 class PairsManager:
@@ -219,6 +226,9 @@ class PairsManager:
             gross_exp = pair.get_gross_exposure()
             if gross_exp is not None:
                 data.gross_exposure += gross_exp
+
+            # === 滚动窗口维度 (v8.0.0) ===
+            data.trade_history.extend(pair.trade_history)
 
         return industry_data
 
@@ -367,26 +377,59 @@ class PairsManager:
             return 0.0
         return total_pnl / total_invested
 
-    def get_industry_realized_roi(self, industry_code: str) -> float:
+    def get_industry_realized_roi(self, industry_code: str,
+                                   window_days: Optional[int] = 180) -> float:
         """
-        获取指定行业的已实现ROI (纯历史) (v7.92.0 新增)
+        获取指定行业的已实现ROI (v8.0.0: 支持滚动窗口)
 
-        公式: realized_pnl / past_invested_capital
+        公式: sum(pnl) / sum(invested_capital)
 
-        用途:
-            - 与 win_rate 配合计算 composite_score (时间口径一致)
-            - 只统计已平仓交易的收益率
+        参数:
+            industry_code: 行业代码
+            window_days: 滚动窗口天数 (默认180天)
+                - None: 使用累计值 (向后兼容)
+                - 整数: 使用滚动窗口
+
+        滚动窗口逻辑:
+            1. 筛选 exit_time >= (当前时间 - window_days) 的交易
+            2. 样本量保底: 如果窗口内 < 20 笔, 取最近 20 笔
+            3. 计算 sum(pnl) / sum(invested_capital)
 
         Returns:
-            已实现ROI (如 0.15 表示 15%), 无历史投入时返回 0.0
+            已实现ROI (如 0.15 表示 15%), 无数据时返回 0.0
         """
+        MIN_SAMPLES = 20  # 最小样本量保底
+
         industry_data = self._aggregate_all_industry_data()
         if industry_code not in industry_data:
             return 0.0
+
         data = industry_data[industry_code]
-        if data.past_invested_capital <= 0:
+
+        # === 向后兼容: window_days=None 时使用累计值 ===
+        if window_days is None:
+            if data.past_invested_capital <= 0:
+                return 0.0
+            return data.realized_pnl / data.past_invested_capital
+
+        # === 滚动窗口计算 ===
+        cutoff_time = self.algorithm.Time - timedelta(days=window_days)
+        window_records = [r for r in data.trade_history if r[0] >= cutoff_time]
+
+        # 样本量保底: 窗口内不足 MIN_SAMPLES 时, 取最近 MIN_SAMPLES 笔
+        if len(window_records) < MIN_SAMPLES:
+            window_records = data.trade_history[-MIN_SAMPLES:]
+
+        if not window_records:
             return 0.0
-        return data.realized_pnl / data.past_invested_capital
+
+        total_pnl = sum(r[1] for r in window_records)
+        total_capital = sum(r[2] for r in window_records)
+
+        if total_capital <= 0:
+            return 0.0
+
+        return total_pnl / total_capital
 
     def get_industry_unrealized_roi(self, industry_code: str) -> float:
         """
@@ -418,20 +461,53 @@ class PairsManager:
             return industry_data[industry_code].trade_count
         return 0
 
-    def get_industry_win_rate(self, industry_code: str) -> float:
+    def get_industry_win_rate(self, industry_code: str,
+                               window_days: Optional[int] = 180) -> float:
         """
-        获取指定行业的胜率 (win_count / trade_count)
+        获取指定行业的胜率 (v8.0.0: 支持滚动窗口)
+
+        参数:
+            industry_code: 行业代码
+            window_days: 滚动窗口天数 (默认180天)
+                - None: 使用累计值 (向后兼容)
+                - 整数: 使用滚动窗口
+
+        滚动窗口逻辑:
+            1. 筛选 exit_time >= (当前时间 - window_days) 的交易
+            2. 样本量保底: 如果窗口内 < 20 笔, 取最近 20 笔
+            3. 计算 wins / len(window_records)
 
         Returns:
             胜率 (如 0.65 表示 65%), 无交易时返回 0.0
         """
+        MIN_SAMPLES = 20  # 最小样本量保底
+
         industry_data = self._aggregate_all_industry_data()
         if industry_code not in industry_data:
             return 0.0
+
         data = industry_data[industry_code]
-        if data.trade_count <= 0:
+
+        # === 向后兼容: window_days=None 时使用累计值 ===
+        if window_days is None:
+            if data.trade_count <= 0:
+                return 0.0
+            return data.win_count / data.trade_count
+
+        # === 滚动窗口计算 ===
+        cutoff_time = self.algorithm.Time - timedelta(days=window_days)
+        window_records = [r for r in data.trade_history if r[0] >= cutoff_time]
+
+        # 样本量保底: 窗口内不足 MIN_SAMPLES 时, 取最近 MIN_SAMPLES 笔
+        if len(window_records) < MIN_SAMPLES:
+            window_records = data.trade_history[-MIN_SAMPLES:]
+
+        if not window_records:
             return 0.0
-        return data.win_count / data.trade_count
+
+        # 计算胜率: pnl > 0 即为盈利
+        wins = sum(1 for r in window_records if r[1] > 0)
+        return wins / len(window_records)
 
     def get_industry_avg_holding_days(self, industry_code: str) -> float:
         """

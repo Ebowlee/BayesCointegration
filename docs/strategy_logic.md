@@ -94,7 +94,10 @@
     检验方法: statsmodels.tsa.stattools.coint (Augmented Engle-Granger)
     输入数据: 清洗后的对数价格序列 (Log Prices)
     阈值标准: p-value < 0.01 (99% 置信度)
-    异常处理: 捕获长度不一致、数据缺失等异常，确保程序不崩溃
+    异常处理: 
+        长度检查: 必须完全一致
+        索引检查: 时间轴必须完全对齐 (Index Equality)
+        其他: 捕获 statsmodels 潜在报错
 
 3. 结果输出 (Output)
     Pairs: List[Dict]
@@ -102,3 +105,60 @@
         排序: 按 p-value 从小到大排序 (显著性越强越靠前)
     Statistics: Dict
         包含: 测试配对总数、通过配对总数、各行业详细统计
+
+
+# Part 4: Analysis Pipeline - Step 3: Industry Quota (行业配额)
+
+1. 配额计算 (Quota Calculation) - 动态平衡系统 (Dynamic Equilibrium)
+    目标：构建一个自我进化的资金分配系统，在“进攻”与“防守”之间寻找动态平衡。
+
+    预热期 (Warmup): 前 90 天不分配配额 (返回空)，使用默认值。
+    进攻机制 (Attack - Exponential Weight):
+        基于行业综合得分 (Composite Score = Rolling ROI * Rolling WinRate)
+        滚动窗口 (Rolling Window):
+            时间窗口: 最近 180 天 (快速适应市场风格切换)
+            样本保底: 若窗口内不足 20 笔交易，则向后追溯取满 20 笔 (防止小样本噪音)
+        正收益: 权重 = ceil(exp(8 * Score)) (指数级增长，迅速放大优势行业的相对权重)
+        负收益/无数据: 权重 = 1 (保底)
+    防守机制 (Defense - Concentration Cap):
+        熔断: 如果某行业当前资金占用超过阈值 (concentration_threshold)，配额直接降为 0。
+        作用: 形成负反馈闭环 (赚钱->加仓->触顶->停新)，防止单一行业风险失控。
+    分配逻辑 (Allocation - Normalization):
+        公式: TotalQuota * (IndustryWeight / TotalWeight)
+        保底: 每个行业至少 min_quota (防止饿死，保留翻身机会)
+
+2. 配额应用 (Quota Application)
+    目标：从通过协整检验的配对池中，筛选出最终进入下一轮的配对。
+
+    筛选逻辑:
+        1. 随机打乱: 既然都通过了 p<0.01，不再按 pvalue 排序，而是随机抽取 (增加多样性)。
+        2. 确定性随机: 使用 hash(date + industry) 作为种子，保证回测可复现。
+        3. 单股限制: 限制单只股票最多参与 max_symbol_repeats 个配对 (防止单股风险敞口过大)。
+    输出:
+        Selected Pairs: List[Dict] (经过配额筛选后的精简列表)
+
+
+# Part 5: Analysis Pipeline - Step 4: PairData Construction (数据封装)
+
+1. 目标 (Goal)
+    将通过配额筛选的配对数据封装为不可变对象，为后续贝叶斯建模提供类型安全、预计算的数据基础。
+
+2. 数据结构 (Data Structure)
+    类型: Dataclass (Frozen=True, 不可变)
+    内容:
+        Symbol1, Symbol2: 股票代码
+        Prices1, Prices2: 原始价格序列 (np.ndarray)
+        LogPrices1, LogPrices2: 对数价格序列 (预计算, np.log)
+
+3. 核心逻辑 (Core Logic)
+    工厂方法 (Factory Method): `from_clean_data`
+        自动从 clean_data 字典中提取对应股票的 Close 价格。
+        自动执行对数转换 (Log Transformation)，避免后续重复计算。
+    数据验证 (Validation):
+        长度一致性: 确保两只股票的价格序列长度完全相等。
+        对数一致性: 确保对数价格长度与原始价格一致。
+        异常处理: 若数据缺失或长度不匹配，在对象创建时即抛出异常 (Fail Fast)。
+
+4. 输出 (Output)
+    PairData Dictionary: Dict[Tuple[Symbol, Symbol], PairData]
+    供后续 Bayesian Modeler 直接使用。

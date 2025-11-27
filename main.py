@@ -18,7 +18,7 @@ from src.TicketsManager import TicketsManager
 
 
 class BayesianCointegrationStrategy(QCAlgorithm):
-    """v7.99.10: 修复 is_in_cooldown 时区不匹配 (Time→UtcTime)"""
+    """v8.0.0: 行业评分滚动窗口机制 - 解决评分固化问题"""
 
     def Initialize(self):
         """初始化策略"""
