@@ -378,27 +378,31 @@ class PairsManager:
         return total_pnl / total_invested
 
     def get_industry_realized_roi(self, industry_code: str,
-                                   window_days: Optional[int] = 180) -> float:
+                                   window_days: Optional[int] = None) -> float:
         """
-        获取指定行业的已实现ROI (v8.0.0: 支持滚动窗口)
+        获取指定行业的已实现ROI (v8.0.0: 支持滚动窗口, v8.0.1: 配置化参数)
 
         公式: sum(pnl) / sum(invested_capital)
 
         参数:
             industry_code: 行业代码
-            window_days: 滚动窗口天数 (默认180天)
-                - None: 使用累计值 (向后兼容)
-                - 整数: 使用滚动窗口
+            window_days: 滚动窗口天数
+                - None: 使用 config.industry_quota.rolling_window_days (默认180天)
+                - -1: 使用累计值 (向后兼容)
+                - 正整数: 使用指定窗口天数
 
         滚动窗口逻辑:
             1. 筛选 exit_time >= (当前时间 - window_days) 的交易
-            2. 样本量保底: 如果窗口内 < 20 笔, 取最近 20 笔
+            2. 样本量保底: 如果窗口内 < min_samples 笔, 取最近 min_samples 笔
             3. 计算 sum(pnl) / sum(invested_capital)
 
         Returns:
             已实现ROI (如 0.15 表示 15%), 无数据时返回 0.0
         """
-        MIN_SAMPLES = 20  # 最小样本量保底
+        # === v8.0.1: 从config读取默认值 ===
+        if window_days is None:
+            window_days = self.config.industry_quota.rolling_window_days
+        min_samples = self.config.industry_quota.min_samples_for_window
 
         industry_data = self._aggregate_all_industry_data()
         if industry_code not in industry_data:
@@ -406,8 +410,8 @@ class PairsManager:
 
         data = industry_data[industry_code]
 
-        # === 向后兼容: window_days=None 时使用累计值 ===
-        if window_days is None:
+        # === 向后兼容: window_days=-1 时使用累计值 ===
+        if window_days == -1:
             if data.past_invested_capital <= 0:
                 return 0.0
             return data.realized_pnl / data.past_invested_capital
@@ -416,9 +420,9 @@ class PairsManager:
         cutoff_time = self.algorithm.Time - timedelta(days=window_days)
         window_records = [r for r in data.trade_history if r[0] >= cutoff_time]
 
-        # 样本量保底: 窗口内不足 MIN_SAMPLES 时, 取最近 MIN_SAMPLES 笔
-        if len(window_records) < MIN_SAMPLES:
-            window_records = data.trade_history[-MIN_SAMPLES:]
+        # 样本量保底: 窗口内不足 min_samples 时, 取最近 min_samples 笔
+        if len(window_records) < min_samples:
+            window_records = data.trade_history[-min_samples:]
 
         if not window_records:
             return 0.0
@@ -462,25 +466,29 @@ class PairsManager:
         return 0
 
     def get_industry_win_rate(self, industry_code: str,
-                               window_days: Optional[int] = 180) -> float:
+                               window_days: Optional[int] = None) -> float:
         """
-        获取指定行业的胜率 (v8.0.0: 支持滚动窗口)
+        获取指定行业的胜率 (v8.0.0: 支持滚动窗口, v8.0.1: 配置化参数)
 
         参数:
             industry_code: 行业代码
-            window_days: 滚动窗口天数 (默认180天)
-                - None: 使用累计值 (向后兼容)
-                - 整数: 使用滚动窗口
+            window_days: 滚动窗口天数
+                - None: 使用 config.industry_quota.rolling_window_days (默认180天)
+                - -1: 使用累计值 (向后兼容)
+                - 正整数: 使用指定窗口天数
 
         滚动窗口逻辑:
             1. 筛选 exit_time >= (当前时间 - window_days) 的交易
-            2. 样本量保底: 如果窗口内 < 20 笔, 取最近 20 笔
+            2. 样本量保底: 如果窗口内 < min_samples 笔, 取最近 min_samples 笔
             3. 计算 wins / len(window_records)
 
         Returns:
             胜率 (如 0.65 表示 65%), 无交易时返回 0.0
         """
-        MIN_SAMPLES = 20  # 最小样本量保底
+        # === v8.0.1: 从config读取默认值 ===
+        if window_days is None:
+            window_days = self.config.industry_quota.rolling_window_days
+        min_samples = self.config.industry_quota.min_samples_for_window
 
         industry_data = self._aggregate_all_industry_data()
         if industry_code not in industry_data:
@@ -488,8 +496,8 @@ class PairsManager:
 
         data = industry_data[industry_code]
 
-        # === 向后兼容: window_days=None 时使用累计值 ===
-        if window_days is None:
+        # === 向后兼容: window_days=-1 时使用累计值 ===
+        if window_days == -1:
             if data.trade_count <= 0:
                 return 0.0
             return data.win_count / data.trade_count
@@ -498,9 +506,9 @@ class PairsManager:
         cutoff_time = self.algorithm.Time - timedelta(days=window_days)
         window_records = [r for r in data.trade_history if r[0] >= cutoff_time]
 
-        # 样本量保底: 窗口内不足 MIN_SAMPLES 时, 取最近 MIN_SAMPLES 笔
-        if len(window_records) < MIN_SAMPLES:
-            window_records = data.trade_history[-MIN_SAMPLES:]
+        # 样本量保底: 窗口内不足 min_samples 时, 取最近 min_samples 笔
+        if len(window_records) < min_samples:
+            window_records = data.trade_history[-min_samples:]
 
         if not window_records:
             return 0.0

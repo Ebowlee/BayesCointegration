@@ -175,6 +175,10 @@ class IndustryQuotaManagerConfig:
     # 预热期配置
     warmup_days: int = 90                                          # 预热期天数
 
+    # 滚动窗口配置 (v8.0.0)
+    rolling_window_days: int = 180                                 # 滚动窗口天数
+    min_samples_for_window: int = 20                               # 最小样本量保底
+
 
 @dataclass
 class PairSelectorConfig:

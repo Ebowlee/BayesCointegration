@@ -18,7 +18,7 @@ from src.TicketsManager import TicketsManager
 
 
 class BayesianCointegrationStrategy(QCAlgorithm):
-    """v8.0.0: 行业评分滚动窗口机制 - 解决评分固化问题"""
+    """v8.0.1: 滚动窗口参数配置化 - MIN_SAMPLES/window_days 移至config"""
 
     def Initialize(self):
         """初始化策略"""

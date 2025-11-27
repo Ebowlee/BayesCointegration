@@ -5,6 +5,42 @@
 ---
 
 
+## [v8.0.1_config-rolling-window-params@20251127]
+
+### 版本概述
+将滚动窗口硬编码参数移至 `IndustryQuotaManagerConfig`，符合项目配置集中管理原则
+
+### 变更内容
+
+**config.py - IndustryQuotaManagerConfig 新增:**
+```python
+# 滚动窗口配置 (v8.0.0)
+rolling_window_days: int = 180                                 # 滚动窗口天数
+min_samples_for_window: int = 20                               # 最小样本量保底
+```
+
+**PairsManager.py - 方法签名变更:**
+```python
+# Before (v8.0.0)
+def get_industry_realized_roi(self, industry_code: str,
+                               window_days: Optional[int] = 180) -> float:
+    MIN_SAMPLES = 20  # 硬编码
+
+# After (v8.0.1)
+def get_industry_realized_roi(self, industry_code: str,
+                               window_days: Optional[int] = None) -> float:
+    if window_days is None:
+        window_days = self.config.industry_quota.rolling_window_days
+    min_samples = self.config.industry_quota.min_samples_for_window
+```
+
+**向后兼容性变更:**
+- `window_days=None` → 使用 config 默认值 (180天)
+- `window_days=-1` → 使用累计值 (原 `None` 行为)
+
+---
+
+
 ## [v8.0.0_rolling-window-industry-score@20251127]
 
 ### 版本概述

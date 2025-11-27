@@ -162,3 +162,80 @@
 4. 输出 (Output)
     PairData Dictionary: Dict[Tuple[Symbol, Symbol], PairData]
     供后续 Bayesian Modeler 直接使用。
+
+
+# Part 6: Analysis Pipeline - Step 5: Bayesian Modeler (贝叶斯建模)
+
+1. 目标 (Goal)
+    对通过协整初筛的配对进行精细化的参数估计，量化均值回归特性。
+    核心优势：利用贝叶斯方法融合历史先验信息，提高参数估计的稳定性。
+
+2. 先验选择 (Prior Selection)
+    策略：二级先验体系
+    Level 1: 历史后验先验 (Informed Prior)
+        条件: 存在有效的历史后验记录 (within validity_days)。
+        $\alpha, \beta$: Normal 分布，均值/方差源自历史后验。
+        $\rho$: Beta 分布，使用矩匹配 (Moment Matching) 拟合历史均值和方差。
+        $\sigma_\eta$: HalfNormal 分布，基于历史波动率放大 (Relaxation)。
+    Level 2: 无信息先验 (Uninformed Prior)
+        条件: 无历史记录或记录过期。
+        $\alpha, \beta$: Normal 分布 (宽泛方差)。
+        $\rho$: Beta(2, 2) (偏好 0.5 但允许全域)。
+        $\sigma_\eta$: HalfNormal (0.1)。
+
+3. 联合建模 (Joint Modeling)
+    模型: 单一联合贝叶斯模型 (Joint Bayesian Model)
+    核心变换: 为解决 PyMC 观测值依赖问题，将 OU 过程转换为 AR(1) 形式：
+    $$y_t = \alpha(1-\rho) + \beta(x_t - \rho x_{t-1}) + \rho y_{t-1} + \eta_t$$
+    参数定义:
+        $\beta$: 对冲比例 (Hedge Ratio)
+        $\alpha$: 截距项 (Intercept)
+        $\rho$: 均值回归系数 (Mean Reversion Coefficient), $\rho \in (0,1)$ (由 Beta 分布天然保证平稳性)
+        $\sigma_\eta$: 残差波动率 (Residual Volatility)
+    MCMC 设置 (PyMC):
+        Chains: 4
+        Draws: 1000 (采样次数)
+        Tune: 1000 (预热次数)
+
+4. 输出 (Output)
+    Modeling Results: List[Dict]
+    包含:
+        参数后验均值: alpha_mean, beta_mean, rho_mean, sigma_mean
+        参数后验标准差: alpha_std, beta_std, rho_std, sigma_std
+        衍生指标: Half Life (半衰期) = $-\ln(2) / \ln(\rho)$
+        元数据: modeling_type (informed/uninformed)
+
+
+# Part 7: Analysis Pipeline - Step 6: Pair Selector (配对筛选)
+
+1. 目标 (Goal)
+    基于贝叶斯后验参数，从多维度评估配对质量，筛选出最具有均值回归潜力的配对。
+
+2. 评分维度 (Scoring Dimensions)
+    采用三维评分系统，加权计算总分 (Quality Score)。
+
+    维度 1: Half-life (半衰期) - 权重 25%
+        定义: 均值回归一半所需的时间，衡量回归速度。
+        公式: $HalfLife = -\ln(2) / \ln(\rho)$
+        评分函数: 非对称高斯分布 (Asymmetric Gaussian)
+            峰值: 8天 (最理想)
+            核心区间: 5-10天
+            惩罚: <4天 (过度交易) 或 >12天 (回归太慢)
+
+    维度 2: Mean-reversion Certainty (MR确定性) - 权重 40%
+        定义: 衡量均值回归强度的统计显著性 (信噪比)。
+        指标: SNR_κ = Mean(κ) / Std(κ)，其中 $\kappa = -\ln(\rho) / \Delta t$
+        评分函数: Logistic 函数 (S曲线)
+            特点: SNR越高分数越高，对高确定性给予奖励。
+
+    维度 3: Zero-crossing (零轴穿越) - 权重 35%
+        定义: Spread 穿越均值的次数，衡量波动的“往复性”。
+        评分函数: 分段线性函数 (Piecewise Linear)
+            峰值: 12次/年 (每月1次) -> 1.0分
+            区间: 6-36次 (合理区间)
+            惩罚: <6次 (信号稀缺) 或 >36次 (噪声过大)
+
+3. 筛选逻辑 (Selection Logic)
+    门槛过滤: Quality Score > 0.50 (宁缺毋滥)
+    排序: 按 Quality Score 降序排列。
+    输出: 最终入选的配对列表 (Selected Pairs)。
