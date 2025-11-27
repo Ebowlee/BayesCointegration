@@ -176,8 +176,12 @@ class IndustryQuotaManagerConfig:
     warmup_days: int = 90                                          # 预热期天数
 
     # 滚动窗口配置 (v8.0.0)
-    rolling_window_days: int = 180                                 # 滚动窗口天数
-    min_samples_for_window: int = 20                               # 最小样本量保底
+    # 背景: composite_score = realized_roi × win_rate 使用累计平均
+    #       随交易次数N增加，新交易边际权重→1/N→0 (N=200时仅0.5%)
+    #       导致评分固化，失去对近期表现的敏感度
+    # 方案: 改用滚动窗口计算，只考虑最近N天/笔的交易记录
+    rolling_window_days: int = 180                                 # 滚动窗口天数 (半年)
+    min_samples_for_window: int = 20                               # 样本量保底: 窗口内<20笔时取最近20笔
 
 
 @dataclass
