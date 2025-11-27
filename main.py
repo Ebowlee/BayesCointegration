@@ -18,7 +18,7 @@ from src.TicketsManager import TicketsManager
 
 
 class BayesianCointegrationStrategy(QCAlgorithm):
-    """v8.0.1: 滚动窗口参数配置化 - MIN_SAMPLES/window_days 移至config"""
+    """v8.0.2: 过时文档清理 - 删除已激活调用路径的 '待恢复' 注释"""
 
     def Initialize(self):
         """初始化策略"""

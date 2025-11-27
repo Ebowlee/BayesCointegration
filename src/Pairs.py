@@ -160,9 +160,6 @@ class Pairs:
 
         Args:
             new_pair: 新创建的Pairs对象(含最新建模结果)
-
-        Note:
-            当前状态: 步骤6-7(更新Bayesian参数)待恢复, 调用路径尚未激活
         """
         # 更新所有贝叶斯模型参数
         self.alpha_mean = new_pair.alpha_mean

@@ -5,6 +5,20 @@
 ---
 
 
+## [v8.0.2_cleanup-outdated-docstrings@20251127]
+
+### 版本概述
+清理过时的 docstring 注释，移除已激活调用路径的 "待恢复" 标记
+
+### 变更内容
+
+**Pairs.py - update_params() docstring:**
+- 删除过时 Note 块: `当前状态: 步骤6-7(更新Bayesian参数)待恢复, 调用路径尚未激活`
+- 原因: 调用路径已在 v7.53.2 激活 (PairsManager.classify_pairs():262)
+
+---
+
+
 ## [v8.0.1_config-rolling-window-params@20251127]
 
 ### 版本概述
