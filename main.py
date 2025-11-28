@@ -309,10 +309,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
                 # v8.0.11: 信号层区分方向, 原因层统一为PAIR_BREAK
                 intent = pair.get_close_intent(reason='PAIR_BREAK', data=data)
                 if intent:
-                    success = self.order_executor.execute_close(intent)
-                    if success:
-                        direction = '上破' if signal == 'BREAK_UPPER' else '下破'
-                        self.Debug(f"[平仓] {pair_id} 协整破裂止损 ({direction})", level=0)
+                    self.order_executor.execute_close(intent)
 
         # === 5. 开仓安全检查 (VIX) ===
         if not self.risk_manager.is_vix_safe():

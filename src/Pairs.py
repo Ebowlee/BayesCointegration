@@ -674,26 +674,3 @@ class Pairs:
             level=0
         )
 
-        # v7.28.2: 增强诊断 - 价格变化明细
-        if self.exit_price1 and self.exit_price2 and self.entry_price1 and self.entry_price2:
-            leg1_pnl = self.tracked_qty1 * (self.exit_price1 - self.entry_price1)
-            leg2_pnl = self.tracked_qty2 * (self.exit_price2 - self.entry_price2)
-
-            self.algorithm.Debug(
-                f"[PnL明细] {self.pair_id} "
-                f"| 开仓价=({self.entry_price1:.4f}, {self.entry_price2:.4f}) "
-                f"| 平仓价=({self.exit_price1:.4f}, {self.exit_price2:.4f}) "
-                f"| 数量=({self.tracked_qty1:+.0f}, {self.tracked_qty2:+.0f}) "
-                f"| leg1_pnl=${leg1_pnl:+.2f} "
-                f"| leg2_pnl=${leg2_pnl:+.2f}",
-                level=1
-            )
-
-            # v7.39.0: 对冲漂移诊断 - 分析亏损原因(Alpha风险 vs Beta风险)
-            # v7.40.1: 简化后此功能不再输出(平仓后exposure=None)
-            hedge_drift = self.get_hedge_drift()
-            if hedge_drift is not None:
-                self.algorithm.Debug(
-                    f"[对冲诊断] {self.pair_id} | 平仓时漂移={hedge_drift:+.2f}%",
-                    level=1
-                )
