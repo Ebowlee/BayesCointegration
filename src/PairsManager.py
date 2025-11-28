@@ -77,6 +77,10 @@ class PairsManager:
         # === 模块配置引用 (v7.98.4: 修复未初始化bug) ===
         self.module_config = config.pairs_manager
 
+        # === 行业数据缓存 (v8.0.17: 时间戳缓存避免重复计算) ===
+        self._industry_cache: Dict[str, IndustryData] = {}
+        self._industry_cache_time: datetime = None
+
         algorithm.Debug(
             f"[PairsManager] 初始化完成: "
             f"初始资金=${self.INITIAL_CAPITAL:,.0f}, "
@@ -93,7 +97,19 @@ class PairsManager:
 
 
     def _aggregate_all_industry_data(self) -> Dict[str, IndustryData]:
-        """遍历所有配对，聚合各行业的统计数据"""
+        """
+        遍历所有配对，聚合各行业的统计数据
+
+        v8.0.17: 时间戳缓存优化
+        - 同一 algorithm.Time 内只计算一次
+        - 减少 O(n×m) → O(n) 每个时间步
+        """
+        # === 缓存命中检查 ===
+        current_time = self.algorithm.Time
+        if self._industry_cache_time == current_time and self._industry_cache:
+            return self._industry_cache
+
+        # === 缓存未命中: 重新计算 ===
         industry_data: Dict[str, IndustryData] = {}
 
         for _, pair in self.all_pairs.items():
@@ -120,6 +136,10 @@ class PairsManager:
 
             # === 滚动窗口维度 (v8.0.0) ===
             data.trade_history.extend(pair.trade_history)
+
+        # === 更新缓存 ===
+        self._industry_cache = industry_data
+        self._industry_cache_time = current_time
 
         return industry_data
 
@@ -405,11 +425,13 @@ class PairsManager:
         输入: [(pair, signal, quality_score, planned_pct), ...]
         输出: {pair_id: allocated_amount}
 
-        算法:
+        算法 (v8.0.15修复):
             1. 获取初始可用保证金 (固定基准)
             2. 计算最小投资门槛 (基于INITIAL_CAPITAL)
-            3. 顺序分配: 分配额 = 初始可用 × planned_pct
-            4. 检查门槛+剩余资金，不足则跳过
+            3. 顺序分配:
+               - 计划分配额 = 初始可用 × planned_pct
+               - 实际分配额 = max(计划分配额, 最小门槛)  # 保底机制
+            4. 检查剩余资金是否足够实际分配额
         """
         allocations = {}
 
@@ -419,7 +441,7 @@ class PairsManager:
         # 计算最小投资门槛（基于固定的 INITIAL_CAPITAL）
         min_threshold = self.INITIAL_CAPITAL * self.config.pairs_manager.min_investment_ratio
 
-        # 资金充足性检查
+        # 资金充足性检查 (可用资金必须至少能开一仓)
         if initial_available < min_threshold:
             self.algorithm.Debug(
                 f"[资金分配] 可用保证金不足: "
@@ -432,15 +454,18 @@ class PairsManager:
         remaining_available = initial_available  # 追踪剩余资金
 
         for pair, signal, quality_score, planned_pct in open_candidates:
-            # 基于固定基准计算分配额（天然动态缩放）
+            # 基于固定基准计算计划分配额
             planned_allocated = initial_available * planned_pct
 
-            # 检查门槛 + 检查剩余资金
-            if planned_allocated >= min_threshold and remaining_available >= planned_allocated:
-                allocations[pair.pair_id] = planned_allocated
-                remaining_available -= planned_allocated
-            else:
-                continue  # 跳过该配对
+            # v8.0.15: 实际分配额 = max(计划额, 最小门槛)
+            # 修复: 当 $34,000 × 10% = $3,400 < $5,000 时，使用 $5,000
+            actual_allocated = max(planned_allocated, min_threshold)
+
+            # 检查剩余资金是否足够
+            if remaining_available >= actual_allocated:
+                allocations[pair.pair_id] = actual_allocated
+                remaining_available -= actual_allocated
+            # else: 剩余资金不足，跳过该配对
 
         # === Step 3: 返回分配结果 ===
         return allocations
