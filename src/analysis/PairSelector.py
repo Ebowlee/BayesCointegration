@@ -371,7 +371,7 @@ class PairSelector:
             historical_pair = self.algorithm.pairs_manager.get_pair_by_id(pair_id)
 
             if historical_pair:
-                cumulative_roi = historical_pair.get_pair_cumulative_roi()
+                cumulative_roi = historical_pair.get_pair_roi()
                 if cumulative_roi is not None and cumulative_roi < self.historical_roi_threshold:
                     # 跳过历史亏损严重的配对
                     self.algorithm.Debug(

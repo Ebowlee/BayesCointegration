@@ -239,7 +239,7 @@
     Step 1: 门槛过滤 - Quality Score > 0.50 (宁缺毋滥)
     Step 1.5: 历史ROI过滤 (v8.0.9) - 预热期后生效
         - 条件: Cumulative ROI < -10% (历史累积亏损超过10%)
-        - 数据来源: `pairs_manager.get_pair_by_id(pair_id).get_pair_cumulative_roi()`
+        - 数据来源: `pairs_manager.get_pair_by_id(pair_id).get_pair_roi()`
         - 设计理念: 即使协整关系仍然成立，长期亏损的配对也不应再被选中
         - 预热期: 前90天不过滤，给所有配对公平机会
     Step 2: 排序 - 按 Quality Score 降序排列
@@ -507,12 +507,17 @@
         - 描述: 计算当前持仓的浮动回撤率。
     - `get_hedge_drift() -> float`
         - 描述: 计算对冲漂移率 (Net Exposure / Gross Exposure)。
-    - `get_pair_cumulative_roi() -> float`
+    - `get_pair_roi() -> float` (v8.0.18 重命名自 get_pair_cumulative_roi)
         - 描述: 计算历史累计 ROI (v8.0.8: 仅已平仓部分)。
-        - 公式: `pair_accum_realized_pnl / pair_past_invested_capital`
+        - 公式: `pair_historical_pnl / pair_historical_invested_capital` (v8.0.19)
         - 用途: 供 PairSelector 历史ROI过滤使用 (v8.0.9)
     - `get_avg_return_per_trade() -> float`
         - 描述: 计算平均每笔交易回报率 (用于资金分配排序)。
+    - `_calculate_trade_pnl() -> float` (v8.0.19 私有方法，原 get_pair_pnl)
+        - 描述: 计算单笔交易的已实现PnL (内部使用)。
+        - 注意: 历史累积PnL使用 `pair_historical_pnl` 属性。
+    - `get_pair_current_invested_capital() -> float` (v8.0.19，原 get_pair_invested_capital)
+        - 描述: 获取当前持仓的投入资本。
 
 #### 2.4 State Queries (状态查询)
     - `has_position() -> bool`
@@ -520,7 +525,6 @@
     - `has_anomaly_position() -> bool`
     - `is_in_cooldown() -> bool`
     - `get_pair_unrealized_pnl() -> float`
-    - `get_pair_current_invested_capital() -> float`
     - `get_hedge_drift() -> float`
 
 
@@ -563,11 +567,19 @@
     - `_aggregate_all_industry_data()`
         - 描述: 遍历所有配对，聚合计算各行业的统计指标。
     - `get_industry_composite_score(industry_code) -> float`
-        - 描述: 计算行业综合得分 (Realized ROI × Win Rate)，用于配额分配。
-    - `get_industry_realized_roi(industry_code, window_days) -> float`
-        - 描述: 获取行业已实现 ROI (支持滚动窗口)。
-    - `get_industry_win_rate(industry_code, window_days) -> float`
-        - 描述: 获取行业胜率 (支持滚动窗口)。
+        - 描述: 计算行业综合得分 (v8.0.16: 内部计算 rolling_roi × rolling_win_rate)。
+        - 注: 使用滚动窗口 (180天/min20笔)，用于配额分配权重。
+    - `get_industry_roi(industry_code) -> float` (v8.0.20 增强注释)
+        - 描述: 获取行业级历史累积ROI (平仓口径)。
+        - 公式: historical_pnl / historical_invested_capital
+        - 含义: 只计算已平仓交易，不含当前持仓
+    - `get_industry_historical_pnl(industry_code) -> float` (v8.0.20 重命名)
+        - 描述: 获取行业历史累积盈亏 (已平仓交易)。
+    - `get_industry_historical_invested_capital(industry_code) -> float` (v8.0.20 重命名)
+        - 描述: 获取行业历史累积投入资本 (已平仓交易)。
+    - `get_industry_win_rate(industry_code) -> float` (v8.0.17 新增)
+        - 描述: 获取行业胜率 (平仓口径)。
+        - 公式: win_count / total_trade_count
     - `get_industry_concentration(industry_code) -> float`
         - 描述: 计算行业资金集中度 (该行业持仓市值 / 总持仓市值)。
 
@@ -595,35 +607,25 @@
     - 渐进式扩展: 从单字段开始,逐步添加更多字段
     - 外部类: 与 PairsManager 同级,便于测试和访问
 
-### 2. Attributes (属性)
+### 2. Attributes (属性) (v8.0.20 重命名)
 
 #### 2.1 PnL 维度
-    - `unrealized_pnl`: float
-        - 描述: 未实现盈亏 (持仓中配对的浮动盈亏)
-    - `realized_pnl`: float
-        - 描述: 已实现盈亏 (已平仓交易的累计盈亏)
+    - `historical_pnl`: float
+        - 描述: 历史累积盈亏 (已平仓交易的累计盈亏)
 
 #### 2.2 投入资本维度
     - `current_invested_capital`: float
-        - 描述: 当前投入资本 (持仓中配对的投入)
-    - `past_invested_capital`: float
-        - 描述: 历史投入资本 (已平仓交易的累计投入)
+        - 描述: 当前投入资本 (持仓中配对的投入，供集中度检查)
+    - `historical_invested_capital`: float
+        - 描述: 历史累积投入资本 (已平仓交易的累计投入)
 
 #### 2.3 交易质量维度 (v7.57.0)
     - `trade_count`: int
         - 描述: 交易次数 (已平仓交易计数)
     - `win_count`: int
         - 描述: 盈利次数 (pnl > 0 的交易计数)
-    - `past_total_holding_days`: float
-        - 描述: 累计持仓天数 (已平仓交易)
 
-#### 2.4 敞口维度 (v7.59.0)
-    - `net_exposure`: float
-        - 描述: 净敞口 (long_value - short_value)
-    - `gross_exposure`: float
-        - 描述: 总敞口 (long_value + short_value)
-
-#### 2.5 滚动窗口维度 (v8.0.0)
+#### 2.4 滚动窗口维度 (v8.0.0)
     - `trade_history`: List[Tuple[datetime, float, float]]
         - 描述: 单笔交易记录列表
         - 格式: [(exit_time, pnl, invested_capital), ...]

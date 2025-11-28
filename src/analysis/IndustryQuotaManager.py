@@ -38,7 +38,7 @@ class IndustryQuotaManager:
 
     def calculate_quotas(self, pairs_manager) -> Dict[str, Dict]:
         """
-        计算每个行业的配对配额 (v7.71.0: 指数权重分配)
+        计算每个行业的配对配额 (v8.0.14: 集中度检测前置优化)
 
         Args:
             pairs_manager: PairsManager实例
@@ -64,17 +64,26 @@ class IndustryQuotaManager:
             )
             return {}
 
-        # 步骤2: 遍历55个行业,计算权重
+        # 步骤2: 获取集中度过高的行业 (v8.0.14: 移到权重计算之前)
+        # 原因: 超标行业不应占用配额池份额，weight需在计算前置0
+        over_concentrated = pairs_manager.check_industry_concentration()
+
+        # 步骤3: 遍历55个行业,计算权重
         industry_weights = {}
         total_weight = 0
 
         industry_codes = self._get_all_industry_codes()
 
         for industry_code in industry_codes:
-            # 从PairsManager获取composite_score
-            cs = pairs_manager.get_industry_composite_score(industry_code)
-            # 无历史数据时cs=0, weight自动=1
-            weight = self._calculate_weight(cs)
+            # v8.0.14: 集中度超标的行业，权重置0，不参与配额分配
+            if industry_code in over_concentrated:
+                cs = 0.0
+                weight = 0
+            else:
+                # 从PairsManager获取composite_score
+                cs = pairs_manager.get_industry_composite_score(industry_code)
+                # 无历史数据时cs=0, weight自动=1
+                weight = self._calculate_weight(cs)
 
             industry_weights[industry_code] = {
                 'composite_score': cs,
@@ -82,15 +91,12 @@ class IndustryQuotaManager:
             }
             total_weight += weight
 
-        # 步骤2.5: 获取集中度过高的行业 (v7.95.0)
-        over_concentrated = pairs_manager.check_industry_concentration()
-
-        # 步骤3: 按权重比例分配配额 (向下取整)
+        # 步骤4: 按权重比例分配配额 (向下取整)
         industry_quotas = {}
 
         for industry_code, data in industry_weights.items():
-            # v7.95.0: 集中度过高的行业，配额降为0
-            if industry_code in over_concentrated:
+            # v8.0.14: weight=0的行业(含集中度超标)，配额自动为0
+            if data['weight'] == 0:
                 quota = 0
             elif total_weight > 0:
                 quota = int(np.floor(self.total_quota * data['weight'] / total_weight))
@@ -107,7 +113,7 @@ class IndustryQuotaManager:
                 'composite_score': data['composite_score']
             }
 
-        # 步骤4: 详细日志
+        # 步骤5: 详细日志
         self._log_quota_allocation(industry_quotas)
 
         return industry_quotas

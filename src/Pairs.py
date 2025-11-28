@@ -72,9 +72,8 @@ class Pairs:
         # 交易历史统计 (加权平均)
         self.trade_count = 0
         self.win_count = 0
-        self.pair_accum_realized_pnl = 0.0
-        self.pair_past_invested_capital = 0.0
-        self.pair_past_total_holding_days = 0.0
+        self.pair_historical_pnl = 0.0
+        self.pair_historical_invested_capital = 0.0
         self.trade_history: List[Tuple[datetime, float, float]] = []
 
         # Z-score追踪 (信号/开仓/平仓三阶段)
@@ -258,8 +257,22 @@ class Pairs:
 
         return current_value - entry_value
 
-    def get_pair_realized_pnl(self) -> Optional[float]:
-        """获取配对已实现盈亏 (使用平仓价格)"""
+    def get_pair_current_invested_capital(self) -> Optional[float]:
+        """获取配对当前投入资本: 0.5 × (|qty1×price1| + |qty2×price2|)"""
+        if not self.has_position():
+            return None
+        return self._calculate_invested_capital_pure(
+            self.tracked_qty1, self.tracked_qty2,
+            self.entry_price1, self.entry_price2
+            )
+
+    def _calculate_trade_pnl(self) -> Optional[float]:
+        """
+        计算单笔交易的已实现PnL (v8.0.19 私有方法)
+
+        注意: 这是内部辅助方法，用于平仓时计算单笔交易盈亏。
+        历史累积PnL请使用 self.pair_historical_pnl 属性。
+        """
         if self.exit_price1 is None or self.exit_price2 is None:
             return None
         if self.entry_price1 is None or self.entry_price2 is None:
@@ -269,14 +282,6 @@ class Pairs:
         entry_value = self.tracked_qty1 * self.entry_price1 + self.tracked_qty2 * self.entry_price2
         return exit_value - entry_value
 
-    def get_pair_current_invested_capital(self) -> Optional[float]:
-        """获取配对当前投入资本: 0.5 × (|qty1×price1| + |qty2×price2|)"""
-        if not self.has_position():
-            return None
-        return self._calculate_invested_capital_pure(
-            self.tracked_qty1, self.tracked_qty2,
-            self.entry_price1, self.entry_price2
-        )
 
     # ===== 4. 业务逻辑层 (Business Logic) =====
 
@@ -352,17 +357,28 @@ class Pairs:
             return 0.0
         return max(0, (self.pair_hwm - current_value) / self.pair_hwm)
 
-    def get_pair_cumulative_roi(self) -> Optional[float]:
-        """获取累积ROI = pair_accum_realized_pnl / pair_past_invested_capital"""
-        if self.pair_past_invested_capital <= 0:
+    def get_pair_roi(self) -> Optional[float]:
+        """
+        获取配对级历史累积ROI (v8.0.20: 注释增强)
+
+        公式: pair_historical_pnl / pair_historical_invested_capital
+
+        含义:
+            - 只计算已平仓交易的累积收益
+            - 不包含当前持仓的未实现盈亏
+
+        Returns:
+            累积ROI (小数形式), 无数据时返回 None
+        """
+        if self.pair_historical_invested_capital <= 0:
             return None
-        return self.pair_accum_realized_pnl / self.pair_past_invested_capital
+        return self.pair_historical_pnl / self.pair_historical_invested_capital
 
     def get_avg_return_per_trade(self) -> Optional[float]:
         """计算平均每笔交易回报率 = cumulative_roi / trade_count"""
         if self.trade_count == 0:
             return None
-        cumulative_roi = self.get_pair_cumulative_roi()
+        cumulative_roi = self.get_pair_roi()
         if cumulative_roi is None:
             return None
         return cumulative_roi / self.trade_count
@@ -574,8 +590,8 @@ class Pairs:
 
     def _update_trade_stats(self):
         """更新交易统计: 累加PnL/投入资本/持仓天数, 记录到trade_history"""
-        # === 步骤1：使用 get_pair_realized_pnl() 计算已实现PnL ===
-        pnl = self.get_pair_realized_pnl()
+        # === 步骤1：使用 _calculate_trade_pnl() 计算已实现PnL ===
+        pnl = self._calculate_trade_pnl()
         if pnl is None:
             self.algorithm.Debug(f"[统计错误] {self.pair_id} 无法计算已实现PnL (缺少价格数据)", 1)
             return
@@ -588,8 +604,8 @@ class Pairs:
             return
 
         # === 步骤3：累加到历史统计 ===
-        self.pair_accum_realized_pnl += pnl   # 分子：已实现PnL（使用平仓价格）
-        self.pair_past_invested_capital += invested_capital  # 分母：已平仓累计投入资本
+        self.pair_historical_pnl += pnl   # 分子：已实现PnL（使用平仓价格）
+        self.pair_historical_invested_capital += invested_capital  # 分母：已平仓累计投入资本
 
         # === 步骤5：存储单笔交易记录 (v8.0.0 滚动窗口) ===
         self.trade_history.append((
@@ -603,25 +619,20 @@ class Pairs:
         if pnl > 0:
             self.win_count += 1
 
-        # === 步骤7：累加持仓天数 (v7.57.0) ===
-        if self.pair_opened_time and self.pair_closed_time:
-            holding_days = (self.pair_closed_time - self.pair_opened_time).days
-            self.pair_past_total_holding_days += holding_days
-
-        # === 步骤8：清理过期历史记录 (v8.0.3 防止内存泄漏) ===
+        # === 步骤7：清理过期历史记录 (v8.0.3 防止内存泄漏) ===
         cutoff_time = self.algorithm.Time - timedelta(days=self.config.max_history_days)
         self.trade_history = [t for t in self.trade_history if t[0] >= cutoff_time]
 
 
     def _log_close_completion(self, reason: str):
         """输出平仓日志: 配对ID、原因、PnL、zscore轨迹、冷却期"""
-        # 计算本次交易PnL (v8.0.5: 使用 get_pair_realized_pnl 代替 unrealized)
-        current_pnl = self.get_pair_realized_pnl()
+        # 计算本次交易PnL (v8.0.5: 使用 _calculate_trade_pnl 代替 unrealized)
+        current_pnl = self._calculate_trade_pnl()
         current_invested = self.get_pair_current_invested_capital()
         current_pnl_pct = (current_pnl / current_invested * 100) if (current_pnl and current_invested and current_invested > 0) else 0
 
-        # 计算累计收益率 (v8.0.5: 使用重命名后的 pair_accum_realized_pnl)
-        total_pnl_pct = (self.pair_accum_realized_pnl / self.pair_past_invested_capital * 100) if self.pair_past_invested_capital > 0 else 0
+        # 计算累计收益率 (v8.0.5: 使用重命名后的 pair_historical_pnl)
+        total_pnl_pct = (self.pair_historical_pnl / self.pair_historical_invested_capital * 100) if self.pair_historical_invested_capital > 0 else 0
 
         # 交易序号(此时 trade_count 已在 _update_trade_stats 中递增)
         trade_num = self.trade_count

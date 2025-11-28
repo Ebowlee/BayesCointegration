@@ -5,6 +5,39 @@
 ---
 
 
+## [v8.0.3_docstring-simplification@20251128]
+
+### 版本概述
+适度精简各模块 docstring，提升代码可读性。简单方法改为单行说明，复杂方法保留步骤化解释。
+
+### 变更内容
+
+**PairsManager.py - Docstring 精简:**
+- 简单方法改为单行 docstring：`get_pair_by_id()`, `get_pairs_with_position()`, `get_industry_win_rate()` 等
+- 复杂方法保留步骤说明：
+  - `get_industry_composite_score()`: 5步骤计算行业综合得分
+  - `check_pairs_health()`: 4维度优先级健康检查
+  - `allocate_margin_to_candidates()`: 4步骤资金分配算法
+  - `get_open_candidates_with_allocation()`: 5步骤开仓候选筛选流程
+
+**Pairs.py - Docstring 精简:**
+- 移除冗余的 Args/Returns 格式化
+- 保留核心逻辑说明和计算公式
+
+**IndustryQuotaManager.py & PairSelector.py:**
+- 统一精简为简洁风格
+
+**目录清理:**
+- 删除空文件夹 `src/risk/` 和 `src/execution/` (模块已合并到 RiskManager.py 和 OrderExecutor.py)
+
+### 设计原则
+- **简单方法**: 单行 docstring，说明功能和返回值
+- **复杂方法**: 保留步骤化逻辑，移除冗长的 Args/Returns 块
+- **关键信息保留**: 公式、计算口径、优先级顺序
+
+---
+
+
 ## [v8.0.2_cleanup-outdated-docstrings@20251127]
 
 ### 版本概述
