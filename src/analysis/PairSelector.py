@@ -8,17 +8,22 @@ from src.analysis.PairData import PairData
 
 class PairSelector:
     """
-    配对评估和筛选器 (v8.0.10)
+    配对评估和筛选器 (v8.0.24)
 
     核心职责:
     - 三维质量评分: half_life (25%) + mean_reversion_certainty (40%) + zero_crossing (35%)
-    - 质量门槛过滤: quality_score > 0.50
-    - 历史ROI过滤: cumulative_roi < -10% 的配对被排除 (预热期后生效)
+    - ROI缩放: scaled_score = quality_score × (1 + tanh(ROI))
+    - 质量门槛过滤: scaled_score > 0.50
+
+    设计变更 (v8.0.24):
+    - 移除: 二元ROI过滤 (ROI < -10% → 排除)
+    - 新增: 连续ROI缩放 (历史ROI渐进地影响分数)
+    - 效果: 更平滑的历史表现反馈，避免硬截断
 
     关键接口:
     - selection_procedure(): 主入口，执行完整筛选流程
     - evaluate_quality(): 计算三维质量分数
-    - select_best(): 应用质量门槛和历史ROI过滤
+    - select_best(): 应用ROI缩放和质量门槛
     """
 
     def __init__(self, algorithm, analysis_config, module_config):
@@ -28,7 +33,7 @@ class PairSelector:
         self.min_quality_threshold = module_config.min_quality_threshold
         self.quality_weights = module_config.quality_weights
         self.scoring_thresholds = module_config.scoring_thresholds
-        self.historical_roi_threshold = module_config.historical_roi_threshold
+        self.roi_scaling_enabled = module_config.roi_scaling_enabled  # v8.0.24: ROI缩放开关
 
 
     # ===== 公共方法 (Public Methods) =====
@@ -97,85 +102,30 @@ class PairSelector:
 
     def select_best(self, scored_pairs):
         """
-        筛选最佳配对
+        筛选最佳配对 (v8.0.24: ROI缩放替代二元过滤)
 
         流程:
-        1. 质量门槛过滤 (quality_score > 0.50)
-        2. 历史ROI过滤 (cumulative_roi < -10%, 预热期后生效)
-        3. 按质量分数降序排序
+        1. ROI缩放: scaled_score = quality_score × (1 + tanh(ROI))
+        2. 质量门槛过滤: scaled_score > 0.50
+        3. 按缩放后分数降序排序
         """
-        # 质量分布统计 (在质量筛选之前)
-        if scored_pairs:
-            # 统计各档位数量
-            excellent = sum(1 for p in scored_pairs if p['quality_score'] >= 0.80)
-            good = sum(1 for p in scored_pairs if 0.70 <= p['quality_score'] < 0.80)
-            pass_grade = sum(1 for p in scored_pairs if 0.60 <= p['quality_score'] < 0.70)
-            poor = sum(1 for p in scored_pairs if 0.30 <= p['quality_score'] < 0.60)
-            very_poor = sum(1 for p in scored_pairs if p['quality_score'] < 0.30)
+        # Step 1: ROI缩放 (v8.0.24)
+        if self.roi_scaling_enabled:
+            scored_pairs = self._apply_roi_scaling(scored_pairs)
 
-            # 计算极值
-            max_score = max(p['quality_score'] for p in scored_pairs)
-            min_score = min(p['quality_score'] for p in scored_pairs)
-
-            self.algorithm.Debug(
-                f"[质量分布] 总计{len(scored_pairs)}对 → "
-                f"(≥0.80):{excellent}对 | [0.70,0.80):{good}对 | "
-                f"[0.60,0.70):{pass_grade}对 | [0.30,0.60):{poor}对 | (<0.30):{very_poor}对 | "
-                f"最高:{max_score:.3f} | 最低:{min_score:.3f}",
-                level=1
-            )
-
-        # 零轴穿越分布统计
-        if scored_pairs and any('crossing_count' in p for p in scored_pairs):
-            # 统计穿越次数分档（基于评分函数设计的区间）
-            crossing_excellent = sum(1 for p in scored_pairs if p.get('crossing_count', 0) >= 18)  # 平台区及以上
-            crossing_good = sum(1 for p in scored_pairs if 12 <= p.get('crossing_count', 0) < 18)  # 峰值区
-            crossing_moderate = sum(1 for p in scored_pairs if 6 <= p.get('crossing_count', 0) < 12)  # 上升区
-            crossing_sparse = sum(1 for p in scored_pairs if 0 < p.get('crossing_count', 0) < 6)  # 低于基线
-            crossing_none = sum(1 for p in scored_pairs if p.get('crossing_count', 0) == 0)  # 无穿越
-
-            # 计算极值和平均值
-            max_crossing = max((p.get('crossing_count', 0) for p in scored_pairs), default=0)
-            min_crossing = min((p.get('crossing_count', 0) for p in scored_pairs), default=0)
-            avg_crossing = sum(p.get('crossing_count', 0) for p in scored_pairs) / len(scored_pairs)
-
-            self.algorithm.Debug(
-                f"[零轴穿越] 总计{len(scored_pairs)}对 → "
-                f"(≥18):{crossing_excellent}对 | [12,18):{crossing_good}对 | "
-                f"[6,12):{crossing_moderate}对 | (0,6):{crossing_sparse}对 | "
-                f"无穿越:{crossing_none}对 | "
-                f"最高:{max_crossing}次 | 最低:{min_crossing}次 | 平均:{avg_crossing:.1f}次",
-                level=1
-            )
-
-        # Step 1: 最低质量门槛过滤（严格大于阈值）
-        min_threshold = self.min_quality_threshold  # 从config读取
+        # Step 2: 质量门槛过滤 (使用scaled_score)
+        min_threshold = self.min_quality_threshold
         qualified_pairs = [
             p for p in scored_pairs
-            if p['quality_score'] > min_threshold  # 严格大于（不包含等于）
+            if p.get('scaled_score', p['quality_score']) > min_threshold
         ]
 
-        self.algorithm.Debug(
-            f"[质量筛选] 输入{len(scored_pairs)}对 → "
-            f"质量阈值>{min_threshold:.2f} → "
-            f"通过{len(qualified_pairs)}对 (损失{len(scored_pairs) - len(qualified_pairs)}对)",
-            level=1
+        # Step 3: 按缩放后分数排序（从高到低）
+        sorted_pairs = sorted(
+            qualified_pairs,
+            key=lambda x: x.get('scaled_score', x['quality_score']),
+            reverse=True
         )
-
-        # Step 1.5: 历史ROI过滤 (预热期后生效)
-        if not self.algorithm.is_in_warmup_period:
-            before_count = len(qualified_pairs)
-            qualified_pairs = self._filter_by_historical_roi(qualified_pairs)
-            filtered_count = before_count - len(qualified_pairs)
-            if filtered_count > 0:
-                self.algorithm.Debug(
-                    f"[历史ROI] 过滤前{before_count}对 → 过滤后{len(qualified_pairs)}对 "
-                    f"(排除{filtered_count}对, 阈值={self.historical_roi_threshold*100:.0f}%)",
-                    level=1
-                )
-
-        # Step 2: 按质量分数排序（从高到低）
-        sorted_pairs = sorted(qualified_pairs, key=lambda x: x['quality_score'], reverse=True)
 
         return sorted_pairs
 
@@ -358,28 +308,54 @@ class PairSelector:
 
     # ===== 私有过滤方法 (Private Filter Methods) =====
 
-    def _filter_by_historical_roi(self, pairs: List[Dict]) -> List[Dict]:
+    def _apply_roi_scaling(self, pairs: List[Dict]) -> List[Dict]:
         """
-        过滤历史ROI低于阈值的配对
+        应用ROI缩放因子 (v8.0.24)
 
-        累积ROI < -10% 的配对被排除 (只看已平仓交易的实现PnL)
+        公式: scaled_score = quality_score × (1 + tanh(ROI))
+
+        特性:
+            - ROI=0 (无历史): scale=1, 不影响原始分数
+            - ROI>0: 放大分数 (最高约2倍)
+            - ROI<0: 缩小分数 (最低约0)
+            - 有界: scale ∈ (0, 2)
+
+        Args:
+            pairs: 带有 quality_score 的配对列表
+
+        Returns:
+            添加 scaled_score 字段的配对列表
         """
-        filtered = []
-
         for pair in pairs:
             pair_id = f"{pair['symbol1']}_{pair['symbol2']}"
             historical_pair = self.algorithm.pairs_manager.get_pair_by_id(pair_id)
 
+            # 默认: 无历史时 scale=1.0
+            scale_factor = 1.0
+            roi = None
+
             if historical_pair:
-                cumulative_roi = historical_pair.get_pair_roi()
-                if cumulative_roi is not None and cumulative_roi < self.historical_roi_threshold:
-                    # 跳过历史亏损严重的配对
-                    self.algorithm.Debug(
-                        f"[历史ROI] 排除 {pair_id}: 累积ROI={cumulative_roi*100:.2f}%",
-                        level=1
-                    )
-                    continue
+                roi = historical_pair.get_pair_roi()
+                if roi is not None:
+                    # 公式: 1 + tanh(ROI)
+                    scale_factor = 1.0 + np.tanh(roi)
 
-            filtered.append(pair)
+            # 计算缩放后分数
+            original_score = pair['quality_score']
+            scaled_score = original_score * scale_factor
 
-        return filtered
+            # 记录到pair字典
+            pair['roi'] = roi
+            pair['scale_factor'] = scale_factor
+            pair['scaled_score'] = scaled_score
+
+            # 详细日志 (level=2)
+            if roi is not None:
+                self.algorithm.Debug(
+                    f"[ROI缩放] {pair_id}: ROI={roi*100:.1f}% → "
+                    f"scale={scale_factor:.2f} → "
+                    f"score {original_score:.3f}→{scaled_score:.3f}",
+                    level=2
+                )
+
+        return pairs

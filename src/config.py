@@ -26,59 +26,25 @@ class MainConfig:
     schedule_time: tuple = (9, 10)                                  # 9:10 AM
 
     # 开发配置
-    debug_mode: bool = True                                         # True=开发调试(详细日志), False=生产运行(仅关键日志)
-    log_level: int = 1                                              # 0=生产模式(核心日志,10-30年), 1=调试模式(全部日志,1年)
-
-    # 策略预热期 (v8.0.9: 从IndustryQuotaManagerConfig提升为全局参数)
-    warmup_days: int = 90                                           # 预热期天数 (IndustryQuotaManager和PairSelector共用)
-
-
-@dataclass
-class ETFUniverseConfig:
-    """ETF Universe配置 - 三级开关控制ETF订阅"""
-    # === 三级开关 ===
-    enabled: bool = True                                                            # Level 1: 总开关
-    sector_etfs_enabled: bool = True                                                # Level 2: 11个核心 
-    industry_etfs_enabled: bool = True                                              # Level 3: 7个特种部队
-
-    # === 两层映射 ===
-    # Tier 1: 核心11个ETF → 行业列表 (订阅优先级: 第一批)
-    sector_etf_mapping: Dict[str, List[int]] = field(default_factory=lambda: {
-        'XLB': [10110, 10120, 10130, 10140, 10150, 10160, 10250],                   # 基础材料 (包含10150/10160,会被XME替换)
-        'XLY': [10200, 10220, 10240, 10260, 10270, 10290],                          # 消费周期 (10230被XHB替换, 10280被XRT替换)
-        'XLF': [10310, 10330, 10340, 10350, 10360],                                 # 金融 (10320被KRE替换)
-        'XLRE': [10410, 10420],                                                     # 房地产
-        'XLP': [20510, 20520, 20525, 20540, 20550, 20560],                          # 消费防御
-        'XLV': [20620, 20630, 20645, 20650, 20660, 20670],                          # 医疗 (20610被IBB替换)
-        'XLU': [20710, 20720],                                                      # 公用事业
-        'XLC': [30810, 30820, 30830],                                               # 通信
-        'XLE': [30920],                                                             # 能源 (30910被XOP替换)
-        'XLI': [31010, 31020, 31030, 31040, 31050, 31060, 31070, 31080, 31090],     # 工业
-        'XLK': [31110, 31120],                                                      # 科技 (31130被SOXX替换)
-    })
-
-    # Tier 2: 特种部队7个ETF → 行业代码 (订阅优先级: 第二批, 替换逻辑)
-    industry_etf_mapping: Dict[str, Union[int, List[int]]] = field(default_factory=lambda: {
-        'SOXX': 31130,                                                              # 半导体 (替代XLK)
-        'IBB':  20610,                                                              # 生物科技 (替代XLV)
-        'KRE':  10320,                                                              # 银行 (替代XLF)
-        'XOP':  30910,                                                              # 油气勘探 (替代XLE)
-        'XHB':  10230,                                                              # 房建 (替代XLY)
-        'XME':  [10150, 10160],                                                     # 金属矿业+钢铁 (替代XLB)
-        'XRT':  10280,                                                              # 周期零售 (替代XLY)
-    })
+    debug_mode: bool = True
+    log_level: int = 1
 
 
 @dataclass
 class UniverseConfig:
-    """选股配置 - 筛选参数"""
+    """选股配置 - 粗筛参数 + ETF开关 + 财务筛选"""
 
     # 粗筛设置
     min_price: float = 20
     min_market_cap: float = 1e9
     min_days_since_ipo: int = 360
-    min_dollar_volume: float = 1e8                                
-    max_coarse_stocks: int = 200                                                    # 按Volume排序取top N
+    min_dollar_volume: float = 1e8
+    max_coarse_stocks: int = 400                                    # 按Volume排序取top N
+
+    # ETF订阅开关 (v8.0.5: 从ETFUniverseConfig合并)
+    etf_enabled: bool = True                                        # Level 1: 总开关
+    sector_etfs_enabled: bool = True                                # Level 2: 11个核心
+    industry_etfs_enabled: bool = True                              # Level 3: 7个特种部队
 
     # 财务筛选器配置
     financial_filters: Dict = field(default_factory=lambda: {
@@ -89,7 +55,7 @@ class UniverseConfig:
                 {
                     'path': 'ValuationRatios.PERatio',
                     'operator': 'le',
-                    'threshold': 100
+                    'threshold': 80
                 },
                 {
                     'path': 'ValuationRatios.PSRatio',
@@ -98,20 +64,6 @@ class UniverseConfig:
                 }
             ],
             'fail_key': 'valuation_failed'
-        },
-        'debt_ratio': {
-            'enabled': False,
-            'path': 'OperationRatios.DebtToAssets.Value',
-            'operator': 'le',
-            'threshold': 0.6,
-            'fail_key': 'debt_failed'
-        },
-        'leverage': {
-            'enabled': False,
-            'path': 'OperationRatios.FinancialLeverage.Value',
-            'operator': 'le',
-            'threshold': 6,
-            'fail_key': 'leverage_failed'
         }
     })
 
@@ -171,26 +123,21 @@ class IndustryQuotaManagerConfig:
     # 全局配额
     total_quota: int = 25                                          # 全局配额总量 (控制贝叶斯建模输入)
 
-    # 权重计算参数
-    exp_scale_factor: float = 8.0                                  # 指数缩放系数 (正CS段)
+    # 权重计算参数 (v8.0.21: 分段函数)
+    exp_scale_factor: float = 6.0                                  # 非负CS段指数缩放系数
+    weight_offset: int = 2                                         # 非负CS段权重偏移量 (起点=ceil(e^0)+offset=3)
     min_quota_per_industry: int = 1                                # 单行业最低配额保底
 
-    # v8.0.9: warmup_days 已迁移至 MainConfig (策略级参数)
-
-    # 滚动窗口配置 (v8.0.0)
-    # 背景: composite_score = realized_roi × win_rate 使用累计平均
-    #       随交易次数N增加，新交易边际权重→1/N→0 (N=200时仅0.5%)
-    #       导致评分固化，失去对近期表现的敏感度
-    # 方案: 改用滚动窗口计算，只考虑最近N天/笔的交易记录
-    rolling_window_days: int = 180                                 # 滚动窗口天数 (半年)
-    min_samples_for_window: int = 20                               # 样本量保底: 窗口内<20笔时取最近20笔
+    # 预热期配置 (v8.0.26: 从MainConfig移入，专属于IQM)
+    warmup_days: int = 90                                          # IQM预热期 (跳过配额计算)
 
 
 @dataclass
 class PairSelectorConfig:
     """配对质量评估配置"""
-    min_quality_threshold: float = 0.50                             # 最低质量分数阈值
-    historical_roi_threshold: float = -0.10                         # 历史ROI过滤阈值 (v8.0.9: -10%以下的配对被排除)
+    min_quality_threshold: float = 0.50                             # 最低质量分数阈值 (v8.0.24: 应用于scaled_score)
+    roi_scaling_enabled: bool = True                                # ROI缩放开关 (v8.0.24: 替代二元过滤)
+
     quality_weights: Dict = field(default_factory=lambda: {
         'half_life': 0.25,                     
         'mean_reversion_certainty': 0.40,      
@@ -225,35 +172,36 @@ class PairSelectorConfig:
 
 @dataclass
 class PairsConfig:
-    """配对配置 - 信号阈值和保证金参数"""
+    """配对配置 - 信号阈值、保证金参数、交易历史"""
 
     # 信号阈值
-    entry_threshold_lower: float = 1.9                             # 入场Z-score下限
-    entry_threshold_upper: float = 2.3                             # 入场Z-score上限
-    exit_threshold: float = 0.3                                    # 出场Z-score阈值
-    stop_loss_threshold: float = 2.5                              # 止损Z-score阈值
+    entry_threshold_lower: float = 1.65                            # 入场Z-score下限
+    entry_threshold_upper: float = 1.95                            # 入场Z-score上限
+    exit_threshold: float = 0.5                                    # 出场Z-score阈值
+    stop_loss_threshold: float = 2.58                              # 止损Z-score阈值
 
     # 保证金计算参数
     margin_requirement_long: float = 0.5                           # 多头保证金率: 50%
     margin_requirement_short: float = 1.5                          # 空头保证金率: 150%
 
-    # 历史记录管理 (v8.0.6)
-    max_history_days: int = 365                                    # trade_history 滚动窗口 (天)
-
 
 @dataclass
 class PairsManagerConfig:
-    """配对管理配置 - 保证金、健康检查、冷却期"""
+    """配对管理配置 - 保证金、健康检查、冷却期、滚动窗口"""
 
     # 保证金管理
     margin_usage_ratio: float = 0.98                               # 保证金使用率: 98%
     concentration_threshold: float = 0.40                          # 单行业资金占用上限 (40%)
     min_investment_ratio: float = 0.05                             # 最低投资比例: 5%
-    max_investment_ratio: float = 0.10                             # 最高投资比例: 10%
+
+    # 滚动窗口配置 
+    rolling_window_days: int = 90                                  # CS计算滚动窗口
+    # 备注: Pairs.trade_history 保留期 = rolling_window_days × 2 (180天)
+    min_samples_for_window: int = 20                               # 样本量保底: 窗口内<20笔时取最近20笔
 
     # 健康检查阈值
     drawdown_threshold: float = 0.04                               # 4% 回撤触发
-    drift_threshold: float = 0.25                                  # 25% 漂移触发
+    drift_threshold: float = 0.50                                  # 50% 漂移触发
 
     # 冷却期配置 (key=reason, value=天数)
     cooldown_days: Dict[str, int] = field(default_factory=lambda: {
@@ -269,11 +217,9 @@ class PairsManagerConfig:
     # 格式: [(阈值上限, 分配比例), ...] - 小数表示
     allocation_tiers: List[tuple] = field(default_factory=lambda: [
         (0.00, 0.10),    # avg_return ≤ 0%   → 10%
-        (0.05, 0.125),   # avg_return ≤ 5%   → 12.5%
         (0.10, 0.15),    # avg_return ≤ 10%  → 15%
-        (0.15, 0.175),   # avg_return ≤ 15%  → 17.5%
-        (0.20, 0.20),    # avg_return ≤ 20%  → 20%
-        (0.25, 0.225),   # avg_return ≤ 25%  → 22.5%
+        (0.20, 0.18),    # avg_return ≤ 20%  → 18%
+        (0.25, 0.20),    # avg_return ≤ 25%  → 20%
     ])
     allocation_default: float = 0.10   # trade_count=0 时的默认分配
     allocation_max: float = 0.25       # avg_return > 25% 时的最大分配
@@ -290,7 +236,7 @@ class RiskManagerConfig:
 
     # Portfolio 回撤
     drawdown_enabled: bool = True
-    drawdown_threshold: float = 0.15                                # 15% 回撤触发
+    drawdown_threshold: float = 0.20                                # 20% 回撤触发
     drawdown_cooldown_days: int = 360                               # 360天冷却期
 
 
@@ -346,6 +292,32 @@ INDUSTRY_NAMES = {
     0: '未分类'
 }
 
+# Tier 1: 核心11个ETF → 行业列表 (订阅优先级: 第一批)
+SECTOR_ETF_MAPPING = {
+    'XLB': [10110, 10120, 10130, 10140, 10150, 10160, 10250],                   # 基础材料 (包含10150/10160,会被XME替换)
+    'XLY': [10200, 10220, 10240, 10260, 10270, 10290],                          # 消费周期 (10230被XHB替换, 10280被XRT替换)
+    'XLF': [10310, 10330, 10340, 10350, 10360],                                 # 金融 (10320被KRE替换)
+    'XLRE': [10410, 10420],                                                     # 房地产
+    'XLP': [20510, 20520, 20525, 20540, 20550, 20560],                          # 消费防御
+    'XLV': [20620, 20630, 20645, 20650, 20660, 20670],                          # 医疗 (20610被IBB替换)
+    'XLU': [20710, 20720],                                                      # 公用事业
+    'XLC': [30810, 30820, 30830],                                               # 通信
+    'XLE': [30920],                                                             # 能源 (30910被XOP替换)
+    'XLI': [31010, 31020, 31030, 31040, 31050, 31060, 31070, 31080, 31090],     # 工业
+    'XLK': [31110, 31120],                                                      # 科技 (31130被SOXX替换)
+}
+
+# Tier 2: 特种部队7个ETF → 行业代码 (订阅优先级: 第二批, 替换逻辑)
+INDUSTRY_ETF_MAPPING = {
+    'SOXX': 31130,                                                              # 半导体 (替代XLK)
+    'IBB':  20610,                                                              # 生物科技 (替代XLV)
+    'KRE':  10320,                                                              # 银行 (替代XLF)
+    'XOP':  30910,                                                              # 油气勘探 (替代XLE)
+    'XHB':  10230,                                                              # 房建 (替代XLY)
+    'XME':  [10150, 10160],                                                     # 金属矿业+钢铁 (替代XLB)
+    'XRT':  10280,                                                              # 周期零售 (替代XLY)
+}
+
 
 class StrategyConfig:
     """策略配置中心 - 统一访问入口"""
@@ -353,7 +325,6 @@ class StrategyConfig:
     def __init__(self):
         # 运行时配置
         self.main = MainConfig()
-        self.etf_universe = ETFUniverseConfig()
         self.universe_selection = UniverseConfig()
         self.data_processor = DataProcessorConfig()
         self.cointegration_analyzer = CointegrationConfig()
@@ -365,4 +336,8 @@ class StrategyConfig:
         self.risk_manager = RiskManagerConfig()
 
         # 常量映射
-        self.constants = {'industry_names': INDUSTRY_NAMES}
+        self.constants = {
+            'industry_names': INDUSTRY_NAMES,
+            'sector_etf_mapping': SECTOR_ETF_MAPPING,
+            'industry_etf_mapping': INDUSTRY_ETF_MAPPING,
+        }

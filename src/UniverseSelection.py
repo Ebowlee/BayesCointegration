@@ -133,7 +133,7 @@ class SectorBasedUniverseSelection(FineFundamentalUniverseSelectionModel):
 
     两阶段筛选：
     1. 粗选: 价格、成交量、IPO时间筛选
-    2. 精选: 财务指标筛选 (PE/PS估值OR逻辑, 负债率, 杠杆率)
+    2. 精选: 财务指标筛选 (PE/PS估值OR逻辑)
     """
 
     def __init__(self, algorithm):
@@ -237,7 +237,7 @@ class SectorBasedUniverseSelection(FineFundamentalUniverseSelectionModel):
 
         fine = list(fine)
 
-        # 财务筛选 (PE/PS估值OR逻辑, 负债率, 杠杆率)
+        # 财务筛选 (PE/PS估值OR逻辑)
         financially_filtered = self._apply_financial_filters(fine)
 
         # 缓存结果 (不做行业分组,输出所有通过筛选的股票)

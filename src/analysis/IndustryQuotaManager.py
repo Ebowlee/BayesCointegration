@@ -23,7 +23,7 @@ class IndustryQuotaManager:
 
     def __init__(self, algorithm, config: 'IndustryQuotaManagerConfig'):
         """
-        初始化行业配额管理器 (v8.0.9: warmup_days迁移至MainConfig)
+        初始化行业配额管理器 (v8.0.25: warmup检查完全内部化)
 
         Args:
             algorithm: QCAlgorithm实例
@@ -31,8 +31,8 @@ class IndustryQuotaManager:
         """
         self.algorithm = algorithm
         self.total_quota = config.total_quota
-        # v8.0.9: warmup_days已迁移至MainConfig, 通过algorithm.is_in_warmup_period访问
         self.exp_scale_factor = config.exp_scale_factor
+        self.weight_offset = config.weight_offset                  # v8.0.21: 非负CS段权重偏移量
         self.min_quota = config.min_quota_per_industry
 
 
@@ -57,7 +57,7 @@ class IndustryQuotaManager:
         # 步骤1: 检查预热期
         if self._is_in_warmup_period():
             days_running = (self.algorithm.Time - self.algorithm.StartDate).days
-            warmup_days = self.algorithm.config.main.warmup_days
+            warmup_days = self.algorithm.config.industry_quota.warmup_days
             self.algorithm.Debug(
                 f"[行业配额] 预热期 ({days_running}/{warmup_days}天), "
                 f"暂不分配配额"
@@ -157,7 +157,6 @@ class IndustryQuotaManager:
 
         # 步骤3-4: 对每个行业应用配额和单股限制
         selected_pairs = []
-        industry_names = self.algorithm.config.constants['industry_names']
 
         for industry_code, pairs in industry_groups.items():
             # 获取配额(优先使用动态配额,否则使用最低保底配额)
@@ -188,15 +187,6 @@ class IndustryQuotaManager:
                     symbol_counts[s1] += 1
                     symbol_counts[s2] += 1
 
-            # 步骤5: 输出配额应用日志(只记录有配对的行业)
-            if len(industry_selected) > 0:
-                industry_name = industry_names.get(int(industry_code), f'未知({industry_code})')
-                self.algorithm.Debug(
-                    f"[配额筛选] {industry_name}: "
-                    f"协整通过{len(pairs)}对 → 配额{quota} → 随机选取{len(industry_selected)}对",
-                    level=1
-                )
-
             selected_pairs.extend(industry_selected)
 
         # 步骤6: 返回所有选定配对
@@ -205,37 +195,44 @@ class IndustryQuotaManager:
 
     def _calculate_weight(self, composite_score: float) -> int:
         """
-        计算行业权重 (v7.71.0: 指数分段函数, c=8)
+        计算行业权重 (v8.0.21: 分段指数函数)
 
         公式:
-            f(x) = ceil(e^x)      当 x ≤ 0
-            f(x) = ceil(e^(8x))   当 x > 0
+            f(x) = ceil(e^x)       当 x < 0   (亏损行业 → 权重1)
+            f(x) = ceil(e^(kx)+c)  当 x >= 0  (盈利行业 → 权重3~9)
+
+        参数:
+            k = exp_scale_factor (默认6.0)
+            c = weight_offset (默认2)
 
         Args:
             composite_score: 行业综合得分 (ROI × WIN_RATE)
-                - 无历史数据时: cs=0 → weight=ceil(e^0)=1
-                - 负收益: cs<0 → weight=1
-                - 正收益: cs>0 → 指数增长
 
         Returns:
-            权重值 (整数)
+            权重值 (整数, 最小为1)
 
         示例:
-            cs=-0.10 → weight=1
-            cs=0.00  → weight=1
-            cs=0.05  → weight=2
-            cs=0.10  → weight=3
-            cs=0.20  → weight=5
-            cs=0.30  → weight=12
+            cs=-0.10 → weight=1  (亏损行业最低配额)
+            cs=0.00  → weight=3  (盈亏平衡起点)
+            cs=0.10  → weight=4
+            cs=0.20  → weight=6
+            cs=0.30  → weight=9  (优秀行业峰值)
+
+        设计理由:
+            - 亏损行业保留最低配额1，避免完全冻结（死局）
+            - 盈利行业起点为3，与亏损行业拉开差距
+            - 峰值约9，相对起点3有3倍差距，奖励优秀行业
         """
         import numpy as np
 
-        if composite_score <= 0:
-            # 负CS/零CS: e^x ≈ 1 (x≤0)
-            return int(np.ceil(np.exp(composite_score)))
+        if composite_score < 0:
+            # 亏损行业: ceil(e^x) → 实际都是1 (因为e^(-0.1)≈0.9, ceil=1)
+            raw_weight = int(np.ceil(np.exp(composite_score)))
         else:
-            # 正CS: 指数增长 (c=8)
-            return int(np.ceil(np.exp(self.exp_scale_factor * composite_score)))
+            # 盈利行业: ceil(e^(kx) + c), 起点3, 峰值约9
+            raw_weight = int(np.ceil(np.exp(self.exp_scale_factor * composite_score) + self.weight_offset))
+
+        return max(1, raw_weight)  # 保底1
 
 
     def _get_all_industry_codes(self) -> List[str]:
@@ -251,13 +248,15 @@ class IndustryQuotaManager:
 
     def _is_in_warmup_period(self) -> bool:
         """
-        检查是否在预热期 (v8.0.9: 委托给algorithm)
+        检查是否在预热期 (v8.0.26: 配置路径更新)
 
         Returns:
             True: 在预热期 (days_running < warmup_days)
             False: 已过预热期
         """
-        return self.algorithm.is_in_warmup_period
+        days_running = (self.algorithm.Time - self.algorithm.StartDate).days
+        warmup_days = self.algorithm.config.industry_quota.warmup_days
+        return days_running < warmup_days
 
 
     def _log_quota_allocation(self, industry_quotas: Dict):

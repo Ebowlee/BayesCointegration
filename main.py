@@ -50,7 +50,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # === ETF订阅 ===
         self.etf_symbols = []                                   # 存储已订阅的ETF Symbol对象
         self.etf_industry_mapping = {}                          # 反向映射: {ticker: [industry_codes]}
-        if self.config.etf_universe.enabled:
+        if self.config.universe_selection.etf_enabled:
             self._subscribe_industry_etfs()
 
         # === 初始化分析管道 ===
@@ -104,23 +104,6 @@ class BayesianCointegrationStrategy(QCAlgorithm):
             QCAlgorithm.Debug(self, message)
 
 
-    @property
-    def is_in_warmup_period(self) -> bool:
-        """
-        检查是否在策略预热期 (v8.0.9: 供所有模块共用)
-
-        设计理念:
-        - 预热期内，IndustryQuotaManager使用默认配额，PairSelector不过滤历史ROI
-        - 预热期后，根据历史表现动态调整配额和过滤亏损配对
-
-        Returns:
-            True: 在预热期 (days_running < warmup_days)
-            False: 已过预热期
-        """
-        days_running = (self.Time - self.StartDate).days
-        return days_running < self.config.main.warmup_days
-
-
     def OnSecuritiesChanged(self, changes: SecurityChanges):
         """
         处理证券变更事件 - 输出选股结果
@@ -148,16 +131,6 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         removed_symbols = [s.Symbol for s in changes.RemovedSecurities
                           if s.Symbol not in self.benchmark_symbols]
         self.symbols = [s for s in self.symbols if s not in removed_symbols]
-
-        # === 输出选股结果统计 ===
-        stock_count = len([s for s in self.symbols if s not in self.etf_symbols])
-        etf_count = len([s for s in self.symbols if s in self.etf_symbols])
-
-        self.Debug(
-            f"[选股汇总] 新增{added_count}只 | "
-            f"总计{len(self.symbols)}只 (股票{stock_count} + ETF{etf_count})",
-            level=0
-        )
 
         # === 触发分析管道 ===
         if len(self.symbols) >= 2:
@@ -385,12 +358,14 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         - self.etf_symbols: 存储Symbol对象列表 (11个或18个)
         - self.etf_industry_mapping: 存储ticker→行业代码映射 (用于后续分析模块)
         """
-        config = self.config.etf_universe
+        universe_config = self.config.universe_selection
+        sector_mapping = self.config.constants['sector_etf_mapping']
+        industry_mapping = self.config.constants['industry_etf_mapping']
         subscribed_industries = set()  # 追踪已订阅的行业代码
 
         # === Step 1: 订阅11个核心Sector ETFs (第一批) ===
-        if config.sector_etfs_enabled:
-            for ticker, industries in config.sector_etf_mapping.items():
+        if universe_config.sector_etfs_enabled:
+            for ticker, industries in sector_mapping.items():
                 symbol = self.AddEquity(ticker, self.config.main.resolution).Symbol
                 self.etf_symbols.append(symbol)
                 self.etf_industry_mapping[ticker] = industries
@@ -398,8 +373,8 @@ class BayesianCointegrationStrategy(QCAlgorithm):
 
 
         # === Step 2: 订阅7个特种部队ETFs (第二批, 替换逻辑) ===
-        if config.industry_etfs_enabled:
-            for ticker, industries in config.industry_etf_mapping.items():
+        if universe_config.industry_etfs_enabled:
+            for ticker, industries in industry_mapping.items():
                 symbol = self.AddEquity(ticker, self.config.main.resolution).Symbol
                 self.etf_symbols.append(symbol)
 
@@ -409,19 +384,3 @@ class BayesianCointegrationStrategy(QCAlgorithm):
 
                 self.etf_industry_mapping[ticker] = industries
                 subscribed_industries.update(industries)
-
-                # 转换行业代码为中文名称
-                industry_names_list = [
-                    self.config.constants['industry_names'].get(code, f'未知{code}')
-                    for code in industries
-                ]
-                industry_names_str = '、'.join(industry_names_list)
-                self.Debug(f"[订阅细分ETF] {ticker} → {industry_names_str}", level=1)
-
-        self.Debug(
-            f"[ETF订阅完成] 共{len(self.etf_symbols)}个ETF "
-            f"(核心{11 if config.sector_etfs_enabled else 0} + "
-            f"细分{7 if config.industry_etfs_enabled else 0}), "
-            f"覆盖{len(subscribed_industries)}个行业",
-            level=0
-        )

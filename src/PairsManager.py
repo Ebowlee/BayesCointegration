@@ -220,14 +220,14 @@ class PairsManager:
 
         步骤:
             1. 聚合行业交易数据
-            2. 筛选滚动窗口内的交易 (180天，不足时取最近20笔)
+            2. 筛选滚动窗口内的交易 (rolling_window_days天，不足时取最近min_samples笔)
             3. 计算 rolling_roi = sum(pnl) / sum(invested_capital)
             4. 计算 rolling_win_rate = win_count / trade_count
             5. 返回 roi × win_rate (用于配额分配权重)
         """
-        # === 步骤1: 读取配置 ===
-        window_days = self.config.industry_quota.rolling_window_days
-        min_samples = self.config.industry_quota.min_samples_for_window
+        # === 步骤1: 读取配置 (v8.0.26: 配置路径归属PairsManagerConfig) ===
+        window_days = self.config.pairs_manager.rolling_window_days
+        min_samples = self.config.pairs_manager.min_samples_for_window
 
         # === 步骤2: 聚合行业数据 ===
         industry_data = self._aggregate_all_industry_data()
@@ -530,6 +530,6 @@ class PairsManager:
 
     def get_cooldown_required_days(self, last_close_reason: str) -> int:
         """查询冷却期天数 (从配置Dict读取，默认10天)"""
-        return self.module_config.cooldown_days.get(last_close_reason, 10)
+        return self.module_config.cooldown_days.get(last_close_reason, 7)
 
 

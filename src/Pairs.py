@@ -619,9 +619,14 @@ class Pairs:
         if pnl > 0:
             self.win_count += 1
 
-        # === 步骤7：清理过期历史记录 (v8.0.3 防止内存泄漏) ===
-        cutoff_time = self.algorithm.Time - timedelta(days=self.config.max_history_days)
-        self.trade_history = [t for t in self.trade_history if t[0] >= cutoff_time]
+        # === 步骤7：清理过期历史记录 (v8.0.26: 保留期 = rolling_window_days × 2) ===
+        rolling_window = self.algorithm.config.pairs_manager.rolling_window_days
+        # v8.0.4: 统一为 timezone-naive 避免 "offset-naive and offset-aware" 比较错误
+        cutoff_time = self.algorithm.Time.replace(tzinfo=None) - timedelta(days=rolling_window * 2)
+        self.trade_history = [
+            t for t in self.trade_history
+            if t[0].replace(tzinfo=None) >= cutoff_time
+        ]
 
 
     def _log_close_completion(self, reason: str):

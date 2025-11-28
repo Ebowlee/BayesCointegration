@@ -225,14 +225,30 @@ git commit -m "docs: update CHANGELOG for v7.2.5"
 
 ## Core Module Architecture
 
-### 1. main.py - Strategy Orchestrator
+### 1. main.py - Strategy Orchestrator (v8.0.0)
 - **Purpose**: Central orchestration via OnData event handling
 - **Key Components**:
   - `BayesianCointegrationStrategy`: Main algorithm class
-  - `OnData()`: Core trading logic execution
-  - `OnSecuritiesChanged()`: Triggers pair analysis
-  - Risk management coordination
-  - Trade execution logic
+  - `OnSecuritiesChanged()`: Triggers `_run_analysis_pipeline()`
+  - `_run_analysis_pipeline()`: 8-step analysis pipeline
+  - `OnData()`: 6-priority trading execution
+  - `OnOrderEvent()`: Route to TicketsManager (v7.99.4 fix)
+- **Analysis Pipeline** (`_run_analysis_pipeline`):
+  1. DataProcessor.process() - Data cleaning
+  2. CointegrationAnalyzer.cointegration_procedure() - Cointegration test
+  3. IndustryQuotaManager.apply_quotas() - Apply industry quotas
+  4. Build PairData dictionary
+  5. BayesianModeler.modeling_procedure() - Bayesian modeling
+  6. PairSelector.selection_procedure() - Quality selection
+  7. Create Pairs objects
+  8. PairsManager.classify_pairs() - Classification management
+- **OnData 6-Priority Execution**:
+  1. Portfolio cooldown check → return if active
+  2. Portfolio drawdown check → trigger Liquidate if ≥20%
+  3. Pair health check (PairsManager.check_pairs_health) → risk close
+  4. Normal close (CLOSE/PAIR_BREAK signals) → Intent Pattern
+  5. VIX safety check → return if unsafe
+  6. Normal open (get_open_candidates_with_allocation) → Intent Pattern
 - **Configuration**: All parameters in `src/config.py` via `StrategyConfig` class
 
 ### 2. Pairs.py - Pair Trading Object
@@ -260,12 +276,17 @@ git commit -m "docs: update CHANGELOG for v7.2.5"
   - `is_in_cooldown()`: Check cooldown period (part of signal generation logic)
   - `on_position_filled()`: Callback when position fills - clears tracking variables and updates trade stats (v7.7.0)
   - `_update_trade_stats()`: Private method - calculates trade PnL% and updates statistics (v7.7.0)
-- **Trade Statistics** (v7.7.0 → v7.7.1):
+- **Trade Statistics** (v8.0.0):
   - `trade_count`: Total historical trades for this pair
-  - `win_count`: Number of profitable trades (pnl_dollars > 0)
-  - `total_pnl_dollars`: Cumulative dollar PnL across all trades (v7.7.1 - numerator for weighted average)
-  - `total_pair_cost`: Cumulative margin cost across all trades (v7.7.1 - denominator for weighted average)
-  - **Cumulative Return Calculation**: `(total_pnl_dollars / total_pair_cost) * 100` (weighted average, not simple addition)
+  - `win_count`: Number of profitable trades (pnl > 0)
+  - `pair_historical_pnl`: Cumulative PnL across all trades
+  - `pair_historical_invested_capital`: Cumulative invested capital across all trades
+  - `trade_history: List[Tuple[datetime, pnl, invested_capital]]`: Rolling window storage (v8.0.0)
+    - **Tuple format**: `(exit_time, single_trade_pnl, single_trade_invested_capital)`
+    - **Auto-cleanup**: Records older than `rolling_window_days × 2` are removed
+  - **Key Methods**:
+    - `get_avg_return_per_trade()`: `(pair_historical_pnl / pair_historical_invested_capital) / trade_count`
+    - `get_pair_roi()`: `pair_historical_pnl / pair_historical_invested_capital`
   - **Auto-update**: Statistics accumulated in `_update_trade_stats()` called by `on_position_filled()`
 - **Features**: Cooldown management, beta hedging, position tracking, intent generation, trade history (v7.7.0)
 - **Architecture** (v7.40.0): Six-Layer Hamburger Structure (六层汉堡结构)
@@ -306,97 +327,55 @@ git commit -m "docs: update CHANGELOG for v7.2.5"
   - Serializable for logging/debugging
   - Clear separation of intent and execution
 
-### 5. PairsManager.py - Lifecycle Management
-- **Purpose**: Manage all pairs through their lifecycle (storage, classification, and config queries)
-- **Design Principle** (v7.45.0): "Storage + Config Query Router" separation
-  - **Responsible for**: Storing pairs, state classification, simple queries, config lookups (cooldown, tier, allocation)
-  - **NOT responsible for**: Signal aggregation, risk analysis, order execution (delegated to ExecutionManager and RiskManager)
-- **State Management** (v7.53.4 - 增量集合管理):
-  - **current_selected_pair_ids**: 本轮被PairSelector选中的配对
-  - **past_selected_pair_ids**: 历史配对 (曾被选中,本轮未选中)
-  - **持仓状态**: 通过 `has_position()` 动态查询,不作为分类维度
-- **Key Methods** (v7.45.0 updated):
-  - `update_pairs()`: Update pair collection from monthly selection
-  - `get_tradeable_pairs()`: Get cointegrated + legacy pairs
-  - `get_pairs_with_position()`: Filter pairs with positions (simple query)
-  - `get_pairs_without_position()`: Filter pairs without positions (simple query)
-  - `get_pair_by_id()`: Retrieve specific pair by ID
-  - `get_cooldown_required_days()`: Query cooldown days from config (v7.44.0)
-  - `get_planned_allocation_pct()`: Calculate allocation percentage based on tier and quality (v7.45.0)
-  - `_get_industry_tier()`: Internal method to query industry tier (v7.45.0)
+### 5. PairsManager.py - Lifecycle + Margin + Health Management (v8.0.0)
+- **Purpose**: Manage all pairs lifecycle, margin allocation, and health monitoring
+- **Design Principle** (v8.0.0): "Storage + Margin Allocation + Health Check" unified manager
+  - **Responsible for**: Storing pairs, state classification, margin allocation, health checks, industry metrics
+  - **NOT responsible for**: Order execution (delegated to OrderExecutor), VIX/Portfolio-level risk (RiskManager)
+- **Key Attributes**:
+  - `all_pairs: Dict[pair_id, Pairs]`: Primary storage
+  - `current_selected_pair_ids: Set`: Pairs selected this month
+  - `past_selected_pair_ids: Set`: Historical pairs (previously selected, not this month)
+  - `INITIAL_CAPITAL: float`: Fixed initial capital baseline
+  - `FIXED_BUFFER: float`: Reserved margin buffer
+- **Key Methods** (v8.0.0 updated):
+  - *Lifecycle*:
+    - `classify_pairs(new_pairs_dict)`: Incremental index update, classify into current/past
+    - `get_pair_by_id()`, `get_pairs_with_position()`, `get_pairs_without_position()`
+  - *Margin Allocation* (v7.62.0 migrated from MarginAllocator):
+    - `get_available_margin()`: MarginRemaining - FIXED_BUFFER
+    - `allocate_margin_to_candidates(open_candidates)`: Distribute margin based on allocation_tiers
+    - `get_planned_allocation_pct(pair)`: Calculate allocation % based on avg_return_per_trade (v7.99.3)
+    - `get_open_candidates_with_allocation(data)`: Get candidates with margin allocation
+  - *Health Check* (v7.98.2 migrated from RiskManager):
+    - `check_pairs_health()`: Returns Dict[issue_type, pair_ids] with 4-priority check
+      - Priority 1: anomaly (single-leg/same-direction positions)
+      - Priority 2: drawdown (>4%)
+      - Priority 3: drift (>50%)
+      - Priority 4: timeout (holding days > max theoretical)
+  - *Industry Metrics* (v8.0.0 rolling window):
+    - `get_industry_composite_score(industry_code)`: rolling_roi × rolling_win_rate
+    - `get_industry_realized_roi(industry_code, window_days)`: ROI with rolling window
+    - `get_industry_win_rate(industry_code, window_days)`: Win rate with rolling window
+    - `_aggregate_all_industry_data()`: Single-pass aggregation of all pairs
+  - *Config Query*:
+    - `get_cooldown_required_days(reason)`: Query cooldown days from config
 
-### 6. risk/RiskManager.py - Two-Tier Risk Control
-- **Purpose**: Risk detection and analysis (execution handled by main.py)
-- **Design Principle**: Separation of concerns - risk managers detect, main.py executes
-- **Dependency Injection** (v6.9.3): Receives `pairs_manager` to query pair data for concentration analysis
-- **Cooldown Mechanism** (v7.1.2): Per-Pair Cooldown for Pair rules, Global Cooldown for Portfolio rules
-- **Portfolio-Level Rules**:
-  - `AccountBlowupRule`: Detects loss > 30% of initial capital (cooldown: 永久)
-  - `PortfolioDrawdownRule`: Detects drawdown > 15% from high water mark (cooldown: 30天)
-  - Cooldown作用域: **全局** (触发后阻止所有交易)
-- **Pair-Level Rules**:
-  - `PairHoldingTimeoutRule`: Detects positions held > 30 days (cooldown: 30天)
-  - `PairAnomalyRule`: Detects partial or same-direction positions (cooldown: 30天)
-  - `PairDrawdownRule`: Detects pair drawdown > 15% from pair HWM (cooldown: 30天)
-  - Cooldown作用域: **Per-Pair** (只影响触发的配对, 不影响其他配对)
-- **排他性触发** (v7.1.2):
-  - 同一配对多规则触发: 只执行最高优先级规则
-  - 不同配对独立检查: (AAPL,MSFT)和(GOOGL,META)可触发不同规则
-  - 示例: (AAPL,MSFT)同时满足Anomaly+Timeout → 只触发Anomaly (priority=100)
-
-### 7. ExecutionManager.py - Unified Execution Coordinator (v7.0.0)
-- **Purpose**: Coordinate all trading actions through Intent Pattern
-- **Design Principle**: "Coordinator, Not Executor" - orchestrates intent generation and execution
-- **Key Methods** (v7.1.7 updated):
-  - `handle_portfolio_risk_intents()`: Coordinate portfolio-level risk actions (e.g., liquidate all)
-  - `handle_pair_risk_intents()`: Coordinate pair-level risk actions (e.g., close specific pairs)
-  - `cleanup_remaining_positions()`: Clean up residual positions during cooldown period
-  - `handle_normal_close_intents()`: Coordinate normal closing intents from pairs (renamed from handle_signal_closings)
-  - `handle_normal_open_intents()`: Coordinate normal opening intents with dynamic margin allocation (renamed from handle_position_openings)
-  - `get_entry_candidates()`: Aggregate opening signals sorted by quality (v6.9.3: migrated from PairsManager)
-- **Responsibilities** (v7.0.0 updated):
-  - Signal aggregation for opening candidates
-  - Dynamic fund allocation based on quality scores
-  - Intent generation coordination (calls Pairs.get_*_intent)
-  - Order execution coordination (calls OrderExecutor.execute_*)
-  - Ticket registration (calls TicketsManager.register_tickets)
-  - Interaction with PairsManager, TicketsManager, and OrderExecutor
-- **Deprecated Methods** (v7.1.2 removed):
-  - `handle_portfolio_risk_action()`: Replaced by handle_portfolio_risk_intents()
-  - `handle_pair_risk_actions()`: Replaced by handle_pair_risk_intents()
-  - `liquidate_all_positions()`: Replaced by cleanup_remaining_positions()
-
-### 8. MarginAllocator.py - Level 1 Global Fund Allocation (v7.0.0)
-- **Purpose**: Calculate available margin and allocate to entry candidates based on quality scores
-- **Design Principle**: "Stateless Calculator + Fixed Buffer Constraint"
-  - ✅ **Responsible for**: Computing available margin, assigning planned allocation percentages
-  - ❌ **NOT responsible for**: Position opening, risk checking, order execution
-- **Key Features**:
-  - **Fixed Buffer**: 5% of initial capital reserved throughout entire backtest (non-dynamic)
-  - **Baseline Constraint**: Allocation capped at `min(current_available, initial_capital × planned_pct)`
-  - **Min Investment Filter**: $5,000 minimum allocation per pair (filters trivial positions)
-  - **Quality-Based Scaling**: `planned_pct = min_pct + quality_score × (max_pct - min_pct)`
+### 6. RiskManager.py - Portfolio-Level Risk Control (v7.98.2)
+- **Purpose**: Portfolio-level risk detection only (Pair-level moved to PairsManager)
+- **Design Principle** (v7.98.2): Single responsibility - only VIX and Portfolio drawdown
+  - ✅ **Responsible for**: VIX market condition check, Portfolio drawdown HWM tracking
+  - ❌ **NOT responsible for**: Pair-level health checks (moved to PairsManager.check_pairs_health)
 - **Key Methods**:
-  - `get_available_margin()`: Returns `Portfolio.MarginRemaining - fixed_buffer`
-  - `allocate_margin(entry_candidates)`: Distributes margin to candidates by quality score, returns allocation dict
-  - `_calculate_planned_percentage(quality_score)`: Maps quality_score (0-1) to allocation percentage (10%-30%)
-- **Allocation Algorithm**:
-  1. Calculate total available margin (MarginRemaining - fixed_buffer)
-  2. Assign each candidate a planned percentage based on quality_score
-  3. Apply baseline constraint: `allocation = min(available_margin × planned_pct, initial_capital × planned_pct)`
-  4. Filter out allocations < min_investment ($5,000)
-  5. Return allocation dict: `{pair_id: allocated_margin}`
-- **Integration Pattern**:
-  ```python
-  # ExecutionManager.handle_normal_open_intents()
-  allocations = self.margin_allocator.allocate_margin(entry_candidates)
-  for pair_id, margin in allocations.items():
-      pair = self.pairs_manager.get_pair_by_id(pair_id)
-      intent = pair.get_open_intent(margin, data)
-      # ... execute intent
-  ```
+  - `check_portfolio_drawdown()`: Check if drawdown ≥ 20%, returns (bool, description)
+  - `is_in_portfolio_cooldown()`: Query if in cooldown period (360 days)
+  - `activate_portfolio_cooldown()`: Called by main.py to activate cooldown
+  - `is_vix_safe()`: Check if VIX < 35, returns bool
+- **State Variables**:
+  - `high_water_mark`: Portfolio high water mark (initialized to initial capital)
+  - `portfolio_cooldown_until`: Cooldown end time
 
-### 9. UniverseSelection.py - Stock Selection
+### 7. UniverseSelection.py - Stock Selection
 - **Purpose**: Monthly universe refresh with multi-stage fundamental screening
 - **Two-stage filtering**:
   - **Coarse**: Price > $20, Volume > $5M, IPO > 3 years
@@ -409,7 +388,7 @@ git commit -m "docs: update CHANGELOG for v7.2.5"
 - **Industry-group-based selection**: Top stocks per Morningstar industry group (动态分组,实际出现18-20个)
 - **Triggers**: Monthly via `Schedule.On()` → `TriggerSelection()`
 
-### 10. TicketsManager.py - Order Lifecycle Tracking (v6.4.4)
+### 8. TicketsManager.py - Order Lifecycle Tracking (v6.4.4)
 - **Purpose**: Prevent duplicate orders via order locking mechanism
 - **Key Features**:
   - Real-time order status calculation (PENDING/COMPLETED/ANOMALY)
@@ -422,7 +401,7 @@ git commit -m "docs: update CHANGELOG for v7.2.5"
   - `get_anomaly_pairs()`: Detect pairs with order anomalies for risk management
 - **Design Principle**: Single source of truth - status derived from OrderTicket.Status
 
-### 11. Analysis Modules (src/analysis/)
+### 9. Analysis Modules (src/analysis/)
 - **DataProcessor**: Clean and prepare historical data (252-day lookback)
 - **PairData**: Data encapsulation class for pair analysis
   - **Purpose**: Unified data interface for BayesianModeler and PairSelector
@@ -491,51 +470,48 @@ git commit -m "docs: update CHANGELOG for v7.2.5"
   - **Quota Tiers**: 1/3/6/9 pairs per industry (based on performance)
   - **Weighted Return**: sum(total_pnl_dollars) / sum(total_pair_cost) per industry
 
-## Trading Execution Flow (OnData)
+## Trading Execution Flow (OnData) - v8.0.0
 
-### Execution Priority
-1. **Strategy Cooldown Check**: Skip if in global cooldown period
-2. **Portfolio Risk Management**: Detect and handle portfolio-level risks (blowup, drawdown, sector concentration)
-3. **Market Environment Check**: Check market volatility before opening new positions
-4. **Pair Risk Management**: Detect and handle pair-level risks (timeout, anomaly, drawdown)
-5. **Position Management**:
-   - Close positions for pairs with exit/stop signals or risk triggers
-   - Open new positions using intelligent fund allocation
+### OnData 6-Priority Execution
+1. **Portfolio Cooldown Check**: `RiskManager.is_in_portfolio_cooldown()` → return if active
+2. **Portfolio Drawdown Check**: `RiskManager.check_portfolio_drawdown()` → trigger Liquidate if ≥20%
+3. **Pair Health Check**: `PairsManager.check_pairs_health()` → execute risk close for anomaly/drawdown/drift/timeout
+4. **Normal Close**: Check CLOSE/PAIR_BREAK signals → Intent Pattern close
+5. **VIX Safety Check**: `RiskManager.is_vix_safe()` → return if VIX ≥ 35
+6. **Normal Open**: `PairsManager.get_open_candidates_with_allocation()` → Intent Pattern open
 
-### Closing Logic (Pairs with Positions)
-**Flow**: `pairs_manager.get_pairs_with_position()` → Order lock check → Risk check → Signal check → Intent Pattern (3 steps)
-
-**Key Steps**:
-1. Check `tickets_manager.is_pair_locked()` to prevent duplicate orders
-2. Check pair-level risks (timeout/anomaly/drawdown) via `risk_manager.check_pair_risks()`
-3. Get trading signal via `pair.get_signal(data)`
-4. Execute Intent Pattern: `get_close_intent() → execute_close() → register_tickets()`
-
-**Implementation**: See [main.py](main.py#L200-L216) OnData method
-
-### Opening Logic (Pairs without Positions)
-**Flow**: `pairs_manager.get_pairs_without_position()` → `get_entry_candidates()` → Dynamic margin allocation → Intent Pattern
+### Closing Logic
+**Flow**: `check_pairs_health()` or `get_signal()` → `get_close_intent()` → `execute_close()` → `register_tickets()`
 
 **Key Steps**:
-1. Get entry candidates sorted by quality score (via `ExecutionManager.get_entry_candidates()`)
-2. Calculate available margin (95% of MarginRemaining, keep 5% buffer)
-3. Dynamic allocation with quality-based scaling: `planned_pct × scale_factor`
-4. Execute Intent Pattern: `get_open_intent() → execute_open() → register_tickets()`
+1. Health check returns Dict[issue_type, pair_ids] with priority order
+2. Signal check returns CLOSE or PAIR_BREAK for normal exits
+3. Execute Intent Pattern: `pair.get_close_intent(reason)` → `order_executor.execute_close(intent)`
 
-**Implementation**: See [main.py](main.py#L218-L224) OnData method
+### Opening Logic
+**Flow**: `get_open_candidates_with_allocation()` → Intent Pattern open
 
-### Position Sizing (v6.4.4 Margin-Based Model)
-- **Margin-Based Allocation**: Position sizing uses margin requirements instead of cash
-  - Long position: 50% margin requirement
-  - Short position: 150% margin requirement (100% borrowed + 50% margin)
-  - Formula: `required_margin = long_value * 0.5 + short_value * 1.5`
-- **No Hard Pair Limit**: Position count limited by available margin (natural constraint)
-- **Margin Buffer**: 5% of MarginRemaining reserved (dynamic, not fixed to initial capital)
-- **Min Investment**: 10% of initial capital (margin-based)
-- **Max Investment**: 30% of initial capital (margin-based, increased from 25%)
-- **Quality-Based Allocation**: `allocation_pct = min_pct + quality_score * (max_pct - min_pct)`
-- **Dynamic Scaling**: Maintains fair allocation ratios as margin depletes
-- **Beta Hedging**: `long_value = margin_allocated / (1 + 1/|beta|)`, `short_value = margin_allocated / (1 + |beta|)`
+**Key Steps** (inside PairsManager):
+1. Filter current_selected pairs without position, not in cooldown, not locked
+2. Get signals (LONG_SPREAD/SHORT_SPREAD)
+3. Sort by `avg_return_per_trade` (v7.99.5)
+4. Allocate margin based on `allocation_tiers` (v7.99.3)
+5. Return List[Tuple[pair, allocated_margin]]
+
+### Position Sizing (v7.99.3 Allocation Tiers)
+- **Tier-Based Allocation**: Based on `avg_return_per_trade` instead of quality_score
+  ```python
+  allocation_tiers = [
+      (0.00, 0.10),    # avg_return ≤ 0%   → 10%
+      (0.10, 0.15),    # avg_return ≤ 10%  → 15%
+      (0.20, 0.18),    # avg_return ≤ 20%  → 18%
+      (0.25, 0.20),    # avg_return ≤ 25%  → 20%
+  ]
+  allocation_default = 0.10  # No trade history (trade_count=0)
+  allocation_max = 0.25      # avg_return > 25%
+  ```
+- **Margin Buffer**: FIXED_BUFFER reserved from MarginRemaining
+- **Beta Hedging**: `long_value = margin / (1 + 1/|beta|)`, `short_value = margin / (1 + |beta|)`
 
 ## Critical Implementation Details
 
@@ -553,26 +529,21 @@ The TicketsManager implements a sophisticated order tracking system to prevent d
 Order Submission → PENDING (locked) → COMPLETED (unlocked) or ANOMALY (requires risk intervention)
 ```
 
-**Integration Pattern**:
+**Integration Pattern** (v7.0.0 Intent Pattern):
 ```python
 # Step 1: Check lock before trading
 if tickets_manager.is_pair_locked(pair.pair_id):
     continue  # Skip if orders pending
 
-# Step 2: Execute trade
-tickets = pair.open_position(signal, margin, data)
+# Step 2: Generate intent and execute
+intent = pair.get_open_intent(allocated_margin, data)
+if intent:
+    tickets = order_executor.execute_open(intent)
+    if tickets:
+        tickets_manager.register_tickets(pair.pair_id, tickets, 'OPEN')
 
-# Step 3: Register tickets (activates lock)
-if tickets:
-    tickets_manager.register_tickets(pair.pair_id, tickets)
-
-# Step 4: OnOrderEvent automatically updates status
-# (via QCAlgorithm.OnOrderEvent → TicketsManager.on_order_event)
-
-# Step 5: Next OnData cycle checks lock again
-# - PENDING → Skip trading
-# - COMPLETED → Allow new trades
-# - ANOMALY → Risk management handles single-leg positions
+# Step 3: OnOrderEvent routes to TicketsManager (v7.99.4 fix)
+# QCAlgorithm.OnOrderEvent → TicketsManager.on_order_event → Pairs.on_position_filled
 ```
 
 **Why This Architecture**:
@@ -610,15 +581,13 @@ required_margin = long_value * 0.5 + short_value * 1.5
 # required_margin = 8889*0.5 + 11111*1.5 = $21,111 ≈ $20,000
 ```
 
-**Dynamic Allocation Process**:
-1. Calculate initial margin pool: `Portfolio.MarginRemaining * 0.95` (keep 5% buffer)
-2. Assign planned percentages to pairs based on quality scores
-3. As pairs open, maintain fair ratios via dynamic scaling:
-   - `scale_factor = initial_margin / current_available_margin`
-   - Each pair gets: `planned_pct * current_margin * scale_factor`
-4. Buffer prevents margin calls, min_investment filters trivial positions
+**Dynamic Allocation Process** (v7.99.3):
+1. Calculate available margin: `Portfolio.MarginRemaining - FIXED_BUFFER`
+2. Get `avg_return_per_trade` for each pair (or use `allocation_default` if no history)
+3. Look up allocation percentage from `allocation_tiers` config
+4. Allocate: `margin × allocation_pct` (capped by `allocation_max`)
 
-**Key Insight**: This model naturally constrains position count by available margin, eliminating the need for hard pair limits.
+**Key Insight**: Historical performance drives allocation, not predicted quality scores.
 
 ### ~~Dual Cooldown Mechanism (v7.2.21)~~ [DEPRECATED in v7.12.0]
 
@@ -644,8 +613,8 @@ The strategy implemented **dynamic cooldown periods** based on exit reasons:
 ### Statistical Engine
 - **Cointegration testing**: Engle-Granger test with p-value < 0.05
 - **Bayesian modeling**: PyMC with 500 warmup + 500 posterior samples, 2 chains
-- **Signal thresholds**: Entry ±1.0σ, Exit ±0.3σ, Stop ±3.0σ
-- **Cooldown Period**: Dynamic - 10 days (normal exit) or 30 days (stop loss) - updated in v7.2.21
+- **Signal thresholds**: Entry [1.2σ, 1.8σ], Exit 0.3σ, Stop 3.0σ
+- **Cooldown Period**: Unified cooldown_days config (default 30 days for all close reasons)
 
 ### Universe Selection Logic
 1. **Coarse filtering**: Price > $20, Volume > $5M, IPO > 3 years
@@ -661,23 +630,20 @@ The strategy implemented **dynamic cooldown periods** based on exit reasons:
 
 ### Data Flow
 1. **Universe Changes**: `OnSecuritiesChanged()` → triggers pair analysis
-2. **Analysis Pipeline**: DataProcessor → CointegrationAnalyzer (v7.12.0: applies industry quotas) → BayesianModeler → PairSelector (v7.12.0: filters risk pairs)
-3. **Pair Creation**: Direct Pairs object creation → PairsManager.update_pairs()
-4. **Trading Flow (Intent Pattern)**: OnData → Risk detection → Order lock check → Pairs.get_*_intent() → OrderExecutor.execute() → Trade execution
-5. **Order Tracking**: Pairs.get_*_intent() → Returns Intent → OrderExecutor.execute() → Returns tickets → TicketsManager.register_tickets() → Order lock activated
-6. **Order Events**: QCAlgorithm.OnOrderEvent() → TicketsManager.on_order_event() → Status update (PENDING/COMPLETED/ANOMALY)
-7. **State Updates**: PairsManager maintains pair lifecycle states (active/legacy/dormant)
-8. **Intent Flow** (v7.0.0): Pairs (generate intent) → OrderExecutor (execute intent) → TicketsManager (track orders)
-9. **Industry Quota Flow** (v7.12.0): IndustryQuotaManager.calculate_quotas() → CointegrationAnalyzer (applies quotas) → Selects TOP N pairs per industry
-10. **Risk Filtering Flow** (v7.12.0): PairSelector._filter_risk_pairs() → Checks last_close_reason (DRAWDOWN/ANOMALY) → Filters cooldown pairs
+2. **Analysis Pipeline** (8 steps in `_run_analysis_pipeline`):
+   - DataProcessor → CointegrationAnalyzer → IndustryQuotaManager.apply_quotas() → PairData → BayesianModeler → PairSelector → Pairs objects → PairsManager.classify_pairs()
+3. **Trading Flow (OnData 6-priority)**:
+   - Portfolio checks (RiskManager) → Health checks (PairsManager) → Signal close → VIX check → Signal open
+4. **Intent Flow**: Pairs.get_*_intent() → OrderExecutor.execute_*() → TicketsManager.register_tickets()
+5. **Order Events** (v7.99.4 fix): OnOrderEvent() → TicketsManager.on_order_event() → Pairs.on_position_filled()
+6. **Industry Metrics Flow** (v8.0.0): Pairs.trade_history → PairsManager._aggregate_all_industry_data() → get_industry_composite_score()
 
 ### State Management
-- **Pair States**: Active (tradeable), Legacy (position only), Dormant (inactive)
-- **Order States**: NONE (no orders) / PENDING (executing) / COMPLETED (filled) / ANOMALY (canceled/invalid)
-- **Position Tracking**: Direct property access via `pair.position_mode` (v7.40.11 - zero-cost property access)
-- **Risk State**: High water marks tracked in risk module classes
-- **Cooldown Tracking**: Per-pair cooldown managed in Pairs objects
-- **Margin Constraints**: Dynamic margin buffer (5% of MarginRemaining) and allocation tracked in main.py
+- **Pair Classification**: current_selected (this month) / past_selected (historical)
+- **Order States**: PENDING (executing) / COMPLETED (filled) / ANOMALY (canceled/invalid)
+- **Position Tracking**: `pair.has_position()` dynamic query
+- **Cooldown Tracking**: `pair.is_in_cooldown()` using last_close_reason
+- **Health Issues**: anomaly/drawdown/drift/timeout (priority order)
 
 ## Key Dependencies
 
@@ -784,17 +750,16 @@ anomaly_pairs = self.algorithm.tickets_manager.get_anomaly_pairs()
 **Solution**: ALWAYS check `tickets_manager.is_pair_locked()` before trading
 ```python
 # ❌ WRONG - May submit duplicate orders
-signal = pair.get_signal(data)
-if signal == TradingSignal.CLOSE:
-    pair.close_position()  # Danger: may execute multiple times
+intent = pair.get_close_intent('MEAN_REVERSION', data)
+order_executor.execute_close(intent)  # Danger: may execute multiple times
 
-# ✅ CORRECT - Check lock first
+# ✅ CORRECT - Check lock first (Intent Pattern)
 if not tickets_manager.is_pair_locked(pair.pair_id):
-    signal = pair.get_signal(data)
-    if signal == TradingSignal.CLOSE:
-        tickets = pair.close_position()
+    intent = pair.get_close_intent('MEAN_REVERSION', data)
+    if intent:
+        tickets = order_executor.execute_close(intent)
         if tickets:
-            tickets_manager.register_tickets(pair.pair_id, tickets)
+            tickets_manager.register_tickets(pair.pair_id, tickets, 'CLOSE')
 ```
 
 ### Margin vs. Cash Confusion
@@ -808,19 +773,23 @@ available = Portfolio.Cash
 available_margin = Portfolio.MarginRemaining * 0.95  # Keep 5% buffer
 ```
 
-### Risk Detection vs. Execution
-**Problem**: Risk managers executing trades directly (violates separation of concerns)
-**Solution**: Risk managers detect, main.py executes
+### Health Check vs. Execution (v8.0.0)
+**Problem**: Mixing health detection with trade execution
+**Solution**: PairsManager.check_pairs_health() detects, main.py executes
 ```python
-# ❌ WRONG - Risk manager executes
-class RiskManager:
-    def check_timeout(self, pair):
-        if timeout:
-            pair.close_position()  # Violates separation of concerns
+# ❌ WRONG - Health check executes directly
+class PairsManager:
+    def check_pairs_health(self):
+        if pair.get_pair_drawdown() > 0.04:
+            pair.close_position()  # Violates separation
 
-# ✅ CORRECT - Risk manager detects, main.py executes
-if pair_level_risk_manager.check_holding_timeout(pair):
-    tickets = pair.close_position()  # main.py handles execution
+# ✅ CORRECT - Health check returns issues, main.py executes
+health_issues = pairs_manager.check_pairs_health()
+for issue_type, pair_ids in health_issues.items():
+    for pair_id in pair_ids:
+        pair = pairs_manager.get_pair_by_id(pair_id)
+        intent = pair.get_close_intent(issue_type.upper(), data)
+        order_executor.execute_close(intent)
 ```
 
 ### Order Event Anomalies
@@ -834,18 +803,19 @@ for pair_id in anomaly_pairs:
     self.Debug(f"[订单异常] {pair_id} 检测到单腿失败", 1)
 ```
 
-### Pair State Confusion
-**Problem**: Trading with archived pairs (failed cointegration, no position)
-**Solution**: Only trade pairs from cointegrated + legacy states
+### Pair Classification Confusion (v8.0.0)
+**Problem**: Confusing current_selected vs past_selected pairs
+**Solution**: Only open positions for current_selected; past_selected can only close
 ```python
-# ❌ WRONG - May trade archived pairs
+# ❌ WRONG - Opening positions for past_selected pairs
 for pair in pairs_manager.all_pairs.values():
-    signal = pair.get_signal(data)
+    if pair.get_signal(data) in [LONG_SPREAD, SHORT_SPREAD]:
+        pair.get_open_intent(...)  # May open for expired pairs
 
-# ✅ CORRECT - Only trade cointegrated or legacy pairs
-tradeable_pairs = pairs_manager.get_tradeable_pairs()
-for pair in tradeable_pairs.values():
-    signal = pair.get_signal(data)
+# ✅ CORRECT - Use get_open_candidates_with_allocation() (filters internally)
+candidates = pairs_manager.get_open_candidates_with_allocation(data)
+for pair, allocated_margin in candidates:
+    intent = pair.get_open_intent(allocated_margin, data)
 ```
 
 ### Entry Z-Score Recording Mechanism (v7.2.16)
@@ -897,21 +867,17 @@ zscore = (log_residual - residual_mean) / residual_std
 
 ## Version History
 
-**Current Version**: v7.29.2 (2025-02-06)
+**Current Version**: v8.0.3 (2025-11-28)
 
 **Recent Major Updates**:
-- **v7.29.2** (Feb 2025): 诊断日志增强 - 估值筛选统计和资金效率诊断
-- **v7.29.1** (Feb 2025): 边界包含统一化 - 所有筛选器改为 ≤/≥ 避免边界值遗漏
-- **v7.29.0** (Feb 2025): 估值OR逻辑 - PE≤100 OR PS≤10 避免误杀高成长股
-- **v7.27.0** (Feb 2025): 累积亏损规则 - 新增PairCumulativeLossRule配对级风险控制
-- **v7.12.0** (Nov 2025): 简化冻结机制 + 行业动态配额系统 - 统一冷却机制,移除BlacklistManager,新增IndustryQuotaManager
-- **v7.11.0** (Nov 2025): 自适应持仓超时 - 基于半衰期的动态持仓时间限制
-- **v7.7.2** (Feb 2025): 配置修复 - 补充缺失的trade_analysis配置块
-- **v7.7.1** (Feb 2025): 数学修复 - 累积收益率加权平均计算
-- **v7.7.0** (Feb 2025): 交易模块OOP重构 - 面向对象设计 (v7.12.0已废弃)
-- **v7.5.23** (Feb 2025): 二维质量评分 - 移除Beta稳定性和残差质量指标
+- **v8.0.3** (Nov 2025): Docstring精简 - 简单方法单行说明,复杂方法保留步骤化解释
+- **v8.0.0** (Nov 2025): 滚动窗口行业评分 - trade_history数据结构,180天窗口计算,解决评分固化问题
+- **v7.99.4** (Nov 2025): OnOrderEvent回调修复 - 修复回调链断裂导致的交易统计失效
+- **v7.99.3** (Nov 2025): 基于avg_return_per_trade的资金分配层级 - 替代quality_score线性插值
+- **v7.98.2** (Nov 2025): RiskManager单一职责 - Pair级健康检查迁移到PairsManager
+- **v7.62.0** (Nov 2025): MarginAllocator迁移 - 资金分配功能整合到PairsManager
+- **v7.12.0** (Nov 2025): 简化冻结机制 + 行业动态配额系统 - 统一冷却机制,新增IndustryQuotaManager
 - **v7.0.0** (Jan 2025): Intent模式重构 - 意图生成与订单执行分离
-- **v6.4.4** (Jan 2025): 订单生命周期追踪 - 订单锁防止重复提交
 
 **Complete History**: See [docs/CHANGELOG.md](docs/CHANGELOG.md) for detailed version history and breaking changes
 
@@ -926,20 +892,19 @@ zscore = (log_residual - residual_mean) / residual_std
 
 - **src/**: Source code modules
   - **analysis/**: Data processing and statistical analysis
-    - **DataProcessor**: Data cleaning and validation
-    - **CointegrationAnalyzer**: Cointegration testing with industry quota application (v7.12.0)
-    - **BayesianModeler**: PyMC MCMC parameter estimation
-    - **PairSelector**: Quality scoring and risk pair filtering (v7.12.0)
-    - **IndustryQuotaManager**: Dynamic industry quota system (v7.12.0)
+    - **DataProcessor.py**: Data cleaning and validation (252-day lookback)
+    - **CointegrationAnalyzer.py**: Cointegration testing with industry quota application
+    - **BayesianModeler.py**: PyMC MCMC parameter estimation
+    - **PairSelector.py**: Quality scoring and risk pair filtering
+    - **PairData.py**: Data encapsulation class for pair analysis
+    - **IndustryQuotaManager.py**: Dynamic industry quota system (v8.0.0 updated)
   - **config.py**: Centralized configuration via StrategyConfig class
   - **UniverseSelection.py**: Multi-stage stock filtering
-  - **Pairs.py**: Pair trading object with signal generation, intent generation, and trade history tracking
-  - **OrderExecutor.py**: Order execution engine (unified order submission - v7.0.0)
-  - **OrderIntent.py**: Intent value objects (OpenIntent, CloseIntent - v7.0.0)
-  - **PairsManager.py**: Lifecycle management for all pairs
-  - **ExecutionManager.py**: Execution coordinator (orchestrates intent generation and execution - v7.0.0)
-  - **risk/RiskManager.py**: Two-tier risk detection system
-  - **TicketsManager.py**: Order lifecycle tracking and duplicate order prevention (v6.4.4)
+  - **Pairs.py**: Pair trading object with signal/intent generation and trade_history (v8.0.0)
+  - **PairsManager.py**: Lifecycle + margin allocation + health check (v8.0.0)
+  - **OrderExecutor.py**: Order execution engine (Intent Pattern - v7.0.0)
+  - **RiskManager.py**: Portfolio-level risk control only (v7.98.2)
+  - **TicketsManager.py**: Order lifecycle tracking (v6.4.4)
 - **docs/**: Documentation and version history
   - **CHANGELOG.md**: Complete version history with detailed change tracking
 - **research/**: Jupyter notebooks for strategy research and analysis

@@ -27,12 +27,8 @@
         估值筛选 (Valuation) - 逻辑关系: OR (满足任意一条即可)
             PE Ratio <= 100: 市盈率不高于 100 (过滤极端泡沫)
             PS Ratio <= 10: 市销率不高于 10 (保护未盈利但高增长的公司)
-        负债筛选 (Debt) - 默认关闭 (Enabled: False)
-            DebtToAssets <= 0.6
-        杠杆筛选 (Leverage) - 默认关闭 (Enabled: False)
-            FinancialLeverage <= 6
     ETF 合并 (Merge ETFs)
-        来源: 从 ETFUniverseConfig 读取
+        来源: 从 UniverseConfig 读取 ETF 开关配置
         核心 ETF (Sector): 11个 (XLK, XLF, XLV 等)
         细分 ETF (Industry): 7个 (SOXX, XME, XOP 等)
         操作: 将这些 ETF 的 Symbol 直接加入最终列表 (不经过财务筛选)
@@ -236,12 +232,13 @@
             惩罚: <6次 (信号稀缺) 或 >36次 (噪声过大)
 
 3. 筛选逻辑 (Selection Logic)
-    Step 1: 门槛过滤 - Quality Score > 0.50 (宁缺毋滥)
+    Step 1: 门槛过滤 - Quality Score >= 0.50 (宁缺毋滥)
     Step 1.5: 历史ROI过滤 (v8.0.9) - 预热期后生效
         - 条件: Cumulative ROI < -10% (历史累积亏损超过10%)
+        - 配置: `PairSelectorConfig.historical_roi_threshold = -0.10`
         - 数据来源: `pairs_manager.get_pair_by_id(pair_id).get_pair_roi()`
         - 设计理念: 即使协整关系仍然成立，长期亏损的配对也不应再被选中
-        - 预热期: 前90天不过滤，给所有配对公平机会
+        - 预热期: 前 90 天不过滤 (warmup_days)，给所有配对公平机会
     Step 2: 排序 - 按 Quality Score 降序排列
     输出: 最终入选的配对列表 (Selected Pairs)。
 
@@ -350,10 +347,11 @@
 
     场景 B: 协整破裂 (BREAK_UPPER / BREAK_LOWER) (v8.0.11)
         - 条件:
-            - 多头持仓 (Long Spread) 且 `Z-score < -StopLossThreshold` (默认 -2.3σ) → 信号 `BREAK_LOWER`
-            - 空头持仓 (Short Spread) 且 `Z-score > StopLossThreshold` (默认 2.3σ) → 信号 `BREAK_UPPER`
+            - 多头持仓 (Long Spread) 且 `Z-score < -StopLossThreshold` (默认 -2.5σ) → 信号 `BREAK_LOWER`
+            - 空头持仓 (Short Spread) 且 `Z-score > StopLossThreshold` (默认 2.5σ) → 信号 `BREAK_UPPER`
         - 含义: 价差不仅没有回归，反而向不利方向突破了统计边界，假设协整关系已失效。
         - 动作: 生成 `CloseIntent` (Reason='PAIR_BREAK')，原因层统一为 PAIR_BREAK。
+        - 冷却期: 30天 (PAIR_BREAK 类型)
 
 3. 执行逻辑 (Execution Logic)
     - 遍历所有持仓配对 (`pairs_with_position`)。
@@ -361,7 +359,13 @@
     - 获取信号并执行:
         - 收到 `CLOSE` -> 执行均值回归平仓。
         - 收到 `BREAK_UPPER` 或 `BREAK_LOWER` -> 执行止损平仓 (v8.0.11: 信号层区分方向)。
-    - 冷却期触发: 平仓完成后，`PairsManager` 会根据平仓原因 (Reason) 设定该配对的冷却期 (如止损后冷却 30 天，正常平仓冷却 0 天)。
+    - 冷却期触发: 平仓完成后，根据 `last_close_reason` 查询冷却天数:
+        - `MEAN_REVERSION`: 7天
+        - `PAIR_BREAK`: 30天
+        - `TIMEOUT`: 30天
+        - `DRAWDOWN`: 30天
+        - `DRIFT`: 30天
+        - `ANOMALY`: 永久 (999999天)
 
 
 # Part 12: Execution Pipeline - Step 5: VIX Check (开仓安全检查)
@@ -458,19 +462,20 @@
     - `max_holding_days`: float
         - 描述: 理论最大持仓天数，开仓时动态计算。
 
-#### 1.5 Statistics (历史统计)
+#### 1.5 Statistics (历史统计) (v8.0.19 重命名)
     - `trade_history`: List[Tuple[datetime, float, float]]
         - 描述: 历史交易记录 (平仓时间, PnL, 投入资本)。
+        - 用途: 供滚动窗口计算 (180天/20笔最小样本)。
     - `trade_count`: int
         - 描述: 累计交易次数。
     - `win_count`: int
         - 描述: 累计盈利次数。
-    - `total_pnl`: float
-        - 描述: 累计盈亏金额。
-    - `realized_roi`: float
-        - 描述: 累计已实现 ROI。
-    - `win_rate`: float
-        - 描述: 胜率 (win_count / trade_count)。
+    - `pair_historical_pnl`: float (v8.0.19 重命名自 total_pnl)
+        - 描述: 历史累积盈亏金额 (仅已平仓交易)。
+        - 用途: 作为 `get_pair_roi()` 的分子。
+    - `pair_historical_invested_capital`: float (v8.0.19 重命名自 total_invested_capital)
+        - 描述: 历史累积投入资本 (仅已平仓交易)。
+        - 用途: 作为 `get_pair_roi()` 的分母。
 
 #### 1.6 Configuration (配置阈值)
     - `entry_threshold_lower` / `entry_threshold_upper`: float (1.9 - 2.3)
@@ -496,36 +501,50 @@
     - `update_params(new_pair)`
         - 描述: 使用新一轮建模结果更新统计参数 (仅当无持仓时)。
 
-#### 2.3 Calculations & Analytics (计算与分析)
+#### 2.3 Calculations & Analytics (计算与分析) (v8.0.19 重构)
     - `get_leg_values(allocated_amount, signal, data) -> (float, float)`
         - 描述: 计算两腿的目标市值 (基于 Beta 对冲)。
     - `get_pair_holding_days() -> int`
         - 描述: 获取当前持仓天数。
     - `get_max_holding_days() -> float`
         - 描述: 获取理论最大持仓天数 (基于 Ornstein-Uhlenbeck 过程)。
+        - 公式: `ln(exit_threshold/entry_zscore) / ln(0.5) × half_life`
     - `get_pair_drawdown() -> float`
         - 描述: 计算当前持仓的浮动回撤率。
+        - 公式: `(HWM - current_value) / HWM`
     - `get_hedge_drift() -> float`
-        - 描述: 计算对冲漂移率 (Net Exposure / Gross Exposure)。
+        - 描述: 计算对冲漂移率。
+        - 公式: `(val1 + val2) / (|val1| + |val2|)`
+        - 解读: 0=完美对冲, ±0.25=触发阈值
     - `get_pair_roi() -> float` (v8.0.18 重命名自 get_pair_cumulative_roi)
-        - 描述: 计算历史累计 ROI (v8.0.8: 仅已平仓部分)。
-        - 公式: `pair_historical_pnl / pair_historical_invested_capital` (v8.0.19)
+        - 描述: 计算历史累计 ROI (仅已平仓部分)。
+        - 公式: `pair_historical_pnl / pair_historical_invested_capital`
         - 用途: 供 PairSelector 历史ROI过滤使用 (v8.0.9)
     - `get_avg_return_per_trade() -> float`
-        - 描述: 计算平均每笔交易回报率 (用于资金分配排序)。
+        - 描述: 计算平均每笔交易回报率。
+        - 公式: `get_pair_roi() / trade_count`
+        - 用途: 资金分配排序依据
     - `_calculate_trade_pnl() -> float` (v8.0.19 私有方法，原 get_pair_pnl)
         - 描述: 计算单笔交易的已实现PnL (内部使用)。
+        - 公式: `(exit_value - entry_value)` 基于成交价格
         - 注意: 历史累积PnL使用 `pair_historical_pnl` 属性。
     - `get_pair_current_invested_capital() -> float` (v8.0.19，原 get_pair_invested_capital)
         - 描述: 获取当前持仓的投入资本。
+        - 公式: `0.5 × (|qty1×price1| + |qty2×price2|)`
+    - `get_pair_unrealized_pnl() -> float`
+        - 描述: 获取配对浮动盈亏 (使用实时价格)。
 
 #### 2.4 State Queries (状态查询)
     - `has_position() -> bool`
+        - 描述: 检查是否有任何持仓 (position_mode != NONE)。
     - `has_normal_position() -> bool`
+        - 描述: 检查是否有正常持仓 (LONG_SPREAD 或 SHORT_SPREAD)。
     - `has_anomaly_position() -> bool`
+        - 描述: 检查是否有异常持仓 (单边或同向)。
     - `is_in_cooldown() -> bool`
-    - `get_pair_unrealized_pnl() -> float`
-    - `get_hedge_drift() -> float`
+        - 描述: 检查是否在冷却期中 (基于 last_close_reason 查询冷却天数)。
+    - `get_price_from_bar(data) -> (price1, price2)`
+        - 描述: 从 TradeBar 获取两只股票的 Close 价格。
 
 
 ================================================================================
@@ -563,25 +582,33 @@
     - `get_pairs_with_position() -> Dict`
         - 描述: 获取当前所有持仓配对。
 
-#### 2.2 Industry Analytics (行业分析)
-    - `_aggregate_all_industry_data()`
+#### 2.2 Industry Analytics (行业分析) (v8.0.13 统一聚合)
+    - `_aggregate_all_industry_data() -> Dict[str, IndustryData]`
         - 描述: 遍历所有配对，聚合计算各行业的统计指标。
+        - 优化: 所有行业查询统一调用此方法，一次遍历获取全部数据。
     - `get_industry_composite_score(industry_code) -> float`
-        - 描述: 计算行业综合得分 (v8.0.16: 内部计算 rolling_roi × rolling_win_rate)。
-        - 注: 使用滚动窗口 (180天/min20笔)，用于配额分配权重。
-    - `get_industry_roi(industry_code) -> float` (v8.0.20 增强注释)
+        - 描述: 计算行业综合得分 (rolling_roi × rolling_win_rate)。
+        - 滚动窗口: 180天，样本保底20笔
+        - 用途: 配额分配权重计算
+    - `get_industry_roi(industry_code) -> float`
         - 描述: 获取行业级历史累积ROI (平仓口径)。
-        - 公式: historical_pnl / historical_invested_capital
+        - 公式: `historical_pnl / historical_invested_capital`
         - 含义: 只计算已平仓交易，不含当前持仓
-    - `get_industry_historical_pnl(industry_code) -> float` (v8.0.20 重命名)
+    - `get_industry_historical_pnl(industry_code) -> float` (v8.0.20)
         - 描述: 获取行业历史累积盈亏 (已平仓交易)。
-    - `get_industry_historical_invested_capital(industry_code) -> float` (v8.0.20 重命名)
+    - `get_industry_historical_invested_capital(industry_code) -> float` (v8.0.20)
         - 描述: 获取行业历史累积投入资本 (已平仓交易)。
-    - `get_industry_win_rate(industry_code) -> float` (v8.0.17 新增)
+    - `get_industry_current_invested_capital(industry_code) -> float`
+        - 描述: 获取行业当前投入资本 (持仓中)。
+        - 用途: 集中度检查的分子
+    - `get_industry_trade_count(industry_code) -> int`
+        - 描述: 获取行业交易次数 (已平仓交易计数)。
+    - `get_industry_win_rate(industry_code) -> float`
         - 描述: 获取行业胜率 (平仓口径)。
-        - 公式: win_count / total_trade_count
+        - 公式: `win_count / trade_count`
     - `get_industry_concentration(industry_code) -> float`
-        - 描述: 计算行业资金集中度 (该行业持仓市值 / 总持仓市值)。
+        - 描述: 计算行业资金集中度。
+        - 公式: `industry_current_invested / total_current_invested`
 
 #### 2.3 Capital Allocation (资金分配)
     - `get_open_candidates_with_allocation(data) -> List`
