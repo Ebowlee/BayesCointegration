@@ -7,47 +7,41 @@ from src.analysis.PairData import PairData
 
 
 class PairSelector:
-    """配对评估和筛选器 - 负责评估配对质量并筛选最佳配对"""
+    """
+    配对评估和筛选器 (v8.0.10)
+
+    核心职责:
+    - 三维质量评分: half_life (25%) + mean_reversion_certainty (40%) + zero_crossing (35%)
+    - 质量门槛过滤: quality_score > 0.50
+    - 历史ROI过滤: cumulative_roi < -10% 的配对被排除 (预热期后生效)
+
+    关键接口:
+    - selection_procedure(): 主入口，执行完整筛选流程
+    - evaluate_quality(): 计算三维质量分数
+    - select_best(): 应用质量门槛和历史ROI过滤
+    """
 
     def __init__(self, algorithm, analysis_config, module_config):
-        """
-        初始化配对选择器 (v7.96.0: 适配DataProcessorConfig重命名)
-
-        Args:
-            algorithm: QCAlgorithm实例
-            analysis_config: DataProcessorConfig dataclass实例
-            module_config: PairSelectorConfig dataclass实例
-        """
+        """初始化配对选择器"""
         self.algorithm = algorithm
-
-        # 从analysis_config读取
-        self.lookback_days = analysis_config.lookback_days  # 252天,与BayesianModeler统一
-
-        # 从module_config读取
-        # v7.31.0: max_symbol_repeats已迁移到CointegrationAnalyzer
+        self.lookback_days = analysis_config.lookback_days
         self.min_quality_threshold = module_config.min_quality_threshold
         self.quality_weights = module_config.quality_weights
         self.scoring_thresholds = module_config.scoring_thresholds
+        self.historical_roi_threshold = module_config.historical_roi_threshold
 
 
     # ===== 公共方法 (Public Methods) =====
 
     def selection_procedure(self, modeling_results):
         """
-        执行配对筛选流程 - 基于贝叶斯后验参数评估质量并筛选（v7.5.3统一rho）
+        执行配对筛选流程
 
         Args:
-            modeling_results: BayesianModeler输出的建模结果列表
-                每个元素包含: symbol1, symbol2, quality_score, beta_mean, beta_std,
-                             rho_mean, rho_std, residual_std, half_life_mean, etc.
+            modeling_results: BayesianModeler输出 (symbol1, symbol2, rho_samples, spread等)
 
         Returns:
-            List[Dict]: 筛选后的配对列表（包含二维质量分数: half_life, mean_reversion_certainty）
-
-        设计变更 (v7.5.23):
-        - 简化为二维评分系统: half_life (60%), mean_reversion_certainty (40%)
-        - 移除维度: beta_stability (与MR重叠50%), residual_quality (预测失败57%)
-        - 统一使用rho表示AR(1)系数,半衰期直接从rho计算: -ln(2) / ln(ρ)
+            List[Dict]: 筛选后的配对列表 (包含三维质量分数, 按quality_score降序)
         """
         # 步骤1: 评估配对质量（使用贝叶斯后验参数）
         scored_pairs = self.evaluate_quality(modeling_results)
@@ -60,30 +54,13 @@ class PairSelector:
 
     def evaluate_quality(self, modeling_results):
         """
-        评估配对质量（v7.37.0: 三维评分系统,新增零轴穿越维度）
+        评估配对质量 (三维评分: half_life 25% + MR certainty 40% + zero_crossing 35%)
 
         Args:
-            modeling_results: BayesianModeler输出的建模结果列表
+            modeling_results: BayesianModeler输出列表
 
-        三维评分系统 (v7.37.0):
-        1. Half-life (40%): 均值回归速度 (最独立+预测力最强,准确率57%)
-        2. Mean-reversion certainty (35%): AR(1)显著性 (理论核心,预测力中等50%)
-        3. Zero-crossing (25%): 零轴穿越次数 (物理直观,噪声过滤)
-
-        零轴穿越维度设计理念:
-        - 物理意义: 验证spread的均值回归潜力
-        - 过滤目标: 排除信号稀缺(<6次/年)和噪声过度(>36次/年)配对
-        - 评分峰值: 12次/252天 (每月1次,理想交易频率)
-        - 保守权重: 25% (便于后续根据回测结果调优至30-35%)
-
-        历史变更:
-        - v7.5.23: 移除Beta Stability (与MR重叠r=0.71) 和 Residual Quality (预测失败率57%)
-        - v7.37.0: 新增Zero-crossing维度,权重调整为40%+35%+25%
-
-        设计优势:
-        - 使用贝叶斯后验参数（比OLS更准确）
-        - 统一使用rho表示AR(1)系数
-        - 所有指标都有明确的统计意义
+        Returns:
+            List[Dict]: 添加了quality_score的配对列表
         """
         scored_pairs = []
 
@@ -91,14 +68,12 @@ class PairSelector:
             symbol1 = model_result['symbol1']
             symbol2 = model_result['symbol2']
 
-            # 三维评分计算 (调用私有方法)
-            # v7.13.0: _calculate_half_life_score返回三元组 (score, mean, std)
+            # 三维评分计算
             half_life_score, half_life_days, half_life_std = self._calculate_half_life_score(model_result)
             mean_reversion_score, snr_kappa = self._calculate_mean_reversion_certainty_score(model_result)
-            # v7.37.0: 新增零轴穿越评分
             zero_crossing_score, crossing_count, _ = self._calculate_zero_crossing_score(model_result)
 
-            # 综合质量分数（三维加权平均, v7.37.0: 40%+35%+25%）
+            # 综合质量分数 (三维加权平均: 25%+40%+35%)
             quality_score = (
                 self.quality_weights['half_life'] * half_life_score +
                 self.quality_weights['mean_reversion_certainty'] * mean_reversion_score +
@@ -106,13 +81,12 @@ class PairSelector:
             )
 
 
-            # 更新质量分数到model_result(保留原有字段)
+            # 更新质量分数到model_result
             model_result['quality_score'] = quality_score
             model_result['half_life_score'] = half_life_score
-            model_result['half_life'] = half_life_days  # v7.11.0: 供PairHoldingTimeoutRule使用
-            model_result['half_life_std'] = half_life_std  # v7.13.0: 半衰期不确定性
+            model_result['half_life'] = half_life_days
+            model_result['half_life_std'] = half_life_std
             model_result['mean_reversion_score'] = mean_reversion_score
-            # v7.37.0: 新增零轴穿越维度字段
             model_result['zero_crossing_score'] = zero_crossing_score
             model_result['crossing_count'] = crossing_count
 
@@ -123,20 +97,14 @@ class PairSelector:
 
     def select_best(self, scored_pairs):
         """
-        筛选最佳配对 (v7.12.0: 简化逻辑)
+        筛选最佳配对
 
         流程:
-        1. 过滤低于最低分数阈值的配对（质量门槛）
-        2. [v7.12.0] 风险配对过滤 (DRAWDOWN/ANOMALY冷却期检查)
-        3. 按质量分数排序
-        4. 确保单个股票不会出现在过多配对中
-
-        改动 (v7.12.0):
-        - 移除黑名单过滤 (BlacklistManager模块已删除)
-        - 新增风险配对过滤 (检查DRAWDOWN/ANOMALY冷却期)
-        - 移除max_pairs硬性限制 (改用资金约束自然限制)
+        1. 质量门槛过滤 (quality_score > 0.50)
+        2. 历史ROI过滤 (cumulative_roi < -10%, 预热期后生效)
+        3. 按质量分数降序排序
         """
-        # v7.31.6: 质量分布统计 (在质量筛选之前)
+        # 质量分布统计 (在质量筛选之前)
         if scored_pairs:
             # 统计各档位数量
             excellent = sum(1 for p in scored_pairs if p['quality_score'] >= 0.80)
@@ -157,7 +125,7 @@ class PairSelector:
                 level=1
             )
 
-        # v7.37.1: 零轴穿越分布统计（验证v7.37.0新评分维度）
+        # 零轴穿越分布统计
         if scored_pairs and any('crossing_count' in p for p in scored_pairs):
             # 统计穿越次数分档（基于评分函数设计的区间）
             crossing_excellent = sum(1 for p in scored_pairs if p.get('crossing_count', 0) >= 18)  # 平台区及以上
@@ -187,7 +155,6 @@ class PairSelector:
             if p['quality_score'] > min_threshold  # 严格大于（不包含等于）
         ]
 
-        # v7.30.0: 诊断日志 - 质量筛选
         self.algorithm.Debug(
             f"[质量筛选] 输入{len(scored_pairs)}对 → "
             f"质量阈值>{min_threshold:.2f} → "
@@ -195,8 +162,17 @@ class PairSelector:
             level=1
         )
 
-        # v7.31.0: 删除Step 2风险配对过滤 (冷却期由ExecutionManager统一检查)
-        # v7.31.0: 删除Step 4单股重复限制 (已在CointegrationAnalyzer阶段完成)
+        # Step 1.5: 历史ROI过滤 (预热期后生效)
+        if not self.algorithm.is_in_warmup_period:
+            before_count = len(qualified_pairs)
+            qualified_pairs = self._filter_by_historical_roi(qualified_pairs)
+            filtered_count = before_count - len(qualified_pairs)
+            if filtered_count > 0:
+                self.algorithm.Debug(
+                    f"[历史ROI] 过滤前{before_count}对 → 过滤后{len(qualified_pairs)}对 "
+                    f"(排除{filtered_count}对, 阈值={self.historical_roi_threshold*100:.0f}%)",
+                    level=1
+                )
 
         # Step 2: 按质量分数排序（从高到低）
         sorted_pairs = sorted(qualified_pairs, key=lambda x: x['quality_score'], reverse=True)
@@ -208,16 +184,13 @@ class PairSelector:
 
     def _calculate_half_life_score(self, model_result):
         """
-        计算半衰期分数 (v7.31.3: 简化注释,详见CLAUDE.md)
+        计算半衰期分数
 
         评分方法: 非对称高斯+软截断+指数衰减
         峰值: 8天 | 核心区间: 5-10天 | 可接受: 4-12天
 
-        Args:
-            model_result: BayesianModeler输出（包含rho_samples）
-
         Returns:
-            (score, half_life_mean, half_life_std): 评分和半衰期统计量
+            (score, half_life_mean, half_life_std)
         """
         try:
             # 从rho_samples按需计算rho_mean
@@ -231,9 +204,7 @@ class PairSelector:
             if rho_mean <= 0 or rho_mean >= 1:
                 return (0, None)
 
-            # v7.13.0: 计算半衰期分布 (修正Jensen不等式问题)
-            # 正确方式: 对每个rho_sample计算half_life,然后求均值和标准差
-            # 错误方式 (v7.12.0及之前): half_life = -ln(2) / ln(mean(rho_samples))
+            # 计算半衰期分布 (对每个rho_sample分别计算,避免Jensen不等式问题)
             half_life_samples = -np.log(2) / np.log(rho_samples)
             half_life = float(np.mean(half_life_samples))  # 均值
             half_life_std = float(np.std(half_life_samples))  # 标准差
@@ -264,7 +235,6 @@ class PairSelector:
                 decay = np.exp(-decay_rate * (half_life - decay_start))
                 score *= decay
 
-            # v7.13.0: 返回三元组 (score, mean, std)
             return (float(score), half_life, half_life_std)
 
         except Exception as e:
@@ -275,18 +245,14 @@ class PairSelector:
 
     def _calculate_mean_reversion_certainty_score(self, model_result):
         """
-        计算均值回归确定性分数 (v7.31.3: 简化注释,详见CLAUDE.md)
+        计算均值回归确定性分数
 
-        核心思路: 通过κ-based SNR量化均值回归显著性
-        - κ = 连续时间均值回归率 (从ρ转换)
-        - SNR_κ = E[κ] / Std[κ] (估计精度)
-        - 评分: 逻辑斯蒂归一化 (S曲线)
-
-        Args:
-            model_result: BayesianModeler输出（包含rho_samples）
+        核心思路: κ-based SNR → 逻辑斯蒂归一化
+        - κ = 连续时间均值回归率
+        - SNR_κ = E[κ] / Std[κ]
 
         Returns:
-            (score, snr_kappa): 评分和SNR值
+            (score, snr_kappa)
         """
         try:
             # 提取rho样本
@@ -327,43 +293,17 @@ class PairSelector:
 
     def _calculate_zero_crossing_score(self, model_result: Dict) -> Tuple[float, int, int]:
         """
-        计算零轴穿越次数评分 (v7.37.0)
+        计算零轴穿越次数评分
 
-        核心逻辑:
-        - 从对数价差序列(spread)计算穿越零轴的次数
-        - 应用分段线性评分函数,峰值12次/252天(每月1次)
-        - 过滤信号稀缺(<6次)和噪声过度(>36次)的配对
-
-        评分标准 (基于交易频率优化):
-        - 峰值: 12次 → 1.0 (每月1次,理想频率)
-        - 半峰: 6次 → 0.5 (两月1次,最低可接受)
-        - 平台: 18-24次 → 0.5 (每月1.5-2次,可接受但非最优)
-        - 左端: <6次 → 0.0 (信号稀缺,资金利用率低)
-        - 右端: >36次 → 0.0 (过度交易,噪声信号)
-
-        分段线性函数:
-        score(n) =
-            0.0,                             n < 6
-            0.5 + (n-6)*0.5/6,              6 ≤ n ≤ 12  (上升段)
-            0.5 + (18-n)*0.5/6,             12 < n ≤ 18 (下降段)
-            0.5,                            18 < n ≤ 24 (平台段)
-            0.5 * (36-n)/12,                24 < n ≤ 36 (衰减段)
-            0.0,                             n > 36
+        评分方法: 分段线性函数，峰值12次/252天
+        - 峰值: 12次 → 1.0 | 半峰: 6次 → 0.5 | 平台: 18-24次 → 0.5
+        - 截断: <6次或>36次 → 0.0
 
         Args:
-            model_result: BayesianModeler输出的建模结果字典,必须包含'spread'和'residual_mean'字段
+            model_result: BayesianModeler输出 (包含spread, residual_mean)
 
         Returns:
-            (score, crossing_count, peak_value): 三元组
-            - score: 归一化评分 [0.0, 1.0]
-            - crossing_count: 实际穿越次数 (int)
-            - peak_value: 峰值点参考值 (固定12)
-
-        实现细节:
-        - spread去均值化: spread_centered = spread - residual_mean
-        - 穿越检测: np.sign()符号变化计数
-        - 边界处理: spread长度<10返回默认值(0.0, 0, 12)
-        - 异常容错: 任何计算错误返回(0.0, 0, 12)并记录日志
+            (score, crossing_count, peak_value): 评分、穿越次数、峰值参考
         """
         try:
             # 读取阈值配置
@@ -414,3 +354,32 @@ class PairSelector:
         except Exception as e:
             self.algorithm.Debug(f"[PairSelector] 零轴穿越计算失败: {e}")
             return (0.0, 0, 12)
+
+
+    # ===== 私有过滤方法 (Private Filter Methods) =====
+
+    def _filter_by_historical_roi(self, pairs: List[Dict]) -> List[Dict]:
+        """
+        过滤历史ROI低于阈值的配对
+
+        累积ROI < -10% 的配对被排除 (只看已平仓交易的实现PnL)
+        """
+        filtered = []
+
+        for pair in pairs:
+            pair_id = f"{pair['symbol1']}_{pair['symbol2']}"
+            historical_pair = self.algorithm.pairs_manager.get_pair_by_id(pair_id)
+
+            if historical_pair:
+                cumulative_roi = historical_pair.get_pair_cumulative_roi()
+                if cumulative_roi is not None and cumulative_roi < self.historical_roi_threshold:
+                    # 跳过历史亏损严重的配对
+                    self.algorithm.Debug(
+                        f"[历史ROI] 排除 {pair_id}: 累积ROI={cumulative_roi*100:.2f}%",
+                        level=1
+                    )
+                    continue
+
+            filtered.append(pair)
+
+        return filtered

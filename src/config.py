@@ -29,6 +29,9 @@ class MainConfig:
     debug_mode: bool = True                                         # True=开发调试(详细日志), False=生产运行(仅关键日志)
     log_level: int = 1                                              # 0=生产模式(核心日志,10-30年), 1=调试模式(全部日志,1年)
 
+    # 策略预热期 (v8.0.9: 从IndustryQuotaManagerConfig提升为全局参数)
+    warmup_days: int = 90                                           # 预热期天数 (IndustryQuotaManager和PairSelector共用)
+
 
 @dataclass
 class ETFUniverseConfig:
@@ -172,8 +175,7 @@ class IndustryQuotaManagerConfig:
     exp_scale_factor: float = 8.0                                  # 指数缩放系数 (正CS段)
     min_quota_per_industry: int = 1                                # 单行业最低配额保底
 
-    # 预热期配置
-    warmup_days: int = 90                                          # 预热期天数
+    # v8.0.9: warmup_days 已迁移至 MainConfig (策略级参数)
 
     # 滚动窗口配置 (v8.0.0)
     # 背景: composite_score = realized_roi × win_rate 使用累计平均
@@ -188,6 +190,7 @@ class IndustryQuotaManagerConfig:
 class PairSelectorConfig:
     """配对质量评估配置"""
     min_quality_threshold: float = 0.50                             # 最低质量分数阈值
+    historical_roi_threshold: float = -0.10                         # 历史ROI过滤阈值 (v8.0.9: -10%以下的配对被排除)
     quality_weights: Dict = field(default_factory=lambda: {
         'half_life': 0.25,                     
         'mean_reversion_certainty': 0.40,      
@@ -234,6 +237,9 @@ class PairsConfig:
     margin_requirement_long: float = 0.5                           # 多头保证金率: 50%
     margin_requirement_short: float = 1.5                          # 空头保证金率: 150%
 
+    # 历史记录管理 (v8.0.6)
+    max_history_days: int = 365                                    # trade_history 滚动窗口 (天)
+
 
 @dataclass
 class PairsManagerConfig:
@@ -248,7 +254,6 @@ class PairsManagerConfig:
     # 健康检查阈值
     drawdown_threshold: float = 0.04                               # 4% 回撤触发
     drift_threshold: float = 0.25                                  # 25% 漂移触发
-    cumulative_roi_threshold: float = 0.10                         # 10% 累积亏损触发
 
     # 冷却期配置 (key=reason, value=天数)
     cooldown_days: Dict[str, int] = field(default_factory=lambda: {
@@ -258,7 +263,6 @@ class PairsManagerConfig:
         'DRAWDOWN': 30,
         'DRIFT': 30,
         'ANOMALY': 999999,
-        'CUMULATIVE_ROI': 360,
     })
 
     # 资金分配层级配置 (v7.99.3: 基于平均交易回报)

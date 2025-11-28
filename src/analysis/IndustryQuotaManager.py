@@ -23,7 +23,7 @@ class IndustryQuotaManager:
 
     def __init__(self, algorithm, config: 'IndustryQuotaManagerConfig'):
         """
-        初始化行业配额管理器 (v7.71.0: 简化配置)
+        初始化行业配额管理器 (v8.0.9: warmup_days迁移至MainConfig)
 
         Args:
             algorithm: QCAlgorithm实例
@@ -31,7 +31,7 @@ class IndustryQuotaManager:
         """
         self.algorithm = algorithm
         self.total_quota = config.total_quota
-        self.warmup_days = config.warmup_days
+        # v8.0.9: warmup_days已迁移至MainConfig, 通过algorithm.is_in_warmup_period访问
         self.exp_scale_factor = config.exp_scale_factor
         self.min_quota = config.min_quota_per_industry
 
@@ -56,8 +56,10 @@ class IndustryQuotaManager:
 
         # 步骤1: 检查预热期
         if self._is_in_warmup_period():
+            days_running = (self.algorithm.Time - self.algorithm.StartDate).days
+            warmup_days = self.algorithm.config.main.warmup_days
             self.algorithm.Debug(
-                f"[行业配额] 预热期 ({(self.algorithm.Time - self.algorithm.StartDate).days}/{self.warmup_days}天), "
+                f"[行业配额] 预热期 ({days_running}/{warmup_days}天), "
                 f"暂不分配配额"
             )
             return {}
@@ -243,14 +245,13 @@ class IndustryQuotaManager:
 
     def _is_in_warmup_period(self) -> bool:
         """
-        检查是否在预热期
+        检查是否在预热期 (v8.0.9: 委托给algorithm)
 
         Returns:
             True: 在预热期 (days_running < warmup_days)
             False: 已过预热期
         """
-        days_running = (self.algorithm.Time - self.algorithm.StartDate).days
-        return days_running < self.warmup_days
+        return self.algorithm.is_in_warmup_period
 
 
     def _log_quota_allocation(self, industry_quotas: Dict):

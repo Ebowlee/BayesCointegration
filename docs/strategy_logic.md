@@ -236,8 +236,13 @@
             惩罚: <6次 (信号稀缺) 或 >36次 (噪声过大)
 
 3. 筛选逻辑 (Selection Logic)
-    门槛过滤: Quality Score > 0.50 (宁缺毋滥)
-    排序: 按 Quality Score 降序排列。
+    Step 1: 门槛过滤 - Quality Score > 0.50 (宁缺毋滥)
+    Step 1.5: 历史ROI过滤 (v8.0.9) - 预热期后生效
+        - 条件: Cumulative ROI < -10% (历史累积亏损超过10%)
+        - 数据来源: `pairs_manager.get_pair_by_id(pair_id).get_pair_cumulative_roi()`
+        - 设计理念: 即使协整关系仍然成立，长期亏损的配对也不应再被选中
+        - 预热期: 前90天不过滤，给所有配对公平机会
+    Step 2: 排序 - 按 Quality Score 降序排列
     输出: 最终入选的配对列表 (Selected Pairs)。
 
 
@@ -323,12 +328,8 @@
         - 理论周期: $MaxDays = HalfLife \times \log_{0.5}(ExitThreshold / EntryZscore)$
         - 动作: 强制平仓 (承认均值回归失效)。
 
-    优先级 5: Cumulative ROI (累计亏损)
-        - 定义: 该配对历史累计 ROI 低于阈值 (如 -15%)。
-        - 动作: 平仓并可能触发该配对的永久拉黑 (取决于选股逻辑)。
-
 3. 执行机制 (Execution)
-    - `PairsManager` 返回问题字典: `{'anomaly': [id1], 'timeout': [id2, id3]}`。
+    - `PairsManager` 返回问题字典: `{'anomaly': [...], 'drawdown': [...], 'drift': [...], 'timeout': [...]}`。
     - `main.py` 遍历字典，为每个问题配对生成 `CloseIntent` (Reason = 问题类型)。
     - 调用 `OrderExecutor` 执行平仓。
 
@@ -347,19 +348,19 @@
         - 含义: 价差已回归到均值附近，套利完成。
         - 动作: 生成 `CloseIntent` (Reason='MEAN_REVERSION')。
 
-    场景 B: 协整破裂 (PAIR_BREAK)
+    场景 B: 协整破裂 (BREAK_UPPER / BREAK_LOWER) (v8.0.11)
         - 条件:
-            - 多头持仓 (Long Spread) 且 `Z-score < -StopLossThreshold` (默认 -2.3σ)。
-            - 空头持仓 (Short Spread) 且 `Z-score > StopLossThreshold` (默认 2.3σ)。
+            - 多头持仓 (Long Spread) 且 `Z-score < -StopLossThreshold` (默认 -2.3σ) → 信号 `BREAK_LOWER`
+            - 空头持仓 (Short Spread) 且 `Z-score > StopLossThreshold` (默认 2.3σ) → 信号 `BREAK_UPPER`
         - 含义: 价差不仅没有回归，反而向不利方向突破了统计边界，假设协整关系已失效。
-        - 动作: 生成 `CloseIntent` (Reason='PAIR_BREAK')。
+        - 动作: 生成 `CloseIntent` (Reason='PAIR_BREAK')，原因层统一为 PAIR_BREAK。
 
 3. 执行逻辑 (Execution Logic)
     - 遍历所有持仓配对 (`pairs_with_position`)。
     - 检查订单锁 (`is_pair_locked`): 防止在订单执行过程中重复发单。
     - 获取信号并执行:
         - 收到 `CLOSE` -> 执行均值回归平仓。
-        - 收到 `PAIR_BREAK` -> 执行止损平仓。
+        - 收到 `BREAK_UPPER` 或 `BREAK_LOWER` -> 执行止损平仓 (v8.0.11: 信号层区分方向)。
     - 冷却期触发: 平仓完成后，`PairsManager` 会根据平仓原因 (Reason) 设定该配对的冷却期 (如止损后冷却 30 天，正常平仓冷却 0 天)。
 
 
@@ -482,7 +483,7 @@
     - `get_zscore(price1, price2) -> float`
         - 描述: 计算当前价格对应的 Z-score。
     - `get_signal(data) -> str`
-        - 描述: 生成交易信号 (`LONG_SPREAD`, `SHORT_SPREAD`, `CLOSE`, `PAIR_BREAK`, `WAIT`, `HOLD`)。
+        - 描述: 生成交易信号 (`LONG_SPREAD`, `SHORT_SPREAD`, `CLOSE`, `BREAK_UPPER`, `BREAK_LOWER`, `WAIT`, `HOLD`) (v8.0.11)。
     - `get_open_intent(amount_allocated, data) -> OpenIntent`
         - 描述: 生成开仓意图，计算 Beta 对冲后的目标股数。
     - `get_close_intent(reason) -> CloseIntent`
@@ -507,7 +508,9 @@
     - `get_hedge_drift() -> float`
         - 描述: 计算对冲漂移率 (Net Exposure / Gross Exposure)。
     - `get_pair_cumulative_roi() -> float`
-        - 描述: 计算历史累计 ROI (已实现 + 未实现)。
+        - 描述: 计算历史累计 ROI (v8.0.8: 仅已平仓部分)。
+        - 公式: `pair_accum_realized_pnl / pair_past_invested_capital`
+        - 用途: 供 PairSelector 历史ROI过滤使用 (v8.0.9)
     - `get_avg_return_per_trade() -> float`
         - 描述: 计算平均每笔交易回报率 (用于资金分配排序)。
 
@@ -518,8 +521,7 @@
     - `is_in_cooldown() -> bool`
     - `get_pair_unrealized_pnl() -> float`
     - `get_pair_current_invested_capital() -> float`
-    - `get_net_exposure() -> float`
-    - `get_gross_exposure() -> float`
+    - `get_hedge_drift() -> float`
 
 
 ================================================================================
@@ -580,9 +582,55 @@
 
 #### 2.4 Health & Risk (健康与风控)
     - `check_pairs_health() -> Dict`
-        - 描述: 执行所有配对的健康检查 (Anomaly, Drawdown, Drift, Timeout, ROI)。
+        - 描述: 执行所有配对的健康检查 (Anomaly, Drawdown, Drift, Timeout)。
     - `get_cooldown_required_days(reason) -> int`
         - 描述: 根据平仓原因查询所需的冷却天数。
 
+
+## Class: IndustryData
+行业数据对象 (Value Object)，封装单个行业的聚合统计数据。
+
+### 1. 设计原则
+    - 纯数据对象: 存储单个行业的聚合统计
+    - 渐进式扩展: 从单字段开始,逐步添加更多字段
+    - 外部类: 与 PairsManager 同级,便于测试和访问
+
+### 2. Attributes (属性)
+
+#### 2.1 PnL 维度
+    - `unrealized_pnl`: float
+        - 描述: 未实现盈亏 (持仓中配对的浮动盈亏)
+    - `realized_pnl`: float
+        - 描述: 已实现盈亏 (已平仓交易的累计盈亏)
+
+#### 2.2 投入资本维度
+    - `current_invested_capital`: float
+        - 描述: 当前投入资本 (持仓中配对的投入)
+    - `past_invested_capital`: float
+        - 描述: 历史投入资本 (已平仓交易的累计投入)
+
+#### 2.3 交易质量维度 (v7.57.0)
+    - `trade_count`: int
+        - 描述: 交易次数 (已平仓交易计数)
+    - `win_count`: int
+        - 描述: 盈利次数 (pnl > 0 的交易计数)
+    - `past_total_holding_days`: float
+        - 描述: 累计持仓天数 (已平仓交易)
+
+#### 2.4 敞口维度 (v7.59.0)
+    - `net_exposure`: float
+        - 描述: 净敞口 (long_value - short_value)
+    - `gross_exposure`: float
+        - 描述: 总敞口 (long_value + short_value)
+
+#### 2.5 滚动窗口维度 (v8.0.0)
+    - `trade_history`: List[Tuple[datetime, float, float]]
+        - 描述: 单笔交易记录列表
+        - 格式: [(exit_time, pnl, invested_capital), ...]
+        - 用途: 供行业级滚动窗口计算 (180天/20笔最小样本)
+
+### 3. 使用场景
+    - 由 `PairsManager._aggregate_*()` 方法创建
+    - 供查询接口 `get_industry_*()` / `get_total_*()` 返回数据
 
 

@@ -29,9 +29,6 @@ class IndustryData:
             - trade_count: 交易次数 (已平仓交易计数)
             - win_count: 盈利次数 (pnl > 0 的交易计数)
             - past_total_holding_days: 累计持仓天数 (已平仓交易)
-        敞口维度 (v7.59.0, 内部字段用于计算 drift):
-            - net_exposure: 净敞口 (long_value - short_value)
-            - gross_exposure: 总敞口 (long_value + short_value)
         滚动窗口维度 (v8.0.0):
             - trade_history: 单笔交易记录列表 [(exit_time, pnl, invested_capital), ...]
 
@@ -48,8 +45,6 @@ class IndustryData:
                  trade_count: int = 0,
                  win_count: int = 0,
                  past_total_holding_days: float = 0.0,
-                 net_exposure: float = 0.0,
-                 gross_exposure: float = 0.0,
                  trade_history: List[Tuple[datetime, float, float]] = None):
         """
         初始化行业数据对象
@@ -63,8 +58,6 @@ class IndustryData:
             trade_count: 交易次数 (已平仓交易计数, v7.57.0)
             win_count: 盈利次数 (pnl > 0, v7.57.0)
             past_total_holding_days: 累计持仓天数 (已平仓交易, v7.57.0)
-            net_exposure: 净敞口 (v7.59.0, 内部字段)
-            gross_exposure: 总敞口 (v7.59.0, 内部字段)
             trade_history: 单笔交易记录列表 (v8.0.0 滚动窗口)
         """
         self.industry_code = industry_code
@@ -76,9 +69,6 @@ class IndustryData:
         self.trade_count = trade_count
         self.win_count = win_count
         self.past_total_holding_days = past_total_holding_days
-        # 敞口维度 (v7.59.0)
-        self.net_exposure = net_exposure
-        self.gross_exposure = gross_exposure
         # 滚动窗口维度 (v8.0.0)
         self.trade_history: List[Tuple[datetime, float, float]] = trade_history if trade_history is not None else []
 
@@ -171,7 +161,7 @@ class PairsManager:
         数据源:
             PnL维度:
                 - pair.get_pair_unrealized_pnl(): 未实现盈亏 (持仓中)
-                - pair.pair_realized_pnl: 已实现盈亏 (已平仓累计)
+                - pair.pair_accum_realized_pnl: 累积已实现盈亏 (已平仓累计, v8.0.5)
             投入资本维度:
                 - pair.get_pair_current_invested_capital(): 当前投入 (持仓中)
                 - pair.pair_past_invested_capital: 历史投入 (已平仓累计)
@@ -179,9 +169,6 @@ class PairsManager:
                 - pair.trade_count: 交易次数
                 - pair.win_count: 盈利次数
                 - pair.pair_past_total_holding_days: 累计持仓天数
-            敞口维度 (v7.59.0):
-                - pair.get_net_exposure(): 净敞口 (持仓中)
-                - pair.get_gross_exposure(): 总敞口 (持仓中)
 
         Returns:
             Dict[str, IndustryData]: 行业代码 → IndustryData 对象 (完整填充)
@@ -206,7 +193,7 @@ class PairsManager:
             unrealized_pnl = pair.get_pair_unrealized_pnl()
             if unrealized_pnl is not None:
                 data.unrealized_pnl += unrealized_pnl
-            data.realized_pnl += pair.pair_realized_pnl
+            data.realized_pnl += pair.pair_accum_realized_pnl  # v8.0.5: 更新属性名
 
             # === 投入资本维度 ===
             current_invested = pair.get_pair_current_invested_capital()
@@ -218,14 +205,6 @@ class PairsManager:
             data.trade_count += pair.trade_count
             data.win_count += pair.win_count
             data.past_total_holding_days += pair.pair_past_total_holding_days
-
-            # === 敞口维度 (v7.59.0) ===
-            net_exp = pair.get_net_exposure()
-            if net_exp is not None:
-                data.net_exposure += net_exp
-            gross_exp = pair.get_gross_exposure()
-            if gross_exp is not None:
-                data.gross_exposure += gross_exp
 
             # === 滚动窗口维度 (v8.0.0) ===
             data.trade_history.extend(pair.trade_history)
@@ -267,9 +246,6 @@ class PairsManager:
         # Step 2: 增量索引更新
         # 2a. 从 current 降级到 past (本轮未被选中的)
         demoted_ids = self.current_selected_pair_ids - new_pair_ids
-        for pid in demoted_ids:
-            if self.all_pairs[pid].has_position():
-                self.algorithm.Debug(f"[选中变化] {pid} 本轮未被选中但仍有持仓")
         self.past_selected_pair_ids |= demoted_ids
         self.current_selected_pair_ids -= demoted_ids
 
@@ -601,10 +577,9 @@ class PairsManager:
             2. Drawdown: 配对回撤超过阈值 (v7.86.0)
             3. Drift: 对冲漂移超过阈值 (v7.87.0)
             4. Timeout: 持仓超时 (v7.87.1)
-            5. CumulativeROI: 累积亏损超过阈值 (v7.90.0)
 
         Returns:
-            Dict[str, List[str]]: {'anomaly': [...], 'drawdown': [...], 'drift': [...], 'timeout': [...], 'cumulative_roi': [...]}
+            Dict[str, List[str]]: {'anomaly': [...], 'drawdown': [...], 'drift': [...], 'timeout': [...]}
             - 每个配对只返回最高优先级问题
             - 便于 main.py 按类型批量处理
 
@@ -615,13 +590,12 @@ class PairsManager:
                 intent = pair.get_close_intent(reason='ANOMALY')
                 # ... 执行平仓
         """
-        health_issues = {'anomaly': [], 'drawdown': [], 'drift': [], 'timeout': [], 'cumulative_roi': []}
+        health_issues = {'anomaly': [], 'drawdown': [], 'drift': [], 'timeout': []}
 
-        # 获取配置阈值 (v7.97.0: 从 pairs_manager 读取，原 pair_health_check 已合并)
+        # 获取配置阈值 (v7.97.0: 从 pairs_manager 读取)
         pm_config = self.module_config
         drawdown_threshold = pm_config.drawdown_threshold
         drift_threshold = pm_config.drift_threshold
-        cumulative_roi_threshold = pm_config.cumulative_roi_threshold
 
         for pair in self.get_pairs_with_position().values():
             # 优先级1: Anomaly (最高优先级)
@@ -648,13 +622,6 @@ class PairsManager:
             if max_days is not None and holding_days is not None:
                 if holding_days > max_days:
                     health_issues['timeout'].append(pair.pair_id)
-                    continue  # 跳过后续检查
-
-            # 优先级5: CumulativeROI (v7.91.0: 使用 Pairs 方法)
-            cumulative_roi = pair.get_pair_cumulative_roi()
-            if cumulative_roi is not None and cumulative_roi < -cumulative_roi_threshold:
-                health_issues['cumulative_roi'].append(pair.pair_id)
-                continue  # 跳过后续检查
 
         return health_issues
 

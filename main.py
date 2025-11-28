@@ -104,6 +104,23 @@ class BayesianCointegrationStrategy(QCAlgorithm):
             QCAlgorithm.Debug(self, message)
 
 
+    @property
+    def is_in_warmup_period(self) -> bool:
+        """
+        检查是否在策略预热期 (v8.0.9: 供所有模块共用)
+
+        设计理念:
+        - 预热期内，IndustryQuotaManager使用默认配额，PairSelector不过滤历史ROI
+        - 预热期后，根据历史表现动态调整配额和过滤亏损配对
+
+        Returns:
+            True: 在预热期 (days_running < warmup_days)
+            False: 已过预热期
+        """
+        days_running = (self.Time - self.StartDate).days
+        return days_running < self.config.main.warmup_days
+
+
     def OnSecuritiesChanged(self, changes: SecurityChanges):
         """
         处理证券变更事件 - 输出选股结果
@@ -165,61 +182,32 @@ class BayesianCointegrationStrategy(QCAlgorithm):
             None (结果通过PairsManager管理)
         """
         # === 步骤1: 数据处理 ===
-        self.Debug("[Analysis] 步骤1: 数据处理", level=1)
-
         data_result = self.data_processor.process(self.symbols)
         clean_data = data_result['clean_data']
         data_valid_symbols = data_result['valid_symbols']
         stats = data_result['statistics']
-
-        # 输出处理统计
-        self.Debug(
-            f"[数据处理] 输入{stats['total']}只 → "
-            f"有效{stats['final_valid']}只 | "
-            f"缺失{stats.get('data_missing', 0)}只 | "
-            f"不完整{stats.get('incomplete', 0)}只 | "
-            f"高波动{stats.get('high_volatility', 0)}只 | "
-            f"极端跌幅{stats.get('extreme_drawdown', 0)}只",
-            level=1
-        )
 
         if len(data_valid_symbols) < 2:
             self.Debug("[Analysis] 有效股票不足2只,终止分析管道", level=1)
             return
 
         # === 步骤2: 协整检验 ===
-        self.Debug("[Analysis] 步骤2: 协整检验", level=1)
-
         coint_result = self.cointegration_analyzer.cointegration_procedure(data_valid_symbols, clean_data)
         coint_tested_pairs = coint_result['pairs']
         coint_stats = coint_result['statistics']
-
-        # 输出协整汇总 (在详细协整分析日志之后)
         industry_breakdown = coint_stats.get('industry_group_breakdown', {})
-        industries_with_pairs = sum(1 for stats in industry_breakdown.values() if stats['pairs_found'] > 0)
-
-        self.Debug(
-            f"[协整汇总] 候选配对{coint_stats.get('total_pairs_tested', 0)}对 | "
-            f"{len(industry_breakdown)}个行业 → "
-            f"通过{len(coint_tested_pairs)}对 | "
-            f"有效行业{industries_with_pairs}个",
-            level=1
-        )
+        industries_with_pairs = sum(1 for s in industry_breakdown.values() if s['pairs_found'] > 0)
 
         if len(coint_tested_pairs) < 1:
             self.Debug("[Analysis] 无协整配对,终止分析管道", level=1)
             return
 
         # === 步骤3: 应用行业配额 ===
-        self.Debug("[Analysis] 步骤3: 应用行业配额", level=1)
-
         quota_filtered_pairs = self.industry_quota_manager.apply_quotas(coint_result)
 
         if len(quota_filtered_pairs) < 1:
             self.Debug("[Analysis] 无配对通过配额筛选,终止分析管道", level=1)
             return
-
-        self.Debug(f"[配额汇总] 协整通过{len(coint_tested_pairs)}对 → 配额筛选后{len(quota_filtered_pairs)}对", level=1)
 
         # 缓存数据供后续步骤使用
         self.clean_data = clean_data
@@ -236,20 +224,16 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         self.pair_data = pair_data
 
         # === 步骤5: 贝叶斯建模 ===
-        self.Debug("[Analysis] 步骤5: 贝叶斯建模", level=1)
-
         model_results = self.bayesian_modeler.modeling_procedure(quota_filtered_pairs, pair_data)
 
         if len(model_results) < 1:
-            self.Debug("[Analysis] 贝叶斯建模失败,无有效结果,终止分析管道", level=1)
+            self.Debug("[Analysis] 贝叶斯建模失败,终止分析管道", level=1)
             return
 
         # 缓存供后续步骤使用
         self.model_results = model_results
 
         # === 步骤6: 配对质量筛选 ===
-        self.Debug("[Analysis] 步骤6: 配对质量筛选", level=1)
-
         selected_pairs = self.pair_selector.selection_procedure(model_results)
 
         if len(selected_pairs) < 1:
@@ -260,25 +244,23 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         self.selected_pairs = selected_pairs
 
         # === 步骤7: 创建Pairs对象 ===
-        self.Debug("[Analysis] 步骤7: 创建Pairs对象", level=1)
-
         new_pairs_dict = {}
         for model_result in selected_pairs:
-            # 使用类方法工厂创建Pairs实例对象
             pair = Pairs.from_model_result(self, model_result, self.config.pairs)
             new_pairs_dict[pair.pair_id] = pair
 
-        self.Debug(f"[Pairs] 创建{len(new_pairs_dict)}个配对对象", level=1)
-
         # === 步骤8: PairsManager分类管理 ===
-        self.Debug("[Analysis] 步骤8: PairsManager分类", level=1)
-
         self.pairs_manager.classify_pairs(new_pairs_dict)
 
+        # 单行汇总日志 (v8.0.4)
         self.Debug(
-            f"[配对分析] 完成: 创建{len(new_pairs_dict)}个新配对 | "
-            f"共管理{len(self.pairs_manager.all_pairs)}个配对",
-            level=1
+            f"[Analysis汇总] 输入{stats['total']} → "
+            f"有效{stats['final_valid']} → "
+            f"候选{coint_stats.get('total_pairs_tested', 0)}对 → "
+            f"协整{len(coint_tested_pairs)}对 ({industries_with_pairs}行业) → "
+            f"贝叶斯{len(model_results)}对 → "
+            f"质量筛选{len(selected_pairs)}对 → "
+            f"创建{len(new_pairs_dict)}个Pairs"
         )
 
 
@@ -319,9 +301,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         total_issues = sum(len(ids) for ids in health_issues.values())
 
         if total_issues > 0:
-            self.Debug(f"[风控] 检测到{total_issues}个配对健康问题", level=0)
-
-            # 遍历每种问题类型,执行平仓
+            # 遍历每种问题类型,执行平仓 (日志由Pairs._log_close_completion输出)
             for issue_type, pair_ids in health_issues.items():
                 reason = issue_type.upper()  # 'anomaly' → 'ANOMALY'
                 for pair_id in pair_ids:
@@ -329,11 +309,9 @@ class BayesianCointegrationStrategy(QCAlgorithm):
                     if pair is None:
                         continue
 
-                    intent = pair.get_close_intent(reason=reason)
+                    intent = pair.get_close_intent(reason=reason, data=data)
                     if intent:
-                        success = self.order_executor.execute_close(intent)
-                        if success:
-                            self.Debug(f"[风控] {pair_id} 平仓成功 (原因: {reason})", level=1)
+                        self.order_executor.execute_close(intent)
 
         # === 4. 正常平仓 (CLOSE/PAIR_BREAK 信号) ===
         pairs_with_position = self.pairs_manager.get_pairs_with_position()
@@ -348,18 +326,20 @@ class BayesianCointegrationStrategy(QCAlgorithm):
 
             # 处理平仓信号
             if signal == 'CLOSE':
-                intent = pair.get_close_intent(reason='MEAN_REVERSION')
+                intent = pair.get_close_intent(reason='MEAN_REVERSION', data=data)
                 if intent:
                     success = self.order_executor.execute_close(intent)
                     if success:
                         self.Debug(f"[平仓] {pair_id} 均值回归", level=0)
 
-            elif signal == 'PAIR_BREAK':
-                intent = pair.get_close_intent(reason='PAIR_BREAK')
+            elif signal in ('BREAK_UPPER', 'BREAK_LOWER'):
+                # v8.0.11: 信号层区分方向, 原因层统一为PAIR_BREAK
+                intent = pair.get_close_intent(reason='PAIR_BREAK', data=data)
                 if intent:
                     success = self.order_executor.execute_close(intent)
                     if success:
-                        self.Debug(f"[平仓] {pair_id} 协整破裂止损", level=0)
+                        direction = '上破' if signal == 'BREAK_UPPER' else '下破'
+                        self.Debug(f"[平仓] {pair_id} 协整破裂止损 ({direction})", level=0)
 
         # === 5. 开仓安全检查 (VIX) ===
         if not self.risk_manager.is_vix_safe():
@@ -416,13 +396,6 @@ class BayesianCointegrationStrategy(QCAlgorithm):
                 self.etf_industry_mapping[ticker] = industries
                 subscribed_industries.update(industries)
 
-                # 转换行业代码为中文名称
-                industry_names_list = [
-                    self.config.constants['industry_names'].get(code, f'未知{code}')
-                    for code in industries
-                ]
-                industry_names_str = '、'.join(industry_names_list)
-                self.Debug(f"[订阅核心ETF] {ticker} → {industry_names_str}", level=1)
 
         # === Step 2: 订阅7个特种部队ETFs (第二批, 替换逻辑) ===
         if config.industry_etfs_enabled:
