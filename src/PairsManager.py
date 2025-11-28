@@ -243,8 +243,9 @@ class PairsManager:
             return 0.0
 
         # === 步骤4: 滚动窗口筛选 ===
-        cutoff_time = self.algorithm.Time - timedelta(days=window_days)
-        window_trades = [r for r in all_trades if r[0] >= cutoff_time]
+        # v8.0.6: 统一为 timezone-naive 避免 "offset-naive and offset-aware" 比较错误
+        cutoff_time = self.algorithm.Time.replace(tzinfo=None) - timedelta(days=window_days)
+        window_trades = [r for r in all_trades if r[0].replace(tzinfo=None) >= cutoff_time]
 
         # 样本量保底: 窗口内不足 min_samples 时, 取最近 min_samples 笔
         if len(window_trades) < min_samples:
