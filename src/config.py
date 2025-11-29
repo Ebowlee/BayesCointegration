@@ -201,17 +201,19 @@ class PairsManagerConfig:
 
     # 健康检查阈值
     pair_break_threshold: float = 1.95                             # 1.95σ Z-score触发 (v8.2.0: 方向感知止损)
-    drawdown_threshold: float = 0.04                               # 4% 回撤触发
+    drawdown_threshold: float = 0.04                               # 4% 回撤触发 (亏损配对)
+    drawdown_threshold_profitable_multiplier: float = 2.0          # 盈利配对回撤阈值放宽倍数 (v8.2.5: 4%→8%)
     drift_threshold: float = 0.40                                  # 40% 漂移触发
 
     # 冷却期配置 (key=reason, value=天数)
+    # 冷却期配置 (按健康检查优先级排序)
     cooldown_days: Dict[str, int] = field(default_factory=lambda: {
-        'MEAN_REVERSION': 7,
-        'PAIR_BREAK': 30,
-        'TIMEOUT': 30,
-        'DRAWDOWN': 30,
-        'DRIFT': 30,
-        'ANOMALY': 999999,
+        'ANOMALY': 999999,      # 优先级1: 异常持仓 - 永久冷却
+        'PAIR_BREAK': 30,       # 优先级2: 协整破裂
+        'DRIFT': 30,            # 优先级3: 对冲漂移
+        'TIMEOUT': 30,          # 优先级4: 持仓超时
+        'DRAWDOWN': 30,         # 优先级5: 单体回撤
+        'MEAN_REVERSION': 7,    # 正常平仓: 均值回归
     })
 
     # 资金分配层级配置 (v7.99.3: 基于平均交易回报)

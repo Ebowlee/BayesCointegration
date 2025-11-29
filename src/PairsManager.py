@@ -303,12 +303,6 @@ class PairsManager:
         rolling_roi = total_pnl / total_capital if total_capital > 0 else 0.0
         rolling_win_rate = win_count / trade_count if trade_count > 0 else 0.0
 
-        # v8.2.3: CS (Composite Score) 不返回负值
-        # 当ROI<0时返回0，表示"无正向表现"
-        # 注: [行业概览]日志中的百分比是ROI值，不是CS值
-        if rolling_roi < 0:
-            return 0.0
-
         return rolling_roi * rolling_win_rate
 
     # --- Concentration 组 (v8.1.0: 实时数据，直接从 pairs 聚合) ---
@@ -362,45 +356,64 @@ class PairsManager:
         pair_break_threshold = pm_config.pair_break_threshold
         drift_threshold = pm_config.drift_threshold
         drawdown_threshold = pm_config.drawdown_threshold
+        # v8.2.5: 盈利配对回撤阈值放宽倍数
+        drawdown_profitable_multiplier = pm_config.drawdown_threshold_profitable_multiplier
 
         for pair in self.get_pairs_with_position().values():
             pair_id = pair.pair_id
 
-            # 优先级1: Anomaly (最高优先级)
+            # v8.2.5: 获取当前持仓PnL (用于盈亏分层检查)
+            # 盈利配对: 跳过 PairBreak/Drift/Timeout, 仅检查 Anomaly + Drawdown(放宽)
+            # 亏损配对: 执行全部检查
+            unrealized_pnl = pair.get_pair_unrealized_pnl()
+            is_profitable = unrealized_pnl is not None and unrealized_pnl > 0
+
+            # 优先级1: Anomaly (最高优先级) - 无论盈亏都检查
             if pair.has_anomaly_position():
                 health_issues['anomaly'].append(pair_id)
                 continue  # 跳过后续检查
 
             # 优先级2: PairBreak (Z-score超过阈值, 方向感知止损)
-            prices = pair.get_price_from_bar(data)
-            if prices is not None:
-                zscore = pair.get_zscore(prices[0], prices[1])
-                if zscore is not None:
-                    position_mode = pair.position_mode
-                    # LONG_SPREAD: zscore < -threshold 表示价差向下突破 (亏损方向)
-                    # SHORT_SPREAD: zscore > +threshold 表示价差向上突破 (亏损方向)
-                    if (position_mode == PositionMode.LONG_SPREAD and zscore < -pair_break_threshold) or \
-                       (position_mode == PositionMode.SHORT_SPREAD and zscore > pair_break_threshold):
-                        health_issues['pair_break'].append(pair_id)
-                        continue  # 跳过后续检查
+            # v8.2.5: 盈利配对跳过 (让利润奔跑)
+            if not is_profitable:
+                prices = pair.get_price_from_bar(data)
+                if prices is not None:
+                    zscore = pair.get_zscore(prices[0], prices[1])
+                    if zscore is not None:
+                        position_mode = pair.position_mode
+                        # LONG_SPREAD: zscore < -threshold 表示价差向下突破 (亏损方向)
+                        # SHORT_SPREAD: zscore > +threshold 表示价差向上突破 (亏损方向)
+                        if (position_mode == PositionMode.LONG_SPREAD and zscore < -pair_break_threshold) or \
+                           (position_mode == PositionMode.SHORT_SPREAD and zscore > pair_break_threshold):
+                            health_issues['pair_break'].append(pair_id)
+                            continue  # 跳过后续检查
 
             # 优先级3: Drift (对冲漂移超过阈值)
-            drift = pair.get_hedge_drift()
-            if drift is not None and abs(drift) > drift_threshold:
-                health_issues['drift'].append(pair_id)
-                continue  # 跳过后续检查
-
-            # 优先级4: Timeout (持仓超时)
-            max_days = pair.get_max_holding_days()
-            holding_days = pair.get_pair_holding_days()
-            if max_days is not None and holding_days is not None:
-                if holding_days > max_days:
-                    health_issues['timeout'].append(pair_id)
+            # v8.2.5: 盈利配对跳过 (允许有利漂移)
+            if not is_profitable:
+                drift = pair.get_hedge_drift()
+                if drift is not None and abs(drift) > drift_threshold:
+                    health_issues['drift'].append(pair_id)
                     continue  # 跳过后续检查
 
-            # 优先级5: Drawdown (回撤超过阈值)
+            # 优先级4: Timeout (持仓超时)
+            # v8.2.5: 盈利配对跳过 (让利润奔跑)
+            if not is_profitable:
+                max_days = pair.get_max_holding_days()
+                holding_days = pair.get_pair_holding_days()
+                if max_days is not None and holding_days is not None:
+                    if holding_days > max_days:
+                        health_issues['timeout'].append(pair_id)
+                        continue  # 跳过后续检查
+
+            # 优先级5: Drawdown (回撤超过阈值) - 无论盈亏都检查 (兜底保护)
+            # v8.2.5: 盈利配对使用放宽阈值 (4% → 8%)
+            effective_threshold = drawdown_threshold
+            if is_profitable:
+                effective_threshold = drawdown_threshold * drawdown_profitable_multiplier
+
             drawdown = pair.get_pair_drawdown()
-            if drawdown is not None and drawdown > drawdown_threshold:
+            if drawdown is not None and drawdown > effective_threshold:
                 health_issues['drawdown'].append(pair_id)
 
         return health_issues
