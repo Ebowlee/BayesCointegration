@@ -106,7 +106,7 @@
 # Part 4: Analysis Pipeline - Step 3: Industry Quota (行业配额)
 
 1. 配额计算 (Quota Calculation) - 动态平衡系统 (Dynamic Equilibrium)
-    目标：构建一个自我进化的资金分配系统，在“进攻”与“防守”之间寻找动态平衡。
+    目标：构建一个自我进化的资金分配系统，在"进攻"与"防守"之间寻找动态平衡。
 
     预热期 (Warmup): 前 90 天不分配配额 (返回空)，使用默认值。
     进攻机制 (Attack - Exponential Weight):
@@ -121,12 +121,66 @@
         作用: 形成负反馈闭环 (赚钱->加仓->触顶->停新)，防止单一行业风险失控。
     分配逻辑 (Allocation - Normalization):
         公式: TotalQuota * (IndustryWeight / TotalWeight)
-        保底: 每个行业至少 min_quota (防止饿死，保留翻身机会)
 
-2. 配额应用 (Quota Application)
-    目标：从通过协整检验的配对池中，筛选出最终进入下一轮的配对。
+2. 配额应用 - 两轮分配机制 (Two-Pass Allocation) (v8.0.18)
+    目标：解决"配额浪费"问题 — 高CS行业可能协整配对不足导致配额闲置，低CS行业可能配对充足但配额不够。
 
-    筛选逻辑:
+    **核心思想**: 配额是"蛋糕"，行业按需取用，吃不完的退回再分配 (活水机制)。
+
+    第一轮 (Base Pass): 按权重分配配额，按实际需求领取
+        Step 1: 计算每个行业的配额
+            公式: quota = floor(total_quota × weight / total_weight)
+        Step 2: 按实际需求领取 (取min)
+            selected = min(quota, demand)  # demand = 该行业实际协整配对数
+        Step 3: 计算剩余
+            unused_quota = quota - selected     (配额没用完 → 退回池)
+            unmet_demand = demand - selected    (需求没满足 → 等待bonus)
+        输出:
+            first_pass_selected: {行业: 实际选中数}
+            quota_pool: 退回的配额总数
+            hungry_industries: {行业: 未满足需求数}
+
+        示例:
+        | 行业     | 权重 | quota | demand | selected | unused | unmet |
+        |----------|------|-------|--------|----------|--------|-------|
+        | A (高CS) | 5    | 6     | 3      | 3        | 3      | 0     |
+        | B (中CS) | 3    | 4     | 8      | 4        | 0      | 4     |
+        | C (低CS) | 1    | 1     | 5      | 1        | 0      | 4     |
+        → A行业: quota=6, demand=3 → 选中3，退回3配额
+
+    第二轮 (Redistribution Pass): 再分配退回的配额
+        Step 1: 按权重比例分配退回配额 (给饥渴行业)
+            bonus = floor(quota_pool × weight / hungry_weight_sum)
+        Step 2: 受限于未满足需求
+            actual_bonus = min(bonus, unmet_demand, remaining_pool)
+        输出:
+            最终选中 = first_pass_selected + bonus
+
+        示例续:
+        | 行业 | 权重 | unmet_demand | bonus | 最终选中 |
+        |------|------|--------------|-------|----------|
+        | A    | 5    | 0            | 0     | 3        |
+        | B    | 3    | 4            | 2     | 6        |
+        | C    | 1    | 4            | 1     | 2        |
+        → 退回3配额 → 按权重分给B、C → "活水机制"生效
+
+    设计优势:
+        | 方面     | 旧机制 (min_quota=1)        | 两轮分配              |
+        |----------|-----------------------------|-----------------------|
+        | 配额浪费 | 无协整配对的行业占用配额    | 按需领取，无供给则不占用 |
+        | 权重意义 | 被min_quota=1覆盖          | 权重决定分配比例       |
+        | 活水机制 | 无                         | 盈余自动流向配对充足行业 |
+        | 低CS行业 | 固定1配额                  | 若有配对，可获得bonus  |
+
+    边界情况:
+        - 总需求 > total_quota: 正常运行，无退回配额
+        - 总需求 < total_quota: 最终选中 < total_quota (正常现象)
+        - 某行业 demand=0: quota全部退回池
+
+3. 配对抽取逻辑 (Pair Sampling)
+    目标：从各行业的协整配对中，按最终配额抽取配对。
+
+    抽取规则:
         1. 随机打乱: 既然都通过了 p<0.01，不再按 pvalue 排序，而是随机抽取 (增加多样性)。
         2. 确定性随机: 使用 hash(date + industry) 作为种子，保证回测可复现。
         3. 单股限制: 限制单只股票最多参与 max_symbol_repeats 个配对 (防止单股风险敞口过大)。
