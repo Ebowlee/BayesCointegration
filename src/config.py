@@ -94,6 +94,9 @@ class CointegrationConfig:
 class BayesianModelerConfig:
     """贝叶斯建模配置"""
 
+    # === 数据窗口 (v8.3.0: 与协整分离) ===
+    bayesian_lookback_days: int = 100                                  # 贝叶斯建模仅用最近100天
+
     # === Uninformed先验 (默认值) ===
     alpha_sigma: float = 10.0
     beta_sigma: float = 5.0

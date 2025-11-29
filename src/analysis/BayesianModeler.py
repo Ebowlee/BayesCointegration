@@ -239,16 +239,26 @@ class BayesianModeler:
 
     def _prepare_ar1_data(self, pair_data: PairData):
         """
-        准备AR(1)模型数据 (v7.31.3: 从_fit_joint_model拆分)
+        准备AR(1)模型数据 (v8.3.0: 贝叶斯建模使用独立窗口)
 
         Args:
-            pair_data: PairData对象
+            pair_data: PairData对象 (包含252天数据)
 
         Returns:
-            (y_data, x_data, y_curr, y_lag, x_curr, x_lag): 原始数据和AR(1)数据
+            (y_data, x_data, y_curr, y_lag, x_curr, x_lag): 切片后数据和AR(1)数据
+
+        Note:
+            v8.3.0: 协整检验用252天，贝叶斯建模仅用最近100天
+            切片在此处进行，对外部模块透明
         """
         y_data = pair_data.log_prices1
         x_data = pair_data.log_prices2
+
+        # v8.3.0: 贝叶斯建模使用独立窗口 (默认100天)
+        bayesian_window = self.config.bayesian_lookback_days
+        if len(y_data) > bayesian_window:
+            y_data = y_data[-bayesian_window:]
+            x_data = x_data[-bayesian_window:]
 
         # 构建AR(1)数据（时间维度-1）
         y_curr = y_data[1:]
