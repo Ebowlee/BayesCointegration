@@ -108,14 +108,23 @@
 1. 配额计算 (Quota Calculation) - 动态平衡系统 (Dynamic Equilibrium)
     目标：构建一个自我进化的资金分配系统，在"进攻"与"防守"之间寻找动态平衡。
 
-    预热期 (Warmup): 前 90 天不分配配额 (返回空)，使用默认值。
+    预热期 (Warmup): 前 90 天 (v8.2.3)
+        - 行为: 正常执行配额计算流程 (不再返回空字典)
+        - CS 值: 因无历史交易数据，所有行业 CS=0
+        - 权重: ceil(e^(6×0)) = 1 (所有行业权重相等)
+        - 效果: 均等分配配额，给所有行业公平试错机会
     进攻机制 (Attack - Exponential Weight):
-        基于行业综合得分 (Composite Score = Rolling ROI * Rolling WinRate)
+        Composite Score (CS) 定义:
+            公式: CS = Rolling_ROI × Rolling_WinRate
+            取值范围: [0, +∞) (v8.2.3: 当 ROI<0 时返回 0，不返回负值)
+            数据来源: trade_history 滚动窗口
         滚动窗口 (Rolling Window):
-            时间窗口: 最近 180 天 (快速适应市场风格切换)
+            时间窗口: 最近 90 天 (快速适应市场风格切换)
             样本保底: 若窗口内不足 20 笔交易，则向后追溯取满 20 笔 (防止小样本噪音)
-        正收益: 权重 = ceil(exp(8 * Score)) (指数级增长，迅速放大优势行业的相对权重)
-        负收益/无数据: 权重 = 1 (保底)
+        权重公式 (v8.2.3): weight = ceil(exp(6 × CS))
+            - CS=0 时: weight=1 (预热期/无数据/亏损行业)
+            - CS>0 时: 指数级增长 (奖励盈利行业)
+            - 不存在 CS<0 的情况 (已在计算时强制归零)
     防守机制 (Defense - Concentration Cap):
         熔断: 如果某行业当前资金占用超过阈值 (concentration_threshold)，配额直接降为 0。
         作用: 形成负反馈闭环 (赚钱->加仓->触顶->停新)，防止单一行业风险失控。
@@ -308,7 +317,7 @@
         - 基础信息: Symbol1, Symbol2, Industry Code
         - 贝叶斯参数: $\alpha, \beta, \mu_{res}, \sigma_{res}$
         - 质量指标: Quality Score, Half Life
-        - 交易阈值: 从 Config 读取 (Entry: 1.2-1.8$\sigma$, Exit: 0.3$\sigma$, Stop: 2.3$\sigma$)
+        - 交易阈值: 从 Config 读取 (Entry: 1.25-1.65σ, Exit: 0.2σ)
     设计原则:
         - 充血模型 (Rich Model): Pairs 对象不仅存储数据，还封装了 Z-score 计算、信号生成、意图生成等核心逻辑。
 
@@ -356,63 +365,82 @@
     对所有**持仓中**的配对进行全面体检。如果发现健康问题，立即触发强制平仓。
     检查逻辑由 `PairsManager.check_pairs_health()` 集中管理，`main.py` 负责执行平仓。
 
-2. 检查维度 (Check Dimensions)
+2. 检查维度 (Check Dimensions) (v8.2.0 更新)
     按优先级从高到低依次检查，一旦发现问题立即报告并跳过后续检查（Short-circuit evaluation）。
 
     优先级 1: Anomaly (异常持仓)
         - 定义: 单边持仓 (只有 Leg1 或 Leg2) 或 同向持仓 (Leg1, Leg2 同为多或同为空)。
         - 动作: 立即平仓修正。
+        - 冷却期: 永久 (999999天)
 
-    优先级 2: Drawdown (单体回撤)
-        - 定义: 该配对当前浮动回撤超过阈值 (默认 20%)。
-        - 公式: `Drawdown = (PairHWM - CurrentPairValue) / PairHWM`
+    优先级 2: PairBreak (协整破裂止损) (v8.2.0 从信号层迁移)
+        - 定义: Z-score 向不利方向突破阈值，表示协整关系可能已失效。
+        - 阈值: 1.95σ (pair_break_threshold)
+        - 方向感知:
+            - 多头持仓 (Long Spread): Z-score < -1.95σ 触发
+            - 空头持仓 (Short Spread): Z-score > +1.95σ 触发
         - 动作: 止损平仓。
+        - 冷却期: 30天
 
     优先级 3: Drift (对冲漂移)
         - 定义: 持仓市值偏离 Dollar Neutral 的程度。
         - 公式: `Drift = NetExposure / GrossExposure`
-        - 阈值: 默认 25% (即净敞口占总敞口的 25% 以上)。
+        - 阈值: 40% (drift_threshold)
         - 动作: 平仓 (视为对冲失效，暴露了过大的 Beta 风险)。
+        - 冷却期: 30天
 
     优先级 4: Timeout (持仓超时)
         - 定义: 持仓时间超过理论最大持有期。
         - 理论周期: $MaxDays = HalfLife \times \log_{0.5}(ExitThreshold / EntryZscore)$
         - 动作: 强制平仓 (承认均值回归失效)。
+        - 冷却期: 30天
+
+    优先级 5: Drawdown (单体回撤)
+        - 定义: 该配对当前浮动回撤超过阈值。
+        - 公式: `Drawdown = (PairHWM - CurrentPairValue) / PairHWM`
+        - 阈值: 4% (drawdown_threshold)
+        - 动作: 止损平仓。
+        - 冷却期: 30天
 
 3. 执行机制 (Execution)
-    - `PairsManager` 返回问题字典: `{'anomaly': [...], 'drawdown': [...], 'drift': [...], 'timeout': [...]}`。
+    - `PairsManager` 返回问题字典: `{'anomaly': [...], 'pair_break': [...], 'drift': [...], 'timeout': [...], 'drawdown': [...]}`。
     - `main.py` 遍历字典，为每个问题配对生成 `CloseIntent` (Reason = 问题类型)。
     - 调用 `OrderExecutor` 执行平仓。
 
 
 # Part 11: Execution Pipeline - Step 4: Normal Close (正常平仓)
 
-1. 概述 (Overview)
-    处理非强制性的、符合策略预期的平仓信号。
-    包括：均值回归获利平仓 (Take Profit) 和 协整破裂止损 (Stop Loss)。
+1. 概述 (Overview) (v8.2.0 简化)
+    处理符合策略预期的正常平仓信号。
+    **仅包含**: 均值回归获利平仓 (Take Profit)。
+    **止损逻辑**: 已迁移至 Part 10 健康检查层 (PairBreak 规则)。
 
 2. 信号检测 (Signal Detection)
     由 `Pairs.get_signal(data)` 生成信号。
 
-    场景 A: 均值回归 (CLOSE)
-        - 条件: `abs(Z-score) < ExitThreshold` (默认 0.3σ)。
+    均值回归 (CLOSE)
+        - 条件: `abs(Z-score) < ExitThreshold` (0.2σ)
         - 含义: 价差已回归到均值附近，套利完成。
         - 动作: 生成 `CloseIntent` (Reason='MEAN_REVERSION')。
+        - 冷却期: 7天
 
-    场景 B: 协整破裂 (BREAK_UPPER / BREAK_LOWER) (v8.0.11)
-        - 条件:
-            - 多头持仓 (Long Spread) 且 `Z-score < -StopLossThreshold` (默认 -2.5σ) → 信号 `BREAK_LOWER`
-            - 空头持仓 (Short Spread) 且 `Z-score > StopLossThreshold` (默认 2.5σ) → 信号 `BREAK_UPPER`
-        - 含义: 价差不仅没有回归，反而向不利方向突破了统计边界，假设协整关系已失效。
-        - 动作: 生成 `CloseIntent` (Reason='PAIR_BREAK')，原因层统一为 PAIR_BREAK。
-        - 冷却期: 30天 (PAIR_BREAK 类型)
+3. 信号类型说明 (v8.2.0)
+    持仓中信号:
+        - `CLOSE`: 均值回归完成，触发正常平仓
+        - `HOLD`: 继续持有，等待回归
+    无持仓信号:
+        - `LONG_SPREAD`: 做多价差 (买入股1，卖空股2)
+        - `SHORT_SPREAD`: 做空价差 (卖空股1，买入股2)
+        - `WAIT`: 等待入场信号
+    **已移除** (v8.2.0):
+        - `BREAK_UPPER` / `BREAK_LOWER`: 迁移至健康检查层的 PairBreak 规则
 
-3. 执行逻辑 (Execution Logic)
+4. 执行逻辑 (Execution Logic)
     - 遍历所有持仓配对 (`pairs_with_position`)。
     - 检查订单锁 (`is_pair_locked`): 防止在订单执行过程中重复发单。
     - 获取信号并执行:
         - 收到 `CLOSE` -> 执行均值回归平仓。
-        - 收到 `BREAK_UPPER` 或 `BREAK_LOWER` -> 执行止损平仓 (v8.0.11: 信号层区分方向)。
+        - 收到 `HOLD` -> 跳过，继续持有。
     - 冷却期触发: 平仓完成后，根据 `last_close_reason` 查询冷却天数:
         - `MEAN_REVERSION`: 7天
         - `PAIR_BREAK`: 30天
@@ -532,9 +560,9 @@
         - 用途: 作为 `get_pair_roi()` 的分母。
 
 #### 1.6 Configuration (配置阈值)
-    - `entry_threshold_lower` / `entry_threshold_upper`: float (1.9 - 2.3)
-    - `exit_threshold`: float (0.3)
-    - `stop_loss_threshold`: float (2.5)
+    - `entry_threshold_lower` / `entry_threshold_upper`: float (1.25 - 1.65σ)
+    - `exit_threshold`: float (0.2σ)
+    - 注: stop_loss_threshold 已迁移至 PairsManagerConfig.pair_break_threshold (v8.2.1)
 
 ### 2. Methods (方法)
 
@@ -542,7 +570,7 @@
     - `get_zscore(price1, price2) -> float`
         - 描述: 计算当前价格对应的 Z-score。
     - `get_signal(data) -> str`
-        - 描述: 生成交易信号 (`LONG_SPREAD`, `SHORT_SPREAD`, `CLOSE`, `BREAK_UPPER`, `BREAK_LOWER`, `WAIT`, `HOLD`) (v8.0.11)。
+        - 描述: 生成交易信号 (`LONG_SPREAD`, `SHORT_SPREAD`, `CLOSE`, `WAIT`, `HOLD`) (v8.2.0: 移除 BREAK 信号)。
     - `get_open_intent(amount_allocated, data) -> OpenIntent`
         - 描述: 生成开仓意图，计算 Beta 对冲后的目标股数。
     - `get_close_intent(reason) -> CloseIntent`
@@ -642,7 +670,8 @@
         - 优化: 所有行业查询统一调用此方法，一次遍历获取全部数据。
     - `get_industry_composite_score(industry_code) -> float`
         - 描述: 计算行业综合得分 (rolling_roi × rolling_win_rate)。
-        - 滚动窗口: 180天，样本保底20笔
+        - 滚动窗口: 90天，样本保底20笔
+        - 取值范围: [0, +∞) (v8.2.3: ROI<0 时返回 0)
         - 用途: 配额分配权重计算
     - `get_industry_roi(industry_code) -> float`
         - 描述: 获取行业级历史累积ROI (平仓口径)。
@@ -675,7 +704,9 @@
 
 #### 2.4 Health & Risk (健康与风控)
     - `check_pairs_health() -> Dict`
-        - 描述: 执行所有配对的健康检查 (Anomaly, Drawdown, Drift, Timeout)。
+        - 描述: 执行所有配对的健康检查。
+        - 优先级顺序 (v8.2.0): Anomaly → PairBreak → Drift → Timeout → Drawdown
+        - 返回: `{'anomaly': [...], 'pair_break': [...], 'drift': [...], 'timeout': [...], 'drawdown': [...]}`
     - `get_cooldown_required_days(reason) -> int`
         - 描述: 根据平仓原因查询所需的冷却天数。
 
