@@ -1,6 +1,6 @@
 # region imports
 from AlgorithmImports import *
-from typing import Dict
+from typing import Dict, Tuple
 from collections import defaultdict
 import random
 import numpy as np
@@ -9,15 +9,17 @@ import numpy as np
 
 class IndustryQuotaManager:
     """
-    行业配额管理器 - 控制每个行业的配对数量上限
+    行业配额管理器 - 控制每个行业的配对数量上限 (v8.0.18: 两轮分配机制)
 
     核心流程:
-        1. calculate_quotas(): 根据行业历史表现计算每个行业的配额
+        1. calculate_quotas(): 根据行业历史表现计算每个行业的配额权重
            - 预热期(前90天): 返回空字典，使用默认配额
-           - 正常期: 基于composite_score的指数权重分配全局配额
+           - 正常期: 基于composite_score的指数权重
 
-        2. apply_quotas(): 应用配额到协整结果
-           - 按行业分组 → 确定性随机打乱 → 按配额+单股限制筛选
+        2. apply_quotas(): 两轮配额分配
+           - 第一轮: 按权重分配配额，各行业按实际需求领取，退回盈余
+           - 第二轮: 盈余再分配给需求充足但配额不足的行业
+           - 活水效应: 高CS行业配对不足时，剩余配额自动补给低CS但配对充足的行业
     """
 
 
@@ -121,7 +123,10 @@ class IndustryQuotaManager:
 
     def apply_quotas(self, coint_result: Dict) -> List:
         """
-        应用行业配额到协整结果 (v7.82.0: 随机抽取,避免pvalue过度加权)
+        两轮配额分配 (v8.0.18)
+
+        第一轮: 按CS权重分配配额，各行业按实际需求领取，退回盈余
+        第二轮: 盈余再分配给需求充足但配额不足的行业
 
         Args:
             coint_result: CointegrationAnalyzer.cointegration_procedure()返回值
@@ -129,68 +134,41 @@ class IndustryQuotaManager:
 
         Returns:
             List[Dict]: 应用配额后的配对列表
-                每个Dict: {'symbol1', 'symbol2', 'pvalue', 'industry_code'}
 
-        设计理念 (v7.82.0):
-        - CointegrationAnalyzer已用pvalue<0.01严格筛选
-        - 进入本方法的配对pvalue都在0.0000x~0.0099 (极窄区间)
-        - 继续用pvalue排序 = 过度放大微小差异,导致"赢家通吃"
-        - 随机抽取 = 给所有通过协整的配对公平机会,增加多样性
-
-        实现:
-        1. 获取行业配额
-        2. 按行业分组
-        3. 确定性随机抽取 (种子=hash(日期+行业), 保证可复现)
-        4. 应用max_repeats约束 (单股最多参与N对)
-        5. 返回选定配对合并列表
+        设计理念 (v8.0.18 Two-Pass Allocation):
+        - 旧机制: min_quota=1保底 → 55行业各得1 → 超出total_quota=25
+        - 新机制: 按需领取 → 配额盈余自动流向需求充足的行业
+        - 活水效应: 高CS行业配对不足时，剩余配额自动补给低CS但配对充足的行业
         """
-        # 步骤1: 获取行业配额
-        industry_quotas = self.calculate_quotas(self.algorithm.pairs_manager)
-
-        # 步骤2: 按行业分组pairs
         raw_pairs = coint_result['pairs']
-        industry_groups = defaultdict(list)
 
-        for pair in raw_pairs:
-            industry_code = str(pair['industry_code'])
-            industry_groups[industry_code].append(pair)
+        # 步骤0: 预处理 - 计算每个行业的需求(协整配对数)
+        industry_demands = self._count_pairs_by_industry(raw_pairs)
 
-        # 步骤3-4: 对每个行业应用配额和单股限制
-        selected_pairs = []
+        # 步骤1: 计算权重 (复用现有逻辑)
+        industry_quotas = self.calculate_quotas(self.algorithm.pairs_manager)
+        industry_weights = {
+            code: data['weight']
+            for code, data in industry_quotas.items()
+        }
 
-        for industry_code, pairs in industry_groups.items():
-            # 获取配额(优先使用动态配额,否则使用最低保底配额)
-            quota_info = industry_quotas.get(industry_code)
-            quota = quota_info['quota'] if quota_info else self.min_quota
+        # 步骤2: 第一轮分配
+        first_pass, quota_pool, hungry_industries = self._first_pass_allocation(
+            industry_weights, industry_demands
+        )
 
-            # 设置确定性随机种子 (保证每月每行业结果一致)
-            seed = hash(f"{self.algorithm.Time.date()}_{industry_code}") % (2**32)
-            random.seed(seed)
+        # 步骤3: 第二轮再分配
+        final_quotas = self._second_pass_redistribution(
+            first_pass, quota_pool, hungry_industries, industry_weights
+        )
 
-            # 随机打乱配对顺序
-            shuffled_pairs = pairs.copy()
-            random.shuffle(shuffled_pairs)
+        # 步骤4: 日志输出
+        self._log_two_pass_allocation(
+            industry_demands, first_pass, quota_pool, hungry_industries, final_quotas
+        )
 
-            # 顺序遍历(等价于随机抽取) + max_repeats约束
-            symbol_counts = defaultdict(int)
-            industry_selected = []
-            max_symbol_repeats = self.algorithm.config.cointegration_analyzer.max_symbol_repeats
-
-            for pair in shuffled_pairs:
-                if len(industry_selected) >= quota:
-                    break
-
-                s1, s2 = pair['symbol1'], pair['symbol2']
-                if (symbol_counts[s1] < max_symbol_repeats and
-                    symbol_counts[s2] < max_symbol_repeats):
-                    industry_selected.append(pair)
-                    symbol_counts[s1] += 1
-                    symbol_counts[s2] += 1
-
-            selected_pairs.extend(industry_selected)
-
-        # 步骤6: 返回所有选定配对
-        return selected_pairs
+        # 步骤5: 应用配额到配对 (复用随机抽取逻辑)
+        return self._apply_final_quotas(raw_pairs, final_quotas)
 
 
     def _calculate_weight(self, composite_score: float) -> int:
@@ -259,6 +237,215 @@ class IndustryQuotaManager:
         return days_running < warmup_days
 
 
+    def _count_pairs_by_industry(self, pairs: List) -> Dict[str, int]:
+        """
+        统计每个行业的协整配对数量 (demand)
+
+        Args:
+            pairs: 协整配对列表
+
+        Returns:
+            {industry_code: 配对数量}
+        """
+        demands = defaultdict(int)
+        for pair in pairs:
+            industry_code = str(pair['industry_code'])
+            demands[industry_code] += 1
+        return dict(demands)
+
+
+    def _first_pass_allocation(
+        self,
+        weights: Dict[str, int],
+        demands: Dict[str, int]
+    ) -> Tuple[Dict[str, int], int, Dict[str, int]]:
+        """
+        第一轮配额分配 (v8.0.18)
+
+        按权重分配配额，各行业按实际需求领取，退回盈余
+
+        Args:
+            weights: {industry_code: weight} 行业权重
+            demands: {industry_code: demand} 行业需求(协整配对数)
+
+        Returns:
+            first_pass_selected: {industry_code: selected_count} 第一轮选中数
+            quota_pool: 退回的配额总数
+            hungry_industries: {industry_code: unmet_demand} 未满足需求的行业
+        """
+        total_weight = sum(weights.values())
+        first_pass_selected = {}
+        quota_pool = 0
+        hungry_industries = {}
+
+        for industry_code, weight in weights.items():
+            # 计算配额 (向下取整)
+            if total_weight > 0:
+                quota = int(np.floor(self.total_quota * weight / total_weight))
+            else:
+                quota = 0
+
+            # 获取需求 (没有协整配对则为0)
+            demand = demands.get(industry_code, 0)
+
+            # 选中数 = min(配额, 需求)
+            selected = min(quota, demand)
+            first_pass_selected[industry_code] = selected
+
+            # 计算剩余
+            if quota > demand:
+                quota_pool += (quota - demand)  # 配额没用完 → 退回池
+            elif demand > quota:
+                hungry_industries[industry_code] = demand - quota  # 需求没满足 → 等待bonus
+
+        return first_pass_selected, quota_pool, hungry_industries
+
+
+    def _second_pass_redistribution(
+        self,
+        first_pass: Dict[str, int],
+        quota_pool: int,
+        hungry: Dict[str, int],
+        weights: Dict[str, int]
+    ) -> Dict[str, int]:
+        """
+        第二轮配额再分配 (v8.0.18)
+
+        将退回的配额按权重比例分配给饥渴行业
+
+        Args:
+            first_pass: {industry_code: selected} 第一轮选中数
+            quota_pool: 退回的配额总数
+            hungry: {industry_code: unmet_demand} 饥渴行业
+            weights: {industry_code: weight} 行业权重
+
+        Returns:
+            final_selected: {industry_code: final_count} 最终选中数
+        """
+        if quota_pool == 0 or not hungry:
+            return first_pass
+
+        final_selected = first_pass.copy()
+
+        # 计算饥渴行业的权重总和
+        hungry_weight_sum = sum(weights.get(ind, 1) for ind in hungry.keys())
+
+        remaining_pool = quota_pool
+
+        for industry_code, unmet_demand in hungry.items():
+            if remaining_pool <= 0:
+                break
+
+            # 按权重比例分配
+            weight = weights.get(industry_code, 1)
+            bonus = int(np.floor(quota_pool * weight / hungry_weight_sum))
+
+            # 受限于未满足需求和剩余配额池
+            actual_bonus = min(bonus, unmet_demand, remaining_pool)
+
+            final_selected[industry_code] = first_pass.get(industry_code, 0) + actual_bonus
+            remaining_pool -= actual_bonus
+
+        return final_selected
+
+
+    def _apply_final_quotas(
+        self,
+        raw_pairs: List,
+        final_quotas: Dict[str, int]
+    ) -> List:
+        """
+        应用最终配额到配对列表 (v8.0.18)
+
+        对每个行业进行确定性随机抽取，并应用单股重复限制
+
+        Args:
+            raw_pairs: 原始协整配对列表
+            final_quotas: {industry_code: quota} 最终配额
+
+        Returns:
+            选中的配对列表
+        """
+        # 按行业分组
+        industry_groups = defaultdict(list)
+        for pair in raw_pairs:
+            industry_code = str(pair['industry_code'])
+            industry_groups[industry_code].append(pair)
+
+        selected_pairs = []
+        max_symbol_repeats = self.algorithm.config.cointegration_analyzer.max_symbol_repeats
+
+        for industry_code, pairs in industry_groups.items():
+            quota = final_quotas.get(industry_code, 0)
+            if quota == 0:
+                continue
+
+            # 设置确定性随机种子 (保证每月每行业结果一致)
+            seed = hash(f"{self.algorithm.Time.date()}_{industry_code}") % (2**32)
+            random.seed(seed)
+
+            # 随机打乱配对顺序
+            shuffled_pairs = pairs.copy()
+            random.shuffle(shuffled_pairs)
+
+            # 顺序遍历(等价于随机抽取) + max_repeats约束
+            symbol_counts = defaultdict(int)
+            industry_selected = []
+
+            for pair in shuffled_pairs:
+                if len(industry_selected) >= quota:
+                    break
+
+                s1, s2 = pair['symbol1'], pair['symbol2']
+                if (symbol_counts[s1] < max_symbol_repeats and
+                    symbol_counts[s2] < max_symbol_repeats):
+                    industry_selected.append(pair)
+                    symbol_counts[s1] += 1
+                    symbol_counts[s2] += 1
+
+            selected_pairs.extend(industry_selected)
+
+        return selected_pairs
+
+
+    def _log_two_pass_allocation(
+        self,
+        demands: Dict[str, int],
+        first_pass: Dict[str, int],
+        quota_pool: int,
+        hungry: Dict[str, int],
+        final_quotas: Dict[str, int]
+    ):
+        """
+        输出两轮配额分配日志 (v8.0.18)
+
+        Args:
+            demands: 行业需求
+            first_pass: 第一轮选中数
+            quota_pool: 退回配额池
+            hungry: 饥渴行业
+            final_quotas: 最终配额
+        """
+        # 统计信息
+        industries_with_pairs = len(demands)
+        first_pass_total = sum(first_pass.values())
+        final_total = sum(final_quotas.values())
+
+        self.algorithm.Debug(
+            f"[行业配额-第一轮] 有协整配对行业={industries_with_pairs}/55, "
+            f"总配额={self.total_quota}, "
+            f"第一轮选中={first_pass_total}, "
+            f"退回配额={quota_pool}"
+        )
+
+        if quota_pool > 0 and hungry:
+            self.algorithm.Debug(
+                f"[行业配额-第二轮] 饥渴行业={len(hungry)}, "
+                f"分配退回配额={quota_pool} → "
+                f"最终总选中={final_total}"
+            )
+
+
     def _log_quota_allocation(self, industry_quotas: Dict):
         """
         输出详细配额分配日志 (v7.71.0)
@@ -279,10 +466,10 @@ class IndustryQuotaManager:
             f"正收益行业={positive_cs_count}"
         )
 
-        # 按配额降序排序,只显示TOP10
+        # v8.0.8: 按CS降序排序,只显示TOP10 (便于观察正收益行业)
         sorted_quotas = sorted(
             industry_quotas.items(),
-            key=lambda x: x[1]['quota'],
+            key=lambda x: x[1]['composite_score'],
             reverse=True
         )
 
