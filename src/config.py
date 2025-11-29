@@ -192,7 +192,7 @@ class PairsManagerConfig:
     # 保证金管理
     margin_usage_ratio: float = 0.98                               # 保证金使用率: 98%
     concentration_threshold: float = 0.40                          # 单行业资金占用上限 (40%)
-    min_investment_ratio: float = 0.05                             # 最低投资比例: 5%
+    min_investment_ratio: float = 0.10                             # 最低投资比例: 5%
 
     # 滚动窗口配置 
     rolling_window_days: int = 90                                  # CS计算滚动窗口

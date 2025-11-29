@@ -176,6 +176,19 @@ git commit -m "docs: update CHANGELOG for v7.2.5"
 - Prevents forgotten documentation updates
 - Clarifies mandatory workflow steps
 
+### Plan File Management
+
+**规范**: 已完成的任务必须及时从计划文件中清理
+
+1. **任务完成后**: 立即将任务从"待修复"移至"已完成"区域
+2. **计划文件更新**: 每次实施完成后更新计划文件状态
+3. **避免重复显示**: 已实施的方案不应在待办区域重复出现
+4. **简洁为主**: 已完成任务只保留版本号和简要描述
+
+**示例**:
+- ✅ 正确: 任务完成 → 移至"已完成"表格 → 删除"待实施"详情
+- ❌ 错误: 任务完成但详情仍在"待实施"区域展示
+
 ## Performance Monitoring (v7.29.2+)
 
 ### Key Metrics

@@ -282,6 +282,10 @@ class BayesianCointegrationStrategy(QCAlgorithm):
                     if pair is None:
                         continue
 
+                    # v8.0.16: 添加订单锁检查 (修复重复平仓BUG)
+                    if self.tickets_manager.is_pair_locked(pair_id):
+                        continue
+
                     intent = pair.get_close_intent(reason=reason, data=data)
                     if intent:
                         self.order_executor.execute_close(intent)

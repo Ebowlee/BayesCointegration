@@ -663,13 +663,18 @@ class Pairs:
         industry_names = self.algorithm.config.constants['industry_names']
         industry_name = industry_names.get(int(self.industry_code), '未知') if self.industry_code else '未知'
 
+        # v8.0.7: 计算平仓时对冲漂移
+        drift = self.get_hedge_drift()
+        drift_pct = (drift * 100) if drift is not None else 0.0
+
         # v8.0.4: 优化日志格式 - 调整字段顺序，新增投资额
+        # v8.0.7: 新增漂移显示 (在zscore和冷却期之间)
         self.algorithm.Debug(
             f"[平仓] {self.pair_id} | {industry_name} | {reason_text} | "
             f"第{trade_num}次交易 | 持有{holding_days}/{max_days_str}天 | "
             f"投资${current_invested:,.0f} | PnL=${current_pnl:.2f} ({current_pnl_pct:+.1f}%) | "
             f"累计{total_pnl_pct:+.1f}% | "
-            f"{entry_z:+.2f}σ → {close_z:+.2f}σ | "
+            f"{entry_z:+.2f}σ → {close_z:+.2f}σ | 漂移{drift_pct:+.1f}% | "
             f"冷却{cooldown_days}天",
             level=0
         )
