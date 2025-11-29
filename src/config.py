@@ -123,9 +123,9 @@ class IndustryQuotaManagerConfig:
     # 全局配额
     total_quota: int = 25                                          # 全局配额总量 (控制贝叶斯建模输入)
 
-    # 权重计算参数 (v8.0.21: 分段函数)
-    exp_scale_factor: float = 6.0                                  # 非负CS段指数缩放系数
-    weight_offset: int = 2                                         # 非负CS段权重偏移量 (起点=ceil(e^0)+offset=3)
+    # 权重计算参数 (v8.2.3: 统一公式 ceil(e^(6×cs)))
+    exp_scale_factor: float = 6.0                                  # 指数缩放系数
+    # v8.2.3: 删除weight_offset (比例分配时offset无意义)
     min_quota_per_industry: int = 1                                # 单行业最低配额保底
 
     # 预热期配置 (v8.0.26: 从MainConfig移入，专属于IQM)
@@ -175,10 +175,10 @@ class PairsConfig:
     """配对配置 - 信号阈值、保证金参数、交易历史"""
 
     # 信号阈值
-    entry_threshold_lower: float = 1.65                            # 入场Z-score下限
-    entry_threshold_upper: float = 1.95                            # 入场Z-score上限
-    exit_threshold: float = 0.5                                    # 出场Z-score阈值
-    stop_loss_threshold: float = 2.58                              # 止损Z-score阈值
+    entry_threshold_lower: float = 1.25                            # 入场Z-score下限
+    entry_threshold_upper: float = 1.65                            # 入场Z-score上限
+    exit_threshold: float = 0.2                                   # 出场Z-score阈值
+    # v8.2.1: stop_loss_threshold 已迁移至 PairsManagerConfig.pair_break_threshold
 
     # 保证金计算参数
     margin_requirement_long: float = 0.5                           # 多头保证金率: 50%
@@ -200,8 +200,9 @@ class PairsManagerConfig:
     min_samples_for_window: int = 20                               # 样本量保底: 窗口内<20笔时取最近20笔
 
     # 健康检查阈值
+    pair_break_threshold: float = 1.95                             # 1.95σ Z-score触发 (v8.2.0: 方向感知止损)
     drawdown_threshold: float = 0.04                               # 4% 回撤触发
-    drift_threshold: float = 0.50                                  # 50% 漂移触发
+    drift_threshold: float = 0.40                                  # 40% 漂移触发
 
     # 冷却期配置 (key=reason, value=天数)
     cooldown_days: Dict[str, int] = field(default_factory=lambda: {
@@ -221,7 +222,7 @@ class PairsManagerConfig:
         (0.20, 0.18),    # avg_return ≤ 20%  → 18%
         (0.25, 0.20),    # avg_return ≤ 25%  → 20%
     ])
-    allocation_default: float = 0.10   # trade_count=0 时的默认分配
+    allocation_default: float = 0.10   # get_trade_count()=0 时的默认分配
     allocation_max: float = 0.25       # avg_return > 25% 时的最大分配
 
 

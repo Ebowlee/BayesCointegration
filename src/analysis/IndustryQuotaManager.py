@@ -9,12 +9,12 @@ import numpy as np
 
 class IndustryQuotaManager:
     """
-    行业配额管理器 - 控制每个行业的配对数量上限 (v8.0.18: 两轮分配机制)
+    行业配额管理器 - 控制每个行业的配对数量上限 (v8.2.3: 预热期正常交易)
 
     核心流程:
         1. calculate_quotas(): 根据行业历史表现计算每个行业的配额权重
-           - 预热期(前90天): 返回空字典，使用默认配额
-           - 正常期: 基于composite_score的指数权重
+           - 预热期(前90天): CS=0 → weight=1 → 均等分配 (v8.2.3)
+           - 正常期: 基于composite_score的指数权重 ceil(e^(6×cs))
 
         2. apply_quotas(): 两轮配额分配
            - 第一轮: 按权重分配配额，各行业按实际需求领取，退回盈余
@@ -34,7 +34,7 @@ class IndustryQuotaManager:
         self.algorithm = algorithm
         self.total_quota = config.total_quota
         self.exp_scale_factor = config.exp_scale_factor
-        self.weight_offset = config.weight_offset                  # v8.0.21: 非负CS段权重偏移量
+        # v8.2.3: 删除weight_offset (比例分配时offset无意义)
         self.min_quota = config.min_quota_per_industry
 
 
@@ -52,40 +52,36 @@ class IndustryQuotaManager:
                 'composite_score': float  # 综合得分
             }}
 
-            - 预热期: 返回空字典 {}
-            - 正常期: 返回55个行业的配额字典
+            v8.2.3: 预热期也返回配额字典 (所有行业CS=0 → weight=1 → 均等分配)
         """
 
-        # 步骤1: 检查预热期
+        # 步骤1: 检查预热期 (v8.2.3: 不再return空字典)
         if self._is_in_warmup_period():
             days_running = (self.algorithm.Time - self.algorithm.StartDate).days
             warmup_days = self.algorithm.config.industry_quota.warmup_days
             self.algorithm.Debug(
                 f"[行业配额] 预热期 ({days_running}/{warmup_days}天), "
-                f"暂不分配配额"
+                f"使用均等配额 (CS=0 → 权重=1)"
             )
-            return {}
+            # v8.2.3: 继续走正常流程，不return空字典
+            # 预热期所有行业CS=0 → weight=1 → 均等分配配额
 
-        # 步骤2: 获取集中度过高的行业 (v8.0.14: 移到权重计算之前)
-        # 原因: 超标行业不应占用配额池份额，weight需在计算前置0
+        # 步骤2: 获取集中度过高的行业 (v8.1.7: 仅用于冻结demand,不影响weight)
         over_concentrated = pairs_manager.check_industry_concentration()
+        # 缓存供 apply_quotas() 使用
+        self._over_concentrated = over_concentrated
 
-        # 步骤3: 遍历55个行业,计算权重
+        # 步骤3: 遍历55个行业,计算权重 (v8.1.7: 权重不受集中度影响)
         industry_weights = {}
         total_weight = 0
 
         industry_codes = self._get_all_industry_codes()
 
         for industry_code in industry_codes:
-            # v8.0.14: 集中度超标的行业，权重置0，不参与配额分配
-            if industry_code in over_concentrated:
-                cs = 0.0
-                weight = 0
-            else:
-                # 从PairsManager获取composite_score
-                cs = pairs_manager.get_industry_composite_score(industry_code)
-                # 无历史数据时cs=0, weight自动=1
-                weight = self._calculate_weight(cs)
+            # v8.1.7: 权重基于历史表现计算，不受集中度影响
+            # 原因: weight是"历史身份证"，集中度超标应冻结demand而非篡改weight
+            cs = pairs_manager.get_industry_composite_score(industry_code)
+            weight = self._calculate_weight(cs)
 
             industry_weights[industry_code] = {
                 'composite_score': cs,
@@ -93,20 +89,18 @@ class IndustryQuotaManager:
             }
             total_weight += weight
 
-        # 步骤4: 按权重比例分配配额 (向下取整)
+        # 步骤4: 按权重比例分配配额 (v8.1.7: 移除weight=0特殊处理)
         industry_quotas = {}
 
         for industry_code, data in industry_weights.items():
-            # v8.0.14: weight=0的行业(含集中度超标)，配额自动为0
-            if data['weight'] == 0:
-                quota = 0
-            elif total_weight > 0:
+            # v8.1.7: 统一按权重比例计算配额 (不再有weight=0的情况)
+            if total_weight > 0:
                 quota = int(np.floor(self.total_quota * data['weight'] / total_weight))
                 # 保底机制
                 if quota < self.min_quota:
                     quota = self.min_quota
             else:
-                # 极端情况: 所有行业权重=0 (不应该发生)
+                # 极端情况: 所有行业权重=0 (不应该发生,因为最低权重=1)
                 quota = self.min_quota
 
             industry_quotas[industry_code] = {
@@ -115,8 +109,8 @@ class IndustryQuotaManager:
                 'composite_score': data['composite_score']
             }
 
-        # 步骤5: 详细日志
-        self._log_quota_allocation(industry_quotas)
+        # 步骤5: 行业概览日志 (v8.1.2: 精简输出)
+        self._log_industry_overview(industry_quotas)
 
         return industry_quotas
 
@@ -152,6 +146,27 @@ class IndustryQuotaManager:
             for code, data in industry_quotas.items()
         }
 
+        # 步骤1.5: 冻结集中度超标行业的需求 (v8.1.7)
+        # 原因: 集中度超标应冻结demand(本轮禁止开仓),而非篡改weight(历史身份证)
+        over_concentrated = getattr(self, '_over_concentrated', set())
+        frozen_count = 0
+        for code in over_concentrated:
+            if code in industry_demands:
+                industry_demands[code] = 0
+                frozen_count += 1
+
+        # v8.1.7: 输出冻结日志
+        if over_concentrated:
+            industry_names = self.algorithm.config.constants['industry_names']
+            frozen_names = [
+                industry_names.get(int(code), code)[:4]
+                for code in over_concentrated
+            ]
+            self.algorithm.Debug(
+                f"[配额冻结] {len(over_concentrated)}个行业集中度超标 → 需求置0: {', '.join(frozen_names[:5])}",
+                level=1
+            )
+
         # 步骤2: 第一轮分配
         first_pass, quota_pool, hungry_industries = self._first_pass_allocation(
             industry_weights, industry_demands
@@ -162,10 +177,8 @@ class IndustryQuotaManager:
             first_pass, quota_pool, hungry_industries, industry_weights
         )
 
-        # 步骤4: 日志输出
-        self._log_two_pass_allocation(
-            industry_demands, first_pass, quota_pool, hungry_industries, final_quotas
-        )
+        # 步骤4: 日志输出 (v8.1.2: 只输出最终结果)
+        self._log_final_allocation(final_quotas)
 
         # 步骤5: 应用配额到配对 (复用随机抽取逻辑)
         return self._apply_final_quotas(raw_pairs, final_quotas)
@@ -173,42 +186,30 @@ class IndustryQuotaManager:
 
     def _calculate_weight(self, composite_score: float) -> int:
         """
-        计算行业权重 (v8.0.21: 分段指数函数)
+        计算行业权重 (v8.2.3: 统一公式)
 
-        公式:
-            f(x) = ceil(e^x)       当 x < 0   (亏损行业 → 权重1)
-            f(x) = ceil(e^(kx)+c)  当 x >= 0  (盈利行业 → 权重3~9)
-
-        参数:
-            k = exp_scale_factor (默认6.0)
-            c = weight_offset (默认2)
+        公式: ceil(e^(6×cs))
 
         Args:
-            composite_score: 行业综合得分 (ROI × WIN_RATE)
+            composite_score: 行业综合得分 (ROI × WIN_RATE), 取值范围 [0, +∞)
+                           (v8.2.3: CS不再为负，ROI<0时返回0)
 
         Returns:
             权重值 (整数, 最小为1)
 
         示例:
-            cs=-0.10 → weight=1  (亏损行业最低配额)
-            cs=0.00  → weight=3  (盈亏平衡起点)
-            cs=0.10  → weight=4
-            cs=0.20  → weight=6
-            cs=0.30  → weight=9  (优秀行业峰值)
-
-        设计理由:
-            - 亏损行业保留最低配额1，避免完全冻结（死局）
-            - 盈利行业起点为3，与亏损行业拉开差距
-            - 峰值约9，相对起点3有3倍差距，奖励优秀行业
+            cs=0.00 → weight=1  (预热期/无数据行业)
+            cs=0.05 → weight=2
+            cs=0.10 → weight=2
+            cs=0.15 → weight=3
+            cs=0.20 → weight=4
+            cs=0.25 → weight=5
+            cs=0.30 → weight=7  (优秀行业)
         """
         import numpy as np
 
-        if composite_score < 0:
-            # 亏损行业: ceil(e^x) → 实际都是1 (因为e^(-0.1)≈0.9, ceil=1)
-            raw_weight = int(np.ceil(np.exp(composite_score)))
-        else:
-            # 盈利行业: ceil(e^(kx) + c), 起点3, 峰值约9
-            raw_weight = int(np.ceil(np.exp(self.exp_scale_factor * composite_score) + self.weight_offset))
+        # v8.2.3: 统一公式，无分段
+        raw_weight = int(np.ceil(np.exp(self.exp_scale_factor * composite_score)))
 
         return max(1, raw_weight)  # 保底1
 
@@ -260,7 +261,7 @@ class IndustryQuotaManager:
         demands: Dict[str, int]
     ) -> Tuple[Dict[str, int], int, Dict[str, int]]:
         """
-        第一轮配额分配 (v8.0.18)
+        第一轮配额分配 (v8.1.1: 需求驱动配额分配)
 
         按权重分配配额，各行业按实际需求领取，退回盈余
 
@@ -272,21 +273,37 @@ class IndustryQuotaManager:
             first_pass_selected: {industry_code: selected_count} 第一轮选中数
             quota_pool: 退回的配额总数
             hungry_industries: {industry_code: unmet_demand} 未满足需求的行业
+
+        v8.1.1 修复:
+            - 分母改为只计算有协整配对行业的权重总和 (10-20个,而非全部55个)
+            - floor改round,提高配额填充率 (轻微超发可接受)
+            - 原问题: floor(25×1/56)=0 → 所有行业配额为0
+            - 修复后: round(25×1/10)=3 → 每个有配对行业分配2-3个配额
         """
-        total_weight = sum(weights.values())
+        # v8.1.1: 只计算有协整配对行业的权重总和 (需求驱动)
+        total_weight = sum(
+            weight for code, weight in weights.items()
+            if demands.get(code, 0) > 0
+        )
+
         first_pass_selected = {}
         quota_pool = 0
         hungry_industries = {}
 
         for industry_code, weight in weights.items():
-            # 计算配额 (向下取整)
-            if total_weight > 0:
-                quota = int(np.floor(self.total_quota * weight / total_weight))
-            else:
-                quota = 0
-
             # 获取需求 (没有协整配对则为0)
             demand = demands.get(industry_code, 0)
+
+            # v8.1.1: 无需求行业直接跳过,配额=0
+            if demand == 0:
+                first_pass_selected[industry_code] = 0
+                continue
+
+            # v8.1.1: 计算配额 (round四舍五入,提高填充率)
+            if total_weight > 0:
+                quota = round(self.total_quota * weight / total_weight)
+            else:
+                quota = 0
 
             # 选中数 = min(配额, 需求)
             selected = min(quota, demand)
@@ -330,13 +347,18 @@ class IndustryQuotaManager:
         # 计算饥渴行业的权重总和
         hungry_weight_sum = sum(weights.get(ind, 1) for ind in hungry.keys())
 
+        # v8.1.7: 防御性除零保护 (理论上不会触发,因为最低权重=1)
+        # 保留原因: 防止未来代码变更引入边界情况
+        if hungry_weight_sum <= 0:
+            return first_pass
+
         remaining_pool = quota_pool
 
         for industry_code, unmet_demand in hungry.items():
             if remaining_pool <= 0:
                 break
 
-            # 按权重比例分配
+            # 按权重比例分配 (v8.1.7: 移除循环内的冗余除零检查)
             weight = weights.get(industry_code, 1)
             bonus = int(np.floor(quota_pool * weight / hungry_weight_sum))
 
@@ -408,77 +430,80 @@ class IndustryQuotaManager:
         return selected_pairs
 
 
-    def _log_two_pass_allocation(
+    def _log_final_allocation(
         self,
-        demands: Dict[str, int],
-        first_pass: Dict[str, int],
-        quota_pool: int,
-        hungry: Dict[str, int],
         final_quotas: Dict[str, int]
     ):
         """
-        输出两轮配额分配日志 (v8.0.18)
+        输出最终配额分配结果 (v8.1.2: 精简日志)
+
+        格式: [配额分配] 服装制造:5, 房建:2, ... 共{total}对
 
         Args:
-            demands: 行业需求
-            first_pass: 第一轮选中数
-            quota_pool: 退回配额池
-            hungry: 饥渴行业
-            final_quotas: 最终配额
-        """
-        # 统计信息
-        industries_with_pairs = len(demands)
-        first_pass_total = sum(first_pass.values())
-        final_total = sum(final_quotas.values())
-
-        self.algorithm.Debug(
-            f"[行业配额-第一轮] 有协整配对行业={industries_with_pairs}/55, "
-            f"总配额={self.total_quota}, "
-            f"第一轮选中={first_pass_total}, "
-            f"退回配额={quota_pool}"
-        )
-
-        if quota_pool > 0 and hungry:
-            self.algorithm.Debug(
-                f"[行业配额-第二轮] 饥渴行业={len(hungry)}, "
-                f"分配退回配额={quota_pool} → "
-                f"最终总选中={final_total}"
-            )
-
-
-    def _log_quota_allocation(self, industry_quotas: Dict):
-        """
-        输出详细配额分配日志 (v7.71.0)
-
-        Args:
-            industry_quotas: 行业配额字典
+            final_quotas: 最终配额 {industry_code: quota}
         """
         industry_names = self.algorithm.config.constants['industry_names']
 
-        # 统计信息
-        total_allocated = sum(q['quota'] for q in industry_quotas.values())
-        positive_cs_count = sum(1 for q in industry_quotas.values() if q['composite_score'] > 0)
+        # 只保留有配额的行业
+        allocated = {code: quota for code, quota in final_quotas.items() if quota > 0}
+        if not allocated:
+            self.algorithm.Debug("[配额分配] 无有效配额")
+            return
+
+        # 按配额降序排序
+        sorted_alloc = sorted(allocated.items(), key=lambda x: -x[1])
+
+        # 格式化: 行业名:配额数
+        parts = []
+        for code, quota in sorted_alloc:
+            name = industry_names.get(int(code), f'未知({code})')
+            # 截取行业名前4字符以保持简洁
+            short_name = name[:4] if len(name) > 4 else name
+            parts.append(f"{short_name}:{quota}")
+
+        total = sum(allocated.values())
+        self.algorithm.Debug(f"[配额分配] {', '.join(parts)} 共{total}对")
+
+
+    def _log_industry_overview(self, industry_quotas: Dict):
+        """
+        输出行业ROI概览 (v8.1.5: 改用ROI分类)
+
+        格式: [行业概览] 正收益=X个 → TOP3 | 负收益=Y个 → TOP3
+
+        Args:
+            industry_quotas: 行业配额字典 {code: {composite_score, weight, quota}}
+        """
+        industry_names = self.algorithm.config.constants['industry_names']
+
+        # v8.1.5: 改用 ROI 分类，而非 CS
+        positive = []
+        negative = []
+        for code, data in industry_quotas.items():
+            roi = self.algorithm.pairs_manager.get_industry_roi(code)
+            if roi > 0:
+                positive.append((code, roi))
+            elif roi < 0:
+                negative.append((code, roi))
+
+        # 排序取TOP3
+        positive.sort(key=lambda x: -x[1])
+        negative.sort(key=lambda x: x[1])
+
+        def format_top3(items):
+            if not items:
+                return "无"
+            parts = []
+            for code, score in items[:3]:
+                name = industry_names.get(int(code), f'未知({code})')
+                short_name = name[:4] if len(name) > 4 else name
+                parts.append(f"{short_name}({score*100:+.1f}%)")
+            return ', '.join(parts)
+
+        pos_str = format_top3(positive)
+        neg_str = format_top3(negative)
 
         self.algorithm.Debug(
-            f"[行业配额] 全局配额={self.total_quota}, "
-            f"实际分配={total_allocated}, "
-            f"覆盖行业={len(industry_quotas)}, "
-            f"正收益行业={positive_cs_count}"
+            f"[行业概览] 正收益={len(positive)}个 → {pos_str} | "
+            f"负收益={len(negative)}个 → {neg_str}"
         )
-
-        # v8.0.8: 按CS降序排序,只显示TOP10 (便于观察正收益行业)
-        sorted_quotas = sorted(
-            industry_quotas.items(),
-            key=lambda x: x[1]['composite_score'],
-            reverse=True
-        )
-
-        for industry_code, data in sorted_quotas[:10]:
-            industry_name = industry_names.get(int(industry_code), f'未知({industry_code})')
-            self.algorithm.Debug(
-                f"[行业配额] {industry_name}: "
-                f"CS={data['composite_score']*100:+.2f}% → "
-                f"权重={data['weight']} → "
-                f"配额={data['quota']}",
-                level=1
-            )

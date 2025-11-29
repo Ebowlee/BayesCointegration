@@ -271,7 +271,7 @@ git commit -m "docs: update CHANGELOG for v7.2.5"
   - ❌ **Does NOT**: Risk checking, HWM tracking, drawdown calculation, order execution
   - **Removed** (v6.9.4): `check_position_integrity()` (unused), `get_pair_drawdown()` (moved to PairDrawdownRule), `pair_hwm` attribute
   - **Removed** (v7.0.0): `open_position()`, `close_position()` (replaced by get_*_intent + OrderExecutor)
-  - **Added** (v7.7.0): Trade statistics attributes (trade_count, win_count, total_pnl_dollars, total_pair_cost) for performance tracking
+  - **Added** (v7.7.0 → v8.1.0): Trade statistics via `trade_history` four-tuple + dynamic aggregation methods
   - **Added** (v7.12.0): industry_code field for industry quota management
 - **Creation Pattern** (v6.9.2):
   - **Recommended**: Use classmethod factory `Pairs.from_model_result(algorithm, model_result, config)`
@@ -289,18 +289,23 @@ git commit -m "docs: update CHANGELOG for v7.2.5"
   - `is_in_cooldown()`: Check cooldown period (part of signal generation logic)
   - `on_position_filled()`: Callback when position fills - clears tracking variables and updates trade stats (v7.7.0)
   - `_update_trade_stats()`: Private method - calculates trade PnL% and updates statistics (v7.7.0)
-- **Trade Statistics** (v8.0.0):
-  - `trade_count`: Total historical trades for this pair
-  - `win_count`: Number of profitable trades (pnl > 0)
-  - `pair_historical_pnl`: Cumulative PnL across all trades
-  - `pair_historical_invested_capital`: Cumulative invested capital across all trades
-  - `trade_history: List[Tuple[datetime, pnl, invested_capital]]`: Rolling window storage (v8.0.0)
-    - **Tuple format**: `(exit_time, single_trade_pnl, single_trade_invested_capital)`
-    - **Auto-cleanup**: Records older than `rolling_window_days × 2` are removed
-  - **Key Methods**:
-    - `get_avg_return_per_trade()`: `(pair_historical_pnl / pair_historical_invested_capital) / trade_count`
-    - `get_pair_roi()`: `pair_historical_pnl / pair_historical_invested_capital`
-  - **Auto-update**: Statistics accumulated in `_update_trade_stats()` called by `on_position_filled()`
+- **Trade Statistics** (v8.1.0 - Single Source of Truth):
+  - `trade_history: List[Tuple[datetime, datetime, float, float]]`: Full history storage
+    - **Four-tuple format**: `(entry_time, exit_time, pnl, invested_capital)`
+    - **No cleanup**: Full lifecycle data retained for 20-year backtests
+  - **Dynamic Aggregation Methods** (O(n) per query, acceptable for low-frequency trading):
+    - `get_trade_count()`: `len(trade_history)`
+    - `get_win_count()`: Count of trades with pnl > 0
+    - `get_total_pnl()`: Sum of all trade PnLs
+    - `get_total_invested_capital()`: Sum of all invested capitals
+    - `get_avg_holding_days()`: Average holding period in days
+    - `get_win_rate()`: `win_count / trade_count`
+    - `get_pair_roi()`: `total_pnl / total_invested_capital`
+    - `get_avg_return_per_trade()`: `roi / trade_count`
+  - **Data Layer Separation**:
+    - **Real-time layer**: `tracked_qty` + real-time prices (for drawdown, unrealized PnL)
+    - **Historical layer**: `trade_history` (for ROI, win rate, holding days)
+  - **Auto-update**: `_update_trade_stats()` appends four-tuple on position close
 - **Features**: Cooldown management, beta hedging, position tracking, intent generation, trade history (v7.7.0)
 - **Architecture** (v7.40.0): Six-Layer Hamburger Structure (六层汉堡结构)
   - **Design Philosophy**: Code organized from "abstract to concrete, core computation to side effects"
@@ -520,7 +525,7 @@ git commit -m "docs: update CHANGELOG for v7.2.5"
       (0.20, 0.18),    # avg_return ≤ 20%  → 18%
       (0.25, 0.20),    # avg_return ≤ 25%  → 20%
   ]
-  allocation_default = 0.10  # No trade history (trade_count=0)
+  allocation_default = 0.10  # No trade history (get_trade_count()=0)
   allocation_max = 0.25      # avg_return > 25%
   ```
 - **Margin Buffer**: FIXED_BUFFER reserved from MarginRemaining
@@ -649,7 +654,7 @@ The strategy implemented **dynamic cooldown periods** based on exit reasons:
    - Portfolio checks (RiskManager) → Health checks (PairsManager) → Signal close → VIX check → Signal open
 4. **Intent Flow**: Pairs.get_*_intent() → OrderExecutor.execute_*() → TicketsManager.register_tickets()
 5. **Order Events** (v7.99.4 fix): OnOrderEvent() → TicketsManager.on_order_event() → Pairs.on_position_filled()
-6. **Industry Metrics Flow** (v8.0.0): Pairs.trade_history → PairsManager._aggregate_all_industry_data() → get_industry_composite_score()
+6. **Industry Metrics Flow** (v8.1.0): Pairs.trade_history (four-tuple) → PairsManager._aggregate_all_industry_data() → get_industry_stats()
 
 ### State Management
 - **Pair Classification**: current_selected (this month) / past_selected (historical)
@@ -880,9 +885,10 @@ zscore = (log_residual - residual_mean) / residual_std
 
 ## Version History
 
-**Current Version**: v8.0.3 (2025-11-28)
+**Current Version**: v8.1.0 (2025-11-29)
 
 **Recent Major Updates**:
+- **v8.1.0** (Nov 2025): 单一事实来源重构 - 三元组→四元组,删除累积变量,动态聚合方法
 - **v8.0.3** (Nov 2025): Docstring精简 - 简单方法单行说明,复杂方法保留步骤化解释
 - **v8.0.0** (Nov 2025): 滚动窗口行业评分 - trade_history数据结构,180天窗口计算,解决评分固化问题
 - **v7.99.4** (Nov 2025): OnOrderEvent回调修复 - 修复回调链断裂导致的交易统计失效
@@ -913,8 +919,8 @@ zscore = (log_residual - residual_mean) / residual_std
     - **IndustryQuotaManager.py**: Dynamic industry quota system (v8.0.0 updated)
   - **config.py**: Centralized configuration via StrategyConfig class
   - **UniverseSelection.py**: Multi-stage stock filtering
-  - **Pairs.py**: Pair trading object with signal/intent generation and trade_history (v8.0.0)
-  - **PairsManager.py**: Lifecycle + margin allocation + health check (v8.0.0)
+  - **Pairs.py**: Pair trading object with signal/intent generation and trade_history four-tuple (v8.1.0)
+  - **PairsManager.py**: Lifecycle + margin allocation + health check + industry aggregation (v8.1.0)
   - **OrderExecutor.py**: Order execution engine (Intent Pattern - v7.0.0)
   - **RiskManager.py**: Portfolio-level risk control only (v7.98.2)
   - **TicketsManager.py**: Order lifecycle tracking (v6.4.4)

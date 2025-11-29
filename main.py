@@ -225,12 +225,13 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # === 步骤8: PairsManager分类管理 ===
         self.pairs_manager.classify_pairs(new_pairs_dict)
 
-        # 单行汇总日志 (v8.0.4)
+        # 单行汇总日志 (v8.0.4 → v8.1.6: 增加配额筛选环节)
         self.Debug(
             f"[Analysis汇总] 输入{stats['total']} → "
             f"有效{stats['final_valid']} → "
             f"候选{coint_stats.get('total_pairs_tested', 0)}对 → "
             f"协整{len(coint_tested_pairs)}对 ({industries_with_pairs}行业) → "
+            f"配额{len(quota_filtered_pairs)}对 → "
             f"贝叶斯{len(model_results)}对 → "
             f"质量筛选{len(selected_pairs)}对 → "
             f"创建{len(new_pairs_dict)}个Pairs"
@@ -244,8 +245,8 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         执行流程 (按优先级):
         1. Portfolio冷却期检查 → 跳过交易
         2. Portfolio回撤检查 → 触发则 Liquidate() 全仓平仓
-        3. Pair级健康检查
-        4. 正常平仓 (CLOSE/PAIR_BREAK 信号)
+        3. Pair级健康检查 (v8.2.0: 含PairBreak)
+        4. 正常平仓 (仅 CLOSE 信号)
         5. 开仓安全检查 (VIX)
         6. 正常开仓 (后续版本)
         """
@@ -270,13 +271,14 @@ class BayesianCointegrationStrategy(QCAlgorithm):
             return
 
         # === 3. Pair级: 健康检查 ===
-        health_issues = self.pairs_manager.check_pairs_health()
+        # v8.2.0: 传入data参数, 支持PairBreak检查 (Z-score判断)
+        health_issues = self.pairs_manager.check_pairs_health(data)
         total_issues = sum(len(ids) for ids in health_issues.values())
 
         if total_issues > 0:
             # 遍历每种问题类型,执行平仓 (日志由Pairs._log_close_completion输出)
             for issue_type, pair_ids in health_issues.items():
-                reason = issue_type.upper()  # 'anomaly' → 'ANOMALY'
+                reason = issue_type.upper()  # 'anomaly' → 'ANOMALY', 'pair_break' → 'PAIR_BREAK'
                 for pair_id in pair_ids:
                     pair = self.pairs_manager.get_pair_by_id(pair_id)
                     if pair is None:
@@ -290,7 +292,8 @@ class BayesianCointegrationStrategy(QCAlgorithm):
                     if intent:
                         self.order_executor.execute_close(intent)
 
-        # === 4. 正常平仓 (CLOSE/PAIR_BREAK 信号) ===
+        # === 4. 正常平仓 (仅 CLOSE 信号) ===
+        # v8.2.0: PAIR_BREAK已迁移至步骤3健康检查
         pairs_with_position = self.pairs_manager.get_pairs_with_position()
 
         for pair_id, pair in pairs_with_position.items():
@@ -301,17 +304,9 @@ class BayesianCointegrationStrategy(QCAlgorithm):
             # 获取交易信号
             signal = pair.get_signal(data)
 
-            # 处理平仓信号
+            # 处理平仓信号 (仅均值回归)
             if signal == 'CLOSE':
                 intent = pair.get_close_intent(reason='MEAN_REVERSION', data=data)
-                if intent:
-                    success = self.order_executor.execute_close(intent)
-                    if success:
-                        self.Debug(f"[平仓] {pair_id} 均值回归", level=0)
-
-            elif signal in ('BREAK_UPPER', 'BREAK_LOWER'):
-                # v8.0.11: 信号层区分方向, 原因层统一为PAIR_BREAK
-                intent = pair.get_close_intent(reason='PAIR_BREAK', data=data)
                 if intent:
                     self.order_executor.execute_close(intent)
 
@@ -324,9 +319,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         for pair, signal, allocated_margin in open_candidates:
             intent = pair.get_open_intent(allocated_margin, data)
             if intent:
-                success = self.order_executor.execute_open(intent)
-                if success:
-                    self.Debug(f"[开仓] {pair.pair_id} {signal} 资金${allocated_margin:,.0f}", level=0)
+                self.order_executor.execute_open(intent)
 
 
     def OnOrderEvent(self, event: OrderEvent):

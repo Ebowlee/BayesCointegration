@@ -2,36 +2,26 @@
 from AlgorithmImports import *
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Set, Tuple
+from src.Pairs import PositionMode
 # endregion
 
 
 class IndustryData:
     """
-    行业数据对象 - 存储单个行业的聚合统计
+    行业数据对象 (v8.1.0: 单一事实来源 - 仅保留trade_history)
 
     字段:
-        historical_pnl: 历史累积盈亏 (已平仓)
-        current_invested_capital: 当前投入资本 (持仓中)
-        historical_invested_capital: 历史累积投入 (已平仓)
-        trade_count: 交易次数
-        win_count: 盈利次数
-        trade_history: 交易记录 [(exit_time, pnl, invested_capital), ...]
+        industry_code: 行业代码
+        trade_history: 交易记录 [(entry_time, exit_time, pnl, invested_capital), ...]
+
+    设计原则:
+        - 移除累积字段 (historical_pnl, trade_count等)
+        - 所有指标从 trade_history 动态计算
     """
 
-    def __init__(self, industry_code: str,
-                 historical_pnl: float = 0.0,
-                 current_invested_capital: float = 0.0,
-                 historical_invested_capital: float = 0.0,
-                 trade_count: int = 0,
-                 win_count: int = 0,
-                 trade_history: List[Tuple[datetime, float, float]] = None):
+    def __init__(self, industry_code: str):
         self.industry_code = industry_code
-        self.historical_pnl = historical_pnl
-        self.current_invested_capital = current_invested_capital
-        self.historical_invested_capital = historical_invested_capital
-        self.trade_count = trade_count
-        self.win_count = win_count
-        self.trade_history: List[Tuple[datetime, float, float]] = trade_history if trade_history is not None else []
+        self.trade_history: List[Tuple[datetime, datetime, float, float]] = []
 
 
 class PairsManager:
@@ -98,11 +88,10 @@ class PairsManager:
 
     def _aggregate_all_industry_data(self) -> Dict[str, IndustryData]:
         """
-        遍历所有配对，聚合各行业的统计数据
+        遍历所有配对，聚合各行业的 trade_history
 
+        v8.1.0: 单一事实来源 - 只聚合 trade_history，其他指标动态计算
         v8.0.17: 时间戳缓存优化
-        - 同一 algorithm.Time 内只计算一次
-        - 减少 O(n×m) → O(n) 每个时间步
         """
         # === 缓存命中检查 ===
         current_time = self.algorithm.Time
@@ -119,23 +108,8 @@ class PairsManager:
             if industry_code not in industry_data:
                 industry_data[industry_code] = IndustryData(industry_code)
 
-            data = industry_data[industry_code]
-
-            # === PnL维度 ===
-            data.historical_pnl += pair.pair_historical_pnl
-
-            # === 投入资本维度 ===
-            current_invested = pair.get_pair_current_invested_capital()
-            if current_invested is not None:
-                data.current_invested_capital += current_invested
-            data.historical_invested_capital += pair.pair_historical_invested_capital
-
-            # === 交易质量维度 ===
-            data.trade_count += pair.trade_count
-            data.win_count += pair.win_count
-
-            # === 滚动窗口维度 (v8.0.0) ===
-            data.trade_history.extend(pair.trade_history)
+            # v8.1.0: 只聚合 trade_history，其他指标动态计算
+            industry_data[industry_code].trade_history.extend(pair.trade_history)
 
         # === 更新缓存 ===
         self._industry_cache = industry_data
@@ -197,137 +171,158 @@ class PairsManager:
         }
 
 
-    # ----- 4B. 情报中心 (行业统计查询 - v8.0.13 简化) -----
-    # 优化: 所有查询统一调用 _aggregate_all_industry_data(), 一次遍历
+    # ----- 4B. 情报中心 (行业统计查询 - v8.1.0 单一事实来源) -----
+    # v8.1.0: 所有指标从 trade_history 动态计算
+    # 四元组结构: (entry_time, exit_time, pnl, invested_capital)
 
-    # --- PnL 组 ---
+    # --- 统一动态查询 (v8.1.0 新增) ---
+
+    def get_industry_stats(self, industry_code: str, window_days: int = None) -> Dict:
+        """
+        获取行业统计数据 (v8.1.0: 单一入口，按需聚合)
+
+        Args:
+            industry_code: 行业代码
+            window_days: 滚动窗口天数 (None=全历史)
+
+        Returns:
+            {trade_count, win_count, total_pnl, total_capital, roi, win_rate, avg_holding_days}
+        """
+        industry_data = self._aggregate_all_industry_data()
+        if industry_code not in industry_data:
+            return self._empty_stats()
+
+        trades = industry_data[industry_code].trade_history
+
+        # 时间窗口筛选 (使用 exit_time, index=1)
+        if window_days is not None:
+            cutoff = self.algorithm.Time.replace(tzinfo=None) - timedelta(days=window_days)
+            trades = [r for r in trades if r[1].replace(tzinfo=None) >= cutoff]
+
+        if not trades:
+            return self._empty_stats()
+
+        # 动态计算所有指标
+        trade_count = len(trades)
+        win_count = sum(1 for r in trades if r[2] > 0)  # pnl > 0
+        total_pnl = sum(r[2] for r in trades)           # pnl
+        total_capital = sum(r[3] for r in trades)       # invested_capital
+        avg_holding = sum((r[1] - r[0]).days for r in trades) / trade_count  # exit - entry
+
+        return {
+            'trade_count': trade_count,
+            'win_count': win_count,
+            'total_pnl': total_pnl,
+            'total_capital': total_capital,
+            'roi': total_pnl / total_capital if total_capital > 0 else 0.0,
+            'win_rate': win_count / trade_count,
+            'avg_holding_days': avg_holding
+        }
+
+    def _empty_stats(self) -> Dict:
+        """返回空统计数据"""
+        return {
+            'trade_count': 0,
+            'win_count': 0,
+            'total_pnl': 0.0,
+            'total_capital': 0.0,
+            'roi': 0.0,
+            'win_rate': 0.0,
+            'avg_holding_days': 0.0
+        }
+
+    # --- 便捷查询方法 (v8.1.0: 委托给 get_industry_stats) ---
 
     def get_industry_historical_pnl(self, industry_code: str) -> float:
         """获取指定行业的历史累积盈亏 (已平仓交易)"""
-        industry_data = self._aggregate_all_industry_data()
-        if industry_code in industry_data:
-            return industry_data[industry_code].historical_pnl
-        return 0.0
-
-    # --- 投入资本组 ---
-
-    def get_industry_current_invested_capital(self, industry_code: str) -> float:
-        """获取指定行业的当前投入资本 (持仓中)"""
-        industry_data = self._aggregate_all_industry_data()
-        if industry_code in industry_data:
-            return industry_data[industry_code].current_invested_capital
-        return 0.0
+        return self.get_industry_stats(industry_code)['total_pnl']
 
     def get_industry_historical_invested_capital(self, industry_code: str) -> float:
         """获取指定行业的历史累积投入资本 (已平仓交易)"""
-        industry_data = self._aggregate_all_industry_data()
-        if industry_code in industry_data:
-            return industry_data[industry_code].historical_invested_capital
-        return 0.0
-
-    # --- 交易质量组 ---
+        return self.get_industry_stats(industry_code)['total_capital']
 
     def get_industry_trade_count(self, industry_code: str) -> int:
         """获取指定行业的交易次数 (已平仓交易计数)"""
-        industry_data = self._aggregate_all_industry_data()
-        if industry_code in industry_data:
-            return industry_data[industry_code].trade_count
-        return 0
+        return self.get_industry_stats(industry_code)['trade_count']
+
+    def get_industry_roi(self, industry_code: str) -> float:
+        """获取行业级历史累积ROI (total_pnl / total_capital)"""
+        return self.get_industry_stats(industry_code)['roi']
+
+    def get_industry_win_rate(self, industry_code: str) -> float:
+        """获取行业胜率 (win_count / trade_count)"""
+        return self.get_industry_stats(industry_code)['win_rate']
+
+    # --- 实时数据查询 (直接从 pairs 聚合，不走 trade_history) ---
+
+    def get_industry_current_invested_capital(self, industry_code: str) -> float:
+        """获取指定行业的当前投入资本 (持仓中，实时数据)"""
+        total = 0.0
+        for pair in self.all_pairs.values():
+            if str(pair.industry_code) == industry_code:
+                invested = pair.get_pair_current_invested_capital()
+                if invested is not None:
+                    total += invested
+        return total
 
     def get_industry_composite_score(self, industry_code: str) -> float:
         """
         计算行业综合得分: rolling_roi × rolling_win_rate
 
-        步骤:
-            1. 聚合行业交易数据
-            2. 筛选滚动窗口内的交易 (rolling_window_days天，不足时取最近min_samples笔)
-            3. 计算 rolling_roi = sum(pnl) / sum(invested_capital)
-            4. 计算 rolling_win_rate = win_count / trade_count
-            5. 返回 roi × win_rate (用于配额分配权重)
+        v8.1.0: 使用四元组结构
+        - trade_history 格式: (entry_time, exit_time, pnl, invested_capital)
         """
-        # === 步骤1: 读取配置 (v8.0.26: 配置路径归属PairsManagerConfig) ===
         window_days = self.config.pairs_manager.rolling_window_days
         min_samples = self.config.pairs_manager.min_samples_for_window
 
-        # === 步骤2: 聚合行业数据 ===
         industry_data = self._aggregate_all_industry_data()
         if industry_code not in industry_data:
             return 0.0
 
-        data = industry_data[industry_code]
-
-        # === 步骤3: 获取该行业所有交易记录 ===
-        # trade_history 格式: List[(exit_time, pnl, invested_capital)]
-        all_trades = data.trade_history
+        all_trades = industry_data[industry_code].trade_history
         if not all_trades:
             return 0.0
 
-        # === 步骤4: 滚动窗口筛选 ===
-        # v8.0.6: 统一为 timezone-naive 避免 "offset-naive and offset-aware" 比较错误
+        # 滚动窗口筛选 (使用 exit_time, index=1)
         cutoff_time = self.algorithm.Time.replace(tzinfo=None) - timedelta(days=window_days)
-        window_trades = [r for r in all_trades if r[0].replace(tzinfo=None) >= cutoff_time]
+        window_trades = [r for r in all_trades if r[1].replace(tzinfo=None) >= cutoff_time]
 
-        # 样本量保底: 窗口内不足 min_samples 时, 取最近 min_samples 笔
+        # 样本量保底
         if len(window_trades) < min_samples:
             window_trades = all_trades[-min_samples:]
 
         if not window_trades:
             return 0.0
 
-        # === 步骤5: 计算指标 ===
-        total_pnl = sum(r[1] for r in window_trades)
-        total_capital = sum(r[2] for r in window_trades)
-        win_count = sum(1 for r in window_trades if r[1] > 0)
+        # v8.1.0: 更新索引 - pnl=r[2], capital=r[3]
+        total_pnl = sum(r[2] for r in window_trades)
+        total_capital = sum(r[3] for r in window_trades)
+        win_count = sum(1 for r in window_trades if r[2] > 0)
         trade_count = len(window_trades)
 
-        # 计算 ROI 和 Win Rate
         rolling_roi = total_pnl / total_capital if total_capital > 0 else 0.0
         rolling_win_rate = win_count / trade_count if trade_count > 0 else 0.0
 
+        # v8.2.3: CS (Composite Score) 不返回负值
+        # 当ROI<0时返回0，表示"无正向表现"
+        # 注: [行业概览]日志中的百分比是ROI值，不是CS值
+        if rolling_roi < 0:
+            return 0.0
+
         return rolling_roi * rolling_win_rate
 
-    def get_industry_roi(self, industry_code: str) -> float:
-        """
-        获取行业级历史累积ROI
-
-        公式: historical_pnl / historical_invested_capital
-        口径: 只计算已平仓交易，不含当前持仓
-        """
-        industry_data = self._aggregate_all_industry_data()
-        if industry_code not in industry_data:
-            return 0.0
-
-        data = industry_data[industry_code]
-        if data.historical_invested_capital <= 0:
-            return 0.0
-
-        return data.historical_pnl / data.historical_invested_capital
-
-    def get_industry_win_rate(self, industry_code: str) -> float:
-        """获取行业胜率 (win_count / trade_count, 平仓口径)"""
-        industry_data = self._aggregate_all_industry_data()
-        if industry_code not in industry_data:
-            return 0.0
-
-        data = industry_data[industry_code]
-        if data.trade_count <= 0:
-            return 0.0
-
-        return data.win_count / data.trade_count
-
-    # --- Concentration 组 (v7.91.0) ---
+    # --- Concentration 组 (v8.1.0: 实时数据，直接从 pairs 聚合) ---
 
     def get_industry_concentration(self, industry_code: str) -> float:
         """获取行业集中度 (industry_current_invested / total_current_invested)"""
-        industry_data = self._aggregate_all_industry_data()
+        industry_invested = self.get_industry_current_invested_capital(industry_code)
 
-        # 分子: 目标行业的当前投入资本
-        if industry_code not in industry_data:
-            return 0.0
-        industry_invested = industry_data[industry_code].current_invested_capital
-
-        # 分母: 全策略的当前投入资本
-        total_invested = sum(d.current_invested_capital for d in industry_data.values())
+        # 分母: 全策略的当前投入资本 (遍历所有 pairs)
+        total_invested = 0.0
+        for pair in self.all_pairs.values():
+            invested = pair.get_pair_current_invested_capital()
+            if invested is not None:
+                total_invested += invested
 
         if total_invested <= 0:
             return 0.0
@@ -338,51 +333,75 @@ class PairsManager:
     # ----- 4C. 健康检查接口 -----
     # 设计: Pairs层面 + Industry层面 (未来扩展)
 
-    def check_pairs_health(self) -> Dict[str, List[str]]:
+    def check_pairs_health(self, data) -> Dict[str, List[str]]:
         """
         配对健康检查，按优先级返回问题配对
 
+        v8.2.0: 新增 data 参数和 pair_break 检查
+
         检查维度 (按优先级):
             1. Anomaly: 单边或同向持仓异常
-            2. Drawdown: 配对回撤超过阈值
+            2. PairBreak: Z-score超过阈值 (方向感知止损)
             3. Drift: 对冲漂移超过阈值
             4. Timeout: 持仓超时
+            5. Drawdown: 配对回撤超过阈值
 
-        返回: {'anomaly': [...], 'drawdown': [...], 'drift': [...], 'timeout': [...]}
+        返回: {'anomaly': [], 'pair_break': [], 'drift': [], 'timeout': [], 'drawdown': []}
         注: 每个配对只返回最高优先级问题
         """
-        health_issues = {'anomaly': [], 'drawdown': [], 'drift': [], 'timeout': []}
+        health_issues = {
+            'anomaly': [],
+            'pair_break': [],
+            'drift': [],
+            'timeout': [],
+            'drawdown': []
+        }
 
         # 获取配置阈值 (v7.97.0: 从 pairs_manager 读取)
         pm_config = self.module_config
-        drawdown_threshold = pm_config.drawdown_threshold
+        pair_break_threshold = pm_config.pair_break_threshold
         drift_threshold = pm_config.drift_threshold
+        drawdown_threshold = pm_config.drawdown_threshold
 
         for pair in self.get_pairs_with_position().values():
+            pair_id = pair.pair_id
+
             # 优先级1: Anomaly (最高优先级)
             if pair.has_anomaly_position():
-                health_issues['anomaly'].append(pair.pair_id)
+                health_issues['anomaly'].append(pair_id)
                 continue  # 跳过后续检查
 
-            # 优先级2: Drawdown (回撤超过阈值)
-            drawdown = pair.get_pair_drawdown()
-            if drawdown is not None and drawdown > drawdown_threshold:
-                health_issues['drawdown'].append(pair.pair_id)
-                continue  # 跳过后续检查
+            # 优先级2: PairBreak (Z-score超过阈值, 方向感知止损)
+            prices = pair.get_price_from_bar(data)
+            if prices is not None:
+                zscore = pair.get_zscore(prices[0], prices[1])
+                if zscore is not None:
+                    position_mode = pair.position_mode
+                    # LONG_SPREAD: zscore < -threshold 表示价差向下突破 (亏损方向)
+                    # SHORT_SPREAD: zscore > +threshold 表示价差向上突破 (亏损方向)
+                    if (position_mode == PositionMode.LONG_SPREAD and zscore < -pair_break_threshold) or \
+                       (position_mode == PositionMode.SHORT_SPREAD and zscore > pair_break_threshold):
+                        health_issues['pair_break'].append(pair_id)
+                        continue  # 跳过后续检查
 
-            # 优先级3: Drift (对冲漂移超过阈值) (v7.87.0, v7.87.1: 小数形式)
+            # 优先级3: Drift (对冲漂移超过阈值)
             drift = pair.get_hedge_drift()
             if drift is not None and abs(drift) > drift_threshold:
-                health_issues['drift'].append(pair.pair_id)
+                health_issues['drift'].append(pair_id)
                 continue  # 跳过后续检查
 
-            # 优先级4: Timeout (持仓超时) (v7.87.1)
-            # 复用 Pairs.get_max_holding_days() 和 get_pair_holding_days()
+            # 优先级4: Timeout (持仓超时)
             max_days = pair.get_max_holding_days()
             holding_days = pair.get_pair_holding_days()
             if max_days is not None and holding_days is not None:
                 if holding_days > max_days:
-                    health_issues['timeout'].append(pair.pair_id)
+                    health_issues['timeout'].append(pair_id)
+                    continue  # 跳过后续检查
+
+            # 优先级5: Drawdown (回撤超过阈值)
+            drawdown = pair.get_pair_drawdown()
+            if drawdown is not None and drawdown > drawdown_threshold:
+                health_issues['drawdown'].append(pair_id)
 
         return health_issues
 

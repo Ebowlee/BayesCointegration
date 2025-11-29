@@ -327,7 +327,8 @@ class PairSelector:
             添加 scaled_score 字段的配对列表
         """
         for pair in pairs:
-            pair_id = f"{pair['symbol1']}_{pair['symbol2']}"
+            # v8.1.6: 修复pair_id格式 (tuple而非string, 与Pairs/PairsManager一致)
+            pair_id = (pair['symbol1'].Value, pair['symbol2'].Value)
             historical_pair = self.algorithm.pairs_manager.get_pair_by_id(pair_id)
 
             # 默认: 无历史时 scale=1.0
