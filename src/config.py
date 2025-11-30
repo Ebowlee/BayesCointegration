@@ -35,7 +35,7 @@ class UniverseConfig:
     """选股配置 - 粗筛参数 + ETF开关 + 财务筛选"""
 
     # 粗筛设置
-    min_price: float = 20
+    min_price: float = 30
     min_market_cap: float = 1e9
     min_days_since_ipo: int = 360
     min_dollar_volume: float = 1e8
@@ -71,10 +71,10 @@ class UniverseConfig:
 @dataclass
 class DataProcessorConfig:
     """数据处理配置"""
-    lookback_days: int = 252                                        # 历史数据回看天数
+    lookback_days: int = 252                                        # 历史数据回看天数（实际交易日）
     data_completeness_ratio: float = 1.0                            # 数据完整性要求
-    max_annualized_volatility: float = 0.8                          # 年化波动率上限 (80%)
-    max_daily_drawdown: float = -0.20                               # 单日最大跌幅 (-20%)
+    max_annualized_volatility: float = 0.7                          # 年化波动率上限 (70%)
+    max_daily_drawdown: float = -0.10                               # 单日最大跌幅 (-10%)
 
 
 @dataclass
@@ -85,8 +85,8 @@ class CointegrationConfig:
     pvalue_threshold: float = 0.01                                  # Engle-Granger p值阈值
 
     # 行业分组
-    min_stocks_per_industry: int = 3                                # 行业最少股票数
-    max_stocks_per_industry: int = 40                               # 行业最多股票数
+    min_stocks_per_industry: int = 10                               # 行业最少股票数
+    max_stocks_per_industry: int = 50                               # 行业最多股票数
     max_symbol_repeats: int = 2                                     # 单股最多允许配对数
 
 
@@ -95,7 +95,7 @@ class BayesianModelerConfig:
     """贝叶斯建模配置"""
 
     # === 数据窗口 (v8.3.0: 与协整分离) ===
-    bayesian_lookback_days: int = 100                                  # 贝叶斯建模仅用最近100天
+    bayesian_lookback_days: int = 60                                # 贝叶斯建模仅用最近60天
 
     # === Uninformed先验 (默认值) ===
     alpha_sigma: float = 10.0
@@ -114,8 +114,8 @@ class BayesianModelerConfig:
     # === Joint Single Stage (MCMC) ===
     sigma_eta_prior: float = 0.1
     mcmc_chains: int = 4
-    mcmc_warmup: int = 1000
-    mcmc_draws: int = 1000
+    mcmc_warmup: int = 2000
+    mcmc_draws: int = 3000
     joint_enable: bool = True
 
 
@@ -124,7 +124,7 @@ class IndustryQuotaManagerConfig:
     """行业配额管理配置"""
 
     # 全局配额
-    total_quota: int = 25                                          # 全局配额总量 (控制贝叶斯建模输入)
+    total_quota: int = 20                                          # 全局配额总量 (控制贝叶斯建模输入)
 
     # 权重计算参数 (v8.2.3: 统一公式 ceil(e^(6×cs)))
     exp_scale_factor: float = 6.0                                  # 指数缩放系数
@@ -180,8 +180,7 @@ class PairsConfig:
     # 信号阈值
     entry_threshold_lower: float = 1.25                            # 入场Z-score下限
     entry_threshold_upper: float = 1.65                            # 入场Z-score上限
-    exit_threshold: float = 0.2                                   # 出场Z-score阈值
-    # v8.2.1: stop_loss_threshold 已迁移至 PairsManagerConfig.pair_break_threshold
+    exit_threshold: float = 0.2                                    # 出场Z-score阈值
 
     # 保证金计算参数
     margin_requirement_long: float = 0.5                           # 多头保证金率: 50%
@@ -199,17 +198,15 @@ class PairsManagerConfig:
 
     # 滚动窗口配置 
     rolling_window_days: int = 90                                  # CS计算滚动窗口
-    # 备注: Pairs.trade_history 保留期 = rolling_window_days × 2 (180天)
     min_samples_for_window: int = 20                               # 样本量保底: 窗口内<20笔时取最近20笔
 
     # 健康检查阈值
     pair_break_threshold: float = 1.95                             # 1.95σ Z-score触发 (v8.2.0: 方向感知止损)
     drawdown_threshold: float = 0.04                               # 4% 回撤触发 (亏损配对)
-    drawdown_threshold_profitable_multiplier: float = 2.0          # 盈利配对回撤阈值放宽倍数 (v8.2.5: 4%→8%)
+    drawdown_threshold_profitable_multiplier: float = 1.5          # 盈利配对回撤阈值放宽倍数 (v8.2.5: 4%→8%)
     drift_threshold: float = 0.40                                  # 40% 漂移触发
 
     # 冷却期配置 (key=reason, value=天数)
-    # 冷却期配置 (按健康检查优先级排序)
     cooldown_days: Dict[str, int] = field(default_factory=lambda: {
         'ANOMALY': 999999,      # 优先级1: 异常持仓 - 永久冷却
         'PAIR_BREAK': 30,       # 优先级2: 协整破裂
@@ -227,8 +224,8 @@ class PairsManagerConfig:
         (0.20, 0.18),    # avg_return ≤ 20%  → 18%
         (0.25, 0.20),    # avg_return ≤ 25%  → 20%
     ])
-    allocation_default: float = 0.10   # get_trade_count()=0 时的默认分配
-    allocation_max: float = 0.25       # avg_return > 25% 时的最大分配
+    allocation_default: float = 0.10                               # get_trade_count()=0 时的默认分配
+    allocation_max: float = 0.25                                   # avg_return > 25% 时的最大分配
 
 
 @dataclass
