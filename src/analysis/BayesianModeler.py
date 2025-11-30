@@ -16,16 +16,17 @@ class BayesianModeler:
 
     def __init__(self, algorithm, analysis_config, bayesian_config):
         """
-        初始化贝叶斯建模器 (v7.96.0: 适配扁平化配置)
+        初始化贝叶斯建模器 (v8.4.0: 时间窗口参数统一从DataProcessorConfig读取)
 
         Args:
             algorithm: QCAlgorithm实例
-            analysis_config: DataProcessorConfig dataclass实例
-            bayesian_config: BayesianModelerConfig dataclass实例 (扁平化结构)
+            analysis_config: DataProcessorConfig dataclass实例 (时间窗口参数来源)
+            bayesian_config: BayesianModelerConfig dataclass实例 (MCMC参数)
         """
         self.algorithm = algorithm
-        self.lookback_days = analysis_config.lookback_days
-        self.config = bayesian_config                               # v7.96.0: 直接存储扁平配置
+        self.total_lookback_days = analysis_config.total_lookback_days    # v8.4.0: 312天总窗口
+        self.bayesian_lookback_days = analysis_config.bayesian_lookback_days  # v8.4.0: 60天MCMC窗口
+        self.config = bayesian_config                               # MCMC先验和采样配置
         self.historical_posteriors = {}                             # 历史后验管理
 
 
@@ -239,23 +240,22 @@ class BayesianModeler:
 
     def _prepare_ar1_data(self, pair_data: PairData):
         """
-        准备AR(1)模型数据 (v8.3.0: 贝叶斯建模使用独立窗口)
+        准备AR(1)模型数据 (v8.4.0: 使用后60天数据)
 
         Args:
-            pair_data: PairData对象 (包含252天数据)
+            pair_data: PairData对象 (包含312天完整数据)
 
         Returns:
             (y_data, x_data, y_curr, y_lag, x_curr, x_lag): 切片后数据和AR(1)数据
 
         Note:
-            v8.3.0: 协整检验用252天，贝叶斯建模仅用最近100天
-            切片在此处进行，对外部模块透明
+            v8.4.0: 协整检验用前252天，贝叶斯建模用后60天 (完全隔离)
         """
         y_data = pair_data.log_prices1
         x_data = pair_data.log_prices2
 
-        # v8.3.0: 贝叶斯建模使用独立窗口 (默认100天)
-        bayesian_window = self.config.bayesian_lookback_days
+        # v8.4.0: 贝叶斯建模使用后60天 (从DataProcessorConfig统一读取)
+        bayesian_window = self.bayesian_lookback_days
         if len(y_data) > bayesian_window:
             y_data = y_data[-bayesian_window:]
             x_data = x_data[-bayesian_window:]
@@ -419,13 +419,13 @@ class BayesianModeler:
     def _cleanup_historical_posteriors(self):
         """
         清理过期的历史后验记录
-        清理规则：删除超过 2 * lookback_days 天的记录
+        清理规则：删除超过 2 * total_lookback_days 天的记录
         """
         if not self.historical_posteriors:
             return
 
         current_time = self.algorithm.UtcTime
-        expired_threshold = 2 * self.lookback_days
+        expired_threshold = 2 * self.total_lookback_days  # v8.4.0: 使用总窗口
 
         pairs_to_remove = []
         for pair_key, posterior in self.historical_posteriors.items():

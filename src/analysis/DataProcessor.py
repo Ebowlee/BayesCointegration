@@ -8,18 +8,18 @@ from collections import defaultdict
 
 
 class DataProcessor:
-    """数据处理器 - 负责历史数据的获取和预处理"""
+    """数据处理器 - 负责历史数据的获取和预处理 (v8.4.0: 下载312天数据)"""
 
     def __init__(self, algorithm, analysis_config):
         """
-        初始化数据处理器 (v7.96.0: 适配DataProcessorConfig重命名)
+        初始化数据处理器 (v8.4.0: 适配时间窗口切割)
 
         Args:
             algorithm: QCAlgorithm实例
             analysis_config: DataProcessorConfig dataclass实例
         """
         self.algorithm = algorithm
-        self.lookback_days = analysis_config.lookback_days
+        self.total_lookback_days = analysis_config.total_lookback_days  # v8.4.0: 312天总窗口
         self.data_completeness_ratio = analysis_config.data_completeness_ratio
         self.max_annualized_volatility = analysis_config.max_annualized_volatility
         self.max_daily_drawdown = analysis_config.max_daily_drawdown
@@ -82,11 +82,11 @@ class DataProcessor:
 
     def _download_historical_data(self, symbols: List[Symbol]):
         """
-        下载历史OHLCV数据
+        下载历史OHLCV数据 (v8.4.0: 下载312天数据用于时间窗口切割)
         返回多级索引DataFrame或None（失败时）
         """
         try:
-            return self.algorithm.History(symbols, self.lookback_days, Resolution.Daily)
+            return self.algorithm.History(symbols, self.total_lookback_days, Resolution.Daily)
         except Exception as e:
             self.algorithm.Debug(f"[DataProcessor] OHLCV数据下载失败: {str(e)}")
             return None
@@ -94,11 +94,11 @@ class DataProcessor:
 
     def _validate_data(self, data: pd.DataFrame) -> Tuple[bool, str]:
         """
-        验证数据完整性和合理性
+        验证数据完整性和合理性 (v8.4.0: 验证312天数据)
 
         要求:
         1. 必须有close列
-        2. 恰好252天数据
+        2. 恰好312天数据 (v8.4.0: 协整252天 + MCMC 60天)
         3. 无任何缺失值(NaN)
         4. 所有价格>0
         5. 年化波动率 <= 0.8 (80%)
@@ -111,8 +111,8 @@ class DataProcessor:
         if 'close' not in data.columns:
             return False, 'data_missing'
 
-        # 检查长度(恰好252天)
-        if len(data) != self.lookback_days:
+        # 检查长度 (v8.4.0: 恰好312天)
+        if len(data) != self.total_lookback_days:
             return False, 'incomplete'
 
         close_series = data['close']

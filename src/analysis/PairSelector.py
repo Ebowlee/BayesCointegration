@@ -27,9 +27,9 @@ class PairSelector:
     """
 
     def __init__(self, algorithm, analysis_config, module_config):
-        """初始化配对选择器"""
+        """初始化配对选择器 (v8.4.0: 清理未使用的lookback_days)"""
         self.algorithm = algorithm
-        self.lookback_days = analysis_config.lookback_days
+        # v8.4.0: 删除 self.lookback_days (未使用)
         self.min_quality_threshold = module_config.min_quality_threshold
         self.quality_weights = module_config.quality_weights
         self.scoring_thresholds = module_config.scoring_thresholds

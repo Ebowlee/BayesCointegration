@@ -56,8 +56,10 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # === 初始化分析管道 ===
         self.data_processor = DataProcessor(self, self.config.data_processor)
 
-        # === 初始化协整分析器 ===
-        self.cointegration_analyzer = CointegrationAnalyzer(self, self.config.cointegration_analyzer)
+        # === 初始化协整分析器 (v8.4.0: 传入DataProcessorConfig获取时间窗口参数) ===
+        self.cointegration_analyzer = CointegrationAnalyzer(
+            self, self.config.cointegration_analyzer, self.config.data_processor
+        )
 
         # === 初始化贝叶斯建模器 (v7.96.0: 配置参数名更新) ===
         self.bayesian_modeler = BayesianModeler(self, self.config.data_processor, self.config.bayesian_modeler)

@@ -23,17 +23,21 @@ class CointegrationAnalyzer:
     - 配额管理: 由IndustryQuotaManager在后续步骤处理
     """
 
-    def __init__(self, algorithm, module_config):
+    def __init__(self, algorithm, module_config, data_processor_config):
         """
-        初始化协整分析器 (v7.65.0: 移除配额参数,简化为纯协整检验模块)
+        初始化协整分析器 (v8.4.0: 从DataProcessorConfig读取时间窗口参数)
 
         Args:
             algorithm: QCAlgorithm实例
-            module_config: 模块配置对象 (CointegrationConfig dataclass)
+            module_config: CointegrationConfig dataclass
+            data_processor_config: DataProcessorConfig dataclass (时间窗口参数来源)
         """
         self.algorithm = algorithm
         self.module_config = module_config
         self.pvalue_threshold = module_config.pvalue_threshold
+
+        # v8.4.0: 时间窗口切片 - 从DataProcessorConfig统一读取 (消除重复定义)
+        self.bayesian_lookback_days = data_processor_config.bayesian_lookback_days
 
         # 行业分组配置
         self.min_stocks_per_industry = module_config.min_stocks_per_industry
@@ -137,26 +141,33 @@ class CointegrationAnalyzer:
 
     def _find_cointegrated_pairs_in_group(self, ig_name: str, symbols: List[Symbol], clean_data: Dict) -> List[Dict]:
         """
-        在单个子行业内查找协整配对 (v7.70.0: 合并_test_all_pairs逻辑,简化方法层级)
+        在单个子行业内查找协整配对 (v8.4.0: 时间窗口切片,消除数据窥探)
 
         Args:
             ig_name: 子行业名称
             symbols: 该子行业内的股票列表
-            clean_data: 清洗后的价格数据
+            clean_data: 清洗后的价格数据 (312天完整数据)
 
         Returns:
             通过pvalue阈值的所有配对列表 (按pvalue排序)
+
+        v8.4.0变更:
+            协整检验使用 data[:-60] (前252天)，与MCMC窗口(后60天)完全隔离
         """
         cointegrated_pairs = []
         failed_tests = []
+
+        # v8.4.0: 计算协整检验的切片范围 (排除后60天)
+        slice_end = -self.bayesian_lookback_days if self.bayesian_lookback_days > 0 else None
 
         # 对所有配对执行协整检验
         for sym1, sym2 in itertools.combinations(symbols, 2):
             symbol1, symbol2 = sorted([sym1, sym2], key=lambda x: x.Value)
 
             try:
-                prices1 = clean_data[symbol1]['close']
-                prices2 = clean_data[symbol2]['close']
+                # v8.4.0: 只使用前252天数据进行协整检验 (消除数据窥探)
+                prices1 = clean_data[symbol1]['close'].iloc[:slice_end]
+                prices2 = clean_data[symbol2]['close'].iloc[:slice_end]
 
                 # 验证数据长度一致(理论上DataProcessor已保证,但再次验证)
                 if len(prices1) != len(prices2):
@@ -168,7 +179,7 @@ class CointegrationAnalyzer:
                     failed_tests.append((symbol1, symbol2, 'index_mismatch'))
                     continue
 
-                # Engle-Granger协整检验
+                # Engle-Granger协整检验 (使用前252天数据)
                 score, pvalue, _ = coint(prices1, prices2)
 
                 # 检查p值阈值

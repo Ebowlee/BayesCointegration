@@ -62,6 +62,23 @@
 
 # Part 2: Data Processing (数据处理)
 
+### 时间窗口设计 (v8.4.0 - 消除数据窥探)
+
+```
+t=-312        t=-60         t=0 (当前)
+  |______________|______________|
+       252天            60天
+         ↓                ↓
+   协整检验期        参数估计期
+   (EG Test)         (MCMC)
+   样本内筛选        样本外估计
+```
+
+**设计原理**:
+- **单一数据源**: `DataProcessorConfig` 定义 `total_lookback_days=312` + `bayesian_lookback_days=60`
+- **派生计算**: 协整窗口 = 312 - 60 = 252天 (各模块自行计算)
+- **数据隔离**: 协整检验和MCMC使用完全不重叠的时间段
+
 ```
 触发: _run_analysis_pipeline() 步骤1
     ↓
@@ -70,7 +87,7 @@
 =========================================
     ↓
 步骤1: 批量下载历史数据
-    └─ algorithm.History(symbols, 252, Resolution.Daily)
+    └─ algorithm.History(symbols, 312, Resolution.Daily)  ← v8.4.0: 312天
     └─ 返回多级索引 DataFrame (symbol × date)
     ↓
 =========================================
@@ -82,7 +99,7 @@
     └─ 失败原因: data_missing
     ↓
 检查2: 数据完整性
-    └─ len(data) == 252 (恰好252个交易日)
+    └─ len(data) == 312 (v8.4.0: 恰好312个交易日)
     └─ 失败原因: incomplete
     ↓
 检查3: 缺失值检查
@@ -107,7 +124,7 @@
 =========================================
     ↓
 {
-    'clean_data': {symbol: DataFrame},  ← 每只股票252天OHLCV
+    'clean_data': {symbol: DataFrame},  ← 每只股票312天OHLCV (v8.4.0)
     'valid_symbols': [Symbol],          ← 通过验证的股票列表
     'statistics': {...}                 ← 统计信息
 }
@@ -119,7 +136,8 @@
 
 | 参数 | 值 | 含义 |
 |------|-----|------|
-| `lookback_days` | 252 | **交易日** - 约1年历史数据 |
+| `total_lookback_days` | 312 | **交易日** - 总数据下载量 (v8.4.0) |
+| `bayesian_lookback_days` | 60 | **交易日** - MCMC建模窗口 |
 | `data_completeness_ratio` | 1.0 | 100%数据完整性要求 |
 | `max_annualized_volatility` | 0.7 | 年化波动率上限70% |
 | `max_daily_drawdown` | -0.10 | 单日跌幅下限-10% |

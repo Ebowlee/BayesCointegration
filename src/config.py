@@ -70,8 +70,13 @@ class UniverseConfig:
 
 @dataclass
 class DataProcessorConfig:
-    """数据处理配置"""
-    lookback_days: int = 252                                        # 历史数据回看天数（实际交易日）
+    """数据处理配置 (v8.4.0: 时间窗口切割，消除数据窥探)"""
+
+    # 时间窗口配置 (协整窗口 = total - bayesian，派生计算)
+    total_lookback_days: int = 312                                  # 总数据下载量 (交易日)
+    bayesian_lookback_days: int = 60                                # 贝叶斯建模窗口
+
+    # === 数据质量验证 ===
     data_completeness_ratio: float = 1.0                            # 数据完整性要求
     max_annualized_volatility: float = 0.7                          # 年化波动率上限 (70%)
     max_daily_drawdown: float = -0.10                               # 单日最大跌幅 (-10%)
@@ -93,9 +98,6 @@ class CointegrationConfig:
 @dataclass
 class BayesianModelerConfig:
     """贝叶斯建模配置"""
-
-    # === 数据窗口 (v8.3.0: 与协整分离) ===
-    bayesian_lookback_days: int = 60                                # 贝叶斯建模仅用最近60天
 
     # === Uninformed先验 (默认值) ===
     alpha_sigma: float = 10.0
