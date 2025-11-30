@@ -314,23 +314,23 @@ t=-312        t=-60         t=0 (当前)
 触发: _run_analysis_pipeline() 步骤5
     ↓
 =========================================
-输入: PairData 对象字典
+输入: PairData 对象字典 + 协整配对列表 (含OLS估计)
 =========================================
     ↓
-步骤1: 先验选择 (二级先验体系)
-    ├─ Level 1 (Informed): 存在有效历史后验 (30天内)
+步骤1: 先验选择 (v8.5.0 Empirical Bayes 两级体系)
+    ├─ Level 1 (Historical): 存在有效历史后验 (30天内)
     │   ├─ α, β: Normal (均值/方差源自历史后验)
     │   ├─ ρ: Beta (矩匹配拟合)
     │   └─ σ_η: HalfNormal (放大系数2.5)
     │
-    └─ Level 2 (Uninformed): 无历史记录
-        ├─ α: Normal(0, 10)
-        ├─ β: Normal(0, 5)
-        ├─ ρ: Beta(2, 2)
-        └─ σ_η: HalfNormal(0.1)
+    └─ Level 2 (OLS Informed): 无历史记录 (所有配对必有)
+        ├─ α: Normal(α̂_ols, α_se × k)     ← 数据驱动
+        ├─ β: Normal(β̂_ols, β_se × k)     ← 数据驱动
+        ├─ ρ: Beta(2, 2)                   ← 弱先验
+        └─ σ_η: HalfNormal(σ̂_ols × 0.1)   ← 数据驱动
     ↓
-步骤2: 数据窗口截取
-    └─ 使用最近 60 个交易日 (bayesian_lookback_days)
+步骤2: 数据窗口截取 (时间隔离)
+    └─ 使用最近 60 个交易日 (与协整检验252天完全隔离)
     ↓
 步骤3: 联合贝叶斯建模 (AR(1) 变换形式)
     ├─ 模型: y_t = α(1-ρ) + β(x_t - ρx_{t-1}) + ρy_{t-1} + η_t
@@ -343,16 +343,35 @@ t=-312        t=-60         t=0 (当前)
 ├─ 后验均值: alpha_mean, beta_mean, rho_mean, sigma_mean
 ├─ 后验标准差: alpha_std, beta_std, rho_std, sigma_std
 ├─ 衍生指标: half_life = -ln(2) / ln(ρ)
-└─ 元数据: modeling_type (informed/uninformed)
+└─ 元数据: modeling_type (historical_posterior/ols_informed)
     ↓
 下游: PairSelector.selection_procedure()
 ```
+
+### Empirical Bayes 设计原理 (v8.5.0)
+
+```
+t=-312        t=-60         t=0 (当前)
+  |______________|______________|
+       252天            60天
+         ↓                ↓
+   OLS回归估计       MCMC参数估计
+   β̂_ols, se(β̂)    beta ~ N(β̂_ols, se×k)
+   "长期历史经验"    "短期参数更新"
+```
+
+**核心思想**: Long-term Posterior (OLS) = Short-term Prior (MCMC)
+- OLS 在协整窗口 (252天) 上估计参数，作为 MCMC 的先验
+- MCMC 在建模窗口 (60天) 上更新参数，得到后验
+- 两个窗口完全隔离，消除数据窥探
 
 ### 关键配置参数
 
 | 参数 | 值 | 含义 |
 |------|-----|------|
 | `bayesian_lookback_days` | 60 | 建模数据窗口 (交易日) |
+| `ols_prior_sigma_multiplier` | 2.0 | OLS标准误放宽倍数 (α, β) |
+| `sigma_eta_scale_factor` | 0.1 | 状态噪声缩放因子 |
 | `mcmc_chains` | 4 | MCMC链数 |
 | `mcmc_warmup` | 2000 | 预热采样次数 |
 | `mcmc_draws` | 3000 | 正式采样次数 |
