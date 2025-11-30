@@ -97,28 +97,27 @@ class CointegrationConfig:
 
 @dataclass
 class BayesianModelerConfig:
-    """贝叶斯建模配置"""
+    """贝叶斯建模配置 (v8.5.0: Empirical Bayes重构)"""
 
-    # === Uninformed先验 (默认值) ===
-    alpha_sigma: float = 10.0
-    beta_sigma: float = 5.0
-    sigma_sigma: float = 5.0
-    rho_alpha: float = 2.0
+    # === OLS先验 (v8.5.0 Empirical Bayes) ===
+    ols_prior_sigma_multiplier: float = 2.0         # OLS标准误放宽倍数 (α, β)
+    sigma_eta_scale_factor: float = 0.1             # 状态噪声缩放因子 (sigma_eta = sigma_ols × 0.1)
+
+    # === AR(1)参数先验 ===
+    rho_alpha: float = 2.0                          # Beta(2,2) 弱先验
     rho_beta: float = 2.0
 
-    # === Informed先验 (历史后验) ===
+    # === 历史后验先验 (跨月复用) ===
     informed_sigma_multiplier: float = 2.0
     informed_validity_days: int = 30
     informed_rho_variance_multiplier: float = 1.2
     informed_rho_variance_safety: float = 0.9
     informed_sigma_eta_multiplier: float = 2.5
 
-    # === Joint Single Stage (MCMC) ===
-    sigma_eta_prior: float = 0.1
+    # === MCMC采样配置 ===
     mcmc_chains: int = 4
     mcmc_warmup: int = 2000
     mcmc_draws: int = 3000
-    joint_enable: bool = True
 
 
 @dataclass

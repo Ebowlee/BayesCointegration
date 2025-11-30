@@ -6,6 +6,7 @@ from typing import Dict, List
 from collections import defaultdict
 import itertools
 from statsmodels.tsa.stattools import coint
+import statsmodels.api as sm
 # endregion
 
 
@@ -42,6 +43,32 @@ class CointegrationAnalyzer:
         # 行业分组配置
         self.min_stocks_per_industry = module_config.min_stocks_per_industry
         self.max_stocks_per_industry = module_config.max_stocks_per_industry
+
+
+    def _run_ols_regression(self, log_prices1: np.ndarray, log_prices2: np.ndarray) -> Dict:
+        """
+        OLS回归获取α, β, σ的估计值及标准误 (v8.5.0 Empirical Bayes)
+
+        模型: log(P1) = α + β × log(P2) + ε
+
+        Returns:
+            {
+                'alpha_ols': α̂ (截距),
+                'alpha_se': se(α̂),
+                'beta_ols': β̂ (斜率),
+                'beta_se': se(β̂),
+                'sigma_ols': σ̂_resid (残差标准差)
+            }
+        """
+        X = sm.add_constant(log_prices2)
+        results = sm.OLS(log_prices1, X).fit()
+        return {
+            'alpha_ols': results.params[0],
+            'alpha_se': results.bse[0],
+            'beta_ols': results.params[1],
+            'beta_se': results.bse[1],
+            'sigma_ols': np.std(results.resid),
+        }
 
 
     def _is_etf(self, symbol: Symbol) -> bool:
@@ -184,11 +211,16 @@ class CointegrationAnalyzer:
 
                 # 检查p值阈值
                 if pvalue < self.pvalue_threshold:
+                    # v8.5.0: OLS回归获取先验参数 (Empirical Bayes)
+                    ols_result = self._run_ols_regression(
+                        np.log(prices1.values), np.log(prices2.values)
+                    )
                     cointegrated_pairs.append({
                         'symbol1': symbol1,
                         'symbol2': symbol2,
                         'pvalue': pvalue,
-                        'industry_code': int(ig_name)  # v7.40.8: 统一使用整数格式
+                        'industry_code': int(ig_name),  # v7.40.8: 统一使用整数格式
+                        **ols_result,  # v8.5.0: 展开OLS结果 (5个字段)
                     })
 
             except ValueError:

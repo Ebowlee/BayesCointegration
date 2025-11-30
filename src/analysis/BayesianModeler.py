@@ -61,13 +61,13 @@ class BayesianModeler:
 
 
     def _model_single_pair(self, pair: Dict, pair_data_dict: Dict) -> Dict:
-        """单个配对的建模流程"""
+        """单个配对的建模流程 (v8.5.0: 传递pair_info给_select_prior)"""
         try:
             pair_key = (pair['symbol1'], pair['symbol2'])
             pair_data = pair_data_dict[pair_key]
 
-            # 先验选择
-            prior_params, prior_type = self._select_prior(pair_data.pair_key)
+            # v8.5.0: 传递pair_info获取OLS先验参数
+            prior_params, prior_type = self._select_prior(pair_data.pair_key, pair)
 
             # 单一联合建模
             posterior_stats = self._fit_joint_model(pair_data, prior_params)
@@ -120,16 +120,21 @@ class BayesianModeler:
 
         return (A, B)
 
-    def _select_prior(self, pair_key: tuple) -> tuple:
+    def _select_prior(self, pair_key: tuple, pair_info: Dict) -> tuple:
         """
-        先验选择策略（二级体系）
-        - Level 1: 历史后验先验（强信息）
-        - Level 2: 完全无信息先验（默认）
+        先验选择策略 (v8.5.0: 两级Empirical Bayes体系)
+
+        - Level 1: 历史MCMC后验 (跨月复用的老配对)
+        - Level 2: OLS先验 (所有配对的基础,EG通过=OLS必有)
+
+        Args:
+            pair_key: 配对键 (symbol1, symbol2)
+            pair_info: 配对信息字典 (包含OLS估计值)
         """
         if self._has_valid_historical_posterior(pair_key):
             return self._create_historical_prior(pair_key), 'historical_posterior'
 
-        return self._create_uninformed_prior(), 'uninformed'
+        return self._create_ols_prior(pair_info), 'ols_informed'
 
 
     def _has_valid_historical_posterior(self, pair_key: tuple) -> bool:
@@ -144,14 +149,9 @@ class BayesianModeler:
 
 
     def _create_historical_prior(self, pair_key: tuple) -> Dict:
-        """创建历史后验先验 (v7.5.20: 添加ρ/σ_η历史先验)"""
-        cfg = self.config  # v7.96.0: 使用扁平化配置
+        """创建历史后验先验 (v8.5.0: 清理sigma_sigma死代码)"""
+        cfg = self.config
         historical = self.historical_posteriors[pair_key]
-
-        sigma_prior = max(
-            historical['sigma_std'] * cfg.informed_sigma_multiplier,
-            historical['sigma_mean'] * 1.0
-        )
 
         # v7.5.20: ρ的Beta先验 (矩匹配)
         rho_alpha, rho_beta = self._beta_moment_matching(
@@ -160,17 +160,16 @@ class BayesianModeler:
             cfg=cfg
         )
 
-        # v7.5.20: σ_η的HalfNormal先验 (温度化放宽)
+        # σ_η的HalfNormal先验 (温度化放宽)
         sigma_eta_prior = historical['sigma_std'] * cfg.informed_sigma_eta_multiplier
 
         return {
-            # 协整参数
+            # 协整参数 (历史后验)
             'alpha_mu': historical['alpha_mean'],
             'alpha_sigma': historical['alpha_std'],
             'beta_mu': historical['beta_mean'],
             'beta_sigma': historical['beta_std'],
-            'sigma_sigma': sigma_prior,
-            # AR(1)参数 (v7.5.20新增)
+            # AR(1)参数
             'rho_alpha': rho_alpha,
             'rho_beta': rho_beta,
             'sigma_eta_prior': sigma_eta_prior,
@@ -180,21 +179,33 @@ class BayesianModeler:
         }
 
 
-    def _create_uninformed_prior(self) -> Dict:
-        """创建完全无信息先验 (v7.5.20, v7.96.0: 适配扁平化配置)"""
+    def _create_ols_prior(self, pair_info: Dict) -> Dict:
+        """
+        创建OLS先验 (v8.5.0 Empirical Bayes)
+
+        利用协整窗口(252天)的OLS回归结果构建数据驱动的先验。
+        所有通过EG检验的配对都有OLS估计值,无需uninformed回退。
+
+        Args:
+            pair_info: 配对信息字典,包含OLS估计值:
+                - alpha_ols, alpha_se: 截距估计及标准误
+                - beta_ols, beta_se: 斜率估计及标准误
+                - sigma_ols: 残差标准差
+        """
         cfg = self.config
+        k = cfg.ols_prior_sigma_multiplier          # 标准误放宽倍数
+        eta_scale = cfg.sigma_eta_scale_factor      # 状态噪声缩放因子
 
         return {
-            # 协整参数 (uninformed先验)
-            'alpha_mu': 0,
-            'alpha_sigma': cfg.alpha_sigma,
-            'beta_mu': 1,
-            'beta_sigma': cfg.beta_sigma,
-            'sigma_sigma': cfg.sigma_sigma,
-            # AR(1)参数 (v7.5.20新增)
-            'rho_alpha': cfg.rho_alpha,                 # Beta(2,2)
+            # 协整参数 (OLS先验 - 数据驱动)
+            'alpha_mu': pair_info['alpha_ols'],
+            'alpha_sigma': pair_info['alpha_se'] * k,
+            'beta_mu': pair_info['beta_ols'],
+            'beta_sigma': pair_info['beta_se'] * k,
+            # AR(1)参数
+            'rho_alpha': cfg.rho_alpha,             # Beta(2,2) 弱先验
             'rho_beta': cfg.rho_beta,
-            'sigma_eta_prior': cfg.sigma_eta_prior,    # HalfNormal(0.1)
+            'sigma_eta_prior': pair_info['sigma_ols'] * eta_scale,  # 数据驱动
             # MCMC配置
             'tune': cfg.mcmc_warmup,
             'draws': cfg.mcmc_draws,
