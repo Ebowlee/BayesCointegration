@@ -379,7 +379,7 @@ t=-312        t=-60         t=0 (当前)
 
 ---
 
-# Part 7: Pair Selector (配对筛选)
+# Part 7: Pair Selector (配对筛选) - v8.8.0 阈值模式
 
 ```
 触发: _run_analysis_pipeline() 步骤6
@@ -388,39 +388,41 @@ t=-312        t=-60         t=0 (当前)
 输入: ModelResult 对象列表
 =========================================
     ↓
-步骤1: 三维质量评分
+四维度阈值筛选 (Pass/Fail 逻辑)
     ↓
-维度1: Half-life (25%)
-    ├─ 定义: 均值回归一半所需时间
-    ├─ 公式: -ln(2) / ln(ρ)
-    ├─ 评分: 非对称高斯分布
-    │   ├─ 峰值: 10天
-    │   ├─ 核心区间: 5-15天
-    │   └─ 惩罚: <4天或>25天
+维度1: CV BETA 稳定性
+    ├─ 公式: CV = beta_std / |beta_mean|
+    ├─ 含义: β估计的相对不确定性
+    ├─ 阈值: CV ≤ 0.3 通过
+    └─ 边界: |beta_mean| < 0.1 → 剔除 (避免CV爆炸)
     ↓
-维度2: Mean-reversion Certainty (40%)
-    ├─ 定义: 均值回归强度的信噪比
-    ├─ 指标: SNR_κ = Mean(κ) / Std(κ)
-    └─ 评分: Logistic S曲线
+维度2: 半衰期
+    ├─ 公式: half_life = -ln(2) / ln(rho_mean)
+    ├─ 含义: 残差回归到一半所需天数
+    └─ 阈值: 5 ≤ half_life ≤ 20 天通过
     ↓
-维度3: Zero-crossing (35%)
-    ├─ 定义: Spread穿越均值的次数
-    ├─ 评分: 分段线性函数
-    │   ├─ 峰值: 12次/年
-    │   └─ 合理区间: 6-36次
+维度3: Hurst 指数
+    ├─ 算法: R/S 分析 (Rescaled Range Analysis)
+    ├─ 含义: H < 0.5 均值回归, H > 0.5 趋势
+    └─ 阈值: H < 0.4 通过 (更严格筛选)
     ↓
-步骤2: 质量评分计算
-    └─ quality_score = Σ(weight_i × score_i)
+维度4: 零轴穿越
+    ├─ 计算: spread 穿越均值的次数
+    ├─ 含义: 穿越越多 → 交易机会越多
+    └─ 阈值: 6 ≤ count ≤ 30 次通过
     ↓
-步骤3: 门槛过滤
-    └─ quality_score ≥ 0.50
-    ↓
-步骤4: ROI缩放 (v8.0.24)
-    ├─ 条件: 存在历史交易记录
-    └─ scaled_score = quality_score × (1 + pair_roi)
+全部通过 → 保留
+任一失败 → 剔除
     ↓
 =========================================
-输出: 最终入选配对列表 (按scaled_score降序)
+步骤5: ROI缩放排序
+=========================================
+    ├─ 条件: 存在历史交易记录
+    ├─ 公式: scale_factor = 1 + tanh(ROI)
+    └─ 排序: 按 scale_factor 降序
+    ↓
+=========================================
+输出: 最终入选配对列表 (按scale_factor降序)
 =========================================
     ↓
 下游: 创建 Pairs 对象
@@ -430,10 +432,33 @@ t=-312        t=-60         t=0 (当前)
 
 | 参数 | 值 | 含义 |
 |------|-----|------|
-| `min_quality_threshold` | 0.50 | 最低质量分数阈值 |
-| `half_life权重` | 25% | 半衰期评分权重 |
-| `mean_reversion_certainty权重` | 40% | MR确定性评分权重 |
-| `zero_crossing权重` | 35% | 零轴穿越评分权重 |
+| `cv_beta_threshold` | 0.3 | CV > 0.3 → 剔除 |
+| `min_abs_beta` | 0.1 | \|β\| < 0.1 → 剔除 |
+| `half_life_min` | 5.0 | < 5天 → 剔除 |
+| `half_life_max` | 20.0 | > 20天 → 剔除 |
+| `hurst_threshold` | 0.4 | H ≥ 0.4 → 剔除 |
+| `zero_crossing_min` | 6 | < 6次 → 剔除 |
+| `zero_crossing_max` | 30 | > 30次 → 剔除 |
+
+### Hurst 指数计算 (R/S 分析)
+
+```
+算法流程:
+1. 将 spread 序列分成 k 个子序列
+2. 对每个子序列计算 R/S 统计量:
+   - 去均值: mean_adj = sub - mean(sub)
+   - 累积偏差: cumsum = cumsum(mean_adj)
+   - R = max(cumsum) - min(cumsum)
+   - S = std(sub)
+   - RS = R / S
+3. 对数回归: log(R/S) = H × log(n) + c
+4. 斜率 H 即为 Hurst 指数
+
+H 的含义:
+- H < 0.5: 均值回归 (好)
+- H ≈ 0.5: 随机游走 (差)
+- H > 0.5: 趋势持续 (差)
+```
 
 ---
 

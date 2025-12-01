@@ -138,40 +138,32 @@ class IndustryQuotaManagerConfig:
 
 @dataclass
 class PairSelectorConfig:
-    """配对质量评估配置"""
-    min_quality_threshold: float = 0.50                             # 最低质量分数阈值 (v8.0.24: 应用于scaled_score)
-    roi_scaling_enabled: bool = True                                # ROI缩放开关 (v8.0.24: 替代二元过滤)
+    """
+    配对筛选配置 (v8.8.0: 阈值筛选模式)
 
-    quality_weights: Dict = field(default_factory=lambda: {
-        'half_life': 0.25,                     
-        'mean_reversion_certainty': 0.40,      
-        'zero_crossing': 0.35                  
-    })
+    四维度阈值筛选:
+    1. CV BETA: β估计的相对不确定性
+    2. 半衰期: 残差回归速度
+    3. Hurst: 均值回归特性
+    4. 零轴穿越: 交易活跃度
+    """
+    # ROI缩放开关 (历史表现影响排序优先级)
+    roi_scaling_enabled: bool = True
 
-    # 评分函数阈值设置
-    scoring_thresholds: Dict = field(default_factory=lambda: {
-        'half_life': {
-            'peak_days': 10,
-            'sigma_left': 5.0,
-            'sigma_right': 12.0,
-            'min_days': 4,
-            'decay_start': 25,
-            'decay_rate': 0.15
-        },
-        'mean_reversion_certainty': {
-            'time_delta_days': 1.0,
-            'logistic_steepness': 2.5,
-            'logistic_midpoint': 2.0,
-            'max_snr_kappa': 10.0
-        },
-        'zero_crossing': {
-            'min_crossings': 6,
-            'peak_crossings': 12,
-            'half_peak_high': 18,
-            'plateau_end': 24,
-            'max_crossings': 36
-        }
-    })
+    # 维度1: CV BETA 稳定性
+    cv_beta_threshold: float = 0.3                                  # CV > 0.3 → 剔除
+    min_abs_beta: float = 0.1                                       # |β| < 0.1 → 剔除 (避免CV爆炸)
+
+    # 维度2: 半衰期
+    half_life_min: float = 5.0                                      # < 5天 → 剔除 (太短 = 噪音)
+    half_life_max: float = 20.0                                     # > 20天 → 剔除 (太长 = 回归太慢)
+
+    # 维度3: Hurst 指数
+    hurst_threshold: float = 0.4                                    # H >= 0.4 → 剔除 (更严格的均值回归要求)
+
+    # 维度4: 零轴穿越
+    zero_crossing_min: int = 6                                      # < 6次 → 剔除 (太不活跃)
+    zero_crossing_max: int = 30                                     # > 30次 → 剔除 (太嘈杂)
 
 
 @dataclass

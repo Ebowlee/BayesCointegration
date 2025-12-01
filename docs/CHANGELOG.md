@@ -5,6 +5,108 @@
 ---
 
 
+## [v8.8.0_threshold-filter@20251201]
+
+### 版本概述
+PairSelector 重构：废除评分系统，改为四维度阈值筛选 (pass/fail 逻辑)。
+
+### 设计理念：从评分到阈值
+
+**v8.7.0 评分系统的问题:**
+```python
+# 复杂的加权评分
+quality_score = (
+    0.25 * half_life_score +      # 非对称高斯+软截断+指数衰减
+    0.40 * mean_reversion_score + # κ-based SNR → 逻辑斯蒂
+    0.35 * zero_crossing_score    # 分段线性
+)
+# 问题: 评分函数本身引入噪音，参数难以调优
+```
+
+**v8.8.0 阈值筛选的优势:**
+- 每个维度独立判断 pass/fail
+- 无权重依赖，逻辑透明
+- 参数含义明确，易于调优
+
+### 四维度阈值筛选体系
+
+| 维度 | 公式 | 阈值 | 含义 |
+|------|------|------|------|
+| CV BETA | `beta_std / \|beta_mean\|` | ≤ 0.3 | β估计的相对不确定性 |
+| 半衰期 | `-ln(2) / ln(rho_mean)` | [5, 20] 天 | 回归速度 |
+| Hurst | R/S 分析 | < 0.4 | 均值回归特性 |
+| 零轴穿越 | 符号变化次数 | [6, 30] 次 | 交易活跃度 |
+
+### 变更内容
+
+**src/analysis/PairSelector.py - 完全重写:**
+- 删除: `_calculate_half_life_score()` (50行)
+- 删除: `_calculate_mean_reversion_certainty_score()` (45行)
+- 删除: `_calculate_zero_crossing_score()` (40行)
+- 删除: `evaluate_quality()` 评分聚合逻辑
+- 删除: `select_best()` 评分排序逻辑
+- 新增: `_filter_by_cv_beta()` - CV BETA 阈值筛选
+- 新增: `_filter_by_half_life()` - 半衰期阈值筛选
+- 新增: `_filter_by_hurst()` - Hurst 指数阈值筛选
+- 新增: `_filter_by_zero_crossing()` - 零轴穿越阈值筛选
+- 新增: `_compute_hurst_exponent()` - R/S 分析计算 Hurst
+- 新增: `_compute_zero_crossing_count()` - 计算零轴穿越次数
+- 保留: `_apply_roi_scaling()` - 历史 ROI 影响排序优先级
+
+**src/config.py - PairSelectorConfig 重构:**
+```python
+# 删除
+quality_weights: Dict          # 权重字典
+scoring_thresholds: Dict       # 评分函数参数
+min_quality_threshold: float   # 质量分数门槛
+
+# 新增
+cv_beta_threshold: float = 0.3      # CV > 0.3 → 剔除
+min_abs_beta: float = 0.1           # |β| < 0.1 → 剔除
+half_life_min: float = 5.0          # < 5天 → 剔除
+half_life_max: float = 20.0         # > 20天 → 剔除
+hurst_threshold: float = 0.4        # H >= 0.4 → 剔除
+zero_crossing_min: int = 6          # < 6次 → 剔除
+zero_crossing_max: int = 30         # > 30次 → 剔除
+```
+
+### 筛选流程变化
+
+```python
+# v8.7.0 (评分模式)
+scored_pairs = evaluate_quality(modeling_results)  # 计算三维分数
+selected = select_best(scored_pairs)               # 质量门槛+ROI缩放+排序
+
+# v8.8.0 (阈值模式)
+for result in modeling_results:
+    if not _filter_by_cv_beta(result): continue
+    if not _filter_by_half_life(result): continue
+    if not _filter_by_hurst(result): continue
+    if not _filter_by_zero_crossing(result): continue
+    filtered.append(result)
+# 通过全部四重筛选才保留，按 ROI scale_factor 排序
+```
+
+### Hurst 指数计算 (R/S 分析)
+
+```
+算法流程:
+1. 将 spread 序列分成 k 个子序列
+2. 对每个子序列计算 R/S 统计量:
+   - R = max(累积偏差) - min(累积偏差)
+   - S = 标准差
+3. 对数回归: log(R/S) = H * log(n) + c
+4. 斜率 H 即为 Hurst 指数
+
+H 的含义:
+- H < 0.5: 均值回归 (好)
+- H ≈ 0.5: 随机游走 (差)
+- H > 0.5: 趋势持续 (差)
+```
+
+---
+
+
 ## [v8.7.0_rsi-on-zscore@20251201]
 
 ### 版本概述

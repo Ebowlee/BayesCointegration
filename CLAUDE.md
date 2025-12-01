@@ -56,10 +56,13 @@ OnSecuritiesChanged (月度触发)
 步骤3: BayesianModeler.model()
     ↓
 步骤4: PairSelector.select()
+    ⭐ 四维度阈值筛选 (v8.8.0)
     [内部流程]:
-        - 质量分数计算
-        - 阈值过滤
-        - 质量排序
+        - CV BETA 筛选 (≤ 0.3)
+        - 半衰期筛选 ([5, 20] 天)
+        - Hurst 筛选 (< 0.4)
+        - 零轴穿越筛选 ([6, 30] 次)
+        - ROI缩放排序
     ↓
 输出: 高质量配对列表 → PairsManager.update_pairs()
 ```
@@ -434,54 +437,25 @@ git commit -m "docs: update CHANGELOG for v7.2.5"
 - **BayesianModeler**: PyMC MCMC parameter estimation (500 warmup + 500 samples, 2 chains)
   - **Input**: PairData objects from CointegrationAnalyzer
   - **Output**: ModelResult objects with posterior distributions (alpha, beta, sigma)
-- **PairSelector**: Quality scoring using 2 weighted metrics (v7.5.23) + risk pair filtering (v7.12.0)
+- **PairSelector**: 四维度阈值筛选 (v8.8.0 重构)
   - **Input**: ModelResult objects from BayesianModeler
-  - **Quality Metrics**:
-    - **half_life** (60%): Mean reversion speed (most independent + highest predictive power 57%)
-    - **mean_reversion_certainty** (40%): AR(1) significance (theoretical core + moderate predictive power 50%)
-  - **Risk Filtering** (v7.12.0): `_filter_risk_pairs()` internal method filters DRAWDOWN/ANOMALY cooldown pairs
-  - **No Blacklist**: v7.12.0 removed BlacklistManager module, simplified to cooldown-based filtering
-
-  **Half-Life Scoring Details** (v7.31.3 - 详细数学原理):
-  - **设计理念**:
-    - 峰值: 8天 (统计质量+timeout安全性的最优平衡)
-    - 核心区间: 5-10天 (评分≥0.75)
-    - 可接受区间: 4-12天 (评分≥0.50)
-    - 排除区间: <4天或>15天
-  - **配合改良C方案**:
-    - 入场: [1.2σ, 1.8σ]
-    - 出场: 0.3σ
-    - Timeout: 30天
-  - **评分标准** (基于Timeout约束):
-    - 4天: 0.50 (次优,噪音风险)
-    - 5天: 0.75 (良好)
-    - 6天: 0.90 (优秀)
-    - 8天: 1.00 (峰值)
-    - 10天: 0.85 (良好)
-    - 12天: 0.65 (可接受)
-    - 15天: 0.18 (排除)
-  - **评分算法**: 非对称高斯+软截断+指数衰减
-    - 左侧(4-8天): σ=3.5 (保证6天≈0.90)
-    - 右侧(8-12天): σ=4.5 (保证10天≈0.85, 12天≈0.65)
-    - 软截断下界: 4天以下平滑惩罚
-    - 远端指数衰减: 12天后快速排除
-
-  **Mean Reversion Certainty Scoring Details** (v7.31.3 - 详细数学原理):
-  - **核心思路**:
-    1. 连续时间转换: κ = -ln|ρ|/Δt (频率不变性)
-    2. 逐样本转换: κ^(s) = -ln|ρ^(s)|/Δt (贝叶斯一致性)
-    3. 精确后验统计: E[κ] = mean(κ^(s)), Std[κ] = std(κ^(s))
-    4. SNR计算: SNR_κ = E[κ] / Std[κ] (估计精度)
-    5. 逻辑斯蒂归一化: score = 1/(1+exp(a·(b-SNR_κ))) (S曲线)
-  - **数学原理**:
-    - κ: 连续时间均值回归率 (单位: 1/天)
-    - κ越大 → 均值回归越快 → 半衰期越短
-    - SNR_κ越高 → κ估计越可靠 → 交易策略越稳健
-  - **参数配置** (见config.py):
-    - time_delta_days: 1天 (日频数据)
-    - max_snr_kappa: 100 (上界截断)
-    - logistic_steepness: 0.3
-    - logistic_midpoint: 5.0
+  - **Threshold Filtering** (v8.8.0): Pass/fail logic for each dimension
+    | 维度 | 公式 | 阈值 | 含义 |
+    |------|------|------|------|
+    | CV BETA | `beta_std / |beta_mean|` | ≤ 0.3 | β估计的相对不确定性 |
+    | 半衰期 | `-ln(2) / ln(rho_mean)` | [5, 20] 天 | 回归速度 |
+    | Hurst | R/S 分析 | < 0.4 | 均值回归特性 |
+    | 零轴穿越 | 符号变化次数 | [6, 30] 次 | 交易活跃度 |
+  - **ROI Scaling**: `scale_factor = 1 + tanh(ROI)` 影响排序优先级
+  - **Key Methods**:
+    - `_filter_by_cv_beta()`: CV BETA 稳定性筛选
+    - `_filter_by_half_life()`: 半衰期范围筛选
+    - `_filter_by_hurst()`: Hurst 指数筛选 (R/S 分析)
+    - `_filter_by_zero_crossing()`: 零轴穿越次数筛选
+    - `_compute_hurst_exponent()`: R/S 分析计算 Hurst 指数
+  - **Design Change** (v8.8.0): 废除评分系统，改为阈值筛选
+    - 删除: `quality_weights`, `scoring_thresholds`, 三个 `_calculate_*_score()` 方法
+    - 新增: 四个 `_filter_by_*()` 方法，全部返回布尔值
 - **IndustryQuotaManager** (v7.12.0): Dynamic industry-level quota system
   - **Warmup Period**: First 180 days use default quota (1 pair per industry)
   - **Dynamic Adjustment**: Monthly quota calculation based on weighted return
@@ -885,9 +859,12 @@ zscore = (log_residual - residual_mean) / residual_std
 
 ## Version History
 
-**Current Version**: v8.1.0 (2025-11-29)
+**Current Version**: v8.8.0 (2025-12-01)
 
 **Recent Major Updates**:
+- **v8.8.0** (Dec 2025): PairSelector阈值筛选重构 - 废除评分系统,四维度pass/fail筛选(CV BETA/半衰期/Hurst/零轴穿越)
+- **v8.7.0** (Dec 2025): RSI on Z-score动量检测 - 三重AND条件过滤入场信号
+- **v8.6.0** (Dec 2025): 卡尔曼滤波β漂移检测 - 替代VALUE漂移,更准确的协整破裂检测
 - **v8.1.0** (Nov 2025): 单一事实来源重构 - 三元组→四元组,删除累积变量,动态聚合方法
 - **v8.0.3** (Nov 2025): Docstring精简 - 简单方法单行说明,复杂方法保留步骤化解释
 - **v8.0.0** (Nov 2025): 滚动窗口行业评分 - trade_history数据结构,180天窗口计算,解决评分固化问题
@@ -914,7 +891,7 @@ zscore = (log_residual - residual_mean) / residual_std
     - **DataProcessor.py**: Data cleaning and validation (252-day lookback)
     - **CointegrationAnalyzer.py**: Cointegration testing with industry quota application
     - **BayesianModeler.py**: PyMC MCMC parameter estimation
-    - **PairSelector.py**: Quality scoring and risk pair filtering
+    - **PairSelector.py**: 四维度阈值筛选 (v8.8.0: CV BETA/半衰期/Hurst/零轴穿越)
     - **PairData.py**: Data encapsulation class for pair analysis
     - **IndustryQuotaManager.py**: Dynamic industry quota system (v8.0.0 updated)
   - **config.py**: Centralized configuration via StrategyConfig class
