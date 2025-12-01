@@ -116,40 +116,22 @@ class BayesianModelerConfig:
 
     # === MCMC采样配置 ===
     mcmc_chains: int = 4
-    mcmc_warmup: int = 2000
-    mcmc_draws: int = 3000
-
-
-@dataclass
-class IndustryQuotaManagerConfig:
-    """行业配额管理配置"""
-
-    # 全局配额
-    total_quota: int = 20                                          # 全局配额总量 (控制贝叶斯建模输入)
-
-    # 权重计算参数 (v8.2.3: 统一公式 ceil(e^(6×cs)))
-    exp_scale_factor: float = 6.0                                  # 指数缩放系数
-    # v8.2.3: 删除weight_offset (比例分配时offset无意义)
-    min_quota_per_industry: int = 1                                # 单行业最低配额保底
-
-    # 预热期配置 (v8.0.26: 从MainConfig移入，专属于IQM)
-    warmup_days: int = 90                                          # IQM预热期 (跳过配额计算)
+    mcmc_warmup: int = 500
+    mcmc_draws: int = 500
 
 
 @dataclass
 class PairSelectorConfig:
     """
-    配对筛选配置 (v8.8.0: 阈值筛选模式)
+    配对筛选配置 (v8.9.1: 三维度阈值筛选)
 
-    四维度阈值筛选:
+    三维度阈值筛选:
     1. CV BETA: β估计的相对不确定性
     2. 半衰期: 残差回归速度
-    3. Hurst: 均值回归特性
-    4. 零轴穿越: 交易活跃度
-    """
-    # ROI缩放开关 (历史表现影响排序优先级)
-    roi_scaling_enabled: bool = True
+    3. 零轴穿越: 交易活跃度
 
+    v8.9.1: 删除Hurst维度 (60天spread数据不足以稳健计算R/S分析)
+    """
     # 维度1: CV BETA 稳定性
     cv_beta_threshold: float = 0.3                                  # CV > 0.3 → 剔除
     min_abs_beta: float = 0.1                                       # |β| < 0.1 → 剔除 (避免CV爆炸)
@@ -158,10 +140,7 @@ class PairSelectorConfig:
     half_life_min: float = 5.0                                      # < 5天 → 剔除 (太短 = 噪音)
     half_life_max: float = 20.0                                     # > 20天 → 剔除 (太长 = 回归太慢)
 
-    # 维度3: Hurst 指数
-    hurst_threshold: float = 0.4                                    # H >= 0.4 → 剔除 (更严格的均值回归要求)
-
-    # 维度4: 零轴穿越
+    # 维度3: 零轴穿越
     zero_crossing_min: int = 6                                      # < 6次 → 剔除 (太不活跃)
     zero_crossing_max: int = 30                                     # > 30次 → 剔除 (太嘈杂)
 
@@ -197,9 +176,14 @@ class PairsManagerConfig:
     # 保证金管理
     margin_usage_ratio: float = 0.98                               # 保证金使用率: 98%
     concentration_threshold: float = 0.40                          # 单行业资金占用上限 (40%)
-    min_investment_ratio: float = 0.10                             # 最低投资比例: 5%
 
-    # 滚动窗口配置 
+    # 统一资金分配 (v8.10.0: 简化为固定15%)
+    fixed_allocation_pct: float = 0.15                             # 统一分配比例 + 地板
+
+    # 开仓排序 (v8.11.0: 按预期收益额排序)
+    sort_by_expected_profit: bool = True                           # 开关: 启用预期收益排序
+
+    # 滚动窗口配置
     rolling_window_days: int = 90                                  # CS计算滚动窗口
     min_samples_for_window: int = 20                               # 样本量保底: 窗口内<20笔时取最近20笔
 
@@ -216,17 +200,6 @@ class PairsManagerConfig:
         'DRAWDOWN': 30,         # 优先级4: 单体回撤
         'MEAN_REVERSION': 7,    # 正常平仓: 均值回归
     })
-
-    # 资金分配层级配置 (v7.99.3: 基于平均交易回报)
-    # 格式: [(阈值上限, 分配比例), ...] - 小数表示
-    allocation_tiers: List[tuple] = field(default_factory=lambda: [
-        (0.00, 0.10),    # avg_return ≤ 0%   → 10%
-        (0.10, 0.15),    # avg_return ≤ 10%  → 15%
-        (0.20, 0.18),    # avg_return ≤ 20%  → 18%
-        (0.25, 0.20),    # avg_return ≤ 25%  → 20%
-    ])
-    allocation_default: float = 0.10                               # get_trade_count()=0 时的默认分配
-    allocation_max: float = 0.25                                   # avg_return > 25% 时的最大分配
 
 
 @dataclass
@@ -336,7 +309,6 @@ class StrategyConfig:
         self.pair_selector = PairSelectorConfig()
         self.pairs = PairsConfig()
         self.pairs_manager = PairsManagerConfig()
-        self.industry_quota = IndustryQuotaManagerConfig()
         self.risk_manager = RiskManagerConfig()
 
         # 常量映射

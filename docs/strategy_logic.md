@@ -379,7 +379,7 @@ t=-312        t=-60         t=0 (当前)
 
 ---
 
-# Part 7: Pair Selector (配对筛选) - v8.8.0 阈值模式
+# Part 7: Pair Selector (配对筛选) - v8.9.1 三维度阈值筛选
 
 ```
 触发: _run_analysis_pipeline() 步骤6
@@ -388,7 +388,7 @@ t=-312        t=-60         t=0 (当前)
 输入: ModelResult 对象列表
 =========================================
     ↓
-四维度阈值筛选 (Pass/Fail 逻辑)
+三维度阈值筛选 (Pass/Fail 逻辑)
     ↓
 维度1: CV BETA 稳定性
     ├─ 公式: CV = beta_std / |beta_mean|
@@ -401,12 +401,7 @@ t=-312        t=-60         t=0 (当前)
     ├─ 含义: 残差回归到一半所需天数
     └─ 阈值: 5 ≤ half_life ≤ 20 天通过
     ↓
-维度3: Hurst 指数
-    ├─ 算法: R/S 分析 (Rescaled Range Analysis)
-    ├─ 含义: H < 0.5 均值回归, H > 0.5 趋势
-    └─ 阈值: H < 0.4 通过 (更严格筛选)
-    ↓
-维度4: 零轴穿越
+维度3: 零轴穿越
     ├─ 计算: spread 穿越均值的次数
     ├─ 含义: 穿越越多 → 交易机会越多
     └─ 阈值: 6 ≤ count ≤ 30 次通过
@@ -415,14 +410,12 @@ t=-312        t=-60         t=0 (当前)
 任一失败 → 剔除
     ↓
 =========================================
-步骤5: ROI缩放排序
+漏斗日志输出
 =========================================
-    ├─ 条件: 存在历史交易记录
-    ├─ 公式: scale_factor = 1 + tanh(ROI)
-    └─ 排序: 按 scale_factor 降序
+    └─ [PairSelector] 输入 N → CV_BETA (-X) → Half_life (-Y) → ZeroCrossing (-Z) → 输出 M
     ↓
 =========================================
-输出: 最终入选配对列表 (按scale_factor降序)
+输出: 最终入选配对列表
 =========================================
     ↓
 下游: 创建 Pairs 对象
@@ -436,29 +429,15 @@ t=-312        t=-60         t=0 (当前)
 | `min_abs_beta` | 0.1 | \|β\| < 0.1 → 剔除 |
 | `half_life_min` | 5.0 | < 5天 → 剔除 |
 | `half_life_max` | 20.0 | > 20天 → 剔除 |
-| `hurst_threshold` | 0.4 | H ≥ 0.4 → 剔除 |
 | `zero_crossing_min` | 6 | < 6次 → 剔除 |
 | `zero_crossing_max` | 30 | > 30次 → 剔除 |
 
-### Hurst 指数计算 (R/S 分析)
+### 设计说明 (v8.9.1)
 
-```
-算法流程:
-1. 将 spread 序列分成 k 个子序列
-2. 对每个子序列计算 R/S 统计量:
-   - 去均值: mean_adj = sub - mean(sub)
-   - 累积偏差: cumsum = cumsum(mean_adj)
-   - R = max(cumsum) - min(cumsum)
-   - S = std(sub)
-   - RS = R / S
-3. 对数回归: log(R/S) = H × log(n) + c
-4. 斜率 H 即为 Hurst 指数
-
-H 的含义:
-- H < 0.5: 均值回归 (好)
-- H ≈ 0.5: 随机游走 (差)
-- H > 0.5: 趋势持续 (差)
-```
+**删除 Hurst 维度的原因**:
+- 60天 spread 数据不足以稳健计算 R/S 分析
+- Hurst 指数需要较长时间序列才能得到可靠估计
+- 半衰期和零轴穿越已能有效筛选均值回归特性
 
 ---
 
@@ -758,7 +737,7 @@ get_signal(data):
 
 ---
 
-# Part 14: Normal Open (正常开仓)
+# Part 14: Normal Open (正常开仓) - v8.11.0 预期收益排序
 
 ```
 触发: OnData() 优先级6
@@ -777,23 +756,40 @@ PairsManager.get_open_candidates_with_allocation(data):
 └─ is_pair_locked() = False
     ↓
 =========================================
-步骤2: 排序与分配
+步骤2: 资金分配 (v8.10.0 统一15%)
 =========================================
     ↓
-排序: 按 avg_return_per_trade 降序
+分配逻辑:
+├─ 动态基准: initial_available = MarginRemaining - FIXED_BUFFER
+├─ 固定地板: min_threshold = INITIAL_CAPITAL × 15%
+├─ 计划分配: planned = initial_available × 15%
+└─ 实际分配: actual = max(planned, min_threshold)
     ↓
-资金分配 (allocation_tiers):
-├─ avg_return ≤ 0%   → 10%
-├─ avg_return ≤ 10%  → 15%
-├─ avg_return ≤ 20%  → 18%
-├─ avg_return ≤ 25%  → 20%
-└─ avg_return > 25%  → 25% (max)
-├─ 无交易记录 → 10% (default)
-    ↓
-门槛检查: allocated < min_threshold → 放弃开仓
+效果:
+├─ 亏损时 (initial_available < INITIAL_CAPITAL): 使用地板值
+└─ 盈利时 (initial_available > INITIAL_CAPITAL): 使用动态值
     ↓
 =========================================
-步骤3: 执行开仓
+步骤3: 计算预期收益额 (v8.11.0)
+=========================================
+    ↓
+公式:
+├─ expected_return_pct = (|Z-score| - exit_threshold) / |Z-score|
+└─ expected_profit = actual_allocated × expected_return_pct
+    ↓
+含义: 假设 spread 完全回归到出场点 (0.5σ) 的预期收益
+    ↓
+=========================================
+步骤4: 按预期收益额排序
+=========================================
+    ↓
+排序: 按 expected_profit 降序
+├─ Z-score 偏离越大 → 回归空间越大
+├─ 分配资金越多 → 收益放大
+└─ 优先开仓预期收益最大的配对
+    ↓
+=========================================
+步骤5: 执行开仓
 =========================================
     ↓
 对每个候选配对:
@@ -801,15 +797,23 @@ PairsManager.get_open_candidates_with_allocation(data):
 └─ OrderExecutor.execute_open(intent)
 ```
 
+### 预期收益排序示例
+
+| 配对 | Z-score | 分配额 | 预期收益率 | 预期收益额 | 排序 |
+|------|---------|--------|-----------|-----------|------|
+| A-B | 2.5 | $15,000 | (2.5-0.5)/2.5 = 80% | $12,000 | 1st |
+| C-D | 2.0 | $15,000 | (2.0-0.5)/2.0 = 75% | $11,250 | 2nd |
+| E-F | 2.2 | $12,000 | (2.2-0.5)/2.2 = 77% | $9,273 | 3rd |
+
 ### 关键配置参数
 
 | 参数 | 值 | 含义 |
 |------|-----|------|
-| `entry_threshold_lower` | 1.25σ | 入场Z-score下限 |
-| `entry_threshold_upper` | 1.65σ | 入场Z-score上限 |
-| `allocation_default` | 10% | 无交易记录时的分配比例 |
-| `allocation_max` | 25% | 最大分配比例 |
-| `min_investment_ratio` | 10% | 最低投资比例 |
+| `entry_threshold_lower` | 2.0σ | 入场Z-score下限 |
+| `entry_threshold_upper` | 2.5σ | 入场Z-score上限 |
+| `exit_threshold` | 0.5σ | 出场Z-score阈值 |
+| `fixed_allocation_pct` | 15% | 统一分配比例 (v8.10.0) |
+| `sort_by_expected_profit` | True | 启用预期收益排序 (v8.11.0) |
 
 ---
 

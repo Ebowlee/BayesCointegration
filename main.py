@@ -10,7 +10,6 @@ from src.analysis.BayesianModeler import BayesianModeler
 from src.analysis.PairSelector import PairSelector
 from src.Pairs import Pairs
 from src.PairsManager import PairsManager
-from src.analysis.IndustryQuotaManager import IndustryQuotaManager
 from src.RiskManager import RiskManager
 from src.OrderExecutor import OrderExecutor
 from src.TicketsManager import TicketsManager
@@ -73,9 +72,6 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # === 初始化订单执行模块 ===
         self.tickets_manager = TicketsManager(self, self.pairs_manager)
         self.order_executor = OrderExecutor(self, self.tickets_manager)
-
-        # === 初始化行业配额管理器 ===
-        self.industry_quota_manager = IndustryQuotaManager(self, self.config.industry_quota)
 
         # === 初始化风控模块 (v7.98.1: 简化配置路径) ===
         # VIX订阅 (用于MarketCondition检查)
@@ -141,17 +137,16 @@ class BayesianCointegrationStrategy(QCAlgorithm):
 
     def _run_analysis_pipeline(self):
         """
-        运行分析管道 (v7.86.0 更新)
+        运行分析管道 (v8.9.0: 删除IQM，7步流程)
 
-        完整流程 (8步):
+        完整流程 (7步):
         - 步骤1: DataProcessor 数据预处理
         - 步骤2: CointegrationAnalyzer 协整检验
-        - 步骤3: IndustryQuotaManager 应用行业配额
-        - 步骤4: 构建 PairData 字典
-        - 步骤5: BayesianModeler 贝叶斯建模
-        - 步骤6: PairSelector 配对质量筛选
-        - 步骤7: 创建 Pairs 对象
-        - 步骤8: PairsManager 分类管理
+        - 步骤3: 构建 PairData 字典
+        - 步骤4: BayesianModeler 贝叶斯建模
+        - 步骤5: PairSelector 配对质量筛选
+        - 步骤6: 创建 Pairs 对象
+        - 步骤7: PairsManager 分类管理
 
         Returns:
             None (结果通过PairsManager管理)
@@ -177,29 +172,21 @@ class BayesianCointegrationStrategy(QCAlgorithm):
             self.Debug("[Analysis] 无协整配对,终止分析管道", level=1)
             return
 
-        # === 步骤3: 应用行业配额 ===
-        quota_filtered_pairs = self.industry_quota_manager.apply_quotas(coint_result)
-
-        if len(quota_filtered_pairs) < 1:
-            self.Debug("[Analysis] 无配对通过配额筛选,终止分析管道", level=1)
-            return
-
         # 缓存数据供后续步骤使用
         self.clean_data = clean_data
         self.data_valid_symbols = data_valid_symbols
-        self.coint_pairs_after_quota_filtered = quota_filtered_pairs
 
-        # === 步骤4: 构建PairData字典 ===
+        # === 步骤3: 构建PairData字典 ===
         pair_data = {}
-        for pair_info in quota_filtered_pairs:
+        for pair_info in coint_tested_pairs:
             pair_key = (pair_info['symbol1'], pair_info['symbol2'])
             pair_data[pair_key] = PairData.from_clean_data(pair_info, clean_data)
 
         # 缓存供后续步骤使用
         self.pair_data = pair_data
 
-        # === 步骤5: 贝叶斯建模 ===
-        model_results = self.bayesian_modeler.modeling_procedure(quota_filtered_pairs, pair_data)
+        # === 步骤4: 贝叶斯建模 ===
+        model_results = self.bayesian_modeler.modeling_procedure(coint_tested_pairs, pair_data)
 
         if len(model_results) < 1:
             self.Debug("[Analysis] 贝叶斯建模失败,终止分析管道", level=1)
@@ -208,7 +195,7 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # 缓存供后续步骤使用
         self.model_results = model_results
 
-        # === 步骤6: 配对质量筛选 ===
+        # === 步骤5: 配对质量筛选 ===
         selected_pairs = self.pair_selector.selection_procedure(model_results)
 
         if len(selected_pairs) < 1:
@@ -218,22 +205,21 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # 缓存供后续步骤使用
         self.selected_pairs = selected_pairs
 
-        # === 步骤7: 创建Pairs对象 ===
+        # === 步骤6: 创建Pairs对象 ===
         new_pairs_dict = {}
         for model_result in selected_pairs:
             pair = Pairs.from_model_result(self, model_result, self.config.pairs)
             new_pairs_dict[pair.pair_id] = pair
 
-        # === 步骤8: PairsManager分类管理 ===
+        # === 步骤7: PairsManager分类管理 ===
         self.pairs_manager.classify_pairs(new_pairs_dict)
 
-        # 单行汇总日志 (v8.0.4 → v8.1.6: 增加配额筛选环节)
+        # 单行汇总日志 (v8.9.0: 删除配额环节)
         self.Debug(
             f"[Analysis汇总] 输入{stats['total']} → "
             f"有效{stats['final_valid']} → "
             f"候选{coint_stats.get('total_pairs_tested', 0)}对 → "
             f"协整{len(coint_tested_pairs)}对 ({industries_with_pairs}行业) → "
-            f"配额{len(quota_filtered_pairs)}对 → "
             f"贝叶斯{len(model_results)}对 → "
             f"质量筛选{len(selected_pairs)}对 → "
             f"创建{len(new_pairs_dict)}个Pairs"

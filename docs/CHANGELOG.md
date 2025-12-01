@@ -5,6 +5,180 @@
 ---
 
 
+## [v8.11.0_expected-profit-sort@20251201]
+
+### 版本概述
+新增预期收益额排序功能：当多个配对同时有开仓信号时，按预期收益额降序排序，优先开仓收益潜力最大的配对。
+
+### 核心公式
+
+```python
+# 预期收益率 = 回归空间 / 当前偏离
+expected_return_pct = (|current_zscore| - exit_threshold) / |current_zscore|
+
+# 预期收益额 = 实际分配额 × 预期收益率
+expected_profit = actual_allocated × expected_return_pct
+```
+
+**含义**: 假设 spread 从当前 Z-score 完全回归到出场阈值 (0.5σ)，预期能获得的收益。
+
+### 变更内容
+
+**src/config.py (PairsManagerConfig):**
+- 新增: `sort_by_expected_profit: bool = True` 配置开关
+
+**src/PairsManager.py:**
+- 新增: `_calculate_expected_profit(pair, actual_allocated, data)` 私有方法
+- 修改: `get_open_candidates_with_allocation()` 添加 Step 4 排序逻辑
+
+### 排序示例
+
+| 配对 | Z-score | 分配额 | 预期收益率 | 预期收益额 | 排序 |
+|------|---------|--------|-----------|-----------|------|
+| A-B | 2.5 | $15,000 | 80% | $12,000 | 1st |
+| C-D | 2.0 | $15,000 | 75% | $11,250 | 2nd |
+| E-F | 2.2 | $12,000 | 77% | $9,273 | 3rd |
+
+---
+
+
+## [v8.10.0_unified-15pct-allocation@20251201]
+
+### 版本概述
+将复杂的 tier-based 资金分配简化为统一 15%，同时保持地板保护机制。
+
+### 核心逻辑
+
+```python
+# 动态基准
+initial_available = MarginRemaining - FIXED_BUFFER
+
+# 固定地板 (保护机制)
+min_threshold = INITIAL_CAPITAL × 15%
+
+# 计划分配
+planned_allocated = initial_available × 15%
+
+# 实际分配
+actual_allocated = max(planned_allocated, min_threshold)
+```
+
+**效果**:
+- 亏损时 (`initial_available < INITIAL_CAPITAL`): 使用地板值 `INITIAL_CAPITAL × 15%`
+- 盈利时 (`initial_available > INITIAL_CAPITAL`): 使用动态值 `initial_available × 15%`
+
+### 变更内容
+
+**src/config.py (PairsManagerConfig):**
+- 删除: `allocation_tiers`, `allocation_default`, `allocation_max`
+- 新增: `fixed_allocation_pct: float = 0.15`
+
+**src/PairsManager.py:**
+- 删除: `get_planned_allocation_pct()` 方法
+- 修改: `get_open_candidates_with_allocation()` 内联分配逻辑
+
+### 行为示例
+
+| 场景 | initial_available | planned | min_threshold | actual |
+|------|------------------|---------|---------------|--------|
+| 亏损 | $80,000 | $12,000 | $15,000 | $15,000 (地板) |
+| 持平 | $100,000 | $15,000 | $15,000 | $15,000 |
+| 盈利 | $150,000 | $22,500 | $15,000 | $22,500 (动态) |
+
+---
+
+
+## [v8.9.1_remove-hurst-dimension@20251201]
+
+### 版本概述
+从 PairSelector 删除 Hurst 维度，四维筛选简化为三维筛选。
+
+### 删除原因
+- 60天 spread 数据不足以稳健计算 R/S 分析
+- Hurst 指数需要较长时间序列才能得到可靠估计
+- 半衰期和零轴穿越已能有效筛选均值回归特性
+
+### 变更内容
+
+**src/analysis/PairSelector.py:**
+- 删除: `_filter_by_hurst()` 方法
+- 删除: `_compute_hurst_exponent()` 方法
+- 修改: 漏斗日志格式 (删除 Hurst 环节)
+
+**src/config.py (PairSelectorConfig):**
+- 删除: `hurst_threshold: float = 0.4`
+
+### 筛选流程变化
+
+```python
+# v8.9.0 (四维度)
+CV_BETA → Half_life → Hurst → ZeroCrossing
+
+# v8.9.1 (三维度)
+CV_BETA → Half_life → ZeroCrossing
+```
+
+---
+
+
+## [v8.9.0_quality-first-pipeline@20251201]
+
+### 版本概述
+删除 IndustryQuotaManager (IQM) 和 ROI 缩放功能，采用"质量优先"架构：所有协整配对直接进入贝叶斯建模，PairSelector 基于统计质量筛选。
+
+### 架构变更
+
+**旧架构 (v8.8.0):**
+```
+CointegrationAnalyzer → IQM.apply_quotas() → BayesianModeler → PairSelector
+```
+- IQM 在贝叶斯建模前截断配对数量 (~200对 → 25对)
+- 目的: 节省 MCMC 计算时间
+- 问题: "行业优先" 可能牺牲质量
+
+**新架构 (v8.9.0):**
+```
+CointegrationAnalyzer → BayesianModeler (全部) → PairSelector
+```
+- 所有协整配对都进入贝叶斯建模
+- PairSelector 纯粹基于统计质量筛选
+- 管道从 8 步简化为 7 步
+
+### 变更内容
+
+**删除文件:**
+- `src/analysis/IndustryQuotaManager.py` (~510行) - 整个模块删除
+
+**src/config.py:**
+- 删除: `IndustryQuotaManagerConfig` 类 (行 124-137)
+- 删除: `self.industry_quota` 实例化 (StrategyConfig)
+- 删除: `roi_scaling_enabled` 参数 (PairSelectorConfig)
+
+**main.py:**
+- 删除: `IndustryQuotaManager` 导入
+- 删除: `self.industry_quota_manager` 初始化
+- 修改: `_run_analysis_pipeline()` 从 8 步改为 7 步
+- 修改: 汇总日志删除"配额"环节
+
+**src/analysis/PairSelector.py:**
+- 删除: `self.roi_scaling_enabled` 属性
+- 删除: `_apply_roi_scaling()` 方法 (行 276-313)
+- 删除: ROI 缩放调用和排序逻辑
+- 新增: 漏斗日志 (每维度筛掉的配对数)
+
+### 漏斗日志示例
+```
+[PairSelector] 输入 180 → CV_BETA (-50) → Half_life (-30) → Hurst (-60) → ZeroCrossing (-20) → 输出 20
+```
+
+### 性能影响
+- MCMC 计算量增加: 原来 ~25 对 → 现在可能 ~200 对
+- 单对建模时间: ~5-10 秒 (4 chains × 5000 iterations)
+- 预估总增加时间: ~15-30 分钟/月
+
+---
+
+
 ## [v8.8.0_threshold-filter@20251201]
 
 ### 版本概述

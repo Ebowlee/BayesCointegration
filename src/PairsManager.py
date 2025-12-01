@@ -447,35 +447,60 @@ class PairsManager:
         return max(0, available)
 
 
+    def _calculate_expected_profit(self, pair, actual_allocated: float, data) -> float:
+        """
+        计算预期收益额 (v8.11.0: 用于开仓排序)
+
+        公式: expected_profit = actual_allocated × (|z| - exit_threshold) / |z|
+        含义: 假设完全回归到出场点的预期收益
+        """
+        prices = pair.get_price_from_bar(data)
+        if prices is None:
+            return 0.0
+
+        zscore = pair.get_zscore(prices[0], prices[1])
+        if zscore is None or abs(zscore) < 0.01:
+            return 0.0
+
+        exit_threshold = pair.exit_threshold  # 0.5
+
+        # 预期收益率 = 回归空间 / 当前偏离
+        expected_return_pct = (abs(zscore) - exit_threshold) / abs(zscore)
+        expected_return_pct = max(0, expected_return_pct)  # 确保非负
+
+        return actual_allocated * expected_return_pct
+
+
     def allocate_margin_to_candidates(self, open_candidates: List[tuple]) -> Dict[tuple, float]:
         """
-        为开仓候选配对分配保证金
+        为开仓候选配对分配保证金 (v8.10.0: 统一15%分配)
 
         输入: [(pair, signal, quality_score, planned_pct), ...]
         输出: {pair_id: allocated_amount}
 
-        算法 (v8.0.15修复):
-            1. 获取初始可用保证金 (固定基准)
-            2. 计算最小投资门槛 (基于INITIAL_CAPITAL)
+        算法:
+            1. 获取初始可用保证金 (动态基准)
+            2. 计算最小投资门槛 = INITIAL_CAPITAL × 15% (固定地板)
             3. 顺序分配:
-               - 计划分配额 = 初始可用 × planned_pct
-               - 实际分配额 = max(计划分配额, 最小门槛)  # 保底机制
+               - 计划分配额 = 初始可用 × 15%
+               - 实际分配额 = max(计划分配额, 最小门槛)
             4. 检查剩余资金是否足够实际分配额
         """
         allocations = {}
+        fixed_pct = self.module_config.fixed_allocation_pct
 
-        # === Step 1: 获取初始可用保证金（固定基准）===
+        # === Step 1: 获取初始可用保证金（动态基准）===
         initial_available = self.get_available_margin()
 
-        # 计算最小投资门槛（基于固定的 INITIAL_CAPITAL）
-        min_threshold = self.INITIAL_CAPITAL * self.config.pairs_manager.min_investment_ratio
+        # 计算最小投资门槛（固定地板: INITIAL_CAPITAL × 15%）
+        min_threshold = self.INITIAL_CAPITAL * fixed_pct
 
         # 资金充足性检查 (可用资金必须至少能开一仓)
         if initial_available < min_threshold:
             self.algorithm.Debug(
                 f"[资金分配] 可用保证金不足: "
                 f"${initial_available:,.0f} < 最小门槛${min_threshold:,.0f} "
-                f"({self.config.pairs_manager.min_investment_ratio*100:.0f}%初始资金)"
+                f"({fixed_pct*100:.0f}%初始资金)"
             )
             return {}
 
@@ -483,11 +508,10 @@ class PairsManager:
         remaining_available = initial_available  # 追踪剩余资金
 
         for pair, signal, quality_score, planned_pct in open_candidates:
-            # 基于固定基准计算计划分配额
+            # 计划分配额 = 初始可用 × 15%
             planned_allocated = initial_available * planned_pct
 
-            # v8.0.15: 实际分配额 = max(计划额, 最小门槛)
-            # 修复: 当 $34,000 × 10% = $3,400 < $5,000 时，使用 $5,000
+            # 实际分配额 = max(计划额, 固定地板)
             actual_allocated = max(planned_allocated, min_threshold)
 
             # 检查剩余资金是否足够
@@ -500,34 +524,15 @@ class PairsManager:
         return allocations
 
 
-    def get_planned_allocation_pct(self, pair) -> float:
-        """计算配对的计划分配比例 (基于avg_return_per_trade层级匹配)"""
-        cfg = self.module_config
-
-        avg_return = pair.get_avg_return_per_trade()
-
-        # 无交易历史 → 默认分配
-        if avg_return is None:
-            return cfg.allocation_default
-
-        # 查找匹配的层级
-        for threshold, allocation_pct in cfg.allocation_tiers:
-            if avg_return <= threshold:
-                return allocation_pct
-
-        # 超过所有层级 → 最大分配
-        return cfg.allocation_max
-
-
     def get_open_candidates_with_allocation(self, data) -> List[tuple]:
         """
-        获取开仓候选并完成资金分配
+        获取开仓候选并完成资金分配 (v8.11.0: 预期收益排序)
 
         步骤:
             1. 从current_selected筛选有信号+无持仓+不在冷却期的配对
-            2. 按avg_return_per_trade降序排序
-            3. 计算每个配对的planned_pct
-            4. 调用allocate_margin_to_candidates分配资金
+            2. 构建候选列表 (统一使用fixed_allocation_pct)
+            3. 调用allocate_margin_to_candidates分配资金
+            4. 按预期收益额排序 (可选)
             5. 合并结果返回
 
         返回: [(pair, signal, allocated_margin), ...]
@@ -554,24 +559,33 @@ class PairsManager:
 
             candidates_with_signal.append(pair)
 
-        # Step 2: 按平均交易回报降序排序 (v7.99.5: 与分配逻辑统一)
-        # None (无交易历史) 排在最后，让有历史表现的配对优先开仓
-        candidates_with_signal.sort(
-            key=lambda p: p.get_avg_return_per_trade() if p.get_avg_return_per_trade() is not None else -float('inf'),
-            reverse=True
-        )
-
-        # Step 3: 构建中间列表 (添加planned_pct)
+        # Step 2: 构建中间列表 (v8.10.0: 统一使用fixed_allocation_pct)
+        fixed_pct = self.module_config.fixed_allocation_pct
         open_candidates = []
         for pair in candidates_with_signal:
             signal = pair.get_signal(data)
-            planned_pct = self.get_planned_allocation_pct(pair)
-            open_candidates.append((pair, signal, pair.quality_score, planned_pct))
+            open_candidates.append((pair, signal, pair.quality_score, fixed_pct))
 
-        # Step 4: 资金分配
+        # Step 3: 资金分配
         allocations = self.allocate_margin_to_candidates(open_candidates)
 
-        # Step 5: 合并分配结果
+        # Step 4: 按预期收益额排序 (v8.11.0)
+        if self.module_config.sort_by_expected_profit:
+            # 构建带预期收益的列表
+            candidates_with_profit = []
+            for pair, signal, quality_score, planned_pct in open_candidates:
+                actual_allocated = allocations.get(pair.pair_id, 0)
+                if actual_allocated > 0:
+                    expected_profit = self._calculate_expected_profit(pair, actual_allocated, data)
+                    candidates_with_profit.append((pair, signal, actual_allocated, expected_profit))
+
+            # 按预期收益额降序排序
+            candidates_with_profit.sort(key=lambda x: x[3], reverse=True)
+
+            # 直接构建最终结果
+            return [(pair, signal, allocated) for pair, signal, allocated, _ in candidates_with_profit]
+
+        # Step 5: 合并分配结果 (原逻辑，当排序关闭时执行)
         final_candidates = []
         for pair, signal, quality_score, planned_pct in open_candidates:
             allocated = allocations.get(pair.pair_id)
