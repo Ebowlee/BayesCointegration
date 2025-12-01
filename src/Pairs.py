@@ -1,9 +1,11 @@
 # region imports
 from AlgorithmImports import *
 import numpy as np
+from collections import deque
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 from src.OrderExecutor import OpenIntent, CloseIntent
+from src.KalmanBetaTracker import KalmanBetaTracker
 import math
 # endregion
 
@@ -53,6 +55,13 @@ class Pairs:
         self.half_life = model_data.get('half_life')
         self.half_life_std = model_data.get('half_life_std', 0)
 
+        # 卡尔曼滤波参数 (v8.6.0: 从model_data传递)
+        self.beta_std = model_data.get('beta_std', 0.1)
+        self.sigma_ols = model_data.get('sigma_ols', 0.05)
+
+        # 卡尔曼滤波追踪器 (开仓时实例化，平仓时销毁)
+        self.kf_tracker: Optional[KalmanBetaTracker] = None
+
         # 交易阈值
         self.entry_threshold_lower = config.entry_threshold_lower
         self.entry_threshold_upper = config.entry_threshold_upper
@@ -90,6 +99,56 @@ class Pairs:
 
         # 回撤追踪
         self.pair_hwm: float = None
+
+        # RSI on Z-score (v8.7.0: 动量检测)
+        # maxlen = rsi_period + rsi_lookback_for_extreme + 1 (保留足够计算历史RSI的数据)
+        rsi_maxlen = config.rsi_period + config.rsi_lookback_for_extreme + 1
+        self.zscore_history: deque = deque(maxlen=rsi_maxlen)
+        self.rsi_history: deque = deque(maxlen=config.rsi_lookback_for_extreme + 1)
+
+        # 预热Z-score历史 (从clean_data加载)
+        self._warmup_zscore_history()
+
+
+    def _warmup_zscore_history(self):
+        """
+        从clean_data预热Z-score历史 (v8.7.0)
+
+        设计: 在Pairs初始化时调用，从algorithm.clean_data加载历史价格计算Z-score
+        目的: 确保RSI从第一天就可以计算，避免初始盲区
+        """
+        if not hasattr(self.algorithm, 'clean_data') or self.algorithm.clean_data is None:
+            return
+
+        clean_data = self.algorithm.clean_data
+        warmup_days = self.config.rsi_warmup_days
+
+        # 检查两个symbol是否都在clean_data中
+        if self.symbol1 not in clean_data or self.symbol2 not in clean_data:
+            return
+
+        df1 = clean_data[self.symbol1]
+        df2 = clean_data[self.symbol2]
+
+        # 取最近N天数据进行预热
+        n_days = min(warmup_days, len(df1), len(df2))
+        if n_days < 2:
+            return
+
+        # 从历史数据计算Z-score并填充deque
+        for i in range(-n_days, 0):
+            try:
+                price1 = df1.iloc[i]['close']
+                price2 = df2.iloc[i]['close']
+                zscore = self._calculate_zscore_pure(
+                    price1, price2,
+                    self.alpha_mean, self.beta_mean,
+                    self.residual_mean, self.residual_std
+                )
+                if zscore is not None:
+                    self.zscore_history.append(zscore)
+            except (KeyError, IndexError):
+                continue
 
 
     def update_params(self, new_pair):
@@ -181,6 +240,37 @@ class Pairs:
             return None
 
         return 0.5 * (abs(qty1 * entry_price1) + abs(qty2 * entry_price2))
+
+    @staticmethod
+    def _calculate_rsi_from_series(zscore_series: list, period: int) -> Optional[float]:
+        """
+        纯计算: RSI from Z-score series (v8.7.0)
+
+        公式: RSI = 100 - 100/(1 + RS), RS = avg_gain / avg_loss
+        输入: zscore_series (需要 period+1 个点来计算 period 个变化量)
+        """
+        if len(zscore_series) < period + 1:
+            return None
+
+        # 取最近 period+1 个数据点
+        recent = list(zscore_series)[-(period + 1):]
+
+        # 计算变化量 (differences)
+        changes = [recent[i+1] - recent[i] for i in range(period)]
+
+        # 分离涨跌
+        gains = [c for c in changes if c > 0]
+        losses = [-c for c in changes if c < 0]
+
+        avg_gain = sum(gains) / period if gains else 0
+        avg_loss = sum(losses) / period if losses else 0
+
+        # 避免除以零
+        if avg_loss == 0:
+            return 100.0 if avg_gain > 0 else 50.0
+
+        rs = avg_gain / avg_loss
+        return 100.0 - 100.0 / (1.0 + rs)
 
 
     # ===== 3. 数据访问层 (Data Access) =====
@@ -282,23 +372,113 @@ class Pairs:
 
     # ===== 4. 业务逻辑层 (Business Logic) =====
 
-    def get_hedge_drift(self) -> Optional[float]:
+    # ----- RSI on Z-score 相关方法 (v8.7.0) -----
+
+    def _calculate_rsi(self) -> Optional[float]:
         """
-        计算对冲漂移率: Drift = (val1 + val2) / (|val1| + |val2|)
+        计算当前RSI值 (v8.7.0)
 
-        数值解读: 0=完美对冲, ±0.25=触发阈值, 正=净多头, 负=净空头
+        流程:
+        1. 从zscore_history计算RSI
+        2. 将结果追加到rsi_history
+        3. 返回当前RSI值
         """
-        if not self.has_position():
-            return None
+        rsi = self._calculate_rsi_from_series(
+            self.zscore_history,
+            self.config.rsi_period
+        )
+        if rsi is not None:
+            self.rsi_history.append(rsi)
+        return rsi
 
-        portfolio = self.algorithm.Portfolio
-        val1 = self.tracked_qty1 * portfolio[self.symbol1].Price
-        val2 = self.tracked_qty2 * portfolio[self.symbol2].Price
+    def _check_rsi_entry_condition(self, signal: str) -> bool:
+        """
+        检查RSI入场条件 (v8.7.0 三重AND条件)
 
-        gross_exp = abs(val1) + abs(val2)
-        if gross_exp == 0:
+        设计逻辑 (橡皮筋理论):
+        - 条件A: Z-score在入场区间 [2.0, 2.5] (已由调用方保证)
+        - 条件B: 近期RSI曾达到超买/超卖 (历史曾拉伸到极端)
+        - 条件C: 当前RSI已回落/反弹 (外力已撤除)
+
+        SHORT_SPREAD (Z > 0): 等待RSI从>80回落到<80
+        LONG_SPREAD (Z < 0): 等待RSI从<20反弹到>20
+
+        Returns:
+            True: 满足RSI条件，可以入场
+            False: 不满足RSI条件，等待
+            True: 数据不足时fallback到原始逻辑
+        """
+        # 数据不足时fallback: 返回True允许入场 (不阻止交易)
+        if len(self.rsi_history) < 2:
+            return True
+
+        current_rsi = self.rsi_history[-1] if self.rsi_history else None
+        if current_rsi is None:
+            return True
+
+        overbought = self.config.rsi_overbought
+        oversold = self.config.rsi_oversold
+        lookback = self.config.rsi_lookback_for_extreme
+
+        # 获取近期RSI历史 (不含当前)
+        recent_rsi = list(self.rsi_history)[-(lookback + 1):-1] if len(self.rsi_history) > 1 else []
+        if not recent_rsi:
+            return True
+
+        if signal == 'SHORT_SPREAD':
+            # 条件B: 近期RSI曾>80 (超买)
+            was_overbought = any(r > overbought for r in recent_rsi)
+            # 条件C: 当前RSI<80 (已回落)
+            is_cooled = current_rsi < overbought
+
+            return was_overbought and is_cooled
+
+        elif signal == 'LONG_SPREAD':
+            # 条件B: 近期RSI曾<20 (超卖)
+            was_oversold = any(r < oversold for r in recent_rsi)
+            # 条件C: 当前RSI>20 (已反弹)
+            is_recovered = current_rsi > oversold
+
+            return was_oversold and is_recovered
+
+        return True  # 未知信号类型，fallback
+
+    # ----- 卡尔曼滤波相关方法 (v8.6.0) -----
+
+    def _init_kalman_tracker(self):
+        """
+        开仓时初始化卡尔曼滤波追踪器
+
+        参数来源:
+            - beta_init: MCMC后验均值 (beta_mean)
+            - beta_std: MCMC后验标准差
+            - sigma_ols: OLS残差标准差 (观测噪声)
+            - process_noise: 独立配置 (kalman_process_noise)
+            - alpha: 协整截距 (alpha_mean)
+        """
+        self.kf_tracker = KalmanBetaTracker(
+            beta_init=self.beta_mean,
+            beta_std=self.beta_std,
+            sigma_ols=self.sigma_ols,
+            process_noise=self.config.kalman_process_noise,
+            alpha=self.alpha_mean
+        )
+
+    def update_kalman_beta(self, price1: float, price2: float) -> Optional[float]:
+        """卡尔曼滤波更新 β (每日健康检查时调用)"""
+        if self.kf_tracker is None:
             return None
-        return (val1 + val2) / gross_exp
+        return self.kf_tracker.update(price1, price2)
+
+    def get_beta_drift(self) -> Optional[float]:
+        """
+        获取 β 漂移率 (v8.6.0: 替代旧的 VALUE 漂移检查)
+
+        公式: |β_t - β_initial| / |β_initial|
+        """
+        if self.kf_tracker is None:
+            return None
+        return self.kf_tracker.get_drift_ratio()
 
     def get_leg_values(self, allocated_amount: float, signal: str, data):
         """获取Beta对冲两腿市值, 返回 (value_1, value_2) 或 (None, None)"""
@@ -452,6 +632,7 @@ class Pairs:
         获取交易信号: 无持仓返回入场信号, 有持仓返回出场信号
 
         v8.2.0: PAIR_BREAK(方向感知止损)已迁移至PairsManager.check_pairs_health()
+        v8.7.0: 增加RSI on Z-score动量检测 (三重AND条件)
         本方法只处理入场信号和正常出场(均值回归)
         """
         prices = self.get_price_from_bar(data)
@@ -462,14 +643,26 @@ class Pairs:
         if zscore is None:
             return 'NO_DATA'
 
+        # v8.7.0: 每次获取信号时更新Z-score历史和RSI
+        self.zscore_history.append(zscore)
+        self._calculate_rsi()
+
         position_mode = self.position_mode
 
         # 无持仓: 入场信号
         if position_mode == PositionMode.NONE:
             abs_zscore = abs(zscore)
             if self.entry_threshold_lower <= abs_zscore <= self.entry_threshold_upper:
+                # 确定候选信号
+                candidate_signal = 'SHORT_SPREAD' if zscore > 0 else 'LONG_SPREAD'
+
+                # v8.7.0: RSI条件检查 (三重AND的条件B和C)
+                if not self._check_rsi_entry_condition(candidate_signal):
+                    return 'WAIT'  # RSI未满足，继续等待
+
+                # RSI条件满足，记录入场zscore并发出信号
                 self.entry_zscore = zscore
-                return 'SHORT_SPREAD' if zscore > 0 else 'LONG_SPREAD'
+                return candidate_signal
             return 'WAIT'
 
         # 有持仓: 正常出场信号 (均值回归)
@@ -563,8 +756,8 @@ class Pairs:
         """
         订单成交回调 (由TicketsManager触发)
 
-        OPEN: 记录开仓价格、数量、fill_zscore_open
-        CLOSE: 记录平仓价格、更新统计、输出日志、重置状态
+        OPEN: 记录开仓价格、数量、fill_zscore_open、初始化卡尔曼追踪器
+        CLOSE: 记录平仓价格、更新统计、输出日志、重置状态、销毁卡尔曼追踪器
         """
         if action == 'OPEN':
             self.pair_opened_time = fill_time
@@ -588,6 +781,9 @@ class Pairs:
             # 计算开仓成交时的Z-score(用于滑点分析)
             if fill_price1 and fill_price2:
                 self.fill_zscore_open = self.get_zscore(fill_price1, fill_price2)
+
+            # v8.6.0: 初始化卡尔曼滤波追踪器
+            self._init_kalman_tracker()
 
         elif action == 'CLOSE':
             self.pair_closed_time = fill_time
@@ -625,6 +821,7 @@ class Pairs:
             self.exit_price1 = None
             self.exit_price2 = None
             self.pair_hwm = None                                               # 重置高水位 (v7.86.0)
+            self.kf_tracker = None                                             # v8.6.0: 销毁卡尔曼追踪器
 
 
     def _update_trade_stats(self):

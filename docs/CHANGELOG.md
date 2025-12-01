@@ -5,6 +5,199 @@
 ---
 
 
+## [v8.7.0_rsi-on-zscore@20251201]
+
+### 版本概述
+新增 RSI on Z-score 动量检测机制，通过三重 AND 条件过滤入场信号，识别 Z-score 拉伸的"转向"时机。
+
+---
+
+
+## [v8.6.0_kalman-beta-drift@20251201]
+
+### 版本概述
+引入卡尔曼滤波器实时追踪 β 系数变化，用 β 漂移百分比替代 VALUE 漂移，提供更准确的协整关系破裂检测。
+
+### 设计理念：从 VALUE 漂移到 β 漂移
+
+**v8.5.0 VALUE 漂移的问题:**
+```python
+drift = |current_value_ratio - entry_value_ratio| / entry_value_ratio
+# 问题: value_ratio 受价格波动和 β 变化双重影响，噪声大
+```
+
+**v8.6.0 β 漂移的优势:**
+- 直接测量对冲比例的变化
+- 卡尔曼滤波平滑噪声
+- 物理意义明确：β 漂移 20% 意味着对冲比例偏离了 20%
+
+### 变更内容
+
+**新增文件 - src/KalmanBetaTracker.py:**
+```python
+class KalmanBetaTracker:
+    """卡尔曼滤波器追踪 β 系数"""
+    def __init__(self, initial_beta: float, initial_sigma: float, process_noise: float)
+    def update(self, y: float, x: float) -> float  # 返回过滤后的 β
+    def get_beta_drift_pct(self) -> float  # 返回 β 漂移百分比
+```
+
+**src/config.py - PairsConfig 新增:**
+```python
+kalman_process_noise: float = 1e-5    # 过程噪声 Q
+```
+
+**src/config.py - PairsManagerConfig 新增:**
+```python
+beta_drift_threshold: float = 0.20    # 20% β漂移阈值
+```
+
+**src/Pairs.py - 新增属性和方法:**
+- `kf_tracker: Optional[KalmanBetaTracker]` - 卡尔曼滤波器实例
+- `_init_kalman_tracker()` - 初始化卡尔曼滤波器
+- `get_beta_drift()` - 获取当前 β 漂移百分比
+
+**src/PairsManager.py - check_pairs_health() 重构:**
+- 删除 VALUE 漂移检查 (`drift` 键)
+- 新增 β 漂移 + Z-score AND 逻辑验证 PairBreak
+- 删除盈利/亏损分支逻辑 (统一阈值)
+
+**src/analysis/BayesianModeler.py:**
+- `_build_result()` 新增 `sigma_ols` 字段，用于卡尔曼滤波初始化
+
+### AND 逻辑：PairBreak 双重验证
+
+```
+PairBreak 触发条件:
+    Z-score触发 (方向感知):
+        - LONG_SPREAD: zscore < -3.0
+        - SHORT_SPREAD: zscore > +3.0
+    AND
+    β漂移触发:
+        - |beta_drift| > 20%
+
+噪声跳过:
+    Z-score触发 BUT β漂移 ≤ 20%
+    → 判定为价格噪声，不触发 PairBreak
+```
+
+### 卡尔曼滤波器数学原理
+
+```
+状态方程: β_t = β_{t-1} + w_t, w_t ~ N(0, Q)
+观测方程: y_t = β_t * x_t + v_t, v_t ~ N(0, R)
+
+其中:
+    Q = process_noise (配置参数, 默认 1e-5)
+    R = sigma_ols^2 (来自 OLS 回归残差)
+
+更新步骤:
+    1. 预测: P_pred = P + Q
+    2. 卡尔曼增益: K = P_pred * x / (x^2 * P_pred + R)
+    3. 状态更新: β = β + K * (y - β * x)
+    4. 协方差更新: P = (1 - K * x) * P_pred
+```
+
+### 设计理念：橡皮筋理论
+
+**问题背景:**
+- Z-score 突破阈值只说明"拉伸程度"，不说明"力是否还在"
+- 如果趋势仍在加速，入场后可能面临继续拉伸的风险
+
+**解决方案:**
+- RSI 作为"力的探测器"，判断推动 Z-score 偏离的力量是否衰减
+- 三重 AND 条件确保：持仓必要 + 历史曾极端 + 当前正在转向
+
+### 三重 AND 入场条件
+
+```
+条件1: 当前无持仓 (position_mode == FLAT)
+条件2: 近3期RSI曾触及极值 (SHORT: RSI≥80, LONG: RSI≤20)
+条件3: 当前RSI显示转向信号 (SHORT: RSI<80, LONG: RSI>20)
+```
+
+**信号含义:**
+| 信号 | RSI历史要求 | RSI当前要求 | 含义 |
+|------|-------------|-------------|------|
+| SHORT_SPREAD | 曾≥80 (超买) | 当前<80 | Z-score正向拉伸后开始回落 |
+| LONG_SPREAD | 曾≤20 (超卖) | 当前>20 | Z-score负向拉伸后开始回升 |
+
+### 变更内容
+
+**src/config.py - PairsConfig 新增:**
+```python
+# RSI on Z-score 参数 (v8.7.0)
+rsi_period: int = 5                     # RSI周期 (5日RSI, 需要6天数据)
+rsi_overbought: float = 80.0            # 超买阈值
+rsi_oversold: float = 20.0              # 超卖阈值
+rsi_lookback_for_extreme: int = 3       # 查找"近期曾超买/超卖"的窗口
+rsi_warmup_days: int = 10               # 预热天数 (从clean_data加载)
+```
+
+**src/Pairs.py - 新增属性:**
+```python
+# RSI on Z-score (v8.7.0)
+self.zscore_history: deque = deque(maxlen=rsi_period + 4)   # maxlen=9
+self.rsi_history: deque = deque(maxlen=rsi_lookback_for_extreme + 1)  # maxlen=4
+```
+
+**src/Pairs.py - 新增方法:**
+| 方法 | 描述 |
+|------|------|
+| `_warmup_zscore_history()` | 从 clean_data 预热 Z-score 历史 (避免初期盲区) |
+| `_calculate_rsi_from_series()` | 从序列计算 RSI (Wilder's smoothing) |
+| `_calculate_rsi()` | 计算当前 RSI 并追加到历史队列 |
+| `_check_rsi_entry_condition(signal)` | 检查三重 AND 入场条件 |
+
+**src/Pairs.py - get_signal() 修改:**
+```python
+# Before (v8.6.0)
+if zscore > self.entry_threshold_upper:
+    return TradingSignal.SHORT_SPREAD
+
+# After (v8.7.0)
+if zscore > self.entry_threshold_upper:
+    if self._check_rsi_entry_condition(TradingSignal.SHORT_SPREAD):
+        return TradingSignal.SHORT_SPREAD
+    return TradingSignal.HOLD  # RSI条件不满足，等待
+```
+
+### 关键设计决策
+
+**1. 历史队列不清空 (Critical):**
+- `zscore_history` 和 `rsi_history` 在平仓后保留
+- 原因：配对关系持续存在，历史数据对下次入场判断有价值
+- 只在 `__init__` 和 `update_params()` 时初始化
+
+**2. Warmup 机制:**
+- 从 `clean_data` 预热最近 N 天 Z-score
+- 避免策略初期因数据不足而错过信号
+- 调用时机：`__init__` 和 `update_params()`
+
+**3. Fallback 兜底:**
+- 当 RSI 数据不足时，返回 True (不阻止入场)
+- 确保系统稳定性，避免因数据问题导致策略失效
+
+### 数据流示意
+
+```
+OnData (每日)
+    ↓
+get_signal()
+    ├── _calculate_rsi()                    # 步骤1: 更新RSI
+    │       ├── zscore_history.append()     # 追加当前Z-score
+    │       └── rsi_history.append()        # 追加计算出的RSI
+    │
+    ├── Z-score 阈值检查                    # 步骤2: 原有逻辑
+    │
+    └── _check_rsi_entry_condition()        # 步骤3: RSI过滤
+            ├── 检查历史是否曾极端
+            └── 检查当前是否转向
+```
+
+---
+
+
 ## [v8.0.3_docstring-simplification@20251128]
 
 ### 版本概述

@@ -644,7 +644,96 @@ PairsManager.check_pairs_health() 返回问题字典
 
 ---
 
-# Part 13: Normal Open (正常开仓)
+# Part 13: RSI on Z-score (动量检测) - v8.7.0
+
+```
+触发: get_signal() 入场信号生成时
+    ↓
+=========================================
+设计理念: 橡皮筋理论
+=========================================
+    ↓
+Z-score 告诉你"橡皮筋拉了多远"
+RSI on Z-score 告诉你"还在拉还是已松手"
+    ↓
+目标: 避免在"火箭式冲击"时入场
+    ↓
+=========================================
+三重AND条件
+=========================================
+    ↓
+条件A: Z-score 位置 (由调用方保证)
+    └─ entry_threshold_lower ≤ |Z| ≤ entry_threshold_upper
+    ↓
+条件B: 历史动量确认
+    ├─ SHORT_SPREAD: 近期RSI曾 > 80 (超买)
+    └─ LONG_SPREAD: 近期RSI曾 < 20 (超卖)
+    ↓
+条件C: 当前回落/反弹确认
+    ├─ SHORT_SPREAD: 当前RSI < 80 (已回落)
+    └─ LONG_SPREAD: 当前RSI > 20 (已反弹)
+    ↓
+=========================================
+RSI计算细节
+=========================================
+    ↓
+数据源: Z-score 日变化 (差分)
+    └─ changes = [z[i] - z[i-1] for i in range(1, n)]
+    ↓
+公式: RSI = 100 - 100/(1 + RS)
+    └─ RS = avg_gain / avg_loss
+    ↓
+周期: RSI(5) → 需要6天数据
+    ↓
+=========================================
+预热机制
+=========================================
+    ↓
+Pairs.__init__() 调用 _warmup_zscore_history()
+    ├─ 从 algorithm.clean_data 加载历史价格
+    ├─ 计算历史 Z-score 并填充 deque
+    └─ 确保首日即可计算RSI (无盲区)
+    ↓
+=========================================
+信号流程
+=========================================
+    ↓
+get_signal(data):
+    ↓
+1. 计算当前 Z-score
+2. 追加到 zscore_history
+3. 计算并追加 RSI 到 rsi_history
+4. 检查入场区间
+5. 若在区间内:
+    ├─ 确定候选信号 (SHORT/LONG)
+    ├─ 调用 _check_rsi_entry_condition()
+    │   ├─ 满足 → 返回信号
+    │   └─ 不满足 → 返回 WAIT
+    └─ 数据不足 → 回退原始逻辑
+```
+
+### 关键配置参数
+
+| 参数 | 值 | 含义 |
+|------|-----|------|
+| `rsi_period` | 5 | RSI计算周期 (需要6天数据) |
+| `rsi_overbought` | 80 | 超买阈值 |
+| `rsi_oversold` | 20 | 超卖阈值 |
+| `rsi_lookback_for_extreme` | 3 | 查找"近期曾超买/超卖"的回溯窗口 |
+| `rsi_warmup_days` | 10 | 预热天数 (从clean_data加载) |
+
+### 边界情况处理
+
+| 场景 | 处理方式 |
+|------|----------|
+| clean_data 不可用 | 跳过预热，逐日积累 |
+| RSI 数据不足 | 回退到原始入场逻辑 |
+| Z-score 在区间但RSI不满足 | 返回 WAIT，等待条件满足 |
+| 平仓后重新开仓 | 历史数据保留，可立即判断 |
+
+---
+
+# Part 14: Normal Open (正常开仓)
 
 ```
 触发: OnData() 优先级6
@@ -657,7 +746,7 @@ PairsManager.get_open_candidates_with_allocation(data):
     ↓
 筛选条件 (AND逻辑):
 ├─ current_selected (本轮入选)
-├─ get_signal() = LONG_SPREAD 或 SHORT_SPREAD
+├─ get_signal() = LONG_SPREAD 或 SHORT_SPREAD (含RSI过滤)
 ├─ has_position() = False
 ├─ is_in_cooldown() = False
 └─ is_pair_locked() = False
@@ -737,7 +826,13 @@ PairsManager.get_open_candidates_with_allocation(data):
 | `entry_time` | datetime | 开仓时间 |
 | `max_holding_days` | float | 理论最大持仓天数 |
 
-#### 1.5 Statistics (历史统计)
+#### 1.5 RSI on Z-score (动量检测 v8.7.0)
+| 属性 | 类型 | 描述 |
+|------|------|------|
+| `zscore_history` | deque | Z-score历史队列 (maxlen=9) |
+| `rsi_history` | deque | RSI历史队列 (maxlen=4) |
+
+#### 1.6 Statistics (历史统计)
 | 属性 | 类型 | 描述 |
 |------|------|------|
 | `trade_history` | List[Tuple] | 历史交易记录 (entry_time, exit_time, pnl, invested) |
@@ -750,11 +845,18 @@ PairsManager.get_open_candidates_with_allocation(data):
 | 方法 | 返回值 | 描述 |
 |------|--------|------|
 | `get_zscore(price1, price2)` | float | 计算当前Z-score |
-| `get_signal(data)` | str | 生成交易信号 |
+| `get_signal(data)` | str | 生成交易信号 (v8.7.0: 含RSI过滤) |
 | `get_open_intent(amount, data)` | OpenIntent | 生成开仓意图 |
 | `get_close_intent(reason)` | CloseIntent | 生成平仓意图 |
 
-#### 2.2 Calculations (计算方法)
+#### 2.2 RSI Methods (动量检测 v8.7.0)
+| 方法 | 返回值 | 描述 |
+|------|--------|------|
+| `_warmup_zscore_history()` | None | 从clean_data预热Z-score历史 |
+| `_calculate_rsi()` | float | 计算当前RSI并追加到历史 |
+| `_check_rsi_entry_condition(signal)` | bool | 检查RSI入场条件 (三重AND) |
+
+#### 2.3 Calculations (计算方法)
 | 方法 | 返回值 | 描述 |
 |------|--------|------|
 | `get_pair_holding_days()` | int | 当前持仓天数 |

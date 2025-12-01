@@ -176,16 +176,26 @@ class PairSelectorConfig:
 
 @dataclass
 class PairsConfig:
-    """配对配置 - 信号阈值、保证金参数、交易历史"""
+    """配对配置 - 信号阈值、保证金参数、卡尔曼滤波、RSI动量"""
 
     # 信号阈值
-    entry_threshold_lower: float = 1.25                            # 入场Z-score下限
-    entry_threshold_upper: float = 1.65                            # 入场Z-score上限
-    exit_threshold: float = 0.2                                    # 出场Z-score阈值
+    entry_threshold_lower: float = 2.0                             # 入场Z-score下限
+    entry_threshold_upper: float = 2.5                             # 入场Z-score上限
+    exit_threshold: float = 0.5                                    # 出场Z-score阈值
 
     # 保证金计算参数
     margin_requirement_long: float = 0.5                           # 多头保证金率: 50%
     margin_requirement_short: float = 1.5                          # 空头保证金率: 150%
+
+    # 卡尔曼滤波参数 (v8.6.0)
+    kalman_process_noise: float = 1e-5                             # 过程噪声 Q
+
+    # RSI on Z-score 参数 (v8.7.0)
+    rsi_period: int = 5                                            # RSI周期 (5日RSI, 需要6天数据)
+    rsi_overbought: float = 80.0                                   # 超买阈值
+    rsi_oversold: float = 20.0                                     # 超卖阈值
+    rsi_lookback_for_extreme: int = 3                              # 查找"近期曾超买/超卖"的窗口
+    rsi_warmup_days: int = 10                                      # 预热天数 (从clean_data加载)
 
 
 @dataclass
@@ -201,19 +211,17 @@ class PairsManagerConfig:
     rolling_window_days: int = 90                                  # CS计算滚动窗口
     min_samples_for_window: int = 20                               # 样本量保底: 窗口内<20笔时取最近20笔
 
-    # 健康检查阈值
-    pair_break_threshold: float = 1.95                             # 1.95σ Z-score触发 (v8.2.0: 方向感知止损)
-    drawdown_threshold: float = 0.04                               # 4% 回撤触发 (亏损配对)
-    drawdown_threshold_profitable_multiplier: float = 1.5          # 盈利配对回撤阈值放宽倍数 (v8.2.5: 4%→8%)
-    drift_threshold: float = 0.40                                  # 40% 漂移触发
+    # 健康检查阈值 (v8.6.0: 简化 - 删除VALUE漂移，统一回撤阈值)
+    pair_break_threshold: float = 3.5                              # 3.5σ Z-score触发 (v8.2.0: 方向感知止损)
+    beta_drift_threshold: float = 0.20                             # 20% β漂移阈值 (v8.6.0: 卡尔曼滤波)
+    drawdown_threshold: float = 0.08                               # 8% 统一回撤阈值 (v8.6.0: 删除盈亏分支)
 
-    # 冷却期配置 (key=reason, value=天数)
+    # 冷却期配置 (key=reason, value=天数) (v8.6.0: 删除DRIFT)
     cooldown_days: Dict[str, int] = field(default_factory=lambda: {
         'ANOMALY': 999999,      # 优先级1: 异常持仓 - 永久冷却
-        'PAIR_BREAK': 30,       # 优先级2: 协整破裂
-        'DRIFT': 30,            # 优先级3: 对冲漂移
-        'TIMEOUT': 30,          # 优先级4: 持仓超时
-        'DRAWDOWN': 30,         # 优先级5: 单体回撤
+        'PAIR_BREAK': 30,       # 优先级2: 协整破裂 (Z-score + β漂移)
+        'TIMEOUT': 30,          # 优先级3: 持仓超时
+        'DRAWDOWN': 30,         # 优先级4: 单体回撤
         'MEAN_REVERSION': 7,    # 正常平仓: 均值回归
     })
 
