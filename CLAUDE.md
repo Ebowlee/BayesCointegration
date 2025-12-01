@@ -56,15 +56,13 @@ OnSecuritiesChanged (月度触发)
 步骤3: BayesianModeler.model()
     ↓
 步骤4: PairSelector.select()
-    ⭐ 四维度阈值筛选 (v8.8.0)
+    ⭐ 三维度阈值筛选 (v8.9.1)
     [内部流程]:
-        - CV BETA 筛选 (≤ 0.3)
+        - CV BETA 筛选 (≤ 0.2)
         - 半衰期筛选 ([5, 20] 天)
-        - Hurst 筛选 (< 0.4)
         - 零轴穿越筛选 ([6, 30] 次)
-        - ROI缩放排序
     ↓
-输出: 高质量配对列表 → PairsManager.update_pairs()
+输出: 高质量配对列表 → PairsManager.classify_pairs()
 ```
 
 **Key Elements**:
@@ -102,7 +100,7 @@ OnSecuritiesChanged (月度触发)
 
 **Log Priority Tiers**:
 1. **Critical**: Trade close events (JSON with PnL, holding days, exit reason), risk trigger details with numerical values
-2. **Important**: Entry conditions (entry_zscore, quality_score), market context (VIX), state transitions
+2. **Important**: Entry conditions (entry_zscore), market context (VIX), state transitions
 3. **Optional**: Redundant summaries derivable from orders.csv, verbose batch progress messages
 
 ## Development Commands
@@ -246,18 +244,17 @@ git commit -m "docs: update CHANGELOG for v7.2.5"
 - **Key Components**:
   - `BayesianCointegrationStrategy`: Main algorithm class
   - `OnSecuritiesChanged()`: Triggers `_run_analysis_pipeline()`
-  - `_run_analysis_pipeline()`: 8-step analysis pipeline
+  - `_run_analysis_pipeline()`: 7-step analysis pipeline (v8.9.0)
   - `OnData()`: 6-priority trading execution
   - `OnOrderEvent()`: Route to TicketsManager (v7.99.4 fix)
 - **Analysis Pipeline** (`_run_analysis_pipeline`):
   1. DataProcessor.process() - Data cleaning
   2. CointegrationAnalyzer.cointegration_procedure() - Cointegration test
-  3. IndustryQuotaManager.apply_quotas() - Apply industry quotas
-  4. Build PairData dictionary
-  5. BayesianModeler.modeling_procedure() - Bayesian modeling
-  6. PairSelector.selection_procedure() - Quality selection
-  7. Create Pairs objects
-  8. PairsManager.classify_pairs() - Classification management
+  3. Build PairData dictionary
+  4. BayesianModeler.modeling_procedure() - Bayesian modeling
+  5. PairSelector.selection_procedure() - Quality selection
+  6. Create Pairs objects
+  7. PairsManager.classify_pairs() - Classification management
 - **OnData 6-Priority Execution**:
   1. Portfolio cooldown check → return if active
   2. Portfolio drawdown check → trigger Liquidate if ≥20%
@@ -363,17 +360,17 @@ git commit -m "docs: update CHANGELOG for v7.2.5"
   - *Lifecycle*:
     - `classify_pairs(new_pairs_dict)`: Incremental index update, classify into current/past
     - `get_pair_by_id()`, `get_pairs_with_position()`, `get_pairs_without_position()`
-  - *Margin Allocation* (v7.62.0 migrated from MarginAllocator):
+  - *Margin Allocation* (v8.10.0: 统一15%分配):
     - `get_available_margin()`: MarginRemaining - FIXED_BUFFER
-    - `allocate_margin_to_candidates(open_candidates)`: Distribute margin based on allocation_tiers
-    - `get_planned_allocation_pct(pair)`: Calculate allocation % based on avg_return_per_trade (v7.99.3)
+    - `allocate_margin_to_candidates(open_candidates)`: Distribute margin based on fixed 15%
+    - `_calculate_expected_profit(pair, allocated, data)`: Calculate expected profit for sorting (v8.11.0)
     - `get_open_candidates_with_allocation(data)`: Get candidates with margin allocation
-  - *Health Check* (v7.98.2 migrated from RiskManager):
+  - *Health Check* (v8.6.0: AND逻辑重构):
     - `check_pairs_health()`: Returns Dict[issue_type, pair_ids] with 4-priority check
       - Priority 1: anomaly (single-leg/same-direction positions)
-      - Priority 2: drawdown (>4%)
-      - Priority 3: drift (>50%)
-      - Priority 4: timeout (holding days > max theoretical)
+      - Priority 2: pair_break (Z-score 3.5σ AND β drift >20%)
+      - Priority 3: timeout (holding days > max theoretical)
+      - Priority 4: drawdown (>8%)
   - *Industry Metrics* (v8.0.0 rolling window):
     - `get_industry_composite_score(industry_code)`: rolling_roi × rolling_win_rate
     - `get_industry_realized_roi(industry_code, window_days)`: ROI with rolling window
@@ -429,38 +426,25 @@ git commit -m "docs: update CHANGELOG for v7.2.5"
   - **Factory Method**: `PairData.from_clean_data(pair_info, clean_data)` (recommended creation pattern)
   - **Key Fields**: symbol1, symbol2, industry_code, clean_data (252-day DataFrame)
   - **Usage**: Passed between analysis modules to avoid duplicate data preparation
-- **CointegrationAnalyzer**: Engle-Granger cointegration tests (p-value < 0.05) + industry quota application (v7.12.0)
+- **CointegrationAnalyzer**: Engle-Granger cointegration tests (p-value < 0.01)
   - **Industry Grouping** (v7.30.1): 按55个MorningstarIndustryGroupCode分组
   - **Volume Filtering** (v7.30.1): 每个子行业内按Volume(成交股数)筛选TOP 30
-  - **Industry Quota** (v7.12.0): Applies dynamic quotas at cointegration stage
-  - Selects TOP N pairs per industry by pvalue (N from IndustryQuotaManager)
-- **BayesianModeler**: PyMC MCMC parameter estimation (500 warmup + 500 samples, 2 chains)
+- **BayesianModeler**: PyMC MCMC parameter estimation (500 warmup + 500 samples, 4 chains)
   - **Input**: PairData objects from CointegrationAnalyzer
   - **Output**: ModelResult objects with posterior distributions (alpha, beta, sigma)
-- **PairSelector**: 四维度阈值筛选 (v8.8.0 重构)
+- **PairSelector**: 三维度阈值筛选 (v8.9.1: 删除Hurst维度)
   - **Input**: ModelResult objects from BayesianModeler
-  - **Threshold Filtering** (v8.8.0): Pass/fail logic for each dimension
+  - **Threshold Filtering** (v8.9.1): Pass/fail logic for each dimension
     | 维度 | 公式 | 阈值 | 含义 |
     |------|------|------|------|
-    | CV BETA | `beta_std / |beta_mean|` | ≤ 0.3 | β估计的相对不确定性 |
+    | CV BETA | `beta_std / |beta_mean|` | ≤ 0.2 | β估计的相对不确定性 |
     | 半衰期 | `-ln(2) / ln(rho_mean)` | [5, 20] 天 | 回归速度 |
-    | Hurst | R/S 分析 | < 0.4 | 均值回归特性 |
     | 零轴穿越 | 符号变化次数 | [6, 30] 次 | 交易活跃度 |
-  - **ROI Scaling**: `scale_factor = 1 + tanh(ROI)` 影响排序优先级
   - **Key Methods**:
     - `_filter_by_cv_beta()`: CV BETA 稳定性筛选
     - `_filter_by_half_life()`: 半衰期范围筛选
-    - `_filter_by_hurst()`: Hurst 指数筛选 (R/S 分析)
     - `_filter_by_zero_crossing()`: 零轴穿越次数筛选
-    - `_compute_hurst_exponent()`: R/S 分析计算 Hurst 指数
-  - **Design Change** (v8.8.0): 废除评分系统，改为阈值筛选
-    - 删除: `quality_weights`, `scoring_thresholds`, 三个 `_calculate_*_score()` 方法
-    - 新增: 四个 `_filter_by_*()` 方法，全部返回布尔值
-- **IndustryQuotaManager** (v7.12.0): Dynamic industry-level quota system
-  - **Warmup Period**: First 180 days use default quota (1 pair per industry)
-  - **Dynamic Adjustment**: Monthly quota calculation based on weighted return
-  - **Quota Tiers**: 1/3/6/9 pairs per industry (based on performance)
-  - **Weighted Return**: sum(total_pnl_dollars) / sum(total_pair_cost) per industry
+  - **Design Change** (v8.9.1): 删除Hurst维度 (60天数据不足以稳健计算R/S分析)
 
 ## Trading Execution Flow (OnData) - v8.0.0
 
@@ -486,21 +470,20 @@ git commit -m "docs: update CHANGELOG for v7.2.5"
 **Key Steps** (inside PairsManager):
 1. Filter current_selected pairs without position, not in cooldown, not locked
 2. Get signals (LONG_SPREAD/SHORT_SPREAD)
-3. Sort by `avg_return_per_trade` (v7.99.5)
-4. Allocate margin based on `allocation_tiers` (v7.99.3)
-5. Return List[Tuple[pair, allocated_margin]]
+3. Allocate margin based on fixed 15% (v8.10.0)
+4. Sort by expected_profit (v8.11.0: 预期收益额排序)
+5. Return List[Tuple[pair, signal, allocated_margin]]
 
-### Position Sizing (v7.99.3 Allocation Tiers)
-- **Tier-Based Allocation**: Based on `avg_return_per_trade` instead of quality_score
+### Position Sizing (v8.10.0 Fixed Allocation)
+- **Fixed Allocation**: 统一15%分配比例
   ```python
-  allocation_tiers = [
-      (0.00, 0.10),    # avg_return ≤ 0%   → 10%
-      (0.10, 0.15),    # avg_return ≤ 10%  → 15%
-      (0.20, 0.18),    # avg_return ≤ 20%  → 18%
-      (0.25, 0.20),    # avg_return ≤ 25%  → 20%
-  ]
-  allocation_default = 0.10  # No trade history (get_trade_count()=0)
-  allocation_max = 0.25      # avg_return > 25%
+  fixed_allocation_pct = 0.15  # 统一分配比例
+  min_investment_ratio = 0.15  # 地板保护 (= INITIAL_CAPITAL × 15%)
+  ```
+- **Allocation Logic**:
+  ```python
+  planned = initial_available × 15%
+  actual = max(planned, min_threshold)  # 地板保护
   ```
 - **Margin Buffer**: FIXED_BUFFER reserved from MarginRemaining
 - **Beta Hedging**: `long_value = margin / (1 + 1/|beta|)`, `short_value = margin / (1 + |beta|)`
@@ -573,13 +556,13 @@ required_margin = long_value * 0.5 + short_value * 1.5
 # required_margin = 8889*0.5 + 11111*1.5 = $21,111 ≈ $20,000
 ```
 
-**Dynamic Allocation Process** (v7.99.3):
+**Allocation Process** (v8.10.0):
 1. Calculate available margin: `Portfolio.MarginRemaining - FIXED_BUFFER`
-2. Get `avg_return_per_trade` for each pair (or use `allocation_default` if no history)
-3. Look up allocation percentage from `allocation_tiers` config
-4. Allocate: `margin × allocation_pct` (capped by `allocation_max`)
+2. Calculate min_threshold: `INITIAL_CAPITAL × 15%` (地板保护)
+3. For each candidate: `actual = max(available × 15%, min_threshold)`
+4. Sort by expected_profit (v8.11.0: 预期收益额排序)
 
-**Key Insight**: Historical performance drives allocation, not predicted quality scores.
+**Key Insight**: 统一分配比例 + 地板保护机制 + 预期收益排序。
 
 ### ~~Dual Cooldown Mechanism (v7.2.21)~~ [DEPRECATED in v7.12.0]
 
@@ -622,8 +605,8 @@ The strategy implemented **dynamic cooldown periods** based on exit reasons:
 
 ### Data Flow
 1. **Universe Changes**: `OnSecuritiesChanged()` → triggers pair analysis
-2. **Analysis Pipeline** (8 steps in `_run_analysis_pipeline`):
-   - DataProcessor → CointegrationAnalyzer → IndustryQuotaManager.apply_quotas() → PairData → BayesianModeler → PairSelector → Pairs objects → PairsManager.classify_pairs()
+2. **Analysis Pipeline** (7 steps in `_run_analysis_pipeline` v8.9.0):
+   - DataProcessor → CointegrationAnalyzer → PairData → BayesianModeler → PairSelector → Pairs objects → PairsManager.classify_pairs()
 3. **Trading Flow (OnData 6-priority)**:
    - Portfolio checks (RiskManager) → Health checks (PairsManager) → Signal close → VIX check → Signal open
 4. **Intent Flow**: Pairs.get_*_intent() → OrderExecutor.execute_*() → TicketsManager.register_tickets()
@@ -859,20 +842,18 @@ zscore = (log_residual - residual_mean) / residual_std
 
 ## Version History
 
-**Current Version**: v8.8.0 (2025-12-01)
+**Current Version**: v8.11.0 (2025-12-01)
 
 **Recent Major Updates**:
-- **v8.8.0** (Dec 2025): PairSelector阈值筛选重构 - 废除评分系统,四维度pass/fail筛选(CV BETA/半衰期/Hurst/零轴穿越)
+- **v8.11.0** (Dec 2025): 预期收益额排序 - 开仓时按预期收益潜力降序排序
+- **v8.10.0** (Dec 2025): 统一15%资金分配 - 删除allocation_tiers,简化为固定比例+地板保护
+- **v8.9.1** (Dec 2025): 删除Hurst维度 - 60天数据不足以稳健计算R/S分析
+- **v8.9.0** (Dec 2025): 删除IndustryQuotaManager - 简化分析管道为7步
+- **v8.8.0** (Dec 2025): PairSelector阈值筛选重构 - 废除评分系统,四维度→三维度pass/fail筛选
 - **v8.7.0** (Dec 2025): RSI on Z-score动量检测 - 三重AND条件过滤入场信号
 - **v8.6.0** (Dec 2025): 卡尔曼滤波β漂移检测 - 替代VALUE漂移,更准确的协整破裂检测
 - **v8.1.0** (Nov 2025): 单一事实来源重构 - 三元组→四元组,删除累积变量,动态聚合方法
-- **v8.0.3** (Nov 2025): Docstring精简 - 简单方法单行说明,复杂方法保留步骤化解释
-- **v8.0.0** (Nov 2025): 滚动窗口行业评分 - trade_history数据结构,180天窗口计算,解决评分固化问题
-- **v7.99.4** (Nov 2025): OnOrderEvent回调修复 - 修复回调链断裂导致的交易统计失效
-- **v7.99.3** (Nov 2025): 基于avg_return_per_trade的资金分配层级 - 替代quality_score线性插值
-- **v7.98.2** (Nov 2025): RiskManager单一职责 - Pair级健康检查迁移到PairsManager
-- **v7.62.0** (Nov 2025): MarginAllocator迁移 - 资金分配功能整合到PairsManager
-- **v7.12.0** (Nov 2025): 简化冻结机制 + 行业动态配额系统 - 统一冷却机制,新增IndustryQuotaManager
+- **v8.0.0** (Nov 2025): 滚动窗口行业评分 - trade_history数据结构,180天窗口计算
 - **v7.0.0** (Jan 2025): Intent模式重构 - 意图生成与订单执行分离
 
 **Complete History**: See [docs/CHANGELOG.md](docs/CHANGELOG.md) for detailed version history and breaking changes
@@ -889,11 +870,10 @@ zscore = (log_residual - residual_mean) / residual_std
 - **src/**: Source code modules
   - **analysis/**: Data processing and statistical analysis
     - **DataProcessor.py**: Data cleaning and validation (252-day lookback)
-    - **CointegrationAnalyzer.py**: Cointegration testing with industry quota application
+    - **CointegrationAnalyzer.py**: Cointegration testing (Engle-Granger p-value < 0.01)
     - **BayesianModeler.py**: PyMC MCMC parameter estimation
-    - **PairSelector.py**: 四维度阈值筛选 (v8.8.0: CV BETA/半衰期/Hurst/零轴穿越)
+    - **PairSelector.py**: 三维度阈值筛选 (v8.9.1: CV BETA/半衰期/零轴穿越)
     - **PairData.py**: Data encapsulation class for pair analysis
-    - **IndustryQuotaManager.py**: Dynamic industry quota system (v8.0.0 updated)
   - **config.py**: Centralized configuration via StrategyConfig class
   - **UniverseSelection.py**: Multi-stage stock filtering
   - **Pairs.py**: Pair trading object with signal/intent generation and trade_history four-tuple (v8.1.0)

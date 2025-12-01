@@ -3,6 +3,7 @@ from AlgorithmImports import *
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Set, Tuple
 from src.Pairs import PositionMode
+import math
 # endregion
 
 
@@ -475,7 +476,7 @@ class PairsManager:
         """
         为开仓候选配对分配保证金 (v8.10.0: 统一15%分配)
 
-        输入: [(pair, signal, quality_score, planned_pct), ...]
+        输入: [(pair, signal, planned_pct), ...]  # v8.12.0: 删除 quality_score
         输出: {pair_id: allocated_amount}
 
         算法:
@@ -507,7 +508,7 @@ class PairsManager:
         # === Step 2: 顺序分配 ===
         remaining_available = initial_available  # 追踪剩余资金
 
-        for pair, signal, quality_score, planned_pct in open_candidates:
+        for pair, signal, planned_pct in open_candidates:
             # 计划分配额 = 初始可用 × 15%
             planned_allocated = initial_available * planned_pct
 
@@ -564,7 +565,7 @@ class PairsManager:
         open_candidates = []
         for pair in candidates_with_signal:
             signal = pair.get_signal(data)
-            open_candidates.append((pair, signal, pair.quality_score, fixed_pct))
+            open_candidates.append((pair, signal, fixed_pct))  # v8.12.0: 删除 quality_score
 
         # Step 3: 资金分配
         allocations = self.allocate_margin_to_candidates(open_candidates)
@@ -573,7 +574,7 @@ class PairsManager:
         if self.module_config.sort_by_expected_profit:
             # 构建带预期收益的列表
             candidates_with_profit = []
-            for pair, signal, quality_score, planned_pct in open_candidates:
+            for pair, signal, planned_pct in open_candidates:
                 actual_allocated = allocations.get(pair.pair_id, 0)
                 if actual_allocated > 0:
                     expected_profit = self._calculate_expected_profit(pair, actual_allocated, data)
@@ -587,7 +588,7 @@ class PairsManager:
 
         # Step 5: 合并分配结果 (原逻辑，当排序关闭时执行)
         final_candidates = []
-        for pair, signal, quality_score, planned_pct in open_candidates:
+        for pair, signal, planned_pct in open_candidates:
             allocated = allocations.get(pair.pair_id)
             if allocated:
                 final_candidates.append((pair, signal, allocated))
@@ -597,8 +598,19 @@ class PairsManager:
 
     # ===== 6. 配置查询路由 =====
 
-    def get_cooldown_required_days(self, last_close_reason: str) -> int:
-        """查询冷却期天数 (从配置Dict读取，默认10天)"""
-        return self.module_config.cooldown_days.get(last_close_reason, 7)
+    def get_cooldown_required_days(self, last_close_reason: str, half_life: Optional[float] = None) -> int:
+        """
+        计算冷却期天数 (v8.13.0: 基于半衰期动态计算)
+
+        公式: cooldown_days = half_life × multiplier
+        """
+        # 获取multiplier (默认1.0)
+        multiplier = self.module_config.cooldown_multipliers.get(last_close_reason, 1.0)
+
+        # 使用配对半衰期或默认值
+        effective_half_life = half_life if half_life is not None else self.module_config.default_half_life
+
+        # 计算并向上取整
+        return math.ceil(effective_half_life * multiplier)
 
 

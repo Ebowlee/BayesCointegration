@@ -2,6 +2,8 @@
 
 本文档用流程图形式描述贝叶斯协整配对交易策略的完整执行逻辑。
 
+**当前版本**: v8.13.0 (2024-12-01)
+
 ---
 
 # Part 1: Universe Selection (选股逻辑)
@@ -87,7 +89,7 @@ t=-312        t=-60         t=0 (当前)
 =========================================
     ↓
 步骤1: 批量下载历史数据
-    └─ algorithm.History(symbols, 312, Resolution.Daily)  ← v8.4.0: 312天
+    └─ algorithm.History(symbols, 312, Resolution.Daily)
     └─ 返回多级索引 DataFrame (symbol × date)
     ↓
 =========================================
@@ -99,7 +101,7 @@ t=-312        t=-60         t=0 (当前)
     └─ 失败原因: data_missing
     ↓
 检查2: 数据完整性
-    └─ len(data) == 312 (v8.4.0: 恰好312个交易日)
+    └─ len(data) == 312 (恰好312个交易日)
     └─ 失败原因: incomplete
     ↓
 检查3: 缺失值检查
@@ -124,7 +126,7 @@ t=-312        t=-60         t=0 (当前)
 =========================================
     ↓
 {
-    'clean_data': {symbol: DataFrame},  ← 每只股票312天OHLCV (v8.4.0)
+    'clean_data': {symbol: DataFrame},  ← 每只股票312天OHLCV
     'valid_symbols': [Symbol],          ← 通过验证的股票列表
     'statistics': {...}                 ← 统计信息
 }
@@ -136,7 +138,7 @@ t=-312        t=-60         t=0 (当前)
 
 | 参数 | 值 | 含义 |
 |------|-----|------|
-| `total_lookback_days` | 312 | **交易日** - 总数据下载量 (v8.4.0) |
+| `total_lookback_days` | 312 | **交易日** - 总数据下载量 |
 | `bayesian_lookback_days` | 60 | **交易日** - MCMC建模窗口 |
 | `data_completeness_ratio` | 1.0 | 100%数据完整性要求 |
 | `max_annualized_volatility` | 0.7 | 年化波动率上限70% |
@@ -199,7 +201,7 @@ t=-312        t=-60         t=0 (当前)
     'statistics': {...}
 }
     ↓
-下游: IndustryQuotaManager.apply_quotas()
+下游: 构建 PairData 字典 (步骤3)
 ```
 
 ### 关键配置参数
@@ -213,79 +215,13 @@ t=-312        t=-60         t=0 (当前)
 
 ---
 
-# Part 4: Industry Quota (行业配额)
+# Part 4: PairData Construction (数据封装)
 
 ```
 触发: _run_analysis_pipeline() 步骤3
     ↓
 =========================================
-输入: CointegrationAnalyzer 输出的协整配对列表
-=========================================
-    ↓
-步骤1: 预热期检查
-    ├─ 条件: days_running < 90 (warmup_days)
-    ├─ 预热期行为: 所有行业 CS=0 → 权重=1 → 均等分配
-    └─ 正常期: 继续计算动态配额
-    ↓
-步骤2: 计算行业综合得分 (Composite Score)
-    ├─ 公式: CS = Rolling_ROI × Rolling_WinRate
-    ├─ 滚动窗口: 最近90天 (rolling_window_days)
-    ├─ 样本保底: 若窗口内<20笔, 取最近20笔
-    └─ 取值范围: [0, +∞) (ROI<0时返回0)
-    ↓
-步骤3: 计算行业权重
-    └─ weight = ceil(exp(6 × CS))
-        ├─ CS=0: weight=1 (预热期/无数据/亏损)
-        └─ CS>0: 指数级增长 (奖励盈利行业)
-    ↓
-步骤4: 集中度熔断检查
-    ├─ 条件: industry_concentration > 40%
-    └─ 触发: 该行业配额直接降为0
-    ↓
-=========================================
-步骤5: 两轮分配机制
-=========================================
-    ↓
-第一轮 (Base Pass):
-    ├─ quota = floor(total_quota × weight / total_weight)
-    ├─ selected = min(quota, demand)
-    ├─ unused = quota - selected     ← 退回池
-    └─ unmet = demand - selected     ← 等待bonus
-    ↓
-第二轮 (Redistribution):
-    ├─ bonus = floor(quota_pool × weight / hungry_weight_sum)
-    └─ actual_bonus = min(bonus, unmet, remaining_pool)
-    ↓
-=========================================
-输出
-=========================================
-    ↓
-按配额筛选后的配对列表 (随机抽取, hash种子保证可复现)
-    ↓
-下游: 构建 PairData 字典
-```
-
-### 关键配置参数
-
-| 参数 | 值 | 含义 |
-|------|-----|------|
-| `total_quota` | 20 | 全局配额总量 |
-| `warmup_days` | 90 | 预热期天数 (日历天) |
-| `exp_scale_factor` | 6.0 | 指数缩放系数 |
-| `min_quota_per_industry` | 1 | 单行业最低配额 |
-| `rolling_window_days` | 90 | CS计算滚动窗口 (日历天) |
-| `min_samples_for_window` | 20 | 样本量保底 |
-| `concentration_threshold` | 40% | 集中度熔断阈值 |
-
----
-
-# Part 5: PairData Construction (数据封装)
-
-```
-触发: _run_analysis_pipeline() 步骤4
-    ↓
-=========================================
-输入: 配额筛选后的配对列表 + clean_data
+输入: 协整检验后的配对列表 + clean_data
 =========================================
     ↓
 对每个配对:
@@ -308,10 +244,10 @@ t=-312        t=-60         t=0 (当前)
 
 ---
 
-# Part 6: Bayesian Modeler (贝叶斯建模)
+# Part 5: Bayesian Modeler (贝叶斯建模)
 
 ```
-触发: _run_analysis_pipeline() 步骤5
+触发: _run_analysis_pipeline() 步骤4
     ↓
 =========================================
 输入: PairData 对象字典 + 协整配对列表 (含OLS估计)
@@ -334,7 +270,7 @@ t=-312        t=-60         t=0 (当前)
     ↓
 步骤3: 联合贝叶斯建模 (AR(1) 变换形式)
     ├─ 模型: y_t = α(1-ρ) + β(x_t - ρx_{t-1}) + ρy_{t-1} + η_t
-    └─ MCMC: PyMC (4 chains × 3000 draws, 2000 warmup)
+    └─ MCMC: PyMC (4 chains × 500 draws, 500 warmup)
     ↓
 =========================================
 输出: ModelResult 对象
@@ -373,16 +309,16 @@ t=-312        t=-60         t=0 (当前)
 | `ols_prior_sigma_multiplier` | 2.0 | OLS标准误放宽倍数 (α, β) |
 | `sigma_eta_scale_factor` | 0.1 | 状态噪声缩放因子 |
 | `mcmc_chains` | 4 | MCMC链数 |
-| `mcmc_warmup` | 2000 | 预热采样次数 |
-| `mcmc_draws` | 3000 | 正式采样次数 |
+| `mcmc_warmup` | 500 | 预热采样次数 |
+| `mcmc_draws` | 500 | 正式采样次数 |
 | `informed_validity_days` | 30 | 历史后验有效期 |
 
 ---
 
-# Part 7: Pair Selector (配对筛选) - v8.9.1 三维度阈值筛选
+# Part 6: Pair Selector (配对筛选) - v8.9.1 三维度阈值筛选
 
 ```
-触发: _run_analysis_pipeline() 步骤6
+触发: _run_analysis_pipeline() 步骤5
     ↓
 =========================================
 输入: ModelResult 对象列表
@@ -393,7 +329,7 @@ t=-312        t=-60         t=0 (当前)
 维度1: CV BETA 稳定性
     ├─ 公式: CV = beta_std / |beta_mean|
     ├─ 含义: β估计的相对不确定性
-    ├─ 阈值: CV ≤ 0.3 通过
+    ├─ 阈值: CV ≤ 0.2 通过
     └─ 边界: |beta_mean| < 0.1 → 剔除 (避免CV爆炸)
     ↓
 维度2: 半衰期
@@ -418,7 +354,7 @@ t=-312        t=-60         t=0 (当前)
 输出: 最终入选配对列表
 =========================================
     ↓
-下游: 创建 Pairs 对象
+下游: 创建 Pairs 对象 (步骤6)
 ```
 
 ### 关键配置参数
@@ -441,13 +377,13 @@ t=-312        t=-60         t=0 (当前)
 
 ---
 
-# Part 8: Pairs Creation & Management (配对创建与管理)
+# Part 7: Pairs Creation & Management (配对创建与管理)
 
 ```
-触发: _run_analysis_pipeline() 步骤7-8
+触发: _run_analysis_pipeline() 步骤6-7
     ↓
 =========================================
-步骤7: Pairs对象创建
+步骤6: Pairs对象创建
 =========================================
     ↓
 工厂方法: Pairs.from_model_result(algorithm, model_result, config)
@@ -456,10 +392,10 @@ t=-312        t=-60         t=0 (当前)
 ├─ 基础信息: symbol1, symbol2, industry_code
 ├─ 贝叶斯参数: α, β, μ_res, σ_res
 ├─ 质量指标: quality_score, half_life
-└─ 交易阈值: entry[1.25-1.65σ], exit[0.2σ]
+└─ 交易阈值: entry[2.0-2.5σ], exit[0.5σ]
     ↓
 =========================================
-步骤8: PairsManager分类管理
+步骤7: PairsManager分类管理
 =========================================
     ↓
 classify_pairs(new_pairs_dict):
@@ -480,9 +416,15 @@ classify_pairs(new_pairs_dict):
 等待 OnData 触发交易执行
 ```
 
+### 分析管道汇总 (7步流程)
+
+```
+[Analysis汇总] 输入280 → 有效260 → 候选3500对 → 协整180对 (18行业) → 贝叶斯180对 → 质量筛选25对 → 创建25个Pairs
+```
+
 ---
 
-# Part 9: Portfolio Risk Management (组合级风控)
+# Part 8: Portfolio Risk Management (组合级风控)
 
 ```
 触发: OnData() 优先级 1-2
@@ -524,7 +466,7 @@ classify_pairs(new_pairs_dict):
 
 ---
 
-# Part 10: Pair-level Health Check (配对级风控)
+# Part 9: Pair-level Health Check (配对级风控) - v8.13.0 动态冷却期
 
 ```
 触发: OnData() 优先级3
@@ -538,32 +480,25 @@ PairsManager.check_pairs_health() 返回问题字典
 优先级1: Anomaly (异常持仓)
     ├─ 定义: 单边持仓 或 同向持仓
     ├─ 动作: 立即平仓修正
-    └─ 冷却期: 永久 (999999天)
+    └─ 冷却期: 永久 (half_life × 999999)
     ↓
-优先级2: PairBreak (协整破裂)
-    ├─ 定义: Z-score向不利方向突破1.95σ
-    ├─ 方向感知:
-    │   ├─ 多头: Z < -1.95σ 触发
-    │   └─ 空头: Z > +1.95σ 触发
-    ├─ 盈利跳过: unrealized_pnl > 0 时不触发 (v8.2.5)
-    └─ 冷却期: 30天
+优先级2: PairBreak (协整破裂 - v8.6.0 AND逻辑)
+    ├─ 触发条件 (必须同时满足):
+    │   ├─ 条件A: Z-score方向感知突破3.5σ
+    │   │   ├─ 多头: Z < -3.5σ
+    │   │   └─ 空头: Z > +3.5σ
+    │   └─ 条件B: β漂移 > 20% (卡尔曼滤波)
+    ├─ 噪声跳过: 仅zscore触发但β漂移≤20% → 判定为噪声
+    └─ 冷却期: half_life × 4 (v8.13.0)
     ↓
-优先级3: Drift (对冲漂移)
-    ├─ 定义: Drift = NetExposure / GrossExposure
-    ├─ 阈值: 40%
-    ├─ 盈利跳过: unrealized_pnl > 0 时不触发 (v8.2.5)
-    └─ 冷却期: 30天
-    ↓
-优先级4: Timeout (持仓超时)
+优先级3: Timeout (持仓超时)
     ├─ 定义: holding_days > max_holding_days
     ├─ max_holding_days = half_life × log₀.₅(exit/entry_zscore)
-    ├─ 盈利跳过: unrealized_pnl > 0 时不触发 (v8.2.5)
-    └─ 冷却期: 30天
+    └─ 冷却期: half_life × 1 (v8.13.0)
     ↓
-优先级5: Drawdown (单体回撤)
-    ├─ 定义: (HWM - CurrentValue) / HWM
-    ├─ 阈值: 4% (亏损配对) / 8% (盈利配对)
-    └─ 冷却期: 30天
+优先级4: Drawdown (单体回撤)
+    ├─ 定义: (HWM - CurrentValue) / HWM > 8%
+    └─ 冷却期: half_life × 2 (v8.13.0)
     ↓
 =========================================
 执行: main.py 遍历问题字典
@@ -574,18 +509,44 @@ PairsManager.check_pairs_health() 返回问题字典
 └─ OrderExecutor.execute_close(intent)
 ```
 
+### v8.6.0 关键变更
+
+1. **删除盈利跳过逻辑**: 统一阈值，不因盈亏状态改变风控策略
+2. **合并 Drift 到 PairBreak**: Z-score + β漂移必须**同时满足**才触发
+3. **优先级简化**: 从5个减少到4个
+
+### v8.13.0 动态冷却期机制
+
+**设计理念**: "量体裁衣" - 冷却期与配对自身的均值回归速度挂钩
+
+**核心公式**: `cooldown_days = ceil(half_life × multiplier)`
+
+**Multiplier配置**:
+| 平仓原因 | Multiplier | 含义 |
+|----------|------------|------|
+| `MEAN_REVERSION` | 1.0 | 正常平仓: 等待1个完整回归周期 |
+| `TIMEOUT` | 1.0 | 超时平仓: 等待1个完整回归周期 |
+| `DRAWDOWN` | 2.0 | 回撤止损: 多等1个周期观察稳定性 |
+| `PAIR_BREAK` | 4.0 | 协整破裂: 充分冷却后再重试 |
+| `ANOMALY` | 999999.0 | 数据异常: 永久冷却 |
+
+**示例**:
+- half_life=8天的快速回归配对: MEAN_REVERSION冷却8天, DRAWDOWN冷却16天
+- half_life=15天的慢速回归配对: MEAN_REVERSION冷却15天, DRAWDOWN冷却30天
+
+**保底机制**: 若配对的half_life为None，使用`default_half_life=10.0`天
+
 ### 关键配置参数
 
 | 参数 | 值 | 含义 |
 |------|-----|------|
-| `pair_break_threshold` | 1.95σ | 协整破裂Z-score阈值 |
-| `drift_threshold` | 40% | 对冲漂移阈值 |
-| `drawdown_threshold` | 4% | 单体回撤阈值 (亏损配对) |
-| `drawdown_threshold` × 1.5 | 8% | 单体回撤阈值 (盈利配对) |
+| `pair_break_threshold` | 3.5σ | Z-score方向感知阈值 |
+| `beta_drift_threshold` | 20% | β漂移阈值 (AND条件) |
+| `drawdown_threshold` | 8% | 单体回撤阈值 (统一) |
 
 ---
 
-# Part 11: Normal Close (正常平仓)
+# Part 10: Normal Close (正常平仓)
 
 ```
 触发: OnData() 优先级4
@@ -600,10 +561,10 @@ PairsManager.check_pairs_health() 返回问题字典
     获取信号: pair.get_signal(data)
         ↓
     信号: CLOSE (均值回归)
-        ├─ 条件: |Z-score| < 0.2σ (exit_threshold)
+        ├─ 条件: |Z-score| < 0.5σ (exit_threshold)
         ├─ 含义: 价差已回归均值附近
         ├─ 动作: CloseIntent (reason='MEAN_REVERSION')
-        └─ 冷却期: 7天
+        └─ 冷却期: half_life × 1 (v8.13.0 动态计算)
         ↓
     信号: HOLD
         └─ 继续持有，等待回归
@@ -625,7 +586,7 @@ PairsManager.check_pairs_health() 返回问题字典
 
 ---
 
-# Part 12: VIX Check (开仓安全检查)
+# Part 11: VIX Check (开仓安全检查)
 
 ```
 触发: OnData() 优先级5
@@ -648,7 +609,7 @@ PairsManager.check_pairs_health() 返回问题字典
 
 ---
 
-# Part 13: RSI on Z-score (动量检测) - v8.7.0
+# Part 12: RSI on Z-score (动量检测) - v8.7.0
 
 ```
 触发: get_signal() 入场信号生成时
@@ -737,7 +698,7 @@ get_signal(data):
 
 ---
 
-# Part 14: Normal Open (正常开仓) - v8.11.0 预期收益排序
+# Part 13: Normal Open (正常开仓) - v8.11.0 预期收益排序
 
 ```
 触发: OnData() 优先级6
@@ -835,10 +796,10 @@ PairsManager.get_open_candidates_with_allocation(data):
 #### 1.2 Model Parameters (模型参数)
 | 属性 | 类型 | 描述 |
 |------|------|------|
-| `alpha` | float | 截距项 |
-| `beta` | float | 协整系数 |
-| `rho` | float | 自回归系数 |
-| `sigma_eta` | float | 残差标准差 |
+| `alpha_mean` | float | 截距项后验均值 |
+| `beta_mean` | float | 协整系数后验均值 |
+| `residual_mean` | float | 残差均值 |
+| `residual_std` | float | 残差标准差 |
 
 #### 1.3 Quality Metrics (质量指标)
 | 属性 | 类型 | 描述 |
@@ -865,8 +826,6 @@ PairsManager.get_open_candidates_with_allocation(data):
 | 属性 | 类型 | 描述 |
 |------|------|------|
 | `trade_history` | List[Tuple] | 历史交易记录 (entry_time, exit_time, pnl, invested) |
-| `trade_count` | int | 累计交易次数 |
-| `win_count` | int | 累计盈利次数 |
 
 ### 2. Methods (方法)
 
@@ -890,12 +849,11 @@ PairsManager.get_open_candidates_with_allocation(data):
 |------|--------|------|
 | `get_pair_holding_days()` | int | 当前持仓天数 |
 | `get_max_holding_days()` | float | 理论最大持仓天数 |
-| `get_pair_drawdown()` | float | 当前浮动回撤率 |
-| `get_hedge_drift()` | float | 对冲漂移率 |
-| `get_pair_roi()` | float | 历史累计ROI |
-| `get_avg_return_per_trade()` | float | 平均每笔交易回报率 |
+| `get_hedge_drift()` | float | 对冲漂移率 (卡尔曼滤波) |
+| `get_trade_count()` | int | 历史交易次数 |
+| `get_win_count()` | int | 历史盈利次数 |
 
-#### 2.3 State Queries (状态查询)
+#### 2.4 State Queries (状态查询)
 | 方法 | 返回值 | 描述 |
 |------|--------|------|
 | `has_position()` | bool | 是否有任何持仓 |
@@ -907,7 +865,7 @@ PairsManager.get_open_candidates_with_allocation(data):
 
 ## Class: PairsManager
 
-配对管理器，负责管理整个回测周期内所有配对的生命周期、行业数据聚合及资金分配。
+配对管理器，负责管理整个回测周期内所有配对的生命周期及资金分配。
 
 ### 1. Attributes (属性)
 | 属性 | 类型 | 描述 |
@@ -915,6 +873,8 @@ PairsManager.get_open_candidates_with_allocation(data):
 | `all_pairs` | Dict[tuple, Pairs] | 所有已创建的配对对象 |
 | `current_selected_pair_ids` | Set[tuple] | 当前选股周期入选的配对ID |
 | `past_selected_pair_ids` | Set[tuple] | 历史曾入选但当前落选的配对ID |
+| `INITIAL_CAPITAL` | float | 初始资本 (固定基准) |
+| `FIXED_BUFFER` | float | 保证金缓冲 (2%初始资金) |
 
 ### 2. Methods (方法)
 
@@ -925,38 +885,29 @@ PairsManager.get_open_candidates_with_allocation(data):
 | `get_pair_by_id(pair_id)` | Pairs | 根据ID获取配对 |
 | `get_pairs_with_position()` | Dict | 获取所有持仓配对 |
 
-#### 2.2 Industry Analytics (行业分析)
-| 方法 | 返回值 | 描述 |
-|------|--------|------|
-| `get_industry_composite_score(code)` | float | 行业综合得分 |
-| `get_industry_roi(code)` | float | 行业历史累积ROI |
-| `get_industry_win_rate(code)` | float | 行业胜率 |
-| `get_industry_concentration(code)` | float | 行业资金集中度 |
-
-#### 2.3 Capital Allocation (资金分配)
+#### 2.2 Capital Allocation (资金分配 v8.10.0-v8.11.0)
 | 方法 | 返回值 | 描述 |
 |------|--------|------|
 | `get_open_candidates_with_allocation(data)` | List | 筛选开仓候选并分配资金 |
 | `get_available_margin()` | float | 计算当前可用保证金 |
+| `allocate_margin_to_candidates(candidates)` | Dict | 统一15%资金分配 |
+| `_calculate_expected_profit(pair, allocated, data)` | float | 计算预期收益额 |
 
-#### 2.4 Health & Risk (健康与风控)
+#### 2.3 Health & Risk (健康与风控)
 | 方法 | 返回值 | 描述 |
 |------|--------|------|
 | `check_pairs_health()` | Dict | 执行所有配对健康检查 |
-| `get_cooldown_required_days(reason)` | int | 查询冷却天数 |
+| `get_cooldown_required_days(reason, half_life)` | int | 动态计算冷却天数 (v8.13.0) |
 
 ---
 
-## Class: IndustryData
+## OnData 执行优先级汇总
 
-行业数据对象 (Value Object)，封装单个行业的聚合统计数据。
-
-### Attributes (属性)
-| 属性 | 类型 | 描述 |
-|------|------|------|
-| `historical_pnl` | float | 历史累积盈亏 |
-| `current_invested_capital` | float | 当前投入资本 |
-| `historical_invested_capital` | float | 历史累积投入资本 |
-| `trade_count` | int | 交易次数 |
-| `win_count` | int | 盈利次数 |
-| `trade_history` | List[Tuple] | 单笔交易记录列表 |
+| 优先级 | 检查项 | 触发条件 | 动作 |
+|--------|--------|----------|------|
+| 1 | Portfolio冷却期 | `is_in_portfolio_cooldown()` | 直接return |
+| 2 | Portfolio回撤 | Drawdown ≥ 20% | Liquidate + 360天冷却 |
+| 3 | 配对健康检查 | Anomaly/PairBreak/Drift/Timeout/Drawdown | 风控平仓 |
+| 4 | 正常平仓 | CLOSE信号 | 均值回归平仓 |
+| 5 | VIX检查 | VIX ≥ 35 | 禁止开仓 |
+| 6 | 正常开仓 | 候选筛选+资金分配+预期收益排序 | 执行开仓 |

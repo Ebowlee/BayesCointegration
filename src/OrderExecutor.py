@@ -66,14 +66,12 @@ class CloseIntent:
         symbol2: 第二只股票的Symbol对象
         qty1: 第一只股票的当前持仓数量(需要平仓的数量)
         qty2: 第二只股票的当前持仓数量(需要平仓的数量)
-        reason: 平仓原因 (必须匹配config.pairs_manager.cooldown_days中的key):
-            - 'MEAN_REVERSION': 均值回归
-            - 'PAIR_BREAK': 协整破裂
-            - 'TIMEOUT': 持有超时
-            - 'DRAWDOWN': 回撤触发
-            - 'DRIFT': 对冲漂移
-            - 'ANOMALY': 单腿异常
-            - 'CUMULATIVE_ROI': 累积亏损
+        reason: 平仓原因 (必须匹配config.pairs_manager.cooldown_multipliers中的key):
+            - 'MEAN_REVERSION': 均值回归 (1个半衰期)
+            - 'PAIR_BREAK': 协整破裂 (4个半衰期)
+            - 'TIMEOUT': 持有超时 (1个半衰期)
+            - 'DRAWDOWN': 回撤触发 (2个半衰期)
+            - 'ANOMALY': 单腿异常 (永久冷却)
         tag: 订单标签,用于追踪和分析(包含reason信息)
 
     使用场景:

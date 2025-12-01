@@ -51,7 +51,7 @@ class Pairs:
         self.beta_mean = model_data['beta_mean']
         self.residual_mean = model_data['residual_mean']
         self.residual_std = model_data['residual_std']
-        self.quality_score = model_data['quality_score']
+        # v8.12.0: quality_score 已删除 (PairSelector v8.9.0+ 改为 pass/fail 筛选)
         self.half_life = model_data.get('half_life')
         self.half_life_std = model_data.get('half_life_std', 0)
 
@@ -162,7 +162,7 @@ class Pairs:
         self.beta_mean = new_pair.beta_mean
         self.residual_mean = new_pair.residual_mean
         self.residual_std = new_pair.residual_std
-        self.quality_score = new_pair.quality_score
+        # v8.12.0: quality_score 已删除
 
 
     # ===== 2. 纯计算层 (Pure Computation) =====
@@ -319,13 +319,14 @@ class Pairs:
         return self.position_mode in [PositionMode.PARTIAL_LEG1, PositionMode.PARTIAL_LEG2, PositionMode.ANOMALY_SAME]
 
     def is_in_cooldown(self) -> bool:
-        """检查是否在冷却期中"""
+        """检查是否在冷却期中 (v8.13.0: 基于半衰期动态计算)"""
         if self.pair_closed_time is None:
             return False
 
         elapsed_days = (self.algorithm.UtcTime - self.pair_closed_time).days
         reason = self.last_close_reason or 'MEAN_REVERSION'
-        cooldown_days = self.algorithm.pairs_manager.get_cooldown_required_days(reason)
+        # v8.13.0: 传递half_life给PairsManager
+        cooldown_days = self.algorithm.pairs_manager.get_cooldown_required_days(reason, self.half_life)
         return elapsed_days < cooldown_days
 
     def get_pair_unrealized_pnl(self) -> Optional[float]:
@@ -874,8 +875,8 @@ class Pairs:
         # v7.99.7: 直接使用reason字符串
         reason_text = reason or '未知原因'
 
-        # v7.44.0: 调用PairsManager统一配置查询
-        cooldown_days = self.algorithm.pairs_manager.get_cooldown_required_days(reason)
+        # v8.13.0: 基于半衰期动态计算冷却期
+        cooldown_days = self.algorithm.pairs_manager.get_cooldown_required_days(reason, self.half_life)
 
         # 计算持有天数
         holding_days = self.get_pair_holding_days()

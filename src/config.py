@@ -133,7 +133,7 @@ class PairSelectorConfig:
     v8.9.1: 删除Hurst维度 (60天spread数据不足以稳健计算R/S分析)
     """
     # 维度1: CV BETA 稳定性
-    cv_beta_threshold: float = 0.3                                  # CV > 0.3 → 剔除
+    cv_beta_threshold: float = 0.2                                  # CV > 0.2 → 剔除
     min_abs_beta: float = 0.1                                       # |β| < 0.1 → 剔除 (避免CV爆炸)
 
     # 维度2: 半衰期
@@ -192,14 +192,17 @@ class PairsManagerConfig:
     beta_drift_threshold: float = 0.20                             # 20% β漂移阈值 (v8.6.0: 卡尔曼滤波)
     drawdown_threshold: float = 0.08                               # 8% 统一回撤阈值 (v8.6.0: 删除盈亏分支)
 
-    # 冷却期配置 (key=reason, value=天数) (v8.6.0: 删除DRIFT)
-    cooldown_days: Dict[str, int] = field(default_factory=lambda: {
-        'ANOMALY': 999999,      # 优先级1: 异常持仓 - 永久冷却
-        'PAIR_BREAK': 30,       # 优先级2: 协整破裂 (Z-score + β漂移)
-        'TIMEOUT': 30,          # 优先级3: 持仓超时
-        'DRAWDOWN': 30,         # 优先级4: 单体回撤
-        'MEAN_REVERSION': 7,    # 正常平仓: 均值回归
+    # 动态冷却系数 (v8.13.0: 基于半衰期, cooldown = half_life × multiplier)
+    cooldown_multipliers: Dict[str, float] = field(default_factory=lambda: {
+        'MEAN_REVERSION': 1.0,                                     # 正常平仓: 1个半衰期
+        'TIMEOUT': 1.0,                                            # 超时平仓: 1个半衰期
+        'DRAWDOWN': 2.0,                                           # 回撤止损: 2个半衰期
+        'PAIR_BREAK': 4.0,                                         # 协整破裂: 4个半衰期
+        'ANOMALY': 999999.0,                                       # 数据异常: 永久冷却
     })
+
+    # 保底半衰期 (当half_life为None时使用)
+    default_half_life: float = 10.0
 
 
 @dataclass
