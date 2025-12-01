@@ -890,7 +890,7 @@ class Pairs:
         industry_name = industry_names.get(int(self.industry_code), '未知') if self.industry_code else '未知'
 
         # v8.0.7: 计算平仓时对冲漂移
-        drift = self.get_hedge_drift()
+        drift = self.get_beta_drift()
         drift_pct = (drift * 100) if drift is not None else 0.0
 
         # v8.0.4: 优化日志格式 - 调整字段顺序，新增投资额
