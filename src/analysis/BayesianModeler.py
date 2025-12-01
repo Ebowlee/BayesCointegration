@@ -412,13 +412,18 @@ class BayesianModeler:
 
     def _build_result(self, pair_info: Dict, pair_data: PairData,
                      prior_type: str, posterior_stats: Dict) -> Dict:
-        """构建建模结果字典"""
+        """
+        构建建模结果字典
+
+        v8.6.0: 新增 sigma_ols 和 beta_std 传递，用于卡尔曼滤波初始化
+        """
         result = {
             'symbol1': pair_data.symbol1,
             'symbol2': pair_data.symbol2,
             'industry_code': pair_info['industry_code'],  # v7.40.8: 统一使用整数格式
             'modeling_type': prior_type,
             'modeling_time': self.algorithm.Time,
+            'sigma_ols': pair_info.get('sigma_ols', 0.05),  # v8.6.0: 传递给Pairs用于KF初始化
             **posterior_stats
         }
 

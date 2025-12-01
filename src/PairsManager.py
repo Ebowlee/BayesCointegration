@@ -329,91 +329,88 @@ class PairsManager:
 
     def check_pairs_health(self, data) -> Dict[str, List[str]]:
         """
-        配对健康检查，按优先级返回问题配对
-
-        v8.2.0: 新增 data 参数和 pair_break 检查
+        配对健康检查 (v8.6.0: 简化版 - 删除盈利/亏损分支，删除VALUE漂移)
 
         检查维度 (按优先级):
             1. Anomaly: 单边或同向持仓异常
-            2. PairBreak: Z-score超过阈值 (方向感知止损)
-            3. Drift: 对冲漂移超过阈值
-            4. Timeout: 持仓超时
-            5. Drawdown: 配对回撤超过阈值
+            2. PairBreak: Z-score + β漂移 双重验证 (AND逻辑)
+            3. Timeout: 持仓超时
+            4. Drawdown: 统一8%阈值
 
-        返回: {'anomaly': [], 'pair_break': [], 'drift': [], 'timeout': [], 'drawdown': []}
+        v8.6.0 关键变更:
+            - 新增 AND 逻辑: zscore触发 + beta_drift > threshold → 确认破裂
+            - 噪声跳过: zscore触发 BUT beta_drift ≤ threshold → 判定为噪声
+            - 删除 VALUE 漂移检查 (被 β 漂移取代)
+            - 删除 盈利/亏损分支 (统一阈值)
+
+        返回: {'anomaly': [], 'pair_break': [], 'timeout': [], 'drawdown': []}
         注: 每个配对只返回最高优先级问题
         """
         health_issues = {
             'anomaly': [],
             'pair_break': [],
-            'drift': [],
             'timeout': [],
             'drawdown': []
         }
 
-        # 获取配置阈值 (v7.97.0: 从 pairs_manager 读取)
+        # 获取配置阈值
         pm_config = self.module_config
         pair_break_threshold = pm_config.pair_break_threshold
-        drift_threshold = pm_config.drift_threshold
+        beta_drift_threshold = pm_config.beta_drift_threshold
         drawdown_threshold = pm_config.drawdown_threshold
-        # v8.2.5: 盈利配对回撤阈值放宽倍数
-        drawdown_profitable_multiplier = pm_config.drawdown_threshold_profitable_multiplier
 
         for pair in self.get_pairs_with_position().values():
             pair_id = pair.pair_id
 
-            # v8.2.5: 获取当前持仓PnL (用于盈亏分层检查)
-            # 盈利配对: 跳过 PairBreak/Drift/Timeout, 仅检查 Anomaly + Drawdown(放宽)
-            # 亏损配对: 执行全部检查
-            unrealized_pnl = pair.get_pair_unrealized_pnl()
-            is_profitable = unrealized_pnl is not None and unrealized_pnl > 0
-
-            # 优先级1: Anomaly (最高优先级) - 无论盈亏都检查
+            # 优先级1: Anomaly (最高优先级)
             if pair.has_anomaly_position():
                 health_issues['anomaly'].append(pair_id)
-                continue  # 跳过后续检查
+                continue
 
-            # 优先级2: PairBreak (Z-score超过阈值, 方向感知止损)
-            # v8.2.5: 盈利配对跳过 (让利润奔跑)
-            if not is_profitable:
-                prices = pair.get_price_from_bar(data)
-                if prices is not None:
-                    zscore = pair.get_zscore(prices[0], prices[1])
-                    if zscore is not None:
-                        position_mode = pair.position_mode
-                        # LONG_SPREAD: zscore < -threshold 表示价差向下突破 (亏损方向)
-                        # SHORT_SPREAD: zscore > +threshold 表示价差向上突破 (亏损方向)
-                        if (position_mode == PositionMode.LONG_SPREAD and zscore < -pair_break_threshold) or \
-                           (position_mode == PositionMode.SHORT_SPREAD and zscore > pair_break_threshold):
+            # 优先级2: PairBreak (Z-score + β漂移 双重验证)
+            prices = pair.get_price_from_bar(data)
+            if prices is not None:
+                # 先更新卡尔曼滤波
+                pair.update_kalman_beta(prices[0], prices[1])
+
+                zscore = pair.get_zscore(prices[0], prices[1])
+                if zscore is not None:
+                    position_mode = pair.position_mode
+                    # 方向感知: 检测亏损方向的突破
+                    zscore_triggered = (
+                        (position_mode == PositionMode.LONG_SPREAD and zscore < -pair_break_threshold) or
+                        (position_mode == PositionMode.SHORT_SPREAD and zscore > pair_break_threshold)
+                    )
+
+                    if zscore_triggered:
+                        # AND 逻辑: 需要 β 漂移确认
+                        beta_drift = pair.get_beta_drift()
+                        if beta_drift is not None and beta_drift > beta_drift_threshold:
+                            # 双重确认: 协整破裂
                             health_issues['pair_break'].append(pair_id)
-                            continue  # 跳过后续检查
+                            continue
+                        else:
+                            # 噪声突破: 跳过 PAIR_BREAK
+                            if self.algorithm.debug_mode:
+                                drift_pct = beta_drift * 100 if beta_drift else 0
+                                self.algorithm.Debug(
+                                    f"[风控-跳过] {pair_id} | "
+                                    f"zscore={zscore:+.2f}σ | "
+                                    f"β漂移={drift_pct:.1f}% (<{beta_drift_threshold*100:.0f}%) | "
+                                    f"判定为噪声"
+                                )
 
-            # 优先级3: Drift (对冲漂移超过阈值)
-            # v8.2.5: 盈利配对跳过 (允许有利漂移)
-            if not is_profitable:
-                drift = pair.get_hedge_drift()
-                if drift is not None and abs(drift) > drift_threshold:
-                    health_issues['drift'].append(pair_id)
-                    continue  # 跳过后续检查
+            # 优先级3: Timeout (持仓超时)
+            max_days = pair.get_max_holding_days()
+            holding_days = pair.get_pair_holding_days()
+            if max_days is not None and holding_days is not None:
+                if holding_days > max_days:
+                    health_issues['timeout'].append(pair_id)
+                    continue
 
-            # 优先级4: Timeout (持仓超时)
-            # v8.2.5: 盈利配对跳过 (让利润奔跑)
-            if not is_profitable:
-                max_days = pair.get_max_holding_days()
-                holding_days = pair.get_pair_holding_days()
-                if max_days is not None and holding_days is not None:
-                    if holding_days > max_days:
-                        health_issues['timeout'].append(pair_id)
-                        continue  # 跳过后续检查
-
-            # 优先级5: Drawdown (回撤超过阈值) - 无论盈亏都检查 (兜底保护)
-            # v8.2.5: 盈利配对使用放宽阈值 (4% → 8%)
-            effective_threshold = drawdown_threshold
-            if is_profitable:
-                effective_threshold = drawdown_threshold * drawdown_profitable_multiplier
-
+            # 优先级4: Drawdown (统一阈值)
             drawdown = pair.get_pair_drawdown()
-            if drawdown is not None and drawdown > effective_threshold:
+            if drawdown is not None and drawdown > drawdown_threshold:
                 health_issues['drawdown'].append(pair_id)
 
         return health_issues
