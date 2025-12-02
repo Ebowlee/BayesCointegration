@@ -94,6 +94,9 @@ class CointegrationConfig:
     max_stocks_per_industry: int = 50                               # 行业最多股票数
     max_symbol_repeats: int = 2                                     # 单股最多允许配对数
 
+    # v8.16.0: MCMC算力保护
+    max_cointegrated_pairs: int = 20                                # 协整配对数量上限 (随机抽样)
+
 
 @dataclass
 class BayesianModelerConfig:

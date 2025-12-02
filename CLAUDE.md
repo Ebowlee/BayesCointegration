@@ -842,9 +842,10 @@ zscore = (log_residual - residual_mean) / residual_std
 
 ## Version History
 
-**Current Version**: v8.15.0 (2025-12-02)
+**Current Version**: v8.16.0 (2025-12-02)
 
 **Recent Major Updates**:
+- **v8.16.0** (Dec 2025): 协整配对随机抽样限流 - EG检验后随机抽样20对,防止MCMC算力瓶颈
 - **v8.15.0** (Dec 2025): 卡尔曼滤波完全移除 - 简化PairBreak为纯Z-score检测,删除β漂移AND条件
 - **v8.11.0** (Dec 2025): 预期收益额排序 - 开仓时按预期收益潜力降序排序
 - **v8.10.0** (Dec 2025): 统一15%资金分配 - 删除allocation_tiers,简化为固定比例+地板保护

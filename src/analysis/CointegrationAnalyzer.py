@@ -5,6 +5,7 @@ import pandas as pd
 from typing import Dict, List
 from collections import defaultdict
 import itertools
+import random
 from statsmodels.tsa.stattools import coint
 import statsmodels.api as sm
 # endregion
@@ -159,6 +160,17 @@ class CointegrationAnalyzer:
 
         statistics['cointegrated_pairs_found'] = len(all_cointegrated_pairs)
 
+        # v8.16.0: 随机抽样限流 (MCMC算力保护)
+        original_count = len(all_cointegrated_pairs)
+        max_pairs = self.module_config.max_cointegrated_pairs
+        if original_count > max_pairs:
+            all_cointegrated_pairs = random.sample(all_cointegrated_pairs, max_pairs)
+            self.algorithm.Debug(
+                f"[协整限流] {original_count}对 → 随机抽样{max_pairs}对"
+            )
+            statistics['sampled_pairs'] = max_pairs
+        else:
+            statistics['sampled_pairs'] = original_count
 
         return {
             'pairs': all_cointegrated_pairs,  # v7.67.0: 简化键名 raw_pairs → pairs
