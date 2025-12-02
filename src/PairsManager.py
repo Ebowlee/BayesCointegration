@@ -254,95 +254,18 @@ class PairsManager:
         """获取行业胜率 (win_count / trade_count)"""
         return self.get_industry_stats(industry_code)['win_rate']
 
-    # --- 实时数据查询 (直接从 pairs 聚合，不走 trade_history) ---
-
-    def get_industry_current_invested_capital(self, industry_code: str) -> float:
-        """获取指定行业的当前投入资本 (持仓中，实时数据)"""
-        total = 0.0
-        for pair in self.all_pairs.values():
-            if str(pair.industry_code) == industry_code:
-                invested = pair.get_pair_current_invested_capital()
-                if invested is not None:
-                    total += invested
-        return total
-
-    def get_industry_composite_score(self, industry_code: str) -> float:
-        """
-        计算行业综合得分: rolling_roi × rolling_win_rate
-
-        v8.1.0: 使用四元组结构
-        - trade_history 格式: (entry_time, exit_time, pnl, invested_capital)
-        """
-        window_days = self.config.pairs_manager.rolling_window_days
-        min_samples = self.config.pairs_manager.min_samples_for_window
-
-        industry_data = self._aggregate_all_industry_data()
-        if industry_code not in industry_data:
-            return 0.0
-
-        all_trades = industry_data[industry_code].trade_history
-        if not all_trades:
-            return 0.0
-
-        # 滚动窗口筛选 (使用 exit_time, index=1)
-        cutoff_time = self.algorithm.Time.replace(tzinfo=None) - timedelta(days=window_days)
-        window_trades = [r for r in all_trades if r[1].replace(tzinfo=None) >= cutoff_time]
-
-        # 样本量保底
-        if len(window_trades) < min_samples:
-            window_trades = all_trades[-min_samples:]
-
-        if not window_trades:
-            return 0.0
-
-        # v8.1.0: 更新索引 - pnl=r[2], capital=r[3]
-        total_pnl = sum(r[2] for r in window_trades)
-        total_capital = sum(r[3] for r in window_trades)
-        win_count = sum(1 for r in window_trades if r[2] > 0)
-        trade_count = len(window_trades)
-
-        rolling_roi = total_pnl / total_capital if total_capital > 0 else 0.0
-        rolling_win_rate = win_count / trade_count if trade_count > 0 else 0.0
-
-        return rolling_roi * rolling_win_rate
-
-    # --- Concentration 组 (v8.1.0: 实时数据，直接从 pairs 聚合) ---
-
-    def get_industry_concentration(self, industry_code: str) -> float:
-        """获取行业集中度 (industry_current_invested / total_current_invested)"""
-        industry_invested = self.get_industry_current_invested_capital(industry_code)
-
-        # 分母: 全策略的当前投入资本 (遍历所有 pairs)
-        total_invested = 0.0
-        for pair in self.all_pairs.values():
-            invested = pair.get_pair_current_invested_capital()
-            if invested is not None:
-                total_invested += invested
-
-        if total_invested <= 0:
-            return 0.0
-
-        return industry_invested / total_invested
-
 
     # ----- 4C. 健康检查接口 -----
-    # 设计: Pairs层面 + Industry层面 (未来扩展)
 
     def check_pairs_health(self, data) -> Dict[str, List[str]]:
         """
-        配对健康检查 (v8.6.0: 简化版 - 删除盈利/亏损分支，删除VALUE漂移)
+        配对健康检查 (v8.15.0: 移除卡尔曼滤波，简化PairBreak逻辑)
 
         检查维度 (按优先级):
             1. Anomaly: 单边或同向持仓异常
-            2. PairBreak: Z-score + β漂移 双重验证 (AND逻辑)
+            2. PairBreak: 仅 Z-score 方向感知检测 (v8.15.0: 移除β漂移AND条件)
             3. Timeout: 持仓超时
-            4. Drawdown: 统一8%阈值
-
-        v8.6.0 关键变更:
-            - 新增 AND 逻辑: zscore触发 + beta_drift > threshold → 确认破裂
-            - 噪声跳过: zscore触发 BUT beta_drift ≤ threshold → 判定为噪声
-            - 删除 VALUE 漂移检查 (被 β 漂移取代)
-            - 删除 盈利/亏损分支 (统一阈值)
+            4. Drawdown: 统一10%阈值
 
         返回: {'anomaly': [], 'pair_break': [], 'timeout': [], 'drawdown': []}
         注: 每个配对只返回最高优先级问题
@@ -357,7 +280,6 @@ class PairsManager:
         # 获取配置阈值
         pm_config = self.module_config
         pair_break_threshold = pm_config.pair_break_threshold
-        beta_drift_threshold = pm_config.beta_drift_threshold
         drawdown_threshold = pm_config.drawdown_threshold
 
         for pair in self.get_pairs_with_position().values():
@@ -368,12 +290,9 @@ class PairsManager:
                 health_issues['anomaly'].append(pair_id)
                 continue
 
-            # 优先级2: PairBreak (Z-score + β漂移 双重验证)
+            # 优先级2: PairBreak (v8.15.0: 仅Z-score方向感知检测)
             prices = pair.get_price_from_bar(data)
             if prices is not None:
-                # 先更新卡尔曼滤波
-                pair.update_kalman_beta(prices[0], prices[1])
-
                 zscore = pair.get_zscore(prices[0], prices[1])
                 if zscore is not None:
                     position_mode = pair.position_mode
@@ -384,22 +303,8 @@ class PairsManager:
                     )
 
                     if zscore_triggered:
-                        # AND 逻辑: 需要 β 漂移确认
-                        beta_drift = pair.get_beta_drift()
-                        if beta_drift is not None and beta_drift > beta_drift_threshold:
-                            # 双重确认: 协整破裂
-                            health_issues['pair_break'].append(pair_id)
-                            continue
-                        else:
-                            # 噪声突破: 跳过 PAIR_BREAK
-                            if self.algorithm.debug_mode:
-                                drift_pct = beta_drift * 100 if beta_drift else 0
-                                self.algorithm.Debug(
-                                    f"[风控-跳过] {pair_id} | "
-                                    f"zscore={zscore:+.2f}σ | "
-                                    f"β漂移={drift_pct:.1f}% (<{beta_drift_threshold*100:.0f}%) | "
-                                    f"判定为噪声"
-                                )
+                        health_issues['pair_break'].append(pair_id)
+                        continue
 
             # 优先级3: Timeout (持仓超时)
             max_days = pair.get_max_holding_days()
@@ -415,24 +320,6 @@ class PairsManager:
                 health_issues['drawdown'].append(pair_id)
 
         return health_issues
-
-
-    def check_industry_concentration(self) -> List[str]:
-        """检测超过集中度阈值的行业，返回行业代码列表"""
-        over_concentrated = []
-
-        # 从配置获取阈值
-        threshold = self.module_config.concentration_threshold
-
-        # 获取所有行业数据
-        industry_data = self._aggregate_all_industry_data()
-
-        for industry_code in industry_data.keys():
-            concentration = self.get_industry_concentration(industry_code)
-            if concentration > threshold:
-                over_concentrated.append(industry_code)
-
-        return over_concentrated
 
 
     # ----- 4D 资金分配管理 (v7.62.0 从 MarginAllocator 迁移) -----

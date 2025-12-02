@@ -365,12 +365,12 @@ git commit -m "docs: update CHANGELOG for v7.2.5"
     - `allocate_margin_to_candidates(open_candidates)`: Distribute margin based on fixed 15%
     - `_calculate_expected_profit(pair, allocated, data)`: Calculate expected profit for sorting (v8.11.0)
     - `get_open_candidates_with_allocation(data)`: Get candidates with margin allocation
-  - *Health Check* (v8.6.0: AND逻辑重构):
+  - *Health Check* (v8.15.0: 移除β漂移，简化PairBreak):
     - `check_pairs_health()`: Returns Dict[issue_type, pair_ids] with 4-priority check
       - Priority 1: anomaly (single-leg/same-direction positions)
-      - Priority 2: pair_break (Z-score 3.5σ AND β drift >20%)
+      - Priority 2: pair_break (Z-score 3.5σ 方向感知检测)
       - Priority 3: timeout (holding days > max theoretical)
-      - Priority 4: drawdown (>8%)
+      - Priority 4: drawdown (>10%)
   - *Industry Metrics* (v8.0.0 rolling window):
     - `get_industry_composite_score(industry_code)`: rolling_roi × rolling_win_rate
     - `get_industry_realized_roi(industry_code, window_days)`: ROI with rolling window
@@ -842,16 +842,16 @@ zscore = (log_residual - residual_mean) / residual_std
 
 ## Version History
 
-**Current Version**: v8.11.0 (2025-12-01)
+**Current Version**: v8.15.0 (2025-12-02)
 
 **Recent Major Updates**:
+- **v8.15.0** (Dec 2025): 卡尔曼滤波完全移除 - 简化PairBreak为纯Z-score检测,删除β漂移AND条件
 - **v8.11.0** (Dec 2025): 预期收益额排序 - 开仓时按预期收益潜力降序排序
 - **v8.10.0** (Dec 2025): 统一15%资金分配 - 删除allocation_tiers,简化为固定比例+地板保护
 - **v8.9.1** (Dec 2025): 删除Hurst维度 - 60天数据不足以稳健计算R/S分析
 - **v8.9.0** (Dec 2025): 删除IndustryQuotaManager - 简化分析管道为7步
 - **v8.8.0** (Dec 2025): PairSelector阈值筛选重构 - 废除评分系统,四维度→三维度pass/fail筛选
 - **v8.7.0** (Dec 2025): RSI on Z-score动量检测 - 三重AND条件过滤入场信号
-- **v8.6.0** (Dec 2025): 卡尔曼滤波β漂移检测 - 替代VALUE漂移,更准确的协整破裂检测
 - **v8.1.0** (Nov 2025): 单一事实来源重构 - 三元组→四元组,删除累积变量,动态聚合方法
 - **v8.0.0** (Nov 2025): 滚动窗口行业评分 - trade_history数据结构,180天窗口计算
 - **v7.0.0** (Jan 2025): Intent模式重构 - 意图生成与订单执行分离

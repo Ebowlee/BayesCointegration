@@ -175,6 +175,15 @@ class PairSelector:
         # 记录筛选指标
         model_result['crossing_count'] = crossing_count
 
+        # v8.14.0: 添加调试日志
+        pair_id = (model_result.get('symbol1'), model_result.get('symbol2'))
+        status = "通过" if passed else "剔除"
+        self.algorithm.Debug(
+            f"[ZeroCrossing] {pair_id} | crossing={crossing_count} | "
+            f"阈值=[{self.config.zero_crossing_min}, {self.config.zero_crossing_max}] | {status}",
+            level=2
+        )
+
         return passed
 
 

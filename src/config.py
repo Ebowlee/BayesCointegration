@@ -39,7 +39,7 @@ class UniverseConfig:
     min_market_cap: float = 1e9
     min_days_since_ipo: int = 360
     min_dollar_volume: float = 1e8
-    max_coarse_stocks: int = 400                                    # 按Volume排序取top N
+    max_coarse_stocks: int = 500                                    # 按Volume排序取top N
 
     # ETF订阅开关 (v8.0.5: 从ETFUniverseConfig合并)
     etf_enabled: bool = True                                        # Level 1: 总开关
@@ -55,7 +55,7 @@ class UniverseConfig:
                 {
                     'path': 'ValuationRatios.PERatio',
                     'operator': 'le',
-                    'threshold': 80
+                    'threshold': 100
                 },
                 {
                     'path': 'ValuationRatios.PSRatio',
@@ -73,12 +73,12 @@ class DataProcessorConfig:
     """数据处理配置 (v8.4.0: 时间窗口切割，消除数据窥探)"""
 
     # 时间窗口配置 (协整窗口 = total - bayesian，派生计算)
-    total_lookback_days: int = 312                                  # 总数据下载量 (交易日)
+    total_lookback_days: int = 180                                  # 总数据下载量 (交易日)
     bayesian_lookback_days: int = 60                                # 贝叶斯建模窗口
 
     # === 数据质量验证 ===
     data_completeness_ratio: float = 1.0                            # 数据完整性要求
-    max_annualized_volatility: float = 0.7                          # 年化波动率上限 (70%)
+    max_annualized_volatility: float = 0.5                          # 年化波动率上限 (70%)
     max_daily_drawdown: float = -0.10                               # 单日最大跌幅 (-10%)
 
 
@@ -116,8 +116,8 @@ class BayesianModelerConfig:
 
     # === MCMC采样配置 ===
     mcmc_chains: int = 4
-    mcmc_warmup: int = 500
-    mcmc_draws: int = 500
+    mcmc_warmup: int = 1000
+    mcmc_draws: int = 1000
 
 
 @dataclass
@@ -137,12 +137,12 @@ class PairSelectorConfig:
     min_abs_beta: float = 0.1                                       # |β| < 0.1 → 剔除 (避免CV爆炸)
 
     # 维度2: 半衰期
-    half_life_min: float = 5.0                                      # < 5天 → 剔除 (太短 = 噪音)
-    half_life_max: float = 20.0                                     # > 20天 → 剔除 (太长 = 回归太慢)
+    half_life_min: float = 3.0                                      # < 3天 → 剔除 (太短 = 噪音)
+    half_life_max: float = 25.0                                     # > 25天 → 剔除 (太长 = 回归太慢)
 
     # 维度3: 零轴穿越
-    zero_crossing_min: int = 6                                      # < 6次 → 剔除 (太不活跃)
-    zero_crossing_max: int = 30                                     # > 30次 → 剔除 (太嘈杂)
+    zero_crossing_min: int = 2                                      # < 2次 → 剔除 (太不活跃)
+    zero_crossing_max: int = 45                                     # > 45次 → 剔除 (太嘈杂)
 
 
 @dataclass
@@ -150,16 +150,14 @@ class PairsConfig:
     """配对配置 - 信号阈值、保证金参数、卡尔曼滤波、RSI动量"""
 
     # 信号阈值
-    entry_threshold_lower: float = 2.0                             # 入场Z-score下限
-    entry_threshold_upper: float = 2.5                             # 入场Z-score上限
+    entry_threshold_lower: float = 3.0                             # 入场Z-score下限
+    entry_threshold_upper: float = 3.5                             # 入场Z-score上限
     exit_threshold: float = 0.5                                    # 出场Z-score阈值
 
     # 保证金计算参数
     margin_requirement_long: float = 0.5                           # 多头保证金率: 50%
     margin_requirement_short: float = 1.5                          # 空头保证金率: 150%
 
-    # 卡尔曼滤波参数 (v8.6.0)
-    kalman_process_noise: float = 1e-5                             # 过程噪声 Q
 
     # RSI on Z-score 参数 (v8.7.0)
     rsi_period: int = 5                                            # RSI周期 (5日RSI, 需要6天数据)
@@ -171,11 +169,10 @@ class PairsConfig:
 
 @dataclass
 class PairsManagerConfig:
-    """配对管理配置 - 保证金、健康检查、冷却期、滚动窗口"""
+    """配对管理配置 - 保证金分配、健康检查、冷却期"""
 
     # 保证金管理
     margin_usage_ratio: float = 0.98                               # 保证金使用率: 98%
-    concentration_threshold: float = 0.40                          # 单行业资金占用上限 (40%)
 
     # 统一资金分配 (v8.10.0: 简化为固定15%)
     fixed_allocation_pct: float = 0.15                             # 统一分配比例 + 地板
@@ -183,22 +180,17 @@ class PairsManagerConfig:
     # 开仓排序 (v8.11.0: 按预期收益额排序)
     sort_by_expected_profit: bool = True                           # 开关: 启用预期收益排序
 
-    # 滚动窗口配置
-    rolling_window_days: int = 90                                  # CS计算滚动窗口
-    min_samples_for_window: int = 20                               # 样本量保底: 窗口内<20笔时取最近20笔
-
-    # 健康检查阈值 (v8.6.0: 简化 - 删除VALUE漂移，统一回撤阈值)
-    pair_break_threshold: float = 3.5                              # 3.5σ Z-score触发 (v8.2.0: 方向感知止损)
-    beta_drift_threshold: float = 0.20                             # 20% β漂移阈值 (v8.6.0: 卡尔曼滤波)
-    drawdown_threshold: float = 0.08                               # 8% 统一回撤阈值 (v8.6.0: 删除盈亏分支)
+    # 健康检查阈值 (v8.15.0: 移除β漂移，简化为Z-score检测)
+    pair_break_threshold: float = 4.0                              # 4σ Z-score触发 
+    drawdown_threshold: float = 0.05                               # 5% 统一回撤阈值
 
     # 动态冷却系数 (v8.13.0: 基于半衰期, cooldown = half_life × multiplier)
     cooldown_multipliers: Dict[str, float] = field(default_factory=lambda: {
-        'MEAN_REVERSION': 1.0,                                     # 正常平仓: 1个半衰期
-        'TIMEOUT': 1.0,                                            # 超时平仓: 1个半衰期
-        'DRAWDOWN': 2.0,                                           # 回撤止损: 2个半衰期
-        'PAIR_BREAK': 4.0,                                         # 协整破裂: 4个半衰期
-        'ANOMALY': 999999.0,                                       # 数据异常: 永久冷却
+        'MEAN_REVERSION': 2.0,                                     # 正常平仓: 2个半衰期
+        'TIMEOUT': 4.0,                                            # 超时平仓: 4个半衰期
+        'DRAWDOWN': 6.0,                                           # 回撤止损: 6个半衰期
+        'PAIR_BREAK': 6.0,                                         # 协整破裂: 6个半衰期
+        'ANOMALY': 99999.0,                                        # 数据异常: 永久冷却
     })
 
     # 保底半衰期 (当half_life为None时使用)

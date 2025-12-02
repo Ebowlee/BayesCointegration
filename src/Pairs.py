@@ -5,7 +5,6 @@ from collections import deque
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 from src.OrderExecutor import OpenIntent, CloseIntent
-from src.KalmanBetaTracker import KalmanBetaTracker
 import math
 # endregion
 
@@ -54,13 +53,6 @@ class Pairs:
         # v8.12.0: quality_score 已删除 (PairSelector v8.9.0+ 改为 pass/fail 筛选)
         self.half_life = model_data.get('half_life')
         self.half_life_std = model_data.get('half_life_std', 0)
-
-        # 卡尔曼滤波参数 (v8.6.0: 从model_data传递)
-        self.beta_std = model_data.get('beta_std', 0.1)
-        self.sigma_ols = model_data.get('sigma_ols', 0.05)
-
-        # 卡尔曼滤波追踪器 (开仓时实例化，平仓时销毁)
-        self.kf_tracker: Optional[KalmanBetaTracker] = None
 
         # 交易阈值
         self.entry_threshold_lower = config.entry_threshold_lower
@@ -444,43 +436,6 @@ class Pairs:
 
         return True  # 未知信号类型，fallback
 
-    # ----- 卡尔曼滤波相关方法 (v8.6.0) -----
-
-    def _init_kalman_tracker(self):
-        """
-        开仓时初始化卡尔曼滤波追踪器
-
-        参数来源:
-            - beta_init: MCMC后验均值 (beta_mean)
-            - beta_std: MCMC后验标准差
-            - sigma_ols: OLS残差标准差 (观测噪声)
-            - process_noise: 独立配置 (kalman_process_noise)
-            - alpha: 协整截距 (alpha_mean)
-        """
-        self.kf_tracker = KalmanBetaTracker(
-            beta_init=self.beta_mean,
-            beta_std=self.beta_std,
-            sigma_ols=self.sigma_ols,
-            process_noise=self.config.kalman_process_noise,
-            alpha=self.alpha_mean
-        )
-
-    def update_kalman_beta(self, price1: float, price2: float) -> Optional[float]:
-        """卡尔曼滤波更新 β (每日健康检查时调用)"""
-        if self.kf_tracker is None:
-            return None
-        return self.kf_tracker.update(price1, price2)
-
-    def get_beta_drift(self) -> Optional[float]:
-        """
-        获取 β 漂移率 (v8.6.0: 替代旧的 VALUE 漂移检查)
-
-        公式: |β_t - β_initial| / |β_initial|
-        """
-        if self.kf_tracker is None:
-            return None
-        return self.kf_tracker.get_drift_ratio()
-
     def get_leg_values(self, allocated_amount: float, signal: str, data):
         """获取Beta对冲两腿市值, 返回 (value_1, value_2) 或 (None, None)"""
         prices = self.get_price_from_bar(data)
@@ -757,8 +712,8 @@ class Pairs:
         """
         订单成交回调 (由TicketsManager触发)
 
-        OPEN: 记录开仓价格、数量、fill_zscore_open、初始化卡尔曼追踪器
-        CLOSE: 记录平仓价格、更新统计、输出日志、重置状态、销毁卡尔曼追踪器
+        OPEN: 记录开仓价格、数量、fill_zscore_open
+        CLOSE: 记录平仓价格、更新统计、输出日志、重置状态
         """
         if action == 'OPEN':
             self.pair_opened_time = fill_time
@@ -782,9 +737,6 @@ class Pairs:
             # 计算开仓成交时的Z-score(用于滑点分析)
             if fill_price1 and fill_price2:
                 self.fill_zscore_open = self.get_zscore(fill_price1, fill_price2)
-
-            # v8.6.0: 初始化卡尔曼滤波追踪器
-            self._init_kalman_tracker()
 
         elif action == 'CLOSE':
             self.pair_closed_time = fill_time
@@ -822,7 +774,6 @@ class Pairs:
             self.exit_price1 = None
             self.exit_price2 = None
             self.pair_hwm = None                                               # 重置高水位 (v7.86.0)
-            self.kf_tracker = None                                             # v8.6.0: 销毁卡尔曼追踪器
 
 
     def _update_trade_stats(self):
@@ -889,18 +840,13 @@ class Pairs:
         industry_names = self.algorithm.config.constants['industry_names']
         industry_name = industry_names.get(int(self.industry_code), '未知') if self.industry_code else '未知'
 
-        # v8.0.7: 计算平仓时对冲漂移
-        drift = self.get_beta_drift()
-        drift_pct = (drift * 100) if drift is not None else 0.0
-
-        # v8.0.4: 优化日志格式 - 调整字段顺序，新增投资额
-        # v8.0.7: 新增漂移显示 (在zscore和冷却期之间)
+        # v8.15.0: 移除漂移显示 (卡尔曼滤波已删除)
         self.algorithm.Debug(
             f"[平仓] {self.pair_id} | {industry_name} | {reason_text} | "
             f"第{trade_num}次交易 | 持有{holding_days}/{max_days_str}天 | "
             f"投资${current_invested:,.0f} | PnL=${current_pnl:.2f} ({current_pnl_pct:+.1f}%) | "
             f"累计{total_pnl_pct:+.1f}% | "
-            f"{entry_z:+.2f}σ → {close_z:+.2f}σ | 漂移{drift_pct:+.1f}% | "
+            f"{entry_z:+.2f}σ → {close_z:+.2f}σ | "
             f"冷却{cooldown_days}天",
             level=0
         )

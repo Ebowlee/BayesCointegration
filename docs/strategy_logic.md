@@ -2,7 +2,7 @@
 
 本文档用流程图形式描述贝叶斯协整配对交易策略的完整执行逻辑。
 
-**当前版本**: v8.13.0 (2024-12-01)
+**当前版本**: v8.15.0 (2025-12-02)
 
 ---
 
@@ -466,7 +466,7 @@ classify_pairs(new_pairs_dict):
 
 ---
 
-# Part 9: Pair-level Health Check (配对级风控) - v8.13.0 动态冷却期
+# Part 9: Pair-level Health Check (配对级风控) - v8.15.0 简化PairBreak
 
 ```
 触发: OnData() 优先级3
@@ -482,23 +482,21 @@ PairsManager.check_pairs_health() 返回问题字典
     ├─ 动作: 立即平仓修正
     └─ 冷却期: 永久 (half_life × 999999)
     ↓
-优先级2: PairBreak (协整破裂 - v8.6.0 AND逻辑)
-    ├─ 触发条件 (必须同时满足):
-    │   ├─ 条件A: Z-score方向感知突破3.5σ
-    │   │   ├─ 多头: Z < -3.5σ
-    │   │   └─ 空头: Z > +3.5σ
-    │   └─ 条件B: β漂移 > 20% (卡尔曼滤波)
-    ├─ 噪声跳过: 仅zscore触发但β漂移≤20% → 判定为噪声
-    └─ 冷却期: half_life × 4 (v8.13.0)
+优先级2: PairBreak (协整破裂 - v8.15.0 纯Z-score检测)
+    ├─ 触发条件 (Z-score方向感知):
+    │   ├─ 多头持仓: Z < -4.0σ (价差继续恶化)
+    │   └─ 空头持仓: Z > +4.0σ (价差继续恶化)
+    ├─ 设计说明: v8.15.0移除β漂移条件 (卡尔曼滤波在对数价格下有粘性)
+    └─ 冷却期: half_life × 6 (v8.13.0)
     ↓
 优先级3: Timeout (持仓超时)
     ├─ 定义: holding_days > max_holding_days
     ├─ max_holding_days = half_life × log₀.₅(exit/entry_zscore)
-    └─ 冷却期: half_life × 1 (v8.13.0)
+    └─ 冷却期: half_life × 4 (v8.13.0)
     ↓
 优先级4: Drawdown (单体回撤)
-    ├─ 定义: (HWM - CurrentValue) / HWM > 8%
-    └─ 冷却期: half_life × 2 (v8.13.0)
+    ├─ 定义: (HWM - CurrentValue) / HWM > 5%
+    └─ 冷却期: half_life × 6 (v8.13.0)
     ↓
 =========================================
 执行: main.py 遍历问题字典
@@ -509,11 +507,11 @@ PairsManager.check_pairs_health() 返回问题字典
 └─ OrderExecutor.execute_close(intent)
 ```
 
-### v8.6.0 关键变更
+### v8.15.0 关键变更
 
-1. **删除盈利跳过逻辑**: 统一阈值，不因盈亏状态改变风控策略
-2. **合并 Drift 到 PairBreak**: Z-score + β漂移必须**同时满足**才触发
-3. **优先级简化**: 从5个减少到4个
+1. **移除卡尔曼滤波**: β漂移检测在对数价格下存在"粘性"问题，即使提高Q参数也无法有效跟踪β变化
+2. **简化PairBreak逻辑**: 从AND条件(Z-score + β漂移)简化为纯Z-score方向感知检测
+3. **提高PairBreak阈值**: 3.5σ → 4.0σ (补偿移除β漂移条件带来的敏感度)
 
 ### v8.13.0 动态冷却期机制
 
@@ -524,15 +522,15 @@ PairsManager.check_pairs_health() 返回问题字典
 **Multiplier配置**:
 | 平仓原因 | Multiplier | 含义 |
 |----------|------------|------|
-| `MEAN_REVERSION` | 1.0 | 正常平仓: 等待1个完整回归周期 |
-| `TIMEOUT` | 1.0 | 超时平仓: 等待1个完整回归周期 |
-| `DRAWDOWN` | 2.0 | 回撤止损: 多等1个周期观察稳定性 |
-| `PAIR_BREAK` | 4.0 | 协整破裂: 充分冷却后再重试 |
-| `ANOMALY` | 999999.0 | 数据异常: 永久冷却 |
+| `MEAN_REVERSION` | 2.0 | 正常平仓: 等待2个完整回归周期 |
+| `TIMEOUT` | 4.0 | 超时平仓: 等待4个完整回归周期 |
+| `DRAWDOWN` | 6.0 | 回撤止损: 充分冷却后再重试 |
+| `PAIR_BREAK` | 6.0 | 协整破裂: 充分冷却后再重试 |
+| `ANOMALY` | 99999.0 | 数据异常: 永久冷却 |
 
 **示例**:
-- half_life=8天的快速回归配对: MEAN_REVERSION冷却8天, DRAWDOWN冷却16天
-- half_life=15天的慢速回归配对: MEAN_REVERSION冷却15天, DRAWDOWN冷却30天
+- half_life=8天的快速回归配对: MEAN_REVERSION冷却16天, DRAWDOWN冷却48天
+- half_life=15天的慢速回归配对: MEAN_REVERSION冷却30天, DRAWDOWN冷却90天
 
 **保底机制**: 若配对的half_life为None，使用`default_half_life=10.0`天
 
@@ -540,9 +538,8 @@ PairsManager.check_pairs_health() 返回问题字典
 
 | 参数 | 值 | 含义 |
 |------|-----|------|
-| `pair_break_threshold` | 3.5σ | Z-score方向感知阈值 |
-| `beta_drift_threshold` | 20% | β漂移阈值 (AND条件) |
-| `drawdown_threshold` | 8% | 单体回撤阈值 (统一) |
+| `pair_break_threshold` | 4.0σ | Z-score方向感知阈值 |
+| `drawdown_threshold` | 5% | 单体回撤阈值 (统一) |
 
 ---
 
@@ -770,8 +767,8 @@ PairsManager.get_open_candidates_with_allocation(data):
 
 | 参数 | 值 | 含义 |
 |------|-----|------|
-| `entry_threshold_lower` | 2.0σ | 入场Z-score下限 |
-| `entry_threshold_upper` | 2.5σ | 入场Z-score上限 |
+| `entry_threshold_lower` | 3.0σ | 入场Z-score下限 |
+| `entry_threshold_upper` | 3.5σ | 入场Z-score上限 |
 | `exit_threshold` | 0.5σ | 出场Z-score阈值 |
 | `fixed_allocation_pct` | 15% | 统一分配比例 (v8.10.0) |
 | `sort_by_expected_profit` | True | 启用预期收益排序 (v8.11.0) |
@@ -849,7 +846,7 @@ PairsManager.get_open_candidates_with_allocation(data):
 |------|--------|------|
 | `get_pair_holding_days()` | int | 当前持仓天数 |
 | `get_max_holding_days()` | float | 理论最大持仓天数 |
-| `get_hedge_drift()` | float | 对冲漂移率 (卡尔曼滤波) |
+| `calculate_leg_values()` | Tuple | Beta对冲计算双腿目标金额 |
 | `get_trade_count()` | int | 历史交易次数 |
 | `get_win_count()` | int | 历史盈利次数 |
 
@@ -907,7 +904,7 @@ PairsManager.get_open_candidates_with_allocation(data):
 |--------|--------|----------|------|
 | 1 | Portfolio冷却期 | `is_in_portfolio_cooldown()` | 直接return |
 | 2 | Portfolio回撤 | Drawdown ≥ 20% | Liquidate + 360天冷却 |
-| 3 | 配对健康检查 | Anomaly/PairBreak/Drift/Timeout/Drawdown | 风控平仓 |
+| 3 | 配对健康检查 | Anomaly/PairBreak/Timeout/Drawdown | 风控平仓 |
 | 4 | 正常平仓 | CLOSE信号 | 均值回归平仓 |
 | 5 | VIX检查 | VIX ≥ 35 | 禁止开仓 |
 | 6 | 正常开仓 | 候选筛选+资金分配+预期收益排序 | 执行开仓 |
