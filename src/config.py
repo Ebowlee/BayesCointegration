@@ -160,7 +160,7 @@ class PairsConfig:
 
     # v8.24.0: 稀有事件捕捉 (Rare Event Capture)
     adaptive_entry_enabled: bool = True                            # 总开关
-    entry_percentile_lower: float = 99.0                           # 入场下限百分位 (P99 ~2.33σ)
+    entry_percentile_lower: float = 95.0                           # 入场下限百分位 (P99 ~2.33σ)
     entry_percentile_upper: float = 99.9                           # 入场上限百分位 (P99.9 ~3.1σ)
     zscore_back_projection_days: int = 180                         # Z-score向后回算窗口 (用于分位数统计)
     exit_threshold: float = 0.5                                    # 出场Z-score阈值
@@ -184,7 +184,7 @@ class PairsConfig:
 
 @dataclass
 class PairsManagerConfig:
-    """配对管理配置 - 保证金分配、健康检查、冷却期 (v8.23.0: 个性化止损)"""
+    """配对管理配置 - 保证金分配、健康检查、冷却期 (v8.25.0: 尾部宽度动态止损)"""
 
     # 保证金管理
     margin_usage_ratio: float = 0.98                               # 保证金使用率: 98%
@@ -195,8 +195,8 @@ class PairsManagerConfig:
     # 开仓排序 (v8.11.0: 按预期收益额排序)
     sort_by_expected_profit: bool = True                           # 开关: 启用预期收益排序
 
-    # 健康检查阈值 (v8.23.0: 个性化止损步长)
-    trailing_step_multiplier: float = 1.0                          # 止损步长倍数 (乘以配对Sigma)
+    # 健康检查阈值 (v8.25.0: 尾部宽度动态止损)
+    trailing_step_coefficient: float = 0.5                         # 尾部宽度系数 (乘以 tail_width)
     trailing_step_floor: float = 0.5                               # 止损步长地板 (最小0.5σ)
     drawdown_threshold: float = 0.10                               # 10% 统一回撤阈值
 

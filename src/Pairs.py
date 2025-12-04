@@ -23,10 +23,10 @@ class Pairs:
     """
     配对交易核心对象 - 数据提供 + 信号生成 + 意图生成 + 交易历史追踪
 
-    v8.23.0: 纯粹个性化开仓 (Pure Personalized Entry)
-        - entry_threshold (P90) / entry_threshold_upper (P99) 由 PairSelector 计算
-        - zscore_std: 配对级 Z-score 标准差
-        - trailing_step: 个性化止损步长 (zscore_std × multiplier，地板保护)
+    v8.25.0: 尾部宽度动态止损 (Tail Width Dynamic Trailing Stop)
+        - entry_threshold (P95) / entry_threshold_upper (P99.9) 由 PairSelector 计算
+        - tail_width: 尾部宽度 (P99.9 - P95)
+        - trailing_step: 动态止损步长 (tail_width × coefficient，地板保护)
 
     不负责: 风险检查、资金分配、订单执行 (由 RiskManager/ExecutionManager/OrderExecutor 处理)
     """
@@ -59,15 +59,15 @@ class Pairs:
         self.half_life = model_data.get('half_life')
         self.half_life_std = model_data.get('half_life_std', 0)
 
-        # 交易阈值 (v8.23.0: 纯粹个性化开仓 - 由 PairSelector 保证字段存在)
-        self.entry_threshold = model_data['entry_threshold']        # P90
-        self.entry_threshold_upper = model_data['entry_upper']      # P99
-        self.zscore_std = model_data['zscore_std']                  # 配对级 Z-score 标准差
+        # 交易阈值 (v8.25.0: 尾部宽度动态止损)
+        self.entry_threshold = model_data['entry_threshold']        # P95
+        self.entry_threshold_upper = model_data['entry_upper']      # P99.9
+        self.tail_width = model_data['tail_width']                  # 尾部宽度 (P99.9 - P95)
         self.exit_threshold = config.exit_threshold
 
-        # v8.23.0: 个性化止损步长 (带地板保护)
+        # v8.25.0: 尾部宽度动态止损步长 (带地板保护)
         pm_config = algorithm.config.pairs_manager
-        raw_step = self.zscore_std * pm_config.trailing_step_multiplier
+        raw_step = self.tail_width * pm_config.trailing_step_coefficient
         self.trailing_step = max(raw_step, pm_config.trailing_step_floor)
 
         # 保证金参数
@@ -163,7 +163,7 @@ class Pairs:
         调用: PairsManager.classify_pairs() 每月选股后
         注意: 持仓检查由调用方处理, 本方法仅负责参数更新
 
-        v8.23.0: 更新个性化开仓阈值和止损步长
+        v8.25.0: 更新 tail_width 和止损步长
         v8.20.1: 参数更新后清空并重新预热 zscore_history/rsi_history
         """
         self.alpha_mean = new_pair.alpha_mean
@@ -171,10 +171,10 @@ class Pairs:
         self.residual_mean = new_pair.residual_mean
         self.residual_std = new_pair.residual_std
 
-        # v8.23.0: 更新个性化开仓阈值 (P90, P99, Sigma)
+        # v8.25.0: 更新个性化开仓阈值 (P95, P99.9, tail_width)
         self.entry_threshold = new_pair.entry_threshold
         self.entry_threshold_upper = new_pair.entry_threshold_upper
-        self.zscore_std = new_pair.zscore_std
+        self.tail_width = new_pair.tail_width
         self.trailing_step = new_pair.trailing_step
 
         # v8.20.1: 参数变化后清空短期历史 (旧参数计算的数据已无效)
@@ -918,12 +918,12 @@ class Pairs:
         industry_names = self.algorithm.config.constants['industry_names']
         industry_name = industry_names.get(int(self.industry_code), '未知') if self.industry_code else '未知'
 
-        # v8.23.0: 新增配对Sigma和入场区间显示 (替代累计收益率)
+        # v8.25.0: 显示尾部宽度和止损步长 (替代无意义的 zscore_std)
         self.algorithm.Debug(
             f"[平仓] {self.pair_id} | {industry_name} | {reason_text} | "
             f"交易{trade_num}次 | 持有{holding_days}/{max_days_str}天 | "
             f"投资${current_invested:,.0f} | PnL=${current_pnl:.2f} ({current_pnl_pct:+.1f}%) | "
-            f"σ={self.zscore_std:.1f} ({self.entry_threshold:.1f}-{self.entry_threshold_upper:.1f}) | "
+            f"tail={self.tail_width:.2f} step={self.trailing_step:.2f} ({self.entry_threshold:.1f}-{self.entry_threshold_upper:.1f}) | "
             f"{entry_z:+.2f}σ → {close_z:+.2f}σ | "
             f"冷却{cooldown_days}天",
             level=0
