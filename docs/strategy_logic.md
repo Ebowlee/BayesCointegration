@@ -2,7 +2,7 @@
 
 本文档用流程图形式描述贝叶斯协整配对交易策略的完整执行逻辑。
 
-**当前版本**: v8.24.0 (2025-12-04)
+**当前版本**: v8.25.0 (2025-12-04)
 
 ---
 
@@ -364,7 +364,7 @@ zscore_series = (log_spread - np.mean(log_spread)) / residual_std
 
 ---
 
-# Part 6: Pair Selector (配对筛选) - v8.24.0 稀有事件捕捉
+# Part 6: Pair Selector (配对筛选) - v8.25.0 尾部宽度动态止损
 
 ```
 触发: _run_analysis_pipeline() 步骤5
@@ -395,23 +395,27 @@ zscore_series = (log_spread - np.mean(log_spread)) / residual_std
 任一失败 → 剔除
     ↓
 =========================================
-v8.24.0: 稀有事件捕捉 (Rare Event Capture)
+v8.25.0: 稀有事件捕捉 + 尾部宽度动态止损
 =========================================
     ↓
 核心设计: "近端建模 + 远端回算"
 ├─ MCMC建模: 后60天 → 获取最新 α, β
 ├─ Z-score回算: 全180天 → 用最新参数回算历史
-└─ 分位数统计: 180个点 → P99有统计意义
+└─ 分位数统计: 180个点 → P95/P99.9有统计意义
     ↓
 计算逻辑:
 ├─ 步骤1: 用60天MCMC的α,β回算180天Z-score序列
-├─ 步骤2: 取 |Z-score| 的 P99 和 P99.9 分位数
-└─ 步骤3: 返回 residual_std (原始残差标准差，因配对而异)
+├─ 步骤2: 取 |Z-score| 的 P95 和 P99.9 分位数
+└─ 步骤3: 计算 tail_width = P99.9 - P95 (尾部宽度)
     ↓
-输出: 每个配对的个性化入场区间 [P99, P99.9]
-├─ P99 ≈ 2.33σ: 入场下限 (100次出现1次)
-├─ P99.9 ≈ 3.1σ: 入场上限 (1000次出现1次)
-└─ residual_std: 配对个性化标准差 (用于止损步长)
+输出: 每个配对的个性化入场区间 + 止损步长
+├─ P95 ≈ 1.65σ: 入场下限
+├─ P99.9 ≈ 3.1σ: 入场上限
+└─ tail_width: 尾部宽度 (用于计算止损步长)
+    ↓
+止损步长计算 (v8.25.0):
+├─ raw_step = tail_width × 0.5
+└─ trailing_step = max(raw_step, 0.5)  // 地板保护
     ↓
 =========================================
 漏斗日志输出
@@ -419,7 +423,7 @@ v8.24.0: 稀有事件捕捉 (Rare Event Capture)
     └─ [PairSelector] 输入 N → CV_BETA (-X) → Half_life (-Y) → ZeroCrossing (-Z) → Data (-W) → 输出 M
     ↓
 =========================================
-输出: 最终入选配对列表 (含 entry_threshold, entry_upper, zscore_std)
+输出: 最终入选配对列表 (含 entry_threshold, entry_upper, tail_width)
 =========================================
     ↓
 下游: 创建 Pairs 对象 (步骤6)
@@ -436,9 +440,11 @@ v8.24.0: 稀有事件捕捉 (Rare Event Capture)
 | `zero_crossing_min` | 2 | < 2次 → 剔除 |
 | `zero_crossing_max` | 60 | > 60次 → 剔除 |
 | `adaptive_entry_enabled` | True | 自适应阈值总开关 |
-| `entry_percentile_lower` | 99.0 | 入场下限百分位 P99 (v8.24.0) |
-| `entry_percentile_upper` | 99.9 | 入场上限百分位 P99.9 (v8.24.0) |
-| `zscore_back_projection_days` | 180 | Z-score回算窗口 (v8.24.0) |
+| `entry_percentile_lower` | 95.0 | 入场下限百分位 P95 (v8.25.0) |
+| `entry_percentile_upper` | 99.9 | 入场上限百分位 P99.9 |
+| `zscore_back_projection_days` | 180 | Z-score回算窗口 |
+| `trailing_step_coefficient` | 0.5 | 尾部宽度系数 (v8.25.0) |
+| `trailing_step_floor` | 0.5 | 止损步长地板 |
 
 ### 设计说明 (v8.9.1)
 
@@ -447,17 +453,17 @@ v8.24.0: 稀有事件捕捉 (Rare Event Capture)
 - Hurst 指数需要较长时间序列才能得到可靠估计
 - 半衰期和零轴穿越已能有效筛选均值回归特性
 
-### v8.24.0 稀有事件捕捉设计
+### v8.24.0 → v8.25.0 稀有事件捕捉 + 尾部宽度止损
 
 **核心思想**: 只在真正的极端情况入场，捕捉"稀有事件"的回归收益
 
-**为什么从 [P90, P99] 提升到 [P99, P99.9]?**
+**为什么从 [P90, P99] 提升到 [P95, P99.9]?**
 
 | 分位数 | 对应σ | 发生频率 | 评估 |
 |--------|-------|----------|------|
 | P90 | ~1.28σ | 10次/1次 | ❌ 太常见，正常噪音 |
-| P99 | ~2.33σ | 100次/1次 | ✅ 开始有意思 |
-| P99.9 | ~3.1σ | 1000次/1次 | ✅ 极端机会 |
+| P95 | ~1.65σ | 20次/1次 | ✅ 入场下限 |
+| P99.9 | ~3.1σ | 1000次/1次 | ✅ 入场上限 |
 
 **为什么需要180天回算?**
 
@@ -466,16 +472,25 @@ v8.24.0: 稀有事件捕捉 (Rare Event Capture)
 | 60天 | 60 | 第0.6个 (≈最大值) | ❌ 不稳定 |
 | 180天 | 180 | 第1.8个 | ✅ 有意义 |
 
-**为什么用 residual_std 而非 zscore_std?**
-- zscore_series 是标准化序列，std(zscore) ≈ 1.0 (数学恒等)
-- residual_std 是原始残差标准差，因配对而异
-- 用于计算个性化止损步长: `trailing_step = residual_std × multiplier`
+**v8.25.0: 为什么用 tail_width 计算止损步长?**
+
+旧方案问题 (v8.24.0):
+- `residual_std` 是对数残差标准差 (~0.02)
+- `trailing_step = 0.02 × 1.0 = 0.02` → 永远触发地板值 0.5
+- 所有配对止损步长相同，失去"个性化"意义
+
+新方案 (v8.25.0):
+- `tail_width = P99.9 - P95` = 尾部厚度 (Z-score空间)
+- 厚尾配对 (波动大) → tail_width ≈ 3.0 → step = 1.5σ
+- 薄尾配对 (波动小) → tail_width ≈ 0.5 → step = 0.5σ (地板)
+- 公式: `trailing_step = max(tail_width × 0.5, 0.5)`
 
 **示例**:
-| 配对 | 180天P99 | 180天P99.9 | residual_std | 入场区间 |
-|------|----------|------------|--------------|----------|
-| JPM-USB | 2.35σ | 3.12σ | 0.0234 | [2.35, 3.12] |
-| XOM-CVX | 2.18σ | 2.89σ | 0.0156 | [2.18, 2.89] |
+| 配对 | P95 | P99.9 | tail_width | trailing_step | 入场区间 |
+|------|-----|-------|------------|---------------|----------|
+| JPM-USB (厚尾) | 2.0 | 5.0 | 3.0 | 1.5σ | [2.0, 5.0] |
+| XOM-CVX (正常) | 1.9 | 2.9 | 1.0 | 0.5σ | [1.9, 2.9] |
+| AAPL-MSFT (薄尾) | 2.0 | 2.4 | 0.4 | 0.5σ (地板) | [2.0, 2.4] |
 
 ---
 
@@ -1015,13 +1030,17 @@ PairsManager.get_open_candidates_with_allocation(data):
 | `alpha_mean` | float | 截距项后验均值 |
 | `beta_mean` | float | 协整系数后验均值 |
 | `residual_mean` | float | 残差均值 |
-| `residual_std` | float | 残差标准差 |
+| `residual_std` | float | 残差标准差 (用于实时Z-score计算) |
+| `half_life` | float | 均值回归半衰期 (天) |
 
-#### 1.3 Quality Metrics (质量指标)
+#### 1.3 Trading Thresholds (交易阈值 v8.25.0)
 | 属性 | 类型 | 描述 |
 |------|------|------|
-| `quality_score` | float | 配对综合质量评分 (0.0-1.0) |
-| `half_life` | float | 均值回归半衰期 (天) |
+| `entry_threshold` | float | 入场下限 (P95 ~1.65σ) |
+| `entry_threshold_upper` | float | 入场上限 (P99.9 ~3.1σ) |
+| `tail_width` | float | 尾部宽度 (P99.9 - P95) |
+| `trailing_step` | float | 阶梯止损步长 (tail_width × 0.5，地板0.5) |
+| `exit_threshold` | float | 出场阈值 (默认0.5σ) |
 
 #### 1.4 State Management (状态管理)
 | 属性 | 类型 | 描述 |

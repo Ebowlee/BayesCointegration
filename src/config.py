@@ -156,11 +156,11 @@ class PairSelectorConfig:
 
 @dataclass
 class PairsConfig:
-    """配对配置 - 信号阈值、保证金参数、RSI动量 (v8.24.0: 稀有事件捕捉)"""
+    """配对配置 - 信号阈值、保证金参数、RSI动量 (v8.25.0: 尾部宽度动态止损)"""
 
-    # v8.24.0: 稀有事件捕捉 (Rare Event Capture)
+    # v8.25.0: 稀有事件捕捉 + 尾部宽度止损
     adaptive_entry_enabled: bool = True                            # 总开关
-    entry_percentile_lower: float = 95.0                           # 入场下限百分位 (P99 ~2.33σ)
+    entry_percentile_lower: float = 95.0                           # 入场下限百分位 (P95 ~1.65σ)
     entry_percentile_upper: float = 99.9                           # 入场上限百分位 (P99.9 ~3.1σ)
     zscore_back_projection_days: int = 180                         # Z-score向后回算窗口 (用于分位数统计)
     exit_threshold: float = 0.5                                    # 出场Z-score阈值
