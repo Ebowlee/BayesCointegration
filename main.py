@@ -214,12 +214,13 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         # === 步骤7: PairsManager分类管理 ===
         self.pairs_manager.classify_pairs(new_pairs_dict)
 
-        # 单行汇总日志 (v8.9.0: 删除配额环节)
+        # 单行汇总日志 (v8.22.0: 协整数使用抽样前原始值)
+        original_coint_count = coint_stats.get('cointegrated_pairs_found', len(coint_tested_pairs))
         self.Debug(
             f"[Analysis汇总] 输入{stats['total']} → "
             f"有效{stats['final_valid']} → "
             f"候选{coint_stats.get('total_pairs_tested', 0)}对 → "
-            f"协整{len(coint_tested_pairs)}对 ({industries_with_pairs}行业) → "
+            f"协整{original_coint_count}对 ({industries_with_pairs}行业) → "
             f"贝叶斯{len(model_results)}对 → "
             f"质量筛选{len(selected_pairs)}对 → "
             f"创建{len(new_pairs_dict)}个Pairs"
@@ -259,14 +260,14 @@ class BayesianCointegrationStrategy(QCAlgorithm):
             return
 
         # === 3. Pair级: 健康检查 ===
-        # v8.2.0: 传入data参数, 支持PairBreak检查 (Z-score判断)
+        # v8.18.0: 阶梯式止盈止损替代静态PairBreak
         health_issues = self.pairs_manager.check_pairs_health(data)
         total_issues = sum(len(ids) for ids in health_issues.values())
 
         if total_issues > 0:
             # 遍历每种问题类型,执行平仓 (日志由Pairs._log_close_completion输出)
             for issue_type, pair_ids in health_issues.items():
-                reason = issue_type.upper()  # 'anomaly' → 'ANOMALY', 'pair_break' → 'PAIR_BREAK'
+                reason = issue_type.upper()  # 'anomaly' → 'ANOMALY', 'trailing_stop' → 'TRAILING_STOP'
                 for pair_id in pair_ids:
                     pair = self.pairs_manager.get_pair_by_id(pair_id)
                     if pair is None:

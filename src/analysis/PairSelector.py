@@ -7,15 +7,19 @@ from typing import Dict, List, Tuple, Optional
 
 class PairSelector:
     """
-    配对筛选器 (v8.9.1 三维度阈值筛选)
+    配对筛选器 (v8.24.0 稀有事件捕捉)
 
     核心职责:
     - 三维度阈值筛选: CV BETA、半衰期、零轴穿越
+    - 稀有事件捕捉: [P99, P99.9] 入场区间 + 配对级 residual_std (v8.24.0)
     - 漏斗日志: 展示每个维度的筛选效果
 
     设计变更:
     - v8.9.0: 删除 ROI 缩放逻辑，新增漏斗日志
     - v8.9.1: 删除 Hurst 维度 (60天spread数据不足以稳健计算)
+    - v8.20.0: 新增自适应开仓阈值计算
+    - v8.23.0: 纯粹个性化 - 完全数据驱动，返回三元组 (P90, P99, Sigma)
+    - v8.24.0: 稀有事件捕捉 - 分位数提升至[P99, P99.9]，180天回算，residual_std替代zscore_std
 
     关键接口:
     - selection_procedure(): 主入口，执行完整筛选流程
@@ -25,48 +29,61 @@ class PairSelector:
         """初始化配对选择器"""
         self.algorithm = algorithm
         self.config = module_config
+        self.pairs_config = algorithm.config.pairs  # v8.20.0: 访问 PairsConfig
 
 
     # ===== 公共方法 (Public Methods) =====
 
     def selection_procedure(self, modeling_results: List[Dict]) -> List[Dict]:
         """
-        执行配对筛选流程 (v8.9.1: 三维度阈值筛选 + 漏斗日志)
+        执行配对筛选流程 (v8.23.0: 三维度阈值筛选 + 纯粹个性化开仓)
 
         三重过滤，全部通过才保留:
         1. CV BETA 稳定性
         2. 半衰期范围
         3. 零轴穿越次数 (活跃度)
 
+        v8.23.0: 为每个通过筛选的配对计算个性化开仓阈值 (P90, P99, Sigma)
+
         Args:
             modeling_results: BayesianModeler输出列表
 
         Returns:
-            List[Dict]: 通过所有筛选的配对列表
+            List[Dict]: 通过所有筛选的配对列表 (含 entry_threshold, entry_upper, zscore_std)
         """
         # 初始化计数器
         input_count = len(modeling_results)
         cv_beta_rejected = 0
         half_life_rejected = 0
         zero_crossing_rejected = 0
+        insufficient_data_rejected = 0
 
         filtered = []
 
         for result in modeling_results:
-            # 维度1: CV BETA 稳定性
-            if not self._filter_by_cv_beta(result):
+            # 维度1: CV BETA 稳定性 (v8.22.0: 可选)
+            if self.config.cv_beta_enabled and not self._filter_by_cv_beta(result):
                 cv_beta_rejected += 1
                 continue
 
-            # 维度2: 半衰期
-            if not self._filter_by_half_life(result):
+            # 维度2: 半衰期 (v8.22.0: 可选)
+            if self.config.half_life_enabled and not self._filter_by_half_life(result):
                 half_life_rejected += 1
                 continue
 
-            # 维度3: 零轴穿越
-            if not self._filter_by_zero_crossing(result):
+            # 维度3: 零轴穿越 (v8.22.0: 可选)
+            if self.config.zero_crossing_enabled and not self._filter_by_zero_crossing(result):
                 zero_crossing_rejected += 1
                 continue
+
+            # v8.23.0: 计算个性化开仓阈值 (数据不足则筛掉)
+            threshold_result = self._calculate_adaptive_threshold(result)
+            if threshold_result is None:
+                insufficient_data_rejected += 1
+                continue
+
+            # 解构三元组
+            result['entry_threshold'], result['entry_upper'], result['zscore_std'] = threshold_result
 
             filtered.append(result)
 
@@ -77,6 +94,7 @@ class PairSelector:
             f"CV_BETA (-{cv_beta_rejected}) → "
             f"Half_life (-{half_life_rejected}) → "
             f"ZeroCrossing (-{zero_crossing_rejected}) → "
+            f"Data (-{insufficient_data_rejected}) → "
             f"输出 {output_count}"
         )
 
@@ -195,3 +213,55 @@ class PairSelector:
         signs = np.sign(centered)
         crossings = np.sum(signs[:-1] != signs[1:])
         return int(crossings)
+
+
+    # ===== 稀有事件捕捉 (v8.24.0) =====
+
+    def _calculate_adaptive_threshold(self, model_result: Dict) -> Optional[Tuple[float, float, float]]:
+        """
+        计算自适应开仓阈值 (v8.24.0: 稀有事件捕捉)
+
+        v8.24.0 改进:
+        - 分位数提升: [P90, P99] → [P99, P99.9] (捕捉稀有事件)
+        - 样本量扩展: 60天 → 180天回算 (P99有统计意义)
+        - 修复 zscore_std ≈ 1.0: 改用 residual_std (因配对而异)
+
+        公式:
+        - entry_lower = P99 (历史 |Z-score| 的 99 分位, ~2.33σ)
+        - entry_upper = P99.9 (历史 |Z-score| 的 99.9 分位, ~3.1σ)
+        - residual_std = 180天残差的原始标准差 (因配对而异)
+
+        Args:
+            model_result: 含有 zscore_series 和 residual_std 的建模结果
+
+        Returns:
+            (entry_lower, entry_upper, residual_std): 三元组
+            None: 数据不足，应筛掉此配对
+        """
+        # 检查总开关
+        if not self.pairs_config.adaptive_entry_enabled:
+            return None  # 禁用时不通过
+
+        # 获取 Z-score 历史序列 (v8.24.0: 180天回算数据)
+        zscore_series = model_result.get('zscore_series')
+        if zscore_series is None or len(zscore_series) < 60:  # 需要足够样本
+            return None  # 数据不足，筛掉
+
+        # 计算绝对值的百分位 (v8.24.0: P99/P99.9)
+        abs_zscores = np.abs(zscore_series)
+        entry_lower = float(np.percentile(abs_zscores, self.pairs_config.entry_percentile_lower))
+        entry_upper = float(np.percentile(abs_zscores, self.pairs_config.entry_percentile_upper))
+
+        # v8.24.0: 使用 residual_std (原始残差标准差，因配对而异)
+        # 修复 zscore_std ≈ 1.0 问题 (zscore_series已标准化导致std恒等于1)
+        residual_std = model_result.get('residual_std', 1.0)
+
+        # 调试日志
+        pair_id = (model_result.get('symbol1'), model_result.get('symbol2'))
+        self.algorithm.Debug(
+            f"[RareEventEntry] {pair_id} | "
+            f"P99={entry_lower:.2f}σ | P99.9={entry_upper:.2f}σ | residual_σ={residual_std:.4f}",
+            level=2
+        )
+
+        return (entry_lower, entry_upper, residual_std)

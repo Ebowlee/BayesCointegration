@@ -70,11 +70,11 @@ class UniverseConfig:
 
 @dataclass
 class DataProcessorConfig:
-    """数据处理配置 (v8.4.0: 时间窗口切割，消除数据窥探)"""
+    """数据处理配置 (v8.24.0: 扩展数据窗口支持Z-score回算)"""
 
-    # 时间窗口配置 (协整窗口 = total - bayesian，派生计算)
-    total_lookback_days: int = 180                                  # 总数据下载量 (交易日)
-    bayesian_lookback_days: int = 60                                # 贝叶斯建模窗口
+    # 时间窗口配置 (v8.24.0: 协整窗口 = total - bayesian = 180天)
+    total_lookback_days: int = 240                                  # 总数据下载量 (交易日) v8.24.0: 180→240
+    bayesian_lookback_days: int = 60                                # 贝叶斯建模窗口 (保持不变)
 
     # === 数据质量验证 ===
     data_completeness_ratio: float = 1.0                            # 数据完整性要求
@@ -95,7 +95,7 @@ class CointegrationConfig:
     max_symbol_repeats: int = 2                                     # 单股最多允许配对数
 
     # v8.16.0: MCMC算力保护
-    max_cointegrated_pairs: int = 20                                # 协整配对数量上限 (随机抽样)
+    max_cointegrated_pairs: int = 30                                # 协整配对数量上限 (随机抽样)
 
 
 @dataclass
@@ -126,7 +126,7 @@ class BayesianModelerConfig:
 @dataclass
 class PairSelectorConfig:
     """
-    配对筛选配置 (v8.9.1: 三维度阈值筛选)
+    配对筛选配置 (v8.22.0: 三维度可选开关)
 
     三维度阈值筛选:
     1. CV BETA: β估计的相对不确定性
@@ -134,27 +134,35 @@ class PairSelectorConfig:
     3. 零轴穿越: 交易活跃度
 
     v8.9.1: 删除Hurst维度 (60天spread数据不足以稳健计算R/S分析)
+    v8.22.0: 新增三维度可选开关，方便回测实验
     """
+    # v8.22.0: 维度开关 (用于回测实验)
+    cv_beta_enabled: bool = True                                    # CV BETA 筛选开关
+    half_life_enabled: bool = True                                  # 半衰期筛选开关
+    zero_crossing_enabled: bool = True                              # 零轴穿越筛选开关
+
     # 维度1: CV BETA 稳定性
     cv_beta_threshold: float = 0.2                                  # CV > 0.2 → 剔除
     min_abs_beta: float = 0.1                                       # |β| < 0.1 → 剔除 (避免CV爆炸)
 
     # 维度2: 半衰期
-    half_life_min: float = 3.0                                      # < 3天 → 剔除 (太短 = 噪音)
-    half_life_max: float = 25.0                                     # > 25天 → 剔除 (太长 = 回归太慢)
+    half_life_min: float = 3                                        # < 3天 → 剔除 (太短 = 噪音)
+    half_life_max: float = 30                                       # > 30天 → 剔除 (太长 = 回归太慢)
 
     # 维度3: 零轴穿越
     zero_crossing_min: int = 2                                      # < 2次 → 剔除 (太不活跃)
-    zero_crossing_max: int = 45                                     # > 45次 → 剔除 (太嘈杂)
+    zero_crossing_max: int = 60                                     # > 60次 → 剔除 (太嘈杂)
 
 
 @dataclass
 class PairsConfig:
-    """配对配置 - 信号阈值、保证金参数、卡尔曼滤波、RSI动量"""
+    """配对配置 - 信号阈值、保证金参数、RSI动量 (v8.24.0: 稀有事件捕捉)"""
 
-    # 信号阈值
-    entry_threshold_lower: float = 3.0                             # 入场Z-score下限
-    entry_threshold_upper: float = 3.5                             # 入场Z-score上限
+    # v8.24.0: 稀有事件捕捉 (Rare Event Capture)
+    adaptive_entry_enabled: bool = True                            # 总开关
+    entry_percentile_lower: float = 99.0                           # 入场下限百分位 (P99 ~2.33σ)
+    entry_percentile_upper: float = 99.9                           # 入场上限百分位 (P99.9 ~3.1σ)
+    zscore_back_projection_days: int = 180                         # Z-score向后回算窗口 (用于分位数统计)
     exit_threshold: float = 0.5                                    # 出场Z-score阈值
 
     # 保证金计算参数
@@ -162,17 +170,21 @@ class PairsConfig:
     margin_requirement_short: float = 1.5                          # 空头保证金率: 150%
 
 
-    # RSI on Z-score 参数 (v8.7.0)
-    rsi_period: int = 5                                            # RSI周期 (5日RSI, 需要6天数据)
-    rsi_overbought: float = 80.0                                   # 超买阈值
-    rsi_oversold: float = 20.0                                     # 超卖阈值
-    rsi_lookback_for_extreme: int = 3                              # 查找"近期曾超买/超卖"的窗口
+    # RSI on Z-score 参数 (v8.7.0, v8.17.0重命名)
     rsi_warmup_days: int = 10                                      # 预热天数 (从clean_data加载)
+    rsi_period: int = 8                                            # RSI周期
+    rsi_lookback_for_extreme: int = 3                              # 查找"近期曾极端"的窗口                                       # RSI周期
+    rsi_short_spread_threshold: float = 80.0                       # SHORT_SPREAD入场: RSI曾>此值后回落
+    rsi_long_spread_threshold: float = 20.0                        # LONG_SPREAD入场: RSI曾<此值后反弹
+    
+    # 动量止盈参数 (v8.19.0: Momentum Profit Taking)
+    momentum_profit_enabled: bool = True                           # 总开关
+    momentum_rsi_threshold: float = 40.0                           # RSI绝对动量阈值 (空头<40, 多头>60)
 
 
 @dataclass
 class PairsManagerConfig:
-    """配对管理配置 - 保证金分配、健康检查、冷却期"""
+    """配对管理配置 - 保证金分配、健康检查、冷却期 (v8.23.0: 个性化止损)"""
 
     # 保证金管理
     margin_usage_ratio: float = 0.98                               # 保证金使用率: 98%
@@ -183,16 +195,17 @@ class PairsManagerConfig:
     # 开仓排序 (v8.11.0: 按预期收益额排序)
     sort_by_expected_profit: bool = True                           # 开关: 启用预期收益排序
 
-    # 健康检查阈值 (v8.15.0: 移除β漂移，简化为Z-score检测)
-    pair_break_threshold: float = 4.0                              # 4σ Z-score触发 
-    drawdown_threshold: float = 0.05                               # 5% 统一回撤阈值
+    # 健康检查阈值 (v8.23.0: 个性化止损步长)
+    trailing_step_multiplier: float = 1.0                          # 止损步长倍数 (乘以配对Sigma)
+    trailing_step_floor: float = 0.5                               # 止损步长地板 (最小0.5σ)
+    drawdown_threshold: float = 0.10                               # 10% 统一回撤阈值
 
     # 动态冷却系数 (v8.13.0: 基于半衰期, cooldown = half_life × multiplier)
     cooldown_multipliers: Dict[str, float] = field(default_factory=lambda: {
-        'MEAN_REVERSION': 2.0,                                     # 正常平仓: 2个半衰期
-        'TIMEOUT': 4.0,                                            # 超时平仓: 4个半衰期
-        'DRAWDOWN': 6.0,                                           # 回撤止损: 6个半衰期
-        'PAIR_BREAK': 6.0,                                         # 协整破裂: 6个半衰期
+        'MEAN_REVERSION': 1.0,                                     # 正常平仓: 1个半衰期
+        'TIMEOUT': 2.0,                                            # 超时平仓: 2个半衰期
+        'DRAWDOWN': 4.0,                                           # 回撤止损: 4个半衰期
+        'TRAILING_STOP': 2.0,                                      # 阶梯止损: 2个半衰期 (v8.18.0)
         'ANOMALY': 99999.0,                                        # 数据异常: 永久冷却
     })
 

@@ -327,12 +327,17 @@ class BayesianModeler:
 
     def _extract_posterior_stats(self, trace, pair_data: PairData, y_data, x_data) -> Dict:
         """
-        从MCMC trace提取后验统计量 (v7.31.3: 从_fit_joint_model拆分)
+        从MCMC trace提取后验统计量 (v8.24.0: 180天Z-score回算)
+
+        v8.24.0 核心改进:
+        - 用最新α,β回算过去180天的Z-score (近端建模 + 远端回算)
+        - 180个样本点使P99/P99.9分位数具有统计意义
+        - 返回residual_std (因配对而异) 替代zscore_std (恒等于1.0)
 
         Args:
             trace: MCMC采样后的trace对象
-            pair_data: PairData对象
-            y_data, x_data: 原始对数价格数据
+            pair_data: PairData对象 (包含完整240天数据)
+            y_data, x_data: MCMC建模用的60天对数价格数据
 
         Returns:
             Dict: 后验统计量字典
@@ -350,10 +355,23 @@ class BayesianModeler:
         rho_mean = float(np.mean(rho_samples))
         rho_std = float(np.std(rho_samples))
 
-        # 计算对数空间spread（与Pairs.get_zscore()一致）
-        log_spread = y_data - (alpha_mean + beta_mean * x_data)
-        residual_mean = float(np.mean(log_spread))
-        residual_std_calc = float(np.std(log_spread))
+        # v8.24.0: 用最新α,β回算过去180天的Z-score (近端建模 + 远端回算)
+        projection_days = self.algorithm.config.pairs.zscore_back_projection_days  # 180天
+
+        # 获取完整数据的后projection_days天
+        y_full = pair_data.log_prices1[-projection_days:]
+        x_full = pair_data.log_prices2[-projection_days:]
+
+        # 用最新参数回算180天spread
+        log_spread_projected = y_full - (alpha_mean + beta_mean * x_full)
+        residual_mean = float(np.mean(log_spread_projected))
+        residual_std = float(np.std(log_spread_projected))
+
+        # 计算180天Z-score序列 (供PairSelector计算分位数)
+        zscore_series = (log_spread_projected - residual_mean) / residual_std
+
+        # 同时保留60天MCMC窗口的spread (用于其他计算)
+        log_spread_mcmc = y_data - (alpha_mean + beta_mean * x_data)
 
         # 构建后验统计字典
         stats = {
@@ -368,10 +386,11 @@ class BayesianModeler:
             'rho_samples': rho_samples,
             'rho_mean': rho_mean,
             'rho_std': rho_std,
-            # 对数空间spread统计量
-            'spread': log_spread,
-            'residual_mean': residual_mean,
-            'residual_std': residual_std_calc,
+            # 对数空间spread统计量 (v8.24.0: 使用180天回算数据)
+            'spread': log_spread_mcmc,              # 60天MCMC窗口spread (保持兼容)
+            'zscore_series': zscore_series,         # v8.24.0: 180天回算Z-score序列
+            'residual_mean': residual_mean,         # 180天均值
+            'residual_std': residual_std,           # v8.24.0: 180天标准差 (因配对而异)
             # 元信息
             'method': 'joint_bayesian',
             'update_time': self.algorithm.UtcTime

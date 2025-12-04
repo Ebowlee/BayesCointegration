@@ -23,6 +23,11 @@ class Pairs:
     """
     配对交易核心对象 - 数据提供 + 信号生成 + 意图生成 + 交易历史追踪
 
+    v8.23.0: 纯粹个性化开仓 (Pure Personalized Entry)
+        - entry_threshold (P90) / entry_threshold_upper (P99) 由 PairSelector 计算
+        - zscore_std: 配对级 Z-score 标准差
+        - trailing_step: 个性化止损步长 (zscore_std × multiplier，地板保护)
+
     不负责: 风险检查、资金分配、订单执行 (由 RiskManager/ExecutionManager/OrderExecutor 处理)
     """
 
@@ -54,11 +59,16 @@ class Pairs:
         self.half_life = model_data.get('half_life')
         self.half_life_std = model_data.get('half_life_std', 0)
 
-        # 交易阈值
-        self.entry_threshold_lower = config.entry_threshold_lower
-        self.entry_threshold_upper = config.entry_threshold_upper
+        # 交易阈值 (v8.23.0: 纯粹个性化开仓 - 由 PairSelector 保证字段存在)
+        self.entry_threshold = model_data['entry_threshold']        # P90
+        self.entry_threshold_upper = model_data['entry_upper']      # P99
+        self.zscore_std = model_data['zscore_std']                  # 配对级 Z-score 标准差
         self.exit_threshold = config.exit_threshold
-        # v8.2.1: stop_loss_threshold 已迁移至 PairsManager.check_pairs_health()
+
+        # v8.23.0: 个性化止损步长 (带地板保护)
+        pm_config = algorithm.config.pairs_manager
+        raw_step = self.zscore_std * pm_config.trailing_step_multiplier
+        self.trailing_step = max(raw_step, pm_config.trailing_step_floor)
 
         # 保证金参数
         self.margin_long = config.margin_requirement_long
@@ -91,6 +101,9 @@ class Pairs:
 
         # 回撤追踪
         self.pair_hwm: float = None
+
+        # 阶梯式止盈止损 (v8.18.0)
+        self.best_step: int = None  # 持仓期间到达的最佳台阶 (最接近0的整数台阶)
 
         # RSI on Z-score (v8.7.0: 动量检测)
         # maxlen = rsi_period + rsi_lookback_for_extreme + 1 (保留足够计算历史RSI的数据)
@@ -147,14 +160,29 @@ class Pairs:
         """
         从新的Pairs对象更新统计参数
 
-        调用: PairsManager.update_pairs() 每月选股后
+        调用: PairsManager.classify_pairs() 每月选股后
         注意: 持仓检查由调用方处理, 本方法仅负责参数更新
+
+        v8.23.0: 更新个性化开仓阈值和止损步长
+        v8.20.1: 参数更新后清空并重新预热 zscore_history/rsi_history
         """
         self.alpha_mean = new_pair.alpha_mean
         self.beta_mean = new_pair.beta_mean
         self.residual_mean = new_pair.residual_mean
         self.residual_std = new_pair.residual_std
-        # v8.12.0: quality_score 已删除
+
+        # v8.23.0: 更新个性化开仓阈值 (P90, P99, Sigma)
+        self.entry_threshold = new_pair.entry_threshold
+        self.entry_threshold_upper = new_pair.entry_threshold_upper
+        self.zscore_std = new_pair.zscore_std
+        self.trailing_step = new_pair.trailing_step
+
+        # v8.20.1: 参数变化后清空短期历史 (旧参数计算的数据已无效)
+        self.zscore_history.clear()
+        self.rsi_history.clear()
+
+        # v8.20.1: 用新参数重新预热 (algorithm.clean_data 已在分析管道中更新)
+        self._warmup_zscore_history()
 
 
     # ===== 2. 纯计算层 (Pure Computation) =====
@@ -409,8 +437,8 @@ class Pairs:
         if current_rsi is None:
             return True
 
-        overbought = self.config.rsi_overbought
-        oversold = self.config.rsi_oversold
+        short_threshold = self.config.rsi_short_spread_threshold
+        long_threshold = self.config.rsi_long_spread_threshold
         lookback = self.config.rsi_lookback_for_extreme
 
         # 获取近期RSI历史 (不含当前)
@@ -419,22 +447,62 @@ class Pairs:
             return True
 
         if signal == 'SHORT_SPREAD':
-            # 条件B: 近期RSI曾>80 (超买)
-            was_overbought = any(r > overbought for r in recent_rsi)
-            # 条件C: 当前RSI<80 (已回落)
-            is_cooled = current_rsi < overbought
+            # 条件B: 近期RSI曾超过阈值
+            was_extreme = any(r > short_threshold for r in recent_rsi)
+            # 条件C: 当前RSI已回落
+            is_cooled = current_rsi < short_threshold
 
-            return was_overbought and is_cooled
+            return was_extreme and is_cooled
 
         elif signal == 'LONG_SPREAD':
-            # 条件B: 近期RSI曾<20 (超卖)
-            was_oversold = any(r < oversold for r in recent_rsi)
-            # 条件C: 当前RSI>20 (已反弹)
-            is_recovered = current_rsi > oversold
+            # 条件B: 近期RSI曾低于阈值
+            was_extreme = any(r < long_threshold for r in recent_rsi)
+            # 条件C: 当前RSI已反弹
+            is_recovered = current_rsi > long_threshold
 
-            return was_oversold and is_recovered
+            return was_extreme and is_recovered
 
         return True  # 未知信号类型，fallback
+
+    def _should_hold_for_momentum(self) -> bool:
+        """
+        动量止盈检查 (v8.19.0: Momentum Profit Taking)
+
+        当 Z-score 已进入出场区 (|Z| < exit_threshold) 时调用。
+        判断当前动量是否足够强，决定是继续持有还是落袋为安。
+
+        条件 A (绝对动量): RSI 处于极端区域
+        条件 B (相对动量): RSI 动量未衰竭 (仍在增强或持平)
+
+        Returns:
+            True: 动量强，应继续持有 (贪婪模式)
+            False: 动量弱，应平仓 (落袋为安)
+        """
+        # 总开关检查
+        if not self.config.momentum_profit_enabled:
+            return False
+
+        # 数据不足时保守平仓
+        if len(self.rsi_history) < 2:
+            return False
+
+        current_rsi = self.rsi_history[-1]
+        prev_rsi = self.rsi_history[-2]
+        threshold = self.config.momentum_rsi_threshold
+        position_mode = self.position_mode
+
+        if position_mode == PositionMode.SHORT_SPREAD:
+            # 空头: RSI低 = 动量强 (继续下跌趋势)
+            condition_a = current_rsi < threshold                    # 绝对动量强
+            condition_b = current_rsi <= prev_rsi                    # 相对动量未衰竭
+        elif position_mode == PositionMode.LONG_SPREAD:
+            # 多头: RSI高 = 动量强 (继续上涨趋势)
+            condition_a = current_rsi > (100 - threshold)            # 绝对动量强
+            condition_b = current_rsi >= prev_rsi                    # 相对动量未衰竭
+        else:
+            return False
+
+        return condition_a and condition_b
 
     def get_leg_values(self, allocated_amount: float, signal: str, data):
         """获取Beta对冲两腿市值, 返回 (value_1, value_2) 或 (None, None)"""
@@ -589,6 +657,7 @@ class Pairs:
 
         v8.2.0: PAIR_BREAK(方向感知止损)已迁移至PairsManager.check_pairs_health()
         v8.7.0: 增加RSI on Z-score动量检测 (三重AND条件)
+        v8.19.0: 增加动量止盈检测 (Momentum Profit Taking)
         本方法只处理入场信号和正常出场(均值回归)
         """
         prices = self.get_price_from_bar(data)
@@ -605,10 +674,10 @@ class Pairs:
 
         position_mode = self.position_mode
 
-        # 无持仓: 入场信号
+        # 无持仓: 入场信号 (v8.20.0: 使用自适应阈值)
         if position_mode == PositionMode.NONE:
             abs_zscore = abs(zscore)
-            if self.entry_threshold_lower <= abs_zscore <= self.entry_threshold_upper:
+            if self.entry_threshold <= abs_zscore <= self.entry_threshold_upper:
                 # 确定候选信号
                 candidate_signal = 'SHORT_SPREAD' if zscore > 0 else 'LONG_SPREAD'
 
@@ -623,6 +692,9 @@ class Pairs:
 
         # 有持仓: 正常出场信号 (均值回归)
         if abs(zscore) < self.exit_threshold:
+            # v8.19.0: 动量止盈检查 - 动量强则继续持有
+            if self._should_hold_for_momentum():
+                return 'HOLD'
             return 'CLOSE'
 
         return 'HOLD'
@@ -738,6 +810,10 @@ class Pairs:
             if fill_price1 and fill_price2:
                 self.fill_zscore_open = self.get_zscore(fill_price1, fill_price2)
 
+                # v8.18.0: 初始化阶梯式止盈止损的best_step
+                # best_step = 当前Z-score所在的台阶 (向0方向取整)
+                self.best_step = int(abs(self.fill_zscore_open))
+
         elif action == 'CLOSE':
             self.pair_closed_time = fill_time
             self.last_close_reason = reason  # 存储平仓原因(用于动态冷却期判断)
@@ -774,6 +850,7 @@ class Pairs:
             self.exit_price1 = None
             self.exit_price2 = None
             self.pair_hwm = None                                               # 重置高水位 (v7.86.0)
+            self.best_step = None                                              # 重置阶梯止损 (v8.18.0)
 
 
     def _update_trade_stats(self):
@@ -806,21 +883,22 @@ class Pairs:
 
 
     def _log_close_completion(self, reason: str):
-        """输出平仓日志: 配对ID、原因、PnL、zscore轨迹、冷却期"""
+        """
+        输出平仓日志: 配对ID、原因、PnL、zscore轨迹、冷却期
+
+        v8.23.0: 日志格式更新 - 显示配对Sigma和入场区间
+        格式: σ=1.2 (2.8-4.5) 表示 zscore_std=1.2, 入场区间=[2.8, 4.5]
+        """
         # 计算本次交易PnL (v8.0.5: 使用 _calculate_trade_pnl 代替 unrealized)
         current_pnl = self._calculate_trade_pnl()
         current_invested = self.get_pair_current_invested_capital()
         current_pnl_pct = (current_pnl / current_invested * 100) if (current_pnl and current_invested and current_invested > 0) else 0
 
-        # v8.1.0: 使用动态聚合方法计算累计收益率
-        total_capital = self.get_total_invested_capital()
-        total_pnl_pct = (self.get_total_pnl() / total_capital * 100) if total_capital > 0 else 0
-
         # v8.1.0: 使用动态方法获取交易序号
         trade_num = self.get_trade_count()
 
-        # 提取Z-score数据
-        entry_z = self.entry_zscore if self.entry_zscore is not None else 0.0
+        # v8.21.1: 统一使用成交时记录的Z-score (entry和close都用fill时刻)
+        entry_z = self.fill_zscore_open if self.fill_zscore_open is not None else 0.0
         close_z = self.fill_zscore_close if self.fill_zscore_close is not None else 0.0
 
         # v7.99.7: 直接使用reason字符串
@@ -840,12 +918,12 @@ class Pairs:
         industry_names = self.algorithm.config.constants['industry_names']
         industry_name = industry_names.get(int(self.industry_code), '未知') if self.industry_code else '未知'
 
-        # v8.15.0: 移除漂移显示 (卡尔曼滤波已删除)
+        # v8.23.0: 新增配对Sigma和入场区间显示 (替代累计收益率)
         self.algorithm.Debug(
             f"[平仓] {self.pair_id} | {industry_name} | {reason_text} | "
-            f"第{trade_num}次交易 | 持有{holding_days}/{max_days_str}天 | "
+            f"交易{trade_num}次 | 持有{holding_days}/{max_days_str}天 | "
             f"投资${current_invested:,.0f} | PnL=${current_pnl:.2f} ({current_pnl_pct:+.1f}%) | "
-            f"累计{total_pnl_pct:+.1f}% | "
+            f"σ={self.zscore_std:.1f} ({self.entry_threshold:.1f}-{self.entry_threshold_upper:.1f}) | "
             f"{entry_z:+.2f}σ → {close_z:+.2f}σ | "
             f"冷却{cooldown_days}天",
             level=0

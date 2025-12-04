@@ -259,27 +259,26 @@ class PairsManager:
 
     def check_pairs_health(self, data) -> Dict[str, List[str]]:
         """
-        配对健康检查 (v8.15.0: 移除卡尔曼滤波，简化PairBreak逻辑)
+        配对健康检查 (v8.23.0: 个性化止损步长)
 
         检查维度 (按优先级):
             1. Anomaly: 单边或同向持仓异常
-            2. PairBreak: 仅 Z-score 方向感知检测 (v8.15.0: 移除β漂移AND条件)
+            2. TrailingStop: 阶梯式止盈止损 (v8.23.0: 使用配对级止损步长)
             3. Timeout: 持仓超时
             4. Drawdown: 统一10%阈值
 
-        返回: {'anomaly': [], 'pair_break': [], 'timeout': [], 'drawdown': []}
+        返回: {'anomaly': [], 'trailing_stop': [], 'timeout': [], 'drawdown': []}
         注: 每个配对只返回最高优先级问题
         """
         health_issues = {
             'anomaly': [],
-            'pair_break': [],
+            'trailing_stop': [],
             'timeout': [],
             'drawdown': []
         }
 
         # 获取配置阈值
         pm_config = self.module_config
-        pair_break_threshold = pm_config.pair_break_threshold
         drawdown_threshold = pm_config.drawdown_threshold
 
         for pair in self.get_pairs_with_position().values():
@@ -290,20 +289,37 @@ class PairsManager:
                 health_issues['anomaly'].append(pair_id)
                 continue
 
-            # 优先级2: PairBreak (v8.15.0: 仅Z-score方向感知检测)
+            # 优先级2: TrailingStop (v8.23.0: 使用配对级止损步长)
             prices = pair.get_price_from_bar(data)
             if prices is not None:
                 zscore = pair.get_zscore(prices[0], prices[1])
-                if zscore is not None:
+                if zscore is not None and pair.best_step is not None:
                     position_mode = pair.position_mode
-                    # 方向感知: 检测亏损方向的突破
-                    zscore_triggered = (
-                        (position_mode == PositionMode.LONG_SPREAD and zscore < -pair_break_threshold) or
-                        (position_mode == PositionMode.SHORT_SPREAD and zscore > pair_break_threshold)
+                    abs_zscore = abs(zscore)
+
+                    # v8.23.0: 使用配对个性化止损步长 (替代全局固定值)
+                    step_size = pair.trailing_step
+
+                    # 计算当前台阶 (向0方向取整)
+                    current_step = int(abs_zscore)
+
+                    # 更新best_step (取更小值 = 更接近0 = 更盈利)
+                    if current_step < pair.best_step:
+                        pair.best_step = current_step
+
+                    # 计算止损线: stop_line = best_step + 1 (回退一个整数台阶触发)
+                    stop_line = (pair.best_step + 1) * step_size + step_size
+
+                    # 方向感知触发条件:
+                    # - SHORT_SPREAD: 期望Z下降(向0), 若Z反弹超过stop_line则触发
+                    # - LONG_SPREAD: 期望Z上升(向0), 若Z下跌超过stop_line则触发
+                    trailing_stop_triggered = (
+                        (position_mode == PositionMode.SHORT_SPREAD and zscore > stop_line) or
+                        (position_mode == PositionMode.LONG_SPREAD and zscore < -stop_line)
                     )
 
-                    if zscore_triggered:
-                        health_issues['pair_break'].append(pair_id)
+                    if trailing_stop_triggered:
+                        health_issues['trailing_stop'].append(pair_id)
                         continue
 
             # 优先级3: Timeout (持仓超时)

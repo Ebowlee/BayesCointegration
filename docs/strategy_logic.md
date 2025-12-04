@@ -2,7 +2,7 @@
 
 本文档用流程图形式描述贝叶斯协整配对交易策略的完整执行逻辑。
 
-**当前版本**: v8.16.0 (2025-12-02)
+**当前版本**: v8.24.0 (2025-12-04)
 
 ---
 
@@ -64,22 +64,26 @@
 
 # Part 2: Data Processing (数据处理)
 
-### 时间窗口设计 (v8.4.0 - 消除数据窥探)
+### 时间窗口设计 (v8.24.0 - 消除数据窥探 + Z-score回算)
 
 ```
-t=-312        t=-60         t=0 (当前)
+t=-240        t=-60         t=0 (当前)
   |______________|______________|
-       252天            60天
+       180天            60天
          ↓                ↓
    协整检验期        参数估计期
    (EG Test)         (MCMC)
    样本内筛选        样本外估计
+         └─────────────────┘
+              180天
+         Z-score回算窗口 (v8.24.0)
 ```
 
 **设计原理**:
-- **单一数据源**: `DataProcessorConfig` 定义 `total_lookback_days=312` + `bayesian_lookback_days=60`
-- **派生计算**: 协整窗口 = 312 - 60 = 252天 (各模块自行计算)
+- **单一数据源**: `DataProcessorConfig` 定义 `total_lookback_days=240` + `bayesian_lookback_days=60`
+- **派生计算**: 协整窗口 = 240 - 60 = 180天 (各模块自行计算)
 - **数据隔离**: 协整检验和MCMC使用完全不重叠的时间段
+- **v8.24.0 回算策略**: 用MCMC估计的最新α,β参数，回算过去180天的Z-score序列
 
 ```
 触发: _run_analysis_pipeline() 步骤1
@@ -89,7 +93,7 @@ t=-312        t=-60         t=0 (当前)
 =========================================
     ↓
 步骤1: 批量下载历史数据
-    └─ algorithm.History(symbols, 312, Resolution.Daily)
+    └─ algorithm.History(symbols, 240, Resolution.Daily)
     └─ 返回多级索引 DataFrame (symbol × date)
     ↓
 =========================================
@@ -101,7 +105,7 @@ t=-312        t=-60         t=0 (当前)
     └─ 失败原因: data_missing
     ↓
 检查2: 数据完整性
-    └─ len(data) == 312 (恰好312个交易日)
+    └─ len(data) == 240 (恰好240个交易日)
     └─ 失败原因: incomplete
     ↓
 检查3: 缺失值检查
@@ -126,7 +130,7 @@ t=-312        t=-60         t=0 (当前)
 =========================================
     ↓
 {
-    'clean_data': {symbol: DataFrame},  ← 每只股票312天OHLCV
+    'clean_data': {symbol: DataFrame},  ← 每只股票240天OHLCV
     'valid_symbols': [Symbol],          ← 通过验证的股票列表
     'statistics': {...}                 ← 统计信息
 }
@@ -138,10 +142,11 @@ t=-312        t=-60         t=0 (当前)
 
 | 参数 | 值 | 含义 |
 |------|-----|------|
-| `total_lookback_days` | 312 | **交易日** - 总数据下载量 |
+| `total_lookback_days` | 240 | **交易日** - 总数据下载量 (v8.24.0) |
 | `bayesian_lookback_days` | 60 | **交易日** - MCMC建模窗口 |
+| `zscore_back_projection_days` | 180 | **交易日** - Z-score回算窗口 (v8.24.0) |
 | `data_completeness_ratio` | 1.0 | 100%数据完整性要求 |
-| `max_annualized_volatility` | 0.7 | 年化波动率上限70% |
+| `max_annualized_volatility` | 0.5 | 年化波动率上限50% |
 | `max_daily_drawdown` | -0.10 | 单日跌幅下限-10% |
 
 ---
@@ -302,9 +307,9 @@ t=-312        t=-60         t=0 (当前)
 ### Empirical Bayes 设计原理 (v8.5.0)
 
 ```
-t=-312        t=-60         t=0 (当前)
+t=-240        t=-60         t=0 (当前)
   |______________|______________|
-       252天            60天
+       180天            60天
          ↓                ↓
    OLS回归估计       MCMC参数估计
    β̂_ols, se(β̂)    beta ~ N(β̂_ols, se×k)
@@ -312,9 +317,38 @@ t=-312        t=-60         t=0 (当前)
 ```
 
 **核心思想**: Long-term Posterior (OLS) = Short-term Prior (MCMC)
-- OLS 在协整窗口 (252天) 上估计参数，作为 MCMC 的先验
+- OLS 在协整窗口 (180天) 上估计参数，作为 MCMC 的先验
 - MCMC 在建模窗口 (60天) 上更新参数，得到后验
 - 两个窗口完全隔离，消除数据窥探
+
+### v8.24.0 Z-score 回算策略
+
+```
+近端建模 + 远端回算 (Projection Strategy)
+
+MCMC建模: 后60天数据 → 获取最新 α, β 参数
+                ↓
+Z-score回算: 用 α, β 回算全180天的 Z-score
+                ↓
+分位数计算: 180个样本点 → P99/P99.9 有统计意义
+```
+
+**实现代码** (`BayesianModeler._extract_posterior_stats`):
+```python
+# 从MCMC获取最新参数
+alpha_mean = float(np.mean(trace['alpha']))
+beta_mean = float(np.mean(trace['beta']))
+
+# 用最新参数回算180天spread
+projection_days = config.pairs.zscore_back_projection_days  # 180
+y_full = pair_data.log_prices1[-projection_days:]
+x_full = pair_data.log_prices2[-projection_days:]
+log_spread = y_full - (alpha_mean + beta_mean * x_full)
+
+# 计算180天Z-score序列
+residual_std = float(np.std(log_spread))
+zscore_series = (log_spread - np.mean(log_spread)) / residual_std
+```
 
 ### 关键配置参数
 
@@ -330,7 +364,7 @@ t=-312        t=-60         t=0 (当前)
 
 ---
 
-# Part 6: Pair Selector (配对筛选) - v8.9.1 三维度阈值筛选
+# Part 6: Pair Selector (配对筛选) - v8.24.0 稀有事件捕捉
 
 ```
 触发: _run_analysis_pipeline() 步骤5
@@ -350,23 +384,42 @@ t=-312        t=-60         t=0 (当前)
 维度2: 半衰期
     ├─ 公式: half_life = -ln(2) / ln(rho_mean)
     ├─ 含义: 残差回归到一半所需天数
-    └─ 阈值: 5 ≤ half_life ≤ 20 天通过
+    └─ 阈值: 3 ≤ half_life ≤ 30 天通过
     ↓
 维度3: 零轴穿越
     ├─ 计算: spread 穿越均值的次数
     ├─ 含义: 穿越越多 → 交易机会越多
-    └─ 阈值: 6 ≤ count ≤ 30 次通过
+    └─ 阈值: 2 ≤ count ≤ 60 次通过
     ↓
 全部通过 → 保留
 任一失败 → 剔除
     ↓
 =========================================
-漏斗日志输出
+v8.24.0: 稀有事件捕捉 (Rare Event Capture)
 =========================================
-    └─ [PairSelector] 输入 N → CV_BETA (-X) → Half_life (-Y) → ZeroCrossing (-Z) → 输出 M
+    ↓
+核心设计: "近端建模 + 远端回算"
+├─ MCMC建模: 后60天 → 获取最新 α, β
+├─ Z-score回算: 全180天 → 用最新参数回算历史
+└─ 分位数统计: 180个点 → P99有统计意义
+    ↓
+计算逻辑:
+├─ 步骤1: 用60天MCMC的α,β回算180天Z-score序列
+├─ 步骤2: 取 |Z-score| 的 P99 和 P99.9 分位数
+└─ 步骤3: 返回 residual_std (原始残差标准差，因配对而异)
+    ↓
+输出: 每个配对的个性化入场区间 [P99, P99.9]
+├─ P99 ≈ 2.33σ: 入场下限 (100次出现1次)
+├─ P99.9 ≈ 3.1σ: 入场上限 (1000次出现1次)
+└─ residual_std: 配对个性化标准差 (用于止损步长)
     ↓
 =========================================
-输出: 最终入选配对列表
+漏斗日志输出
+=========================================
+    └─ [PairSelector] 输入 N → CV_BETA (-X) → Half_life (-Y) → ZeroCrossing (-Z) → Data (-W) → 输出 M
+    ↓
+=========================================
+输出: 最终入选配对列表 (含 entry_threshold, entry_upper, zscore_std)
 =========================================
     ↓
 下游: 创建 Pairs 对象 (步骤6)
@@ -376,12 +429,16 @@ t=-312        t=-60         t=0 (当前)
 
 | 参数 | 值 | 含义 |
 |------|-----|------|
-| `cv_beta_threshold` | 0.3 | CV > 0.3 → 剔除 |
+| `cv_beta_threshold` | 0.2 | CV > 0.2 → 剔除 |
 | `min_abs_beta` | 0.1 | \|β\| < 0.1 → 剔除 |
-| `half_life_min` | 5.0 | < 5天 → 剔除 |
-| `half_life_max` | 20.0 | > 20天 → 剔除 |
-| `zero_crossing_min` | 6 | < 6次 → 剔除 |
-| `zero_crossing_max` | 30 | > 30次 → 剔除 |
+| `half_life_min` | 3.0 | < 3天 → 剔除 |
+| `half_life_max` | 30.0 | > 30天 → 剔除 |
+| `zero_crossing_min` | 2 | < 2次 → 剔除 |
+| `zero_crossing_max` | 60 | > 60次 → 剔除 |
+| `adaptive_entry_enabled` | True | 自适应阈值总开关 |
+| `entry_percentile_lower` | 99.0 | 入场下限百分位 P99 (v8.24.0) |
+| `entry_percentile_upper` | 99.9 | 入场上限百分位 P99.9 (v8.24.0) |
+| `zscore_back_projection_days` | 180 | Z-score回算窗口 (v8.24.0) |
 
 ### 设计说明 (v8.9.1)
 
@@ -389,6 +446,36 @@ t=-312        t=-60         t=0 (当前)
 - 60天 spread 数据不足以稳健计算 R/S 分析
 - Hurst 指数需要较长时间序列才能得到可靠估计
 - 半衰期和零轴穿越已能有效筛选均值回归特性
+
+### v8.24.0 稀有事件捕捉设计
+
+**核心思想**: 只在真正的极端情况入场，捕捉"稀有事件"的回归收益
+
+**为什么从 [P90, P99] 提升到 [P99, P99.9]?**
+
+| 分位数 | 对应σ | 发生频率 | 评估 |
+|--------|-------|----------|------|
+| P90 | ~1.28σ | 10次/1次 | ❌ 太常见，正常噪音 |
+| P99 | ~2.33σ | 100次/1次 | ✅ 开始有意思 |
+| P99.9 | ~3.1σ | 1000次/1次 | ✅ 极端机会 |
+
+**为什么需要180天回算?**
+
+| 窗口 | 样本量 | P99对应点位 | 统计稳健性 |
+|------|--------|-------------|------------|
+| 60天 | 60 | 第0.6个 (≈最大值) | ❌ 不稳定 |
+| 180天 | 180 | 第1.8个 | ✅ 有意义 |
+
+**为什么用 residual_std 而非 zscore_std?**
+- zscore_series 是标准化序列，std(zscore) ≈ 1.0 (数学恒等)
+- residual_std 是原始残差标准差，因配对而异
+- 用于计算个性化止损步长: `trailing_step = residual_std × multiplier`
+
+**示例**:
+| 配对 | 180天P99 | 180天P99.9 | residual_std | 入场区间 |
+|------|----------|------------|--------------|----------|
+| JPM-USB | 2.35σ | 3.12σ | 0.0234 | [2.35, 3.12] |
+| XOM-CVX | 2.18σ | 2.89σ | 0.0156 | [2.18, 2.89] |
 
 ---
 
@@ -416,7 +503,7 @@ t=-312        t=-60         t=0 (当前)
 classify_pairs(new_pairs_dict):
     ↓
 对每个配对:
-    ├─ 已存在 + 无持仓 → update_params() 更新参数
+    ├─ 已存在 + 无持仓 → update_params() 更新参数 (v8.20.1: 含RSI历史重置)
     ├─ 已存在 + 有持仓 → 跳过 (参数冻结)
     └─ 新配对 → 注册到 all_pairs
     ↓
@@ -435,6 +522,25 @@ classify_pairs(new_pairs_dict):
 
 ```
 [Analysis汇总] 输入280 → 有效260 → 候选3500对 → 协整180对 (18行业) → 贝叶斯180对 → 质量筛选25对 → 创建25个Pairs
+```
+
+### v8.20.1 RSI历史生命周期修复
+
+**问题**: 跨周期时 `update_params()` 更新了参数，但 `zscore_history` 和 `rsi_history` 仍保留旧参数计算的数据。
+
+**关键发现**: 冷却期间 `get_signal()` 仍被调用（在 `is_in_cooldown()` 检查之前），同周期内数据保持连续。
+
+**两种场景区分**:
+| 场景 | 参数变化 | 数据处理 |
+|------|----------|----------|
+| 同周期内反复开仓 | 参数不变 | **不清空** (数据连续) |
+| 跨周期开仓 | `update_params()` 更新 | **清空+预热** |
+
+**修复**: `update_params()` 中添加:
+```python
+self.zscore_history.clear()
+self.rsi_history.clear()
+self._warmup_zscore_history()  # 从 algorithm.clean_data 重新预热
 ```
 
 ---
@@ -660,7 +766,24 @@ RSI计算细节
 公式: RSI = 100 - 100/(1 + RS)
     └─ RS = avg_gain / avg_loss
     ↓
-周期: RSI(5) → 需要6天数据
+周期: RSI(8) → 需要9天Z-score数据
+
+=========================================
+RSI 计算过程示例 (rsi_period=8)
+=========================================
+
+Day:     1    2    3    4    5    6    7    8    9
+Z:      2.1  2.3  2.0  1.8  2.2  2.5  2.3  2.1  1.9
+           ↓    ↓    ↓    ↓    ↓    ↓    ↓    ↓
+变化:     +0.2 -0.3 -0.2 +0.4 +0.3 -0.2 -0.2 -0.2
+           └─────────────┬─────────────┘
+                    8个变化量
+                         ↓
+平均涨幅 = (0.2 + 0.4 + 0.3) / 8 = 0.1125
+平均跌幅 = (0.3 + 0.2 + 0.2 + 0.2 + 0.2) / 8 = 0.1375
+                         ↓
+RS = 0.1125 / 0.1375 = 0.818
+RSI = 100 - 100/(1+0.818) = 45
     ↓
 =========================================
 预热机制
@@ -693,11 +816,12 @@ get_signal(data):
 
 | 参数 | 值 | 含义 |
 |------|-----|------|
-| `rsi_period` | 5 | RSI计算周期 (需要6天数据) |
-| `rsi_overbought` | 80 | 超买阈值 |
-| `rsi_oversold` | 20 | 超卖阈值 |
-| `rsi_lookback_for_extreme` | 3 | 查找"近期曾超买/超卖"的回溯窗口 |
+| `rsi_period` | 8 | RSI计算周期 (需要9天Z-score数据) |
+| `rsi_short_spread_threshold` | 80 | 超买阈值 (SHORT_SPREAD入场检查) |
+| `rsi_long_spread_threshold` | 20 | 超卖阈值 (LONG_SPREAD入场检查) |
+| `rsi_lookback_for_extreme` | 3 | 查找"近期曾极端"的回溯窗口 |
 | `rsi_warmup_days` | 10 | 预热天数 (从clean_data加载) |
+| `momentum_rsi_threshold` | 40 | 动量止盈阈值 (空头<40强, 多头>60强) |
 
 ### 边界情况处理
 
@@ -706,7 +830,86 @@ get_signal(data):
 | clean_data 不可用 | 跳过预热，逐日积累 |
 | RSI 数据不足 | 回退到原始入场逻辑 |
 | Z-score 在区间但RSI不满足 | 返回 WAIT，等待条件满足 |
-| 平仓后重新开仓 | 历史数据保留，可立即判断 |
+| 同周期平仓后重新开仓 | 历史数据保留，可立即判断 |
+| 跨周期参数更新 (v8.20.1) | `update_params()` 清空+重新预热 |
+
+---
+
+# Part 12.5: 动量止盈 (Momentum Profit Taking) - v8.19.0
+
+```
+触发: get_signal() 中 |Z| < exit_threshold (进入出场区)
+    ↓
+=========================================
+设计理念: "让利润奔跑"
+=========================================
+    ↓
+传统模式: Z进入出场区 → 立即平仓
+动量模式: Z进入出场区 → 检查动量 → 动量强则继续持有
+    ↓
+与阶梯止损配合:
+├─ 动量止盈 (攻): 趋势强劲时延迟平仓
+└─ 阶梯止损 (守): 保护已实现的盈利台阶
+    ↓
+=========================================
+动量判断逻辑 (_should_hold_for_momentum)
+=========================================
+    ↓
+条件 A (绝对动量): RSI 处于强势区域
+    ├─ SHORT_SPREAD: RSI < 40 (空头主导)
+    └─ LONG_SPREAD: RSI > 60 (多头主导)
+    ↓
+条件 B (相对动量): RSI 动量未衰竭
+    ├─ SHORT_SPREAD: RSI ≤ Prev_RSI (下跌动能持续)
+    └─ LONG_SPREAD: RSI ≥ Prev_RSI (上涨动能持续)
+    ↓
+决策:
+├─ 条件A AND 条件B → HOLD (继续持有)
+└─ 否则 → CLOSE (落袋为安)
+```
+
+### 场景模拟 (空头持仓)
+
+假设做空 Spread，入场 Z=+3.0σ:
+
+| Day | Z-score | RSI | Prev_RSI | 条件A (RSI<40) | 条件B (RSI≤Prev) | 决策 |
+|-----|---------|-----|----------|----------------|------------------|------|
+| 10 | +0.6 | - | - | - | - | HOLD (未到检查站) |
+| 11 | +0.4 | 35 | 38 | ✓ | ✓ | **HOLD** (动量强) |
+| 12 | -0.2 | 28 | 35 | ✓ | ✓ | **HOLD** (动量更强) |
+| 13 | -0.8 | 25 | 28 | ✓ | ✓ | **HOLD** |
+| 14 | -0.9 | 32 | 25 | ✓ | ✗ | **CLOSE** (动量衰竭) |
+
+**收益对比**:
+- 传统模式: 3.0 → +0.4 = 2.6σ 收益
+- 动量模式: 3.0 → -0.9 = 3.9σ 收益 (+50%)
+
+### 阶梯止损保护
+
+如果 Day 12 的 Z 从 -0.2 反弹到 +1.1:
+- best_step = 0 (Z 曾到达 0.4σ)
+- stop_line = (0+1) × 0.5 + 0.5 = 1.0σ
+- 1.1 > 1.0 → 触发阶梯止损
+- 保住 3.0 - 1.1 = 1.9σ 的盈利
+
+### 关键配置参数
+
+| 参数 | 值 | 含义 |
+|------|-----|------|
+| `momentum_profit_enabled` | True | 动量止盈总开关 |
+| `momentum_rsi_threshold` | 40 | RSI动量阈值 (空头<40, 多头>60) |
+
+### RSI阈值设计说明
+
+| 阈值 | 用途 | 严格度 | 原因 |
+|------|------|--------|------|
+| 80/20 | 入场检测 | 严格 | 需确认极端区域 + 回落/反弹 |
+| 40/60 | 出场动量 | 宽松 | 只需确认趋势尚在 |
+
+**为什么出场用40而非20?**
+- 使用20/80会导致动量止盈极少触发
+- 40/60是"势头还在"的合理阈值
+- 即使判断失误，阶梯止损会截断损失
 
 ---
 
@@ -782,8 +985,9 @@ PairsManager.get_open_candidates_with_allocation(data):
 
 | 参数 | 值 | 含义 |
 |------|-----|------|
-| `entry_threshold_lower` | 3.0σ | 入场Z-score下限 |
-| `entry_threshold_upper` | 3.5σ | 入场Z-score上限 |
+| `entry_threshold` | 动态 | 自适应入场阈值 (v8.20.0: 由PairSelector计算) |
+| `entry_threshold_floor` | 3.0σ | 阈值地板值 (v8.20.0) |
+| `entry_threshold_upper` | 6.0σ | 入场Z-score上限 (v8.20.0: 扩展宽网) |
 | `exit_threshold` | 0.5σ | 出场Z-score阈值 |
 | `fixed_allocation_pct` | 15% | 统一分配比例 (v8.10.0) |
 | `sort_by_expected_profit` | True | 启用预期收益排序 (v8.11.0) |
