@@ -928,7 +928,7 @@ get_signal(data):
 
 ---
 
-# Part 13: Normal Open (正常开仓) - v8.11.0 预期收益排序
+# Part 13: Normal Open (正常开仓) - v8.28.0 |Z-score|排序
 
 ```
 触发: OnData() 优先级6
@@ -947,37 +947,36 @@ PairsManager.get_open_candidates_with_allocation(data):
 └─ is_pair_locked() = False
     ↓
 =========================================
-步骤2: 资金分配 (v8.10.0 统一15%)
+步骤2: 资金分配 (v8.28.0: 8%分配 + 5%地板)
 =========================================
     ↓
 分配逻辑:
 ├─ 动态基准: initial_available = MarginRemaining - FIXED_BUFFER
-├─ 固定地板: min_threshold = INITIAL_CAPITAL × 15%
-├─ 计划分配: planned = initial_available × 15%
+├─ 计划分配: planned = initial_available × 8%
+├─ 固定地板: min_threshold = INITIAL_CAPITAL × 5%
 └─ 实际分配: actual = max(planned, min_threshold)
     ↓
 效果:
-├─ 亏损时 (initial_available < INITIAL_CAPITAL): 使用地板值
-└─ 盈利时 (initial_available > INITIAL_CAPITAL): 使用动态值
+├─ 更多配对: 8%分配可同时持有约12个配对 (vs 原15%的6-7个)
+├─ 地板保护: 即使资金紧张，每个配对最少5%投资额
+└─ 分散化: 降低单配对风险敞口
     ↓
 =========================================
-步骤3: 计算预期收益额 (v8.11.0)
+步骤3: 计算优先级分数 (v8.28.0: |Z-score|)
 =========================================
     ↓
-公式:
-├─ expected_return_pct = (|Z-score| - exit_threshold) / |Z-score|
-└─ expected_profit = actual_allocated × expected_return_pct
+公式: priority_score = abs(current_zscore)
     ↓
-含义: 假设 spread 完全回归到出场点 (0.5σ) 的预期收益
+含义: Z-score偏离越大 → 回归空间越大 → 优先开仓
     ↓
 =========================================
-步骤4: 按预期收益额排序
+步骤4: 按|Z-score|排序
 =========================================
     ↓
-排序: 按 expected_profit 降序
-├─ Z-score 偏离越大 → 回归空间越大
-├─ 分配资金越多 → 收益放大
-└─ 优先开仓预期收益最大的配对
+排序: 按 priority_score 降序
+├─ 简单直观: 偏离越大优先级越高
+├─ 与稀有事件捕捉 [P95, P99.9] 理念一致
+└─ 删除硬编码的 exit_threshold = 0.5 依赖
     ↓
 =========================================
 步骤5: 执行开仓
@@ -988,24 +987,23 @@ PairsManager.get_open_candidates_with_allocation(data):
 └─ OrderExecutor.execute_open(intent)
 ```
 
-### 预期收益排序示例
+### |Z-score|排序示例
 
-| 配对 | Z-score | 分配额 | 预期收益率 | 预期收益额 | 排序 |
-|------|---------|--------|-----------|-----------|------|
-| A-B | 2.5 | $15,000 | (2.5-0.5)/2.5 = 80% | $12,000 | 1st |
-| C-D | 2.0 | $15,000 | (2.0-0.5)/2.0 = 75% | $11,250 | 2nd |
-| E-F | 2.2 | $12,000 | (2.2-0.5)/2.2 = 77% | $9,273 | 3rd |
+| 配对 | Z-score | 分配额 | 优先级分数 | 排序 |
+|------|---------|--------|-----------|------|
+| A-B | +4.2 | $8,000 | 4.2 | 1st |
+| C-D | -3.8 | $8,000 | 3.8 | 2nd |
+| E-F | +2.5 | $8,000 | 2.5 | 3rd |
 
 ### 关键配置参数
 
 | 参数 | 值 | 含义 |
 |------|-----|------|
-| `entry_threshold` | 动态 | 自适应入场阈值 (v8.20.0: 由PairSelector计算) |
-| `entry_threshold_floor` | 3.0σ | 阈值地板值 (v8.20.0) |
-| `entry_threshold_upper` | 6.0σ | 入场Z-score上限 (v8.20.0: 扩展宽网) |
-| `exit_threshold` | 0.5σ | 出场Z-score阈值 |
-| `fixed_allocation_pct` | 15% | 统一分配比例 (v8.10.0) |
-| `sort_by_expected_profit` | True | 启用预期收益排序 (v8.11.0) |
+| `entry_threshold` | 动态 | 入场下限 P95 (v8.24.0: 稀有事件捕捉) |
+| `entry_upper` | 动态 | 入场上限 P99.9 (v8.24.0: 稀有事件捕捉) |
+| `fixed_allocation_pct` | 8% | 每次计划分配比例 (v8.28.0) |
+| `min_allocation_pct` | 5% | 最小投资门槛 (v8.28.0) |
+| `sort_by_zscore` | True | 启用|Z-score|排序 (v8.28.0) |
 
 ---
 
@@ -1120,13 +1118,13 @@ PairsManager.get_open_candidates_with_allocation(data):
 | `get_pair_by_id(pair_id)` | Pairs | 根据ID获取配对 |
 | `get_pairs_with_position()` | Dict | 获取所有持仓配对 |
 
-#### 2.2 Capital Allocation (资金分配 v8.10.0-v8.11.0)
+#### 2.2 Capital Allocation (资金分配 v8.28.0)
 | 方法 | 返回值 | 描述 |
 |------|--------|------|
 | `get_open_candidates_with_allocation(data)` | List | 筛选开仓候选并分配资金 |
 | `get_available_margin()` | float | 计算当前可用保证金 |
-| `allocate_margin_to_candidates(candidates)` | Dict | 统一15%资金分配 |
-| `_calculate_expected_profit(pair, allocated, data)` | float | 计算预期收益额 |
+| `allocate_margin_to_candidates(candidates)` | Dict | 8%分配 + 5%地板 |
+| `_calculate_priority_score(pair, data)` | float | 计算|Z-score|优先级 |
 
 #### 2.3 Health & Risk (健康与风控)
 | 方法 | 返回值 | 描述 |
@@ -1145,4 +1143,4 @@ PairsManager.get_open_candidates_with_allocation(data):
 | 3 | 配对健康检查 | Anomaly/PairBreak/Timeout/Drawdown | 风控平仓 |
 | 4 | 正常平仓 | CLOSE信号 | 均值回归平仓 |
 | 5 | VIX检查 | VIX ≥ 35 | 禁止开仓 |
-| 6 | 正常开仓 | 候选筛选+资金分配+预期收益排序 | 执行开仓 |
+| 6 | 正常开仓 | 候选筛选+资金分配+\|Z-score\|排序 | 执行开仓 |

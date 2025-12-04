@@ -7,11 +7,11 @@ from typing import Dict, List, Tuple, Optional
 
 class PairSelector:
     """
-    配对筛选器 (v8.25.0 尾部宽度动态止损)
+    配对筛选器 (v8.26.0 简化)
 
     核心职责:
     - 三维度阈值筛选: CV BETA、半衰期、零轴穿越
-    - 稀有事件捕捉: [P95, P99.9] 入场区间 + 尾部宽度 tail_width
+    - 稀有事件捕捉: [P95, P99.9] 入场区间
     - 漏斗日志: 展示每个维度的筛选效果
 
     设计变更:
@@ -20,7 +20,7 @@ class PairSelector:
     - v8.20.0: 新增自适应开仓阈值计算
     - v8.23.0: 纯粹个性化 - 完全数据驱动，返回三元组
     - v8.24.0: 稀有事件捕捉 - 180天回算
-    - v8.25.0: 尾部宽度止损 - tail_width = P99.9 - P95, 替代无意义的 residual_std
+    - v8.26.0: tail_width 仅用于日志展示，不再用于止损计算
 
     关键接口:
     - selection_procedure(): 主入口，执行完整筛选流程
@@ -216,20 +216,18 @@ class PairSelector:
         return int(crossings)
 
 
-    # ===== 稀有事件捕捉 (v8.24.0) + 尾部宽度止损 (v8.25.0) =====
+    # ===== 稀有事件捕捉 (v8.24.0) =====
 
     def _calculate_adaptive_threshold(self, model_result: Dict) -> Optional[Tuple[float, float, float]]:
         """
-        计算自适应开仓阈值和尾部宽度 (v8.25.0: 尾部宽度动态止损)
-
-        v8.25.0 改进:
-        - 新增 tail_width = entry_upper - entry_lower (尾部宽度)
-        - 用于计算个性化止损步长: trailing_step = tail_width × coefficient
+        计算自适应开仓阈值 (v8.26.0: tail_width 仅用于日志)
 
         公式:
         - entry_lower = P95 (历史 |Z-score| 的 95 分位)
         - entry_upper = P99.9 (历史 |Z-score| 的 99.9 分位)
-        - tail_width = entry_upper - entry_lower (尾部宽度，用于止损步长)
+        - tail_width = entry_upper - entry_lower (尾部宽度，仅日志展示)
+
+        v8.26.0: tail_width 不再用于止损计算，止损改为固定距离移动止损
 
         Args:
             model_result: 含有 zscore_series 的建模结果

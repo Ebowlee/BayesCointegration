@@ -234,10 +234,11 @@ class BayesianCointegrationStrategy(QCAlgorithm):
         执行流程 (按优先级):
         1. Portfolio冷却期检查 → 跳过交易
         2. Portfolio回撤检查 → 触发则 Liquidate() 全仓平仓
-        3. Pair级健康检查 (v8.2.0: 含PairBreak)
-        4. 正常平仓 (仅 CLOSE 信号)
-        5. 开仓安全检查 (VIX)
-        6. 正常开仓 (后续版本)
+        3. Pair级健康检查 (v8.26.0: 固定距离移动止损)
+        4. 开仓安全检查 (VIX)
+        5. 正常开仓
+
+        v8.26.0: 删除步骤4 "正常平仓 (CLOSE信号)" - 平仓完全由健康检查处理
         """
         # === 数据有效性检查 ===
         if data.Count == 0:
@@ -281,29 +282,14 @@ class BayesianCointegrationStrategy(QCAlgorithm):
                     if intent:
                         self.order_executor.execute_close(intent)
 
-        # === 4. 正常平仓 (仅 CLOSE 信号) ===
-        # v8.2.0: PAIR_BREAK已迁移至步骤3健康检查
-        pairs_with_position = self.pairs_manager.get_pairs_with_position()
+        # v8.26.0: 删除步骤4 "正常平仓 (CLOSE信号)"
+        # 平仓完全由步骤3健康检查处理 (TRAILING_STOP/TIMEOUT/DRAWDOWN/ANOMALY)
 
-        for pair_id, pair in pairs_with_position.items():
-            # 检查订单锁 (防止重复下单)
-            if self.tickets_manager.is_pair_locked(pair_id):
-                continue
-
-            # 获取交易信号
-            signal = pair.get_signal(data)
-
-            # 处理平仓信号 (仅均值回归)
-            if signal == 'CLOSE':
-                intent = pair.get_close_intent(reason='MEAN_REVERSION', data=data)
-                if intent:
-                    self.order_executor.execute_close(intent)
-
-        # === 5. 开仓安全检查 (VIX) ===
+        # === 4. 开仓安全检查 (VIX) ===
         if not self.risk_manager.is_vix_safe():
             return  # 禁止开仓 (VIX恐慌)
 
-        # === 6. 正常开仓 ===
+        # === 5. 正常开仓 ===
         open_candidates = self.pairs_manager.get_open_candidates_with_allocation(data)
         for pair, signal, allocated_margin in open_candidates:
             intent = pair.get_open_intent(allocated_margin, data)

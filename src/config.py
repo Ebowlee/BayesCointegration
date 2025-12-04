@@ -39,7 +39,7 @@ class UniverseConfig:
     min_market_cap: float = 1e9
     min_days_since_ipo: int = 360
     min_dollar_volume: float = 1e8
-    max_coarse_stocks: int = 500                                    # 按Volume排序取top N
+    max_coarse_stocks: int = 700                                    # 按Volume排序取top N
 
     # ETF订阅开关 (v8.0.5: 从ETFUniverseConfig合并)
     etf_enabled: bool = True                                        # Level 1: 总开关
@@ -95,7 +95,7 @@ class CointegrationConfig:
     max_symbol_repeats: int = 2                                     # 单股最多允许配对数
 
     # v8.16.0: MCMC算力保护
-    max_cointegrated_pairs: int = 30                                # 协整配对数量上限 (随机抽样)
+    max_cointegrated_pairs: int = 40                                # 协整配对数量上限 (随机抽样)
 
 
 @dataclass
@@ -137,9 +137,9 @@ class PairSelectorConfig:
     v8.22.0: 新增三维度可选开关，方便回测实验
     """
     # v8.22.0: 维度开关 (用于回测实验)
-    cv_beta_enabled: bool = True                                    # CV BETA 筛选开关
-    half_life_enabled: bool = True                                  # 半衰期筛选开关
-    zero_crossing_enabled: bool = True                              # 零轴穿越筛选开关
+    cv_beta_enabled: bool = False                                   # CV BETA 筛选开关
+    half_life_enabled: bool = False                                 # 半衰期筛选开关
+    zero_crossing_enabled: bool = False                             # 零轴穿越筛选开关
 
     # 维度1: CV BETA 稳定性
     cv_beta_threshold: float = 0.2                                  # CV > 0.2 → 剔除
@@ -156,56 +156,51 @@ class PairSelectorConfig:
 
 @dataclass
 class PairsConfig:
-    """配对配置 - 信号阈值、保证金参数、RSI动量 (v8.25.0: 尾部宽度动态止损)"""
+    """配对配置 - 信号阈值、保证金参数、RSI入场 (v8.26.0: 固定距离移动止损)"""
 
-    # v8.25.0: 稀有事件捕捉 + 尾部宽度止损
+    # v8.25.0: 稀有事件捕捉
     adaptive_entry_enabled: bool = True                            # 总开关
     entry_percentile_lower: float = 95.0                           # 入场下限百分位 (P95 ~1.65σ)
     entry_percentile_upper: float = 99.9                           # 入场上限百分位 (P99.9 ~3.1σ)
-    zscore_back_projection_days: int = 180                         # Z-score向后回算窗口 (用于分位数统计)
-    exit_threshold: float = 0.5                                    # 出场Z-score阈值
+    zscore_back_projection_days: int = 240                         # Z-score向后回算窗口 (用于分位数统计)
 
     # 保证金计算参数
     margin_requirement_long: float = 0.5                           # 多头保证金率: 50%
     margin_requirement_short: float = 1.5                          # 空头保证金率: 150%
 
-
     # RSI on Z-score 参数 (v8.7.0, v8.17.0重命名)
     rsi_warmup_days: int = 10                                      # 预热天数 (从clean_data加载)
     rsi_period: int = 8                                            # RSI周期
-    rsi_lookback_for_extreme: int = 3                              # 查找"近期曾极端"的窗口                                       # RSI周期
+    rsi_lookback_for_extreme: int = 3                              # 查找"近期曾极端"的窗口
     rsi_short_spread_threshold: float = 80.0                       # SHORT_SPREAD入场: RSI曾>此值后回落
     rsi_long_spread_threshold: float = 20.0                        # LONG_SPREAD入场: RSI曾<此值后反弹
-    
-    # 动量止盈参数 (v8.19.0: Momentum Profit Taking)
-    momentum_profit_enabled: bool = True                           # 总开关
-    momentum_rsi_threshold: float = 40.0                           # RSI绝对动量阈值 (空头<40, 多头>60)
 
 
 @dataclass
 class PairsManagerConfig:
-    """配对管理配置 - 保证金分配、健康检查、冷却期 (v8.25.0: 尾部宽度动态止损)"""
+    """配对管理配置 - 保证金分配、健康检查、冷却期 (v8.28.0: 资金分配优化)"""
 
     # 保证金管理
     margin_usage_ratio: float = 0.98                               # 保证金使用率: 98%
 
-    # 统一资金分配 (v8.10.0: 简化为固定15%)
-    fixed_allocation_pct: float = 0.15                             # 统一分配比例 + 地板
+    # 资金分配 (v8.28.0: 分离分配比例和地板)
+    fixed_allocation_pct: float = 0.08                             # 每次计划分配比例: 8%
+    min_allocation_pct: float = 0.05                               # 最小投资门槛: 5%
 
-    # 开仓排序 (v8.11.0: 按预期收益额排序)
-    sort_by_expected_profit: bool = True                           # 开关: 启用预期收益排序
+    # 开仓排序 (v8.28.0: 改为|Z-score|排序)
+    sort_by_zscore: bool = True                                    # 开关: 按|Z-score|偏离排序
 
-    # 健康检查阈值 (v8.25.0: 尾部宽度动态止损)
-    trailing_step_coefficient: float = 0.5                         # 尾部宽度系数 (乘以 tail_width)
-    trailing_step_floor: float = 0.5                               # 止损步长地板 (最小0.5σ)
+    # 健康检查阈值 (v8.26.0: 固定距离移动止损, v8.27.0: Timeout固定倍数)
+    trailing_distance: float = 1.0                                 # 固定止损距离 (σ)
     drawdown_threshold: float = 0.10                               # 10% 统一回撤阈值
+    timeout_multiplier: float = 3.0                                # v8.27.0: Timeout = 3 × half_life
 
     # 动态冷却系数 (v8.13.0: 基于半衰期, cooldown = half_life × multiplier)
+    # v8.26.0: 删除 MEAN_REVERSION (智能止盈已移除)
     cooldown_multipliers: Dict[str, float] = field(default_factory=lambda: {
-        'MEAN_REVERSION': 1.0,                                     # 正常平仓: 1个半衰期
+        'TRAILING_STOP': 2.0,                                      # 移动止损: 2个半衰期
         'TIMEOUT': 2.0,                                            # 超时平仓: 2个半衰期
         'DRAWDOWN': 4.0,                                           # 回撤止损: 4个半衰期
-        'TRAILING_STOP': 2.0,                                      # 阶梯止损: 2个半衰期 (v8.18.0)
         'ANOMALY': 99999.0,                                        # 数据异常: 永久冷却
     })
 

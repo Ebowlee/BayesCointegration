@@ -259,11 +259,11 @@ class PairsManager:
 
     def check_pairs_health(self, data) -> Dict[str, List[str]]:
         """
-        配对健康检查 (v8.23.0: 个性化止损步长)
+        配对健康检查 (v8.26.0: 固定距离移动止损)
 
         检查维度 (按优先级):
             1. Anomaly: 单边或同向持仓异常
-            2. TrailingStop: 阶梯式止盈止损 (v8.23.0: 使用配对级止损步长)
+            2. TrailingStop: 固定距离移动止损 (v8.26.0: 单向棘轮机制)
             3. Timeout: 持仓超时
             4. Drawdown: 统一10%阈值
 
@@ -280,6 +280,7 @@ class PairsManager:
         # 获取配置阈值
         pm_config = self.module_config
         drawdown_threshold = pm_config.drawdown_threshold
+        distance = pm_config.trailing_distance  # v8.26.0: 固定1.0σ
 
         for pair in self.get_pairs_with_position().values():
             pair_id = pair.pair_id
@@ -289,34 +290,28 @@ class PairsManager:
                 health_issues['anomaly'].append(pair_id)
                 continue
 
-            # 优先级2: TrailingStop (v8.23.0: 使用配对级止损步长)
+            # 优先级2: TrailingStop (v8.26.0: 固定距离移动止损)
             prices = pair.get_price_from_bar(data)
             if prices is not None:
                 zscore = pair.get_zscore(prices[0], prices[1])
-                if zscore is not None and pair.best_step is not None:
+                if zscore is not None and pair.stop_zscore is not None:
                     position_mode = pair.position_mode
-                    abs_zscore = abs(zscore)
 
-                    # v8.23.0: 使用配对个性化止损步长 (替代全局固定值)
-                    step_size = pair.trailing_step
-
-                    # 计算当前台阶 (向0方向取整)
-                    current_step = int(abs_zscore)
-
-                    # 更新best_step (取更小值 = 更接近0 = 更盈利)
-                    if current_step < pair.best_step:
-                        pair.best_step = current_step
-
-                    # 计算止损线: stop_line = best_step + 1 (回退一个整数台阶触发)
-                    stop_line = (pair.best_step + 1) * step_size + step_size
-
-                    # 方向感知触发条件:
-                    # - SHORT_SPREAD: 期望Z下降(向0), 若Z反弹超过stop_line则触发
-                    # - LONG_SPREAD: 期望Z上升(向0), 若Z下跌超过stop_line则触发
-                    trailing_stop_triggered = (
-                        (position_mode == PositionMode.SHORT_SPREAD and zscore > stop_line) or
-                        (position_mode == PositionMode.LONG_SPREAD and zscore < -stop_line)
-                    )
+                    # v8.26.0: 单向棘轮更新 + 触发检测
+                    if position_mode == PositionMode.SHORT_SPREAD:
+                        # SHORT: 期望Z下降, stop_zscore 只降不升
+                        potential_stop = zscore + distance
+                        pair.stop_zscore = min(pair.stop_zscore, potential_stop)
+                        # 触发条件: Z反弹超过止损线
+                        trailing_stop_triggered = (zscore > pair.stop_zscore)
+                    elif position_mode == PositionMode.LONG_SPREAD:
+                        # LONG: 期望Z上升, stop_zscore 只升不降
+                        potential_stop = zscore - distance
+                        pair.stop_zscore = max(pair.stop_zscore, potential_stop)
+                        # 触发条件: Z下跌超过止损线
+                        trailing_stop_triggered = (zscore < pair.stop_zscore)
+                    else:
+                        trailing_stop_triggered = False
 
                     if trailing_stop_triggered:
                         health_issues['trailing_stop'].append(pair_id)
@@ -351,60 +346,58 @@ class PairsManager:
         return max(0, available)
 
 
-    def _calculate_expected_profit(self, pair, actual_allocated: float, data) -> float:
+    def _calculate_priority_score(self, pair, data) -> float:
         """
-        计算预期收益额 (v8.11.0: 用于开仓排序)
+        计算开仓优先级分数 (v8.28.0: 简化为|Z-score|)
 
-        公式: expected_profit = actual_allocated × (|z| - exit_threshold) / |z|
-        含义: 假设完全回归到出场点的预期收益
+        原理: Z偏离越大 → 回归空间越大 → 优先开仓
+        与"稀有事件捕捉" [P95, P99.9] 入场理念一致
+
+        Returns:
+            float: |Z-score| 值，用于降序排序
         """
         prices = pair.get_price_from_bar(data)
         if prices is None:
             return 0.0
 
         zscore = pair.get_zscore(prices[0], prices[1])
-        if zscore is None or abs(zscore) < 0.01:
+        if zscore is None:
             return 0.0
 
-        exit_threshold = pair.exit_threshold  # 0.5
-
-        # 预期收益率 = 回归空间 / 当前偏离
-        expected_return_pct = (abs(zscore) - exit_threshold) / abs(zscore)
-        expected_return_pct = max(0, expected_return_pct)  # 确保非负
-
-        return actual_allocated * expected_return_pct
+        return abs(zscore)
 
 
     def allocate_margin_to_candidates(self, open_candidates: List[tuple]) -> Dict[tuple, float]:
         """
-        为开仓候选配对分配保证金 (v8.10.0: 统一15%分配)
+        为开仓候选配对分配保证金 (v8.28.0: 分离分配比例和地板)
 
         输入: [(pair, signal, planned_pct), ...]  # v8.12.0: 删除 quality_score
         输出: {pair_id: allocated_amount}
 
         算法:
             1. 获取初始可用保证金 (动态基准)
-            2. 计算最小投资门槛 = INITIAL_CAPITAL × 15% (固定地板)
+            2. 计算最小投资门槛 = INITIAL_CAPITAL × min_allocation_pct (5%)
             3. 顺序分配:
-               - 计划分配额 = 初始可用 × 15%
+               - 计划分配额 = 初始可用 × fixed_allocation_pct (8%)
                - 实际分配额 = max(计划分配额, 最小门槛)
             4. 检查剩余资金是否足够实际分配额
         """
         allocations = {}
-        fixed_pct = self.module_config.fixed_allocation_pct
+        fixed_pct = self.module_config.fixed_allocation_pct      # 8%
+        min_pct = self.module_config.min_allocation_pct          # 5%
 
         # === Step 1: 获取初始可用保证金（动态基准）===
         initial_available = self.get_available_margin()
 
-        # 计算最小投资门槛（固定地板: INITIAL_CAPITAL × 15%）
-        min_threshold = self.INITIAL_CAPITAL * fixed_pct
+        # 计算最小投资门槛（固定地板: INITIAL_CAPITAL × 5%）
+        min_threshold = self.INITIAL_CAPITAL * min_pct
 
         # 资金充足性检查 (可用资金必须至少能开一仓)
         if initial_available < min_threshold:
             self.algorithm.Debug(
                 f"[资金分配] 可用保证金不足: "
                 f"${initial_available:,.0f} < 最小门槛${min_threshold:,.0f} "
-                f"({fixed_pct*100:.0f}%初始资金)"
+                f"({min_pct*100:.0f}%初始资金)"
             )
             return {}
 
@@ -412,8 +405,8 @@ class PairsManager:
         remaining_available = initial_available  # 追踪剩余资金
 
         for pair, signal, planned_pct in open_candidates:
-            # 计划分配额 = 初始可用 × 15%
-            planned_allocated = initial_available * planned_pct
+            # 计划分配额 = 初始可用 × 8%
+            planned_allocated = initial_available * fixed_pct
 
             # 实际分配额 = max(计划额, 固定地板)
             actual_allocated = max(planned_allocated, min_threshold)
@@ -430,13 +423,13 @@ class PairsManager:
 
     def get_open_candidates_with_allocation(self, data) -> List[tuple]:
         """
-        获取开仓候选并完成资金分配 (v8.11.0: 预期收益排序)
+        获取开仓候选并完成资金分配 (v8.28.0: |Z-score|排序)
 
         步骤:
             1. 从current_selected筛选有信号+无持仓+不在冷却期的配对
             2. 构建候选列表 (统一使用fixed_allocation_pct)
             3. 调用allocate_margin_to_candidates分配资金
-            4. 按预期收益额排序 (可选)
+            4. 按|Z-score|排序 (可选)
             5. 合并结果返回
 
         返回: [(pair, signal, allocated_margin), ...]
@@ -473,21 +466,21 @@ class PairsManager:
         # Step 3: 资金分配
         allocations = self.allocate_margin_to_candidates(open_candidates)
 
-        # Step 4: 按预期收益额排序 (v8.11.0)
-        if self.module_config.sort_by_expected_profit:
-            # 构建带预期收益的列表
-            candidates_with_profit = []
+        # Step 4: 按|Z-score|排序 (v8.28.0: 简化排序逻辑)
+        if self.module_config.sort_by_zscore:
+            # 构建带优先级分数的列表
+            candidates_with_score = []
             for pair, signal, planned_pct in open_candidates:
                 actual_allocated = allocations.get(pair.pair_id, 0)
                 if actual_allocated > 0:
-                    expected_profit = self._calculate_expected_profit(pair, actual_allocated, data)
-                    candidates_with_profit.append((pair, signal, actual_allocated, expected_profit))
+                    priority_score = self._calculate_priority_score(pair, data)
+                    candidates_with_score.append((pair, signal, actual_allocated, priority_score))
 
-            # 按预期收益额降序排序
-            candidates_with_profit.sort(key=lambda x: x[3], reverse=True)
+            # 按|Z-score|降序排序 (偏离越大 → 优先级越高)
+            candidates_with_score.sort(key=lambda x: x[3], reverse=True)
 
             # 直接构建最终结果
-            return [(pair, signal, allocated) for pair, signal, allocated, _ in candidates_with_profit]
+            return [(pair, signal, allocated) for pair, signal, allocated, _ in candidates_with_score]
 
         # Step 5: 合并分配结果 (原逻辑，当排序关闭时执行)
         final_candidates = []

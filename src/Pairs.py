@@ -23,10 +23,11 @@ class Pairs:
     """
     配对交易核心对象 - 数据提供 + 信号生成 + 意图生成 + 交易历史追踪
 
-    v8.25.0: 尾部宽度动态止损 (Tail Width Dynamic Trailing Stop)
-        - entry_threshold (P95) / entry_threshold_upper (P99.9) 由 PairSelector 计算
-        - tail_width: 尾部宽度 (P99.9 - P95)
-        - trailing_step: 动态止损步长 (tail_width × coefficient，地板保护)
+    v8.26.0: 固定距离移动止损 (Fixed Distance Trailing Stop)
+        - stop_zscore: 当前止损线 (带符号)
+        - 初始化: entry_z ± trailing_distance (默认1.0σ)
+        - 更新: 单向棘轮 (SHORT用min, LONG用max)
+        - 平仓完全由 PairsManager.check_pairs_health() 负责
 
     不负责: 风险检查、资金分配、订单执行 (由 RiskManager/ExecutionManager/OrderExecutor 处理)
     """
@@ -59,16 +60,10 @@ class Pairs:
         self.half_life = model_data.get('half_life')
         self.half_life_std = model_data.get('half_life_std', 0)
 
-        # 交易阈值 (v8.25.0: 尾部宽度动态止损)
+        # 交易阈值 (v8.26.0: 简化，删除tail_width相关)
         self.entry_threshold = model_data['entry_threshold']        # P95
         self.entry_threshold_upper = model_data['entry_upper']      # P99.9
-        self.tail_width = model_data['tail_width']                  # 尾部宽度 (P99.9 - P95)
-        self.exit_threshold = config.exit_threshold
-
-        # v8.25.0: 尾部宽度动态止损步长 (带地板保护)
-        pm_config = algorithm.config.pairs_manager
-        raw_step = self.tail_width * pm_config.trailing_step_coefficient
-        self.trailing_step = max(raw_step, pm_config.trailing_step_floor)
+        # v8.26.0: 删除 exit_threshold, tail_width, trailing_step
 
         # 保证金参数
         self.margin_long = config.margin_requirement_long
@@ -102,8 +97,8 @@ class Pairs:
         # 回撤追踪
         self.pair_hwm: float = None
 
-        # 阶梯式止盈止损 (v8.18.0)
-        self.best_step: int = None  # 持仓期间到达的最佳台阶 (最接近0的整数台阶)
+        # v8.26.0: 固定距离移动止损
+        self.stop_zscore: float = None  # 当前止损线 (带符号，由 on_position_filled 初始化)
 
         # RSI on Z-score (v8.7.0: 动量检测)
         # maxlen = rsi_period + rsi_lookback_for_extreme + 1 (保留足够计算历史RSI的数据)
@@ -163,7 +158,7 @@ class Pairs:
         调用: PairsManager.classify_pairs() 每月选股后
         注意: 持仓检查由调用方处理, 本方法仅负责参数更新
 
-        v8.25.0: 更新 tail_width 和止损步长
+        v8.26.0: 删除 tail_width, trailing_step 更新
         v8.20.1: 参数更新后清空并重新预热 zscore_history/rsi_history
         """
         self.alpha_mean = new_pair.alpha_mean
@@ -171,11 +166,10 @@ class Pairs:
         self.residual_mean = new_pair.residual_mean
         self.residual_std = new_pair.residual_std
 
-        # v8.25.0: 更新个性化开仓阈值 (P95, P99.9, tail_width)
+        # v8.26.0: 更新个性化开仓阈值 (P95, P99.9)
         self.entry_threshold = new_pair.entry_threshold
         self.entry_threshold_upper = new_pair.entry_threshold_upper
-        self.tail_width = new_pair.tail_width
-        self.trailing_step = new_pair.trailing_step
+        # v8.26.0: 删除 tail_width, trailing_step 更新
 
         # v8.20.1: 参数变化后清空短期历史 (旧参数计算的数据已无效)
         self.zscore_history.clear()
@@ -344,7 +338,8 @@ class Pairs:
             return False
 
         elapsed_days = (self.algorithm.UtcTime - self.pair_closed_time).days
-        reason = self.last_close_reason or 'MEAN_REVERSION'
+        # v8.26.0: 默认使用 TRAILING_STOP (删除 MEAN_REVERSION)
+        reason = self.last_close_reason or 'TRAILING_STOP'
         # v8.13.0: 传递half_life给PairsManager
         cooldown_days = self.algorithm.pairs_manager.get_cooldown_required_days(reason, self.half_life)
         return elapsed_days < cooldown_days
@@ -464,45 +459,7 @@ class Pairs:
 
         return True  # 未知信号类型，fallback
 
-    def _should_hold_for_momentum(self) -> bool:
-        """
-        动量止盈检查 (v8.19.0: Momentum Profit Taking)
-
-        当 Z-score 已进入出场区 (|Z| < exit_threshold) 时调用。
-        判断当前动量是否足够强，决定是继续持有还是落袋为安。
-
-        条件 A (绝对动量): RSI 处于极端区域
-        条件 B (相对动量): RSI 动量未衰竭 (仍在增强或持平)
-
-        Returns:
-            True: 动量强，应继续持有 (贪婪模式)
-            False: 动量弱，应平仓 (落袋为安)
-        """
-        # 总开关检查
-        if not self.config.momentum_profit_enabled:
-            return False
-
-        # 数据不足时保守平仓
-        if len(self.rsi_history) < 2:
-            return False
-
-        current_rsi = self.rsi_history[-1]
-        prev_rsi = self.rsi_history[-2]
-        threshold = self.config.momentum_rsi_threshold
-        position_mode = self.position_mode
-
-        if position_mode == PositionMode.SHORT_SPREAD:
-            # 空头: RSI低 = 动量强 (继续下跌趋势)
-            condition_a = current_rsi < threshold                    # 绝对动量强
-            condition_b = current_rsi <= prev_rsi                    # 相对动量未衰竭
-        elif position_mode == PositionMode.LONG_SPREAD:
-            # 多头: RSI高 = 动量强 (继续上涨趋势)
-            condition_a = current_rsi > (100 - threshold)            # 绝对动量强
-            condition_b = current_rsi >= prev_rsi                    # 相对动量未衰竭
-        else:
-            return False
-
-        return condition_a and condition_b
+    # v8.26.0: 删除 _should_hold_for_momentum() 方法 (依赖已删除的 momentum_profit_enabled 配置)
 
     def get_leg_values(self, allocated_amount: float, signal: str, data):
         """获取Beta对冲两腿市值, 返回 (value_1, value_2) 或 (None, None)"""
@@ -628,17 +585,23 @@ class Pairs:
 
     def get_max_holding_days(self) -> Optional[float]:
         """
-        计算理论最大持仓天数
+        计算理论最大持仓天数 (v8.27.0: 固定倍数法)
 
-        公式: max_days = ln(exit_threshold/entry_zscore) / ln(0.5) × half_life
+        v8.27.0: 改为固定倍数 × 半衰期，不再依赖入场点
+        物理意义: 给配对足够的时间证明其均值回归属性
+            - 1个半衰期: 回归 50%
+            - 2个半衰期: 回归 75%
+            - 3个半衰期: 回归 87.5% (剩 12.5%)
+
+        如果过了 3 个半衰期，价格还没回归（或还没触发移动止损），
+        说明配对的 Mean Reversion 属性失效了 (Regime Shift)，应该离场。
         """
-        if self.entry_zscore is None or self.half_life is None:
+        if self.half_life is None:
             return None
 
-        exit_threshold = self.algorithm.config.pairs.exit_threshold
-        entry_zscore = abs(self.entry_zscore)
-        n = math.log(exit_threshold / entry_zscore) / math.log(0.5)
-        return n * self.half_life
+        # v8.27.0: 固定倍数法 (3个半衰期 = 87.5% 回归)
+        timeout_multiplier = self.algorithm.config.pairs_manager.timeout_multiplier
+        return timeout_multiplier * self.half_life
 
     # ===== 5. 外部接口层 (Public API) =====
 
@@ -653,12 +616,11 @@ class Pairs:
 
     def get_signal(self, data):
         """
-        获取交易信号: 无持仓返回入场信号, 有持仓返回出场信号
+        获取交易信号: 无持仓返回入场信号, 有持仓返回HOLD
 
-        v8.2.0: PAIR_BREAK(方向感知止损)已迁移至PairsManager.check_pairs_health()
+        v8.26.0: 删除CLOSE信号逻辑 - 平仓完全由 PairsManager.check_pairs_health() 负责
         v8.7.0: 增加RSI on Z-score动量检测 (三重AND条件)
-        v8.19.0: 增加动量止盈检测 (Momentum Profit Taking)
-        本方法只处理入场信号和正常出场(均值回归)
+        本方法只处理入场信号
         """
         prices = self.get_price_from_bar(data)
         if prices is None:
@@ -690,13 +652,8 @@ class Pairs:
                 return candidate_signal
             return 'WAIT'
 
-        # 有持仓: 正常出场信号 (均值回归)
-        if abs(zscore) < self.exit_threshold:
-            # v8.19.0: 动量止盈检查 - 动量强则继续持有
-            if self._should_hold_for_momentum():
-                return 'HOLD'
-            return 'CLOSE'
-
+        # v8.26.0: 有持仓时直接返回HOLD
+        # 平仓逻辑 (TRAILING_STOP/TIMEOUT/DRAWDOWN) 由 PairsManager.check_pairs_health() 处理
         return 'HOLD'
 
 
@@ -810,9 +767,14 @@ class Pairs:
             if fill_price1 and fill_price2:
                 self.fill_zscore_open = self.get_zscore(fill_price1, fill_price2)
 
-                # v8.18.0: 初始化阶梯式止盈止损的best_step
-                # best_step = 当前Z-score所在的台阶 (向0方向取整)
-                self.best_step = int(abs(self.fill_zscore_open))
+                # v8.26.0: 初始化固定距离移动止损
+                # SHORT_SPREAD (z > 0): stop = entry_z + distance
+                # LONG_SPREAD (z < 0): stop = entry_z - distance
+                distance = self.algorithm.config.pairs_manager.trailing_distance
+                if self.fill_zscore_open > 0:  # SHORT_SPREAD
+                    self.stop_zscore = self.fill_zscore_open + distance
+                else:  # LONG_SPREAD
+                    self.stop_zscore = self.fill_zscore_open - distance
 
         elif action == 'CLOSE':
             self.pair_closed_time = fill_time
@@ -850,7 +812,7 @@ class Pairs:
             self.exit_price1 = None
             self.exit_price2 = None
             self.pair_hwm = None                                               # 重置高水位 (v7.86.0)
-            self.best_step = None                                              # 重置阶梯止损 (v8.18.0)
+            self.stop_zscore = None                                            # 重置移动止损 (v8.26.0)
 
 
     def _update_trade_stats(self):
@@ -886,8 +848,7 @@ class Pairs:
         """
         输出平仓日志: 配对ID、原因、PnL、zscore轨迹、冷却期
 
-        v8.23.0: 日志格式更新 - 显示配对Sigma和入场区间
-        格式: σ=1.2 (2.8-4.5) 表示 zscore_std=1.2, 入场区间=[2.8, 4.5]
+        v8.26.0: 简化日志格式 - 删除 tail_width/trailing_step，保留入场区间
         """
         # 计算本次交易PnL (v8.0.5: 使用 _calculate_trade_pnl 代替 unrealized)
         current_pnl = self._calculate_trade_pnl()
@@ -918,12 +879,12 @@ class Pairs:
         industry_names = self.algorithm.config.constants['industry_names']
         industry_name = industry_names.get(int(self.industry_code), '未知') if self.industry_code else '未知'
 
-        # v8.25.0: 显示尾部宽度和止损步长 (替代无意义的 zscore_std)
+        # v8.26.0: 简化日志 - 删除 tail_width/trailing_step
         self.algorithm.Debug(
             f"[平仓] {self.pair_id} | {industry_name} | {reason_text} | "
             f"交易{trade_num}次 | 持有{holding_days}/{max_days_str}天 | "
             f"投资${current_invested:,.0f} | PnL=${current_pnl:.2f} ({current_pnl_pct:+.1f}%) | "
-            f"tail={self.tail_width:.2f} step={self.trailing_step:.2f} ({self.entry_threshold:.1f}-{self.entry_threshold_upper:.1f}) | "
+            f"区间({self.entry_threshold:.1f}-{self.entry_threshold_upper:.1f}) | "
             f"{entry_z:+.2f}σ → {close_z:+.2f}σ | "
             f"冷却{cooldown_days}天",
             level=0
