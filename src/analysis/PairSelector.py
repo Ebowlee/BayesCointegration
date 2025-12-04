@@ -7,7 +7,7 @@ from typing import Dict, List, Tuple, Optional
 
 class PairSelector:
     """
-    配对筛选器 (v8.26.0 简化)
+    配对筛选器 (v8.29.1 半衰期计算分离)
 
     核心职责:
     - 三维度阈值筛选: CV BETA、半衰期、零轴穿越
@@ -21,6 +21,7 @@ class PairSelector:
     - v8.23.0: 纯粹个性化 - 完全数据驱动，返回三元组
     - v8.24.0: 稀有事件捕捉 - 180天回算
     - v8.26.0: tail_width 仅用于日志展示，不再用于止损计算
+    - v8.29.1: 始终计算 half_life (用于超时)，筛选开关仅控制是否过滤
 
     关键接口:
     - selection_procedure(): 主入口，执行完整筛选流程
@@ -67,10 +68,16 @@ class PairSelector:
                 cv_beta_rejected += 1
                 continue
 
-            # 维度2: 半衰期 (v8.22.0: 可选)
-            if self.config.half_life_enabled and not self._filter_by_half_life(result):
-                half_life_rejected += 1
-                continue
+            # v8.29.1: 始终计算 half_life (用于超时计算)，筛选可选
+            half_life = self._compute_half_life(result)
+            if half_life is not None:
+                result['half_life'] = half_life
+
+            # 维度2: 半衰期筛选 (v8.22.0: 可选)
+            if self.config.half_life_enabled:
+                if half_life is None or not (self.config.half_life_min <= half_life <= self.config.half_life_max):
+                    half_life_rejected += 1
+                    continue
 
             # 维度3: 零轴穿越 (v8.22.0: 可选)
             if self.config.zero_crossing_enabled and not self._filter_by_zero_crossing(result):
@@ -137,37 +144,35 @@ class PairSelector:
 
     # ===== 维度2: 半衰期 =====
 
-    def _filter_by_half_life(self, model_result: Dict) -> bool:
+    def _compute_half_life(self, model_result: Dict) -> Optional[float]:
         """
-        半衰期筛选
+        计算半衰期 (v8.29.1: 独立计算方法)
 
-        公式: half_life = -ln(2) / ln(|rho_mean|)
+        公式: half_life = -ln(2) / ln(rho_mean)
         含义: 残差回归到一半所需天数
 
+        v8.29.1 设计变更:
+        - 将计算逻辑从 _filter_by_half_life 提取为独立方法
+        - 即使 half_life_enabled=False，也始终计算 half_life
+        - half_life 是配对固有属性，用于超时计算
+
         Returns:
-            True: 通过筛选
-            False: 被剔除
+            float: 半衰期天数
+            None: 数据无效 (rho 不在 (0,1) 区间)
         """
         # 从rho_samples计算half_life
         rho_samples = model_result.get('rho_samples')
         if rho_samples is None or len(rho_samples) == 0:
-            return False
+            return None
 
         rho_mean = float(np.mean(rho_samples))
 
         # rho有效性检查 (均值回归要求: ρ ∈ (0, 1))
         if rho_mean <= 0 or rho_mean >= 1:
-            return False
+            return None
 
         half_life = -np.log(2) / np.log(rho_mean)
-
-        # 阈值筛选
-        passed = self.config.half_life_min <= half_life <= self.config.half_life_max
-
-        # 记录筛选指标
-        model_result['half_life'] = half_life
-
-        return passed
+        return half_life
 
 
     # ===== 维度3: 零轴穿越 =====

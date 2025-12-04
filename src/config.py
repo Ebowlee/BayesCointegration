@@ -14,7 +14,7 @@ class MainConfig:
     """主程序配置 - 回测基础参数"""
 
     # 回测基础配置
-    start_date: tuple = (2022, 9, 20)
+    start_date: tuple = (2019, 9, 20)
     end_date: tuple = (2024, 9, 20)
     cash: int = 100000
     resolution: Resolution = Resolution.Daily
