@@ -190,8 +190,8 @@ class PairsManagerConfig:
     # 开仓排序 (v8.28.0: 改为|Z-score|排序)
     sort_by_zscore: bool = True                                    # 开关: 按|Z-score|偏离排序
 
-    # 健康检查阈值 (v8.26.0: 固定距离移动止损, v8.27.0: Timeout固定倍数)
-    trailing_distance: float = 1.0                                 # 固定止损距离 (σ)
+    # 健康检查阈值 (v8.29.0: 个性化止损距离, v8.27.0: Timeout固定倍数)
+    # v8.29.0: 删除 trailing_distance，改用 pair.tail_width (P99.9 - P95)
     drawdown_threshold: float = 0.10                               # 10% 统一回撤阈值
     timeout_multiplier: float = 3.0                                # v8.27.0: Timeout = 3 × half_life
 

@@ -60,10 +60,10 @@ class Pairs:
         self.half_life = model_data.get('half_life')
         self.half_life_std = model_data.get('half_life_std', 0)
 
-        # 交易阈值 (v8.26.0: 简化，删除tail_width相关)
+        # 交易阈值 (v8.29.0: tail_width用于个性化止损)
         self.entry_threshold = model_data['entry_threshold']        # P95
         self.entry_threshold_upper = model_data['entry_upper']      # P99.9
-        # v8.26.0: 删除 exit_threshold, tail_width, trailing_step
+        self.tail_width = model_data['tail_width']                  # P99.9 - P95 (v8.29.0: 个性化止损距离)
 
         # 保证金参数
         self.margin_long = config.margin_requirement_long
@@ -166,10 +166,10 @@ class Pairs:
         self.residual_mean = new_pair.residual_mean
         self.residual_std = new_pair.residual_std
 
-        # v8.26.0: 更新个性化开仓阈值 (P95, P99.9)
+        # v8.29.0: 更新个性化开仓阈值 (P95, P99.9) 和止损距离 (tail_width)
         self.entry_threshold = new_pair.entry_threshold
         self.entry_threshold_upper = new_pair.entry_threshold_upper
-        # v8.26.0: 删除 tail_width, trailing_step 更新
+        self.tail_width = new_pair.tail_width  # v8.29.0: 恢复tail_width更新
 
         # v8.20.1: 参数变化后清空短期历史 (旧参数计算的数据已无效)
         self.zscore_history.clear()
@@ -767,10 +767,10 @@ class Pairs:
             if fill_price1 and fill_price2:
                 self.fill_zscore_open = self.get_zscore(fill_price1, fill_price2)
 
-                # v8.26.0: 初始化固定距离移动止损
-                # SHORT_SPREAD (z > 0): stop = entry_z + distance
-                # LONG_SPREAD (z < 0): stop = entry_z - distance
-                distance = self.algorithm.config.pairs_manager.trailing_distance
+                # v8.29.0: 个性化移动止损 (tail_width = P99.9 - P95)
+                # SHORT_SPREAD (z > 0): stop = entry_z + tail_width
+                # LONG_SPREAD (z < 0): stop = entry_z - tail_width
+                distance = self.tail_width  # v8.29.0: 用tail_width替代固定1.0σ
                 if self.fill_zscore_open > 0:  # SHORT_SPREAD
                     self.stop_zscore = self.fill_zscore_open + distance
                 else:  # LONG_SPREAD
@@ -879,12 +879,12 @@ class Pairs:
         industry_names = self.algorithm.config.constants['industry_names']
         industry_name = industry_names.get(int(self.industry_code), '未知') if self.industry_code else '未知'
 
-        # v8.26.0: 简化日志 - 删除 tail_width/trailing_step
+        # v8.29.0: 日志显示 tail_width 和入场区间
         self.algorithm.Debug(
             f"[平仓] {self.pair_id} | {industry_name} | {reason_text} | "
             f"交易{trade_num}次 | 持有{holding_days}/{max_days_str}天 | "
             f"投资${current_invested:,.0f} | PnL=${current_pnl:.2f} ({current_pnl_pct:+.1f}%) | "
-            f"区间({self.entry_threshold:.1f}-{self.entry_threshold_upper:.1f}) | "
+            f"tail_width:{self.tail_width:.1f} ({self.entry_threshold:.1f}-{self.entry_threshold_upper:.1f}) | "
             f"{entry_z:+.2f}σ → {close_z:+.2f}σ | "
             f"冷却{cooldown_days}天",
             level=0

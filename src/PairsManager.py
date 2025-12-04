@@ -280,7 +280,7 @@ class PairsManager:
         # 获取配置阈值
         pm_config = self.module_config
         drawdown_threshold = pm_config.drawdown_threshold
-        distance = pm_config.trailing_distance  # v8.26.0: 固定1.0σ
+        # v8.29.0: trailing_distance 删除，改用 pair.tail_width 个性化止损
 
         for pair in self.get_pairs_with_position().values():
             pair_id = pair.pair_id
@@ -290,14 +290,15 @@ class PairsManager:
                 health_issues['anomaly'].append(pair_id)
                 continue
 
-            # 优先级2: TrailingStop (v8.26.0: 固定距离移动止损)
+            # 优先级2: TrailingStop (v8.29.0: 个性化止损距离)
             prices = pair.get_price_from_bar(data)
             if prices is not None:
                 zscore = pair.get_zscore(prices[0], prices[1])
                 if zscore is not None and pair.stop_zscore is not None:
                     position_mode = pair.position_mode
+                    distance = pair.tail_width  # v8.29.0: 个性化止损距离 (P99.9 - P95)
 
-                    # v8.26.0: 单向棘轮更新 + 触发检测
+                    # v8.29.0: 单向棘轮更新 + 触发检测
                     if position_mode == PositionMode.SHORT_SPREAD:
                         # SHORT: 期望Z下降, stop_zscore 只降不升
                         potential_stop = zscore + distance
