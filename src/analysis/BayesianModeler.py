@@ -9,7 +9,13 @@ from src.analysis.PairData import PairData
 
 
 class BayesianModeler:
-    """贝叶斯建模器 - 单一联合贝叶斯模型"""
+    """
+    贝叶斯建模器 - 单一联合贝叶斯模型 (v8.30.0: Z-score只用MCMC窗口)
+
+    v8.30.0 变更:
+    - Z-score 只用 MCMC 窗口计算，不再回算 OLS 窗口
+    - 逻辑自洽：MCMC 估计的参数只用于 MCMC 那段时间的数据
+    """
 
     # 类常量 (v7.31.3): 协整参数先验放宽倍数
     PRIOR_RELAXATION_FACTOR = 2.5
@@ -355,23 +361,14 @@ class BayesianModeler:
         rho_mean = float(np.mean(rho_samples))
         rho_std = float(np.std(rho_samples))
 
-        # v8.24.0: 用最新α,β回算过去180天的Z-score (近端建模 + 远端回算)
-        projection_days = self.algorithm.config.pairs.zscore_back_projection_days  # 180天
-
-        # 获取完整数据的后projection_days天
-        y_full = pair_data.log_prices1[-projection_days:]
-        x_full = pair_data.log_prices2[-projection_days:]
-
-        # 用最新参数回算180天spread
-        log_spread_projected = y_full - (alpha_mean + beta_mean * x_full)
-        residual_mean = float(np.mean(log_spread_projected))
-        residual_std = float(np.std(log_spread_projected))
-
-        # 计算180天Z-score序列 (供PairSelector计算分位数)
-        zscore_series = (log_spread_projected - residual_mean) / residual_std
-
-        # 同时保留60天MCMC窗口的spread (用于其他计算)
+        # v8.30.0: 只用MCMC窗口计算Z-score (逻辑自洽，不再回算OLS窗口)
+        # y_data, x_data 已经是 MCMC 窗口的 120 天数据
         log_spread_mcmc = y_data - (alpha_mean + beta_mean * x_data)
+        residual_mean = float(np.mean(log_spread_mcmc))
+        residual_std = float(np.std(log_spread_mcmc))
+
+        # 计算MCMC窗口的Z-score序列 (供PairSelector计算分位数)
+        zscore_series = (log_spread_mcmc - residual_mean) / residual_std
 
         # 构建后验统计字典
         stats = {
@@ -386,11 +383,11 @@ class BayesianModeler:
             'rho_samples': rho_samples,
             'rho_mean': rho_mean,
             'rho_std': rho_std,
-            # 对数空间spread统计量 (v8.24.0: 使用180天回算数据)
-            'spread': log_spread_mcmc,              # 60天MCMC窗口spread (保持兼容)
-            'zscore_series': zscore_series,         # v8.24.0: 180天回算Z-score序列
-            'residual_mean': residual_mean,         # 180天均值
-            'residual_std': residual_std,           # v8.24.0: 180天标准差 (因配对而异)
+            # 对数空间spread统计量 (v8.30.0: 只用MCMC窗口，逻辑自洽)
+            'spread': log_spread_mcmc,              # MCMC窗口spread (120天)
+            'zscore_series': zscore_series,         # v8.30.0: MCMC窗口Z-score序列
+            'residual_mean': residual_mean,         # MCMC窗口均值
+            'residual_std': residual_std,           # MCMC窗口标准差
             # 元信息
             'method': 'joint_bayesian',
             'update_time': self.algorithm.UtcTime

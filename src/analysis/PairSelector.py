@@ -7,12 +7,13 @@ from typing import Dict, List, Tuple, Optional
 
 class PairSelector:
     """
-    配对筛选器 (v8.29.1 半衰期计算分离)
+    配对筛选器 (v8.30.0 Z-score研究日志)
 
     核心职责:
     - 三维度阈值筛选: CV BETA、半衰期、零轴穿越
     - 稀有事件捕捉: [P95, P99.9] 入场区间
     - 漏斗日志: 展示每个维度的筛选效果
+    - Z-score研究日志: 打印通过筛选配对的完整Z-score序列
 
     设计变更:
     - v8.9.0: 删除 ROI 缩放逻辑，新增漏斗日志
@@ -22,6 +23,7 @@ class PairSelector:
     - v8.24.0: 稀有事件捕捉 - 180天回算
     - v8.26.0: tail_width 仅用于日志展示，不再用于止损计算
     - v8.29.1: 始终计算 half_life (用于超时)，筛选开关仅控制是否过滤
+    - v8.30.0: Z-score只用MCMC窗口，新增研究日志打印完整序列
 
     关键接口:
     - selection_procedure(): 主入口，执行完整筛选流程
@@ -94,6 +96,9 @@ class PairSelector:
             result['entry_threshold'], result['entry_upper'], result['tail_width'] = threshold_result
 
             filtered.append(result)
+
+            # v8.30.0: 打印 Z-score 序列 (摘要 + 完整序列)
+            self._log_zscore_series(result)
 
         # 漏斗日志
         output_count = len(filtered)
@@ -221,18 +226,18 @@ class PairSelector:
         return int(crossings)
 
 
-    # ===== 稀有事件捕捉 (v8.24.0) =====
+    # ===== 稀有事件捕捉 (v8.30.0: MCMC窗口) =====
 
     def _calculate_adaptive_threshold(self, model_result: Dict) -> Optional[Tuple[float, float, float]]:
         """
-        计算自适应开仓阈值 (v8.26.0: tail_width 仅用于日志)
+        计算自适应开仓阈值 (v8.30.0: 使用MCMC窗口Z-score)
 
         公式:
-        - entry_lower = P95 (历史 |Z-score| 的 95 分位)
-        - entry_upper = P99.9 (历史 |Z-score| 的 99.9 分位)
-        - tail_width = entry_upper - entry_lower (尾部宽度，仅日志展示)
+        - entry_lower = P95 (MCMC窗口 |Z-score| 的 95 分位)
+        - entry_upper = P99.9 (MCMC窗口 |Z-score| 的 99.9 分位)
+        - tail_width = entry_upper - entry_lower (尾部宽度)
 
-        v8.26.0: tail_width 不再用于止损计算，止损改为固定距离移动止损
+        v8.30.0 变更: Z-score 只用 MCMC 窗口计算，逻辑自洽
 
         Args:
             model_result: 含有 zscore_series 的建模结果
@@ -245,7 +250,7 @@ class PairSelector:
         if not self.pairs_config.adaptive_entry_enabled:
             return None  # 禁用时不通过
 
-        # 获取 Z-score 历史序列 (v8.24.0: 180天回算数据)
+        # 获取 Z-score 历史序列 (v8.30.0: MCMC窗口数据)
         zscore_series = model_result.get('zscore_series')
         if zscore_series is None or len(zscore_series) < 60:  # 需要足够样本
             return None  # 数据不足，筛掉
@@ -269,3 +274,36 @@ class PairSelector:
         )
 
         return (entry_lower, entry_upper, tail_width)
+
+
+    # ===== 研究日志 =====
+
+    def _log_zscore_series(self, result: Dict) -> None:
+        """
+        打印 Z-score 序列 (v8.30.0 研究用)
+
+        格式:
+        - 第一行: 配对ID + 统计摘要 (min, max, mean, std, P95, P99.9)
+        - 第二行: 完整 Z-score 序列
+        """
+        pair_id = (result['symbol1'].Value, result['symbol2'].Value)
+        zscore_series = result.get('zscore_series')
+
+        if zscore_series is None or len(zscore_series) == 0:
+            return
+
+        # 统计摘要
+        arr = np.array(zscore_series)
+        abs_arr = np.abs(arr)
+        summary = (
+            f"[Z-score研究] {pair_id} | "
+            f"N={len(arr)} | "
+            f"min={arr.min():.2f} max={arr.max():.2f} | "
+            f"mean={arr.mean():.2f} std={arr.std():.2f} | "
+            f"P95={np.percentile(abs_arr, 95):.2f} P99.9={np.percentile(abs_arr, 99.9):.2f}"
+        )
+        self.algorithm.Debug(summary)
+
+        # 完整序列
+        zscore_str = ', '.join([f'{z:.2f}' for z in arr])
+        self.algorithm.Debug(f"[Z-score序列] {zscore_str}")

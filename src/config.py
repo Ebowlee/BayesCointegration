@@ -70,11 +70,11 @@ class UniverseConfig:
 
 @dataclass
 class DataProcessorConfig:
-    """数据处理配置 (v8.24.0: 扩展数据窗口支持Z-score回算)"""
+    """数据处理配置 (v8.30.0: OLS/MCMC窗口均衡划分)"""
 
-    # 时间窗口配置 (v8.24.0: 协整窗口 = total - bayesian = 180天)
-    total_lookback_days: int = 240                                  # 总数据下载量 (交易日) v8.24.0: 180→240
-    bayesian_lookback_days: int = 60                                # 贝叶斯建模窗口 (保持不变)
+    # 时间窗口配置 (v8.30.0: OLS窗口=120天, MCMC窗口=120天)
+    total_lookback_days: int = 240                                  # 总数据下载量 (交易日)
+    bayesian_lookback_days: int = 120                               # 贝叶斯建模窗口 (v8.30.0: 60→120)
 
     # === 数据质量验证 ===
     data_completeness_ratio: float = 1.0                            # 数据完整性要求
@@ -156,13 +156,13 @@ class PairSelectorConfig:
 
 @dataclass
 class PairsConfig:
-    """配对配置 - 信号阈值、保证金参数、RSI入场 (v8.26.0: 固定距离移动止损)"""
+    """配对配置 - 信号阈值、保证金参数、RSI入场 (v8.30.0: Z-score只用MCMC窗口)"""
 
-    # v8.25.0: 稀有事件捕捉
+    # v8.30.0: 稀有事件捕捉 (Z-score只用MCMC窗口，不再回算)
     adaptive_entry_enabled: bool = True                            # 总开关
     entry_percentile_lower: float = 95.0                           # 入场下限百分位 (P95 ~1.65σ)
     entry_percentile_upper: float = 99.9                           # 入场上限百分位 (P99.9 ~3.1σ)
-    zscore_back_projection_days: int = 240                         # Z-score向后回算窗口 (用于分位数统计)
+    # v8.30.0: 删除 zscore_back_projection_days，Z-score直接用 bayesian_lookback_days 窗口
 
     # 保证金计算参数
     margin_requirement_long: float = 0.5                           # 多头保证金率: 50%
