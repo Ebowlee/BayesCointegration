@@ -14,7 +14,7 @@ class MainConfig:
     """主程序配置 - 回测基础参数"""
 
     # 回测基础配置
-    start_date: tuple = (2019, 9, 20)
+    start_date: tuple = (2024, 6, 20)
     end_date: tuple = (2024, 9, 20)
     cash: int = 100000
     resolution: Resolution = Resolution.Daily
@@ -39,7 +39,7 @@ class UniverseConfig:
     min_market_cap: float = 1e9
     min_days_since_ipo: int = 360
     min_dollar_volume: float = 1e8
-    max_coarse_stocks: int = 700                                    # 按Volume排序取top N
+    max_coarse_stocks: int = 500                                    # 按Volume排序取top N
 
     # ETF订阅开关 (v8.0.5: 从ETFUniverseConfig合并)
     etf_enabled: bool = True                                        # Level 1: 总开关
@@ -95,7 +95,7 @@ class CointegrationConfig:
     max_symbol_repeats: int = 2                                     # 单股最多允许配对数
 
     # v8.16.0: MCMC算力保护
-    max_cointegrated_pairs: int = 40                                # 协整配对数量上限 (随机抽样)
+    max_cointegrated_pairs: int = 30                                # 协整配对数量上限 (随机抽样)
 
 
 @dataclass
@@ -138,7 +138,7 @@ class PairSelectorConfig:
     """
     # v8.22.0: 维度开关 (用于回测实验)
     cv_beta_enabled: bool = False                                   # CV BETA 筛选开关
-    half_life_enabled: bool = False                                 # 半衰期筛选开关
+    half_life_enabled: bool = True                                  # 半衰期筛选开关
     zero_crossing_enabled: bool = False                             # 零轴穿越筛选开关
 
     # 维度1: CV BETA 稳定性

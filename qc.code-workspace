@@ -1,0 +1,55 @@
+{
+    "folders": [
+        {
+            "name": "Project",
+            "path": "c:\\Users\\Lybst\\OneDrive\\桌面\\MyLeanProject\\BayesCointegration"
+        }
+    ],
+    "settings": {
+        "python.autoComplete.extraPaths": [
+            "c:\\Users\\Lybst\\OneDrive\\桌面\\MyLeanProject\\Library"
+        ],
+        "python.analysis.extraPaths": [
+            "c:\\Users\\Lybst\\OneDrive\\桌面\\MyLeanProject\\Library"
+        ],
+        "files.autoSave": "afterDelay",
+        "files.exclude": {
+            "**.vscode": true,
+            "**.idea": true,
+            "config.json": true,
+            "qc.code-workspace": true,
+            "bin": true,
+            "obj": true,
+            "backtests": true,
+            "live": true,
+            "optimizations": true,
+            "storage": true,
+            "report": true,
+            "__pycache__": true,
+            ".ipynb_checkpoints": true,
+            ".idea": true,
+            ".vscode": true
+        },
+        "files.watcherExclude": {
+            "bin/**": true,
+            "obj/**": true,
+            "backtests/**": true,
+            "live/**": true,
+            "optimizations/**": true,
+            "storage/**": true,
+            "report/**": true,
+            "__pycache__/**": true,
+            ".ipynb_checkpoints/**": true,
+            ".idea/**": true,
+            ".vscode/**": true
+        },
+        "files.readonlyInclude": {
+            "**/*.py": false,
+            "**/*.cs": false,
+            "**/*.ipynb": false,
+            "c:/Users/Lybst/OneDrive/桌面/MyLeanProject/BayesCointegration/**/*.py": false,
+            "c:/Users/Lybst/OneDrive/桌面/MyLeanProject/BayesCointegration/**/*.cs": false,
+            "c:/Users/Lybst/OneDrive/桌面/MyLeanProject/BayesCointegration/**/*.ipynb": false
+        }
+    }
+}
